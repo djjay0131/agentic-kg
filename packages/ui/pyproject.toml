@@ -1,0 +1,15 @@
+[project]
+name = "agentic-kg-ui"
+version = "0.1.0"
+description = "Streamlit UI for Agentic Knowledge Graphs"
+requires-python = ">=3.12"
+
+dependencies = [
+    "streamlit>=1.30.0",
+    "streamlit-agraph>=0.0.45",
+    "httpx>=0.25.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

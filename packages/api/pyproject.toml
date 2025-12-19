@@ -1,0 +1,16 @@
+[project]
+name = "agentic-kg-api"
+version = "0.1.0"
+description = "API layer for Agentic Knowledge Graphs"
+requires-python = ">=3.12"
+
+dependencies = [
+    "agentic-kg-core",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.20.0",
+    "strawberry-graphql>=0.200.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
