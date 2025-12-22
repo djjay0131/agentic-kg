@@ -1,33 +1,12 @@
-# Technical Context: Agentic Knowledge Graphs
-
-## Repository Structure
-
-This is a **monorepo** containing all components of the Agentic KG system:
-
-```
-agentic-kg/
-├── packages/
-│   ├── core/           # Knowledge graph logic, extended agents
-│   │   └── src/agentic_kg/
-│   ├── api/            # FastAPI/GraphQL service
-│   │   └── src/
-│   └── ui/             # Streamlit UI
-│       └── src/
-├── deploy/
-│   ├── docker/         # Dockerfiles for each service
-│   └── terraform/      # Infrastructure as code
-├── memory-bank/        # Project documentation
-├── construction/       # Sprint tracking
-└── files/              # Reference materials
-```
+# Technical Context: Agentic Knowledge Graphs with Denario
 
 ## Technologies and Frameworks
 
-### Core Platform: Denario (Dependency)
+### Core Platform: Denario
 - **Version**: 1.0+
 - **Python**: 3.12+ required
-- **Repository**: https://github.com/AstroPilot-AI/Denario
-- **Usage**: Imported as `pip install denario`
+- **Repository**: https://github.com/AstroPilot-AI/Denario (this is a fork)
+- **Documentation**: https://denario.readthedocs.io/
 
 ### Agent Frameworks
 - **AG2** (formerly AutoGen) - Multi-agent conversation framework
@@ -37,62 +16,47 @@ agentic-kg/
 ### LLM Providers
 - **OpenAI** - GPT models via API
 - **Anthropic** - Claude models via API
-- **Google Gemini** - Via AI Studio API
+- **Google Gemini** - Via Vertex AI (requires service account)
 - **Perplexity** - For web-augmented responses
 
-### Knowledge Graph Stack
-- **Property Graph**: Neo4j (primary choice)
-- **Vector Index**: For semantic search (TBD: Pinecone, Weaviate, or pgvector)
-- **Hybrid Retrieval**: Combining graph queries with vector similarity
-
 ### Infrastructure
-- **GCP Cloud Run** - Containerized deployment
-- **GCP Secret Manager** - API key storage
-- **GCP Artifact Registry** - Docker images
-- **GCP Cloud Build** - CI/CD with GitHub triggers
+- **GCP Cloud Run** - Containerized deployment (recommended)
+- **GCP GKE** - Kubernetes for larger deployments
+- **Vertex AI** - Gemini model hosting and inference
+- **Docker** - Container runtime (Python 3.12-slim base)
 
-## GCP Deployment (Current Setup)
-
-| Component | Value |
-|-----------|-------|
-| GCP Project | `vt-gcp-00042` |
-| Region | `us-central1` |
-| Artifact Registry | `us-central1-docker.pkg.dev/vt-gcp-00042/denario` |
-| Cloud Run Service | `denario` (Denario core) |
-| Secrets | OPENAI, GOOGLE, ANTHROPIC, PERPLEXITY API keys |
-
-### CI/CD Triggers (on djjay0131/Denario)
-- `denario-prod-deploy`: Builds on `master` push
-- `denario-dev-deploy`: Builds on `dev/*` push
-
-**Note**: CI/CD for agentic-kg repo needs to be configured separately.
+### Knowledge Graph Stack (To Be Selected)
+- **Property Graph**: Neo4j, Amazon Neptune, or similar
+- **RDF/SPARQL**: If interoperability with existing SKGs needed
+- **Vector Index**: For semantic search (e.g., Pinecone, Weaviate, pgvector)
 
 ## Development Environment Setup
 
 ### Prerequisites
 1. Python 3.12 or higher
-2. GCP account with billing enabled
-3. API keys for LLM providers
-4. gcloud CLI installed and authenticated
+2. Docker and Docker Compose
+3. GCP account with billing enabled
+4. API keys for LLM providers
 
-### Local Development
+### Local Development Setup
 
 ```bash
 # Clone the repository
-git clone https://github.com/djjay0131/agentic-kg.git
-cd agentic-kg
+git clone <repo-url>
+cd Denario
 
-# Create virtual environment
-python3 -m venv .venv
-source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+# Create virtual environment (choose one)
+python3 -m venv Denario_env
+source Denario_env/bin/activate
 
-# Install all packages in development mode
-pip install -e packages/core
-pip install -e packages/api
-pip install -e packages/ui
+# Or with uv
+uv sync
 
-# Or install with extras
-pip install -e ".[dev]"
+# Install Denario with GUI support
+pip install -e ".[app]"
+
+# Run the GUI locally
+denario run
 ```
 
 ### Environment Variables
@@ -101,73 +65,170 @@ pip install -e ".[dev]"
 # LLM API Keys
 export OPENAI_API_KEY="sk-..."
 export ANTHROPIC_API_KEY="sk-ant-..."
-export GOOGLE_API_KEY="AIza..."
+export GEMINI_API_KEY="..."
 export PERPLEXITY_API_KEY="pplx-..."
 
-# For Neo4j (when configured)
-export NEO4J_URI="bolt://localhost:7687"
-export NEO4J_USER="neo4j"
-export NEO4J_PASSWORD="..."
+# For Vertex AI (Gemini via AG2)
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/gemini.json"
 ```
 
-## Code Patterns
+### GCP Deployment Setup
 
-### Knowledge Graph Entity (Core)
+**1. Select or Create GCP Project**
+```bash
+# List existing projects you have access to
+gcloud projects list
+
+# Set an existing project (recommended for org users)
+gcloud config set project <existing-project-id>
+
+# OR create a new project (requires project creation permissions)
+# Skip this if you don't have org-level create rights
+gcloud projects create <new-project-id> 2>/dev/null || echo "Using existing project"
+gcloud config set project <new-project-id>
+
+# Verify which project is active
+gcloud config get-value project
+```
+
+**2. Enable Required APIs**
+```bash
+gcloud services enable run.googleapis.com
+gcloud services enable artifactregistry.googleapis.com
+gcloud services enable aiplatform.googleapis.com
+```
+
+**3. Set Up Vertex AI Service Account**
+- Create service account with "Vertex AI User" role
+- Download JSON key as `gemini.json`
+- See docs/llm_api_keys/vertex-ai-setup.md for details
+
+**4. Build and Push Docker Image**
+```bash
+# Build from source
+docker build -f docker/Dockerfile.prod -t denario .
+
+# Tag for Artifact Registry
+docker tag denario gcr.io/<project-id>/denario:latest
+
+# Push
+docker push gcr.io/<project-id>/denario:latest
+```
+
+**5. Deploy to Cloud Run**
+```bash
+gcloud run deploy denario \
+  --image gcr.io/<project-id>/denario:latest \
+  --platform managed \
+  --region us-central1 \
+  --port 8501 \
+  --allow-unauthenticated \
+  --set-env-vars "OPENAI_API_KEY=...,ANTHROPIC_API_KEY=..."
+```
+
+## Code Patterns and Conventions
+
+### Denario API Usage
 ```python
-from agentic_kg.entities import Problem, EvidenceSpan
+from denario import Denario, Journal
 
-# Problems as first-class entities
-problem = Problem(
-    id="p-001",
-    title="Optimal hyperparameter selection",
-    assumptions=["Smooth loss landscape"],
-    constraints=["Limited compute budget"],
-    datasets=["ImageNet", "CIFAR-10"],
-    metrics=["Accuracy", "F1"],
-    evidence=[EvidenceSpan(paper_id="arxiv:2301.00001", text="...")],
+# Initialize project
+den = Denario(project_dir="project_dir")
+
+# Set data description
+den.set_data_description("Description of research data...")
+
+# Generate research artifacts
+den.get_idea()      # Research idea generation
+den.get_method()    # Methodology development
+den.get_results()   # Analysis execution
+den.get_paper(journal=Journal.APS)  # Paper generation
+```
+
+### Agent Configuration (AG2)
+```python
+# For AG2 agents with Gemini via Vertex AI
+den.get_results(
+    engineer_model='gemini-2.5-pro',
+    researcher_model='gemini-2.5-pro'
 )
 ```
 
-### Using Denario Agents
-```python
-from denario import Denario
-
-# Initialize with Denario's agent infrastructure
-den = Denario(project_dir="project_dir")
-den.set_data_description("Research context...")
-den.get_idea()  # Uses Denario's idea generation agents
+### Directory Structure
 ```
+Denario/
+├── src/denario/           # Core Denario library
+├── docker/                # Dockerfiles
+│   ├── Dockerfile.dev     # Development image
+│   └── Dockerfile.prod    # Production image
+├── docs/                  # Documentation
+├── examples/              # Example projects
+├── memory-bank/           # Project context (this folder)
+├── construction/          # Development tracking
+└── files/                 # Reference materials
+```
+
+## Common Issues and Debugging
+
+### Issue: Vertex AI Authentication Fails
+**Symptom:** "Could not authenticate" errors with Gemini
+**Solution:**
+- Verify `GOOGLE_APPLICATION_CREDENTIALS` points to valid JSON
+- Check service account has "Vertex AI User" role
+- Ensure billing is enabled on GCP project
+
+### Issue: Docker Build Fails
+**Symptom:** LaTeX package errors during build
+**Solution:** Use the provided Dockerfile which includes all TeX dependencies
+
+### Issue: Cloud Run Memory Limits
+**Symptom:** Container crashes during LLM calls
+**Solution:** Increase memory allocation: `--memory 2Gi` or higher
+
+### Issue: API Rate Limits
+**Symptom:** 429 errors from LLM providers
+**Solution:** Implement retry logic, use multiple API keys, or batch requests
 
 ## Testing Strategy
 
-### Unit Tests
+### Local Testing
 ```bash
-pytest packages/core/tests/
-pytest packages/api/tests/
+# Run Denario GUI
+denario run
+
+# Test with example project
+python -c "from denario import Denario; d = Denario('examples/Project1')"
 ```
 
-### Integration Tests
+### Docker Testing
 ```bash
-# Test with local Neo4j
-docker compose up neo4j
-pytest tests/integration/
+# Build and run locally
+docker build -f docker/Dockerfile.dev -t denario_test .
+docker run -p 8501:8501 --rm denario_test
 ```
 
-## Common Issues
+### Integration Testing
+- Test each agent type (idea, method, results, paper)
+- Verify LLM provider connectivity
+- Check knowledge graph operations (once implemented)
 
-### Issue: Denario Import Fails
-**Solution**: Ensure denario is installed: `pip install denario>=1.0.0`
+## Dependencies
 
-### Issue: Neo4j Connection Refused
-**Solution**: Start Neo4j container: `docker compose up neo4j`
+### Python Libraries (from Denario)
+- ag2 - Agent framework
+- langgraph - Graph-based orchestration
+- streamlit - GUI framework
+- transformers - NLP models
+- pandas, numpy - Data processing
 
-### Issue: API Key Not Found
-**Solution**: Check environment variables or GCP Secret Manager configuration
+### External Tools
+- LaTeX (texlive) - For paper generation
+- Docker - Container runtime
+- gcloud CLI - GCP deployment
 
-## Related Repositories
+## Platform Notes
 
-| Repository | Purpose |
-|------------|---------|
-| [djjay0131/Denario](https://github.com/djjay0131/Denario) | Fork of core Denario library |
-| [AstroPilot-AI/Denario](https://github.com/AstroPilot-AI/Denario) | Upstream Denario |
-| [AstroPilot-AI/DenarioApp](https://github.com/AstroPilot-AI/DenarioApp) | Denario's Streamlit UI |
+- **Primary OS**: Linux (Docker containers)
+- **GUI Port**: 8501 (Streamlit)
+- **API Keys**: Store securely, never commit to repository
+- **Secrets Management**: Use GCP Secret Manager for production

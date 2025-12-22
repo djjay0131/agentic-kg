@@ -1,30 +1,39 @@
 # Active Context
 
-**Last Updated:** 2025-12-18
+**Last Updated:** 2025-12-22
 
 ## Current Work Phase
 
-**Phase 0: Infrastructure Setup** - Deploying Denario to GCP and establishing project foundation.
+**Transitioning from Phase 0 to Phase 1** - CI/CD pipeline triggered, Phase 1 design complete.
 
 ## Immediate Next Steps
 
-1. **Deploy Denario to GCP** (Current Priority)
-   - Set up GCP project with required APIs
-   - Configure Vertex AI service account
-   - Build and push Docker image
-   - Deploy to Cloud Run
+**Session Status (2025-12-22):**
+- On branch: `dev/agentic-kg-setup`
+- CI/CD build triggered - awaiting completion (~20-30 min)
+- Phase 1 design documents created ✅
+- Neo4j selected as graph database (ADR-010) ✅
 
-2. Test Denario deployment
-   - Verify GUI accessible
-   - Test LLM provider connectivity
-   - Run example project through system
+**Priority Tasks:**
 
-3. Begin knowledge graph design
-   - Define problem entity schema
-   - Select graph database (Neo4j vs. alternatives)
-   - Design extraction pipeline architecture
+1. **Complete Phase 0 - Verify Deployment** (In Progress)
+   - Build running in Cloud Build
+   - Once complete: Access Cloud Run URL and test Streamlit GUI
+   - Test LLM connectivity
+   - Merge to master and verify production deployment
+
+2. **Begin Phase 1 - Knowledge Graph Implementation** (Ready to Start)
+   - Design complete: [phase-1-knowledge-graph.md](../construction/design/phase-1-knowledge-graph.md)
+   - Sprint 01 tasks defined: [sprint-01-knowledge-graph.md](../construction/sprints/sprint-01-knowledge-graph.md)
+   - First task: Set up Neo4j in Docker
 
 ## Recent Decisions
+
+### Decision 4: Neo4j for Knowledge Graph (ADR-010)
+- **Date:** 2025-12-22
+- **Decision:** Use Neo4j as the graph database for the Knowledge Representation Layer
+- **Rationale:** Native property graph model, vector index support, mature Python driver
+- **Impact:** Enables Phase 1 implementation with hybrid symbolic-semantic retrieval
 
 ### Decision 1: Project Scope Definition
 - **Date:** 2025-12-18

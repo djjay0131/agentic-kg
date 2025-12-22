@@ -46,32 +46,47 @@ Granted Cloud Run service account access to all secrets.
 - [x] Created `.gcloudignore` to optimize build context
 - Pipeline: Build → Tag → Push → Deploy to Cloud Run
 
+### Task 6: GitHub Integration ✅
+- [x] Created Cloud Build connection `denario-github`
+- [x] Complete OAuth authorization
+- [x] Link repository `djjay0131/Denario` (as `denario-repo`)
+- [x] Create production trigger (`denario-prod-deploy` - master branch)
+- [x] Create development trigger (`denario-dev-deploy` - dev/* branches)
+
+**Trigger Details:**
+```bash
+# Production trigger
+name: denario-prod-deploy
+branch: ^master$
+filename: cloudbuild.yaml
+
+# Development trigger
+name: denario-dev-deploy
+branch: ^dev/.*$
+filename: cloudbuild.yaml
+```
+
 ---
 
 ## In Progress Tasks
 
-### Task 6: GitHub Integration 🔄
-- [x] Created Cloud Build connection `denario-github`
-- [ ] Complete OAuth authorization (user action required)
-- [ ] Link repository `djjay0131/Denario`
-- [ ] Create production trigger (master branch)
-- [ ] Create development trigger (dev/* branches)
-
-**OAuth Link:**
-```
-https://console.cloud.google.com/cloud-build/triggers/connect
-```
+### Task 7: Pipeline Testing 🔄
+- [ ] Commit and push documentation updates to dev branch
+- [ ] Verify Cloud Build trigger fires automatically
+- [ ] Monitor build progress (expected: ~20-30 min)
+- [ ] Verify Cloud Run deployment succeeds
+- [ ] Access Cloud Run URL in browser
+- [ ] Verify Streamlit GUI loads
+- [ ] Test LLM connectivity
 
 ---
 
 ## Pending Tasks
 
-### Task 7: Verification
-- [ ] Trigger build by pushing to dev branch
-- [ ] Verify Cloud Run deployment succeeds
-- [ ] Access Cloud Run URL in browser
-- [ ] Verify Streamlit GUI loads
-- [ ] Test LLM connectivity
+### Task 8: Production Deployment
+- [ ] Merge `dev/agentic-kg-setup` to master
+- [ ] Verify production trigger fires
+- [ ] Confirm production deployment
 
 ---
 
@@ -103,7 +118,7 @@ See [architecturalDecisions.md](../../memory-bank/architecturalDecisions.md) for
 - GCP account with billing enabled ✅
 - LLM API keys (OpenAI, Google, Anthropic, Perplexity) ✅
 - gcloud CLI installed and authenticated ✅
-- GitHub OAuth authorization (pending)
+- GitHub OAuth authorization ✅
 
 ---
 
@@ -114,7 +129,7 @@ See [architecturalDecisions.md](../../memory-bank/architecturalDecisions.md) for
 | GCP billing not set up | Billing enabled | ✅ Resolved |
 | API keys not available | Stored in Secret Manager | ✅ Resolved |
 | Docker build timeout | 30-minute timeout set | ✅ Configured |
-| GitHub OAuth not completed | User must authorize | 🔄 Pending |
+| GitHub OAuth not completed | User authorized | ✅ Resolved |
 
 ---
 

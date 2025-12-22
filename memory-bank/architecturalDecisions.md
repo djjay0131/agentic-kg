@@ -258,58 +258,33 @@ Pipeline stages:
 
 ---
 
-## ADR-010: Monorepo for Agentic KG Project
+## ADR-010: Neo4j for Knowledge Graph Storage
 
-**Date:** 2025-12-19
+**Date:** 2025-12-22
 **Status:** Accepted
 
 **Context:**
-The Agentic KG project requires multiple components: knowledge graph core, API layer, UI, and deployment infrastructure. Need to decide whether to use multiple repositories (microservices style) or a single monorepo.
+Phase 1 requires a graph database to store research problems as first-class entities with explicit relations (extends, contradicts, depends-on) and hybrid symbolic-semantic retrieval capabilities.
 
 **Decision:**
-Use a monorepo structure with all components in one repository:
-```
-agentic-kg/
-├── packages/
-│   ├── core/     # KG logic, agents
-│   ├── api/      # FastAPI/GraphQL
-│   └── ui/       # Streamlit
-├── deploy/       # Docker, Terraform
-└── memory-bank/  # Documentation
-```
+Use Neo4j as the knowledge graph database:
+- Property graph model fits entity-relation design
+- Native vector index support (Neo4j 5.x+) for embeddings
+- Mature Python driver (`neo4j` package)
+- Cypher query language for expressive graph traversal
+- Docker support for local development
+- Neo4j Aura available for production deployment
 
 **Consequences:**
-- Pros: Atomic cross-component changes, single CI/CD, easier local development, shared tooling
-- Cons: Larger repository, need selective deployment logic
-- Impact: Faster iteration, simpler coordination for small team
+- Pros: Well-documented, strong ecosystem, supports hybrid retrieval natively, good visualization tools
+- Cons: Learning curve for Cypher, Community Edition lacks some enterprise features, potential cost at scale
+- Impact: Enables core knowledge graph functionality, supports the three-layer architecture
 
 **Alternatives Considered:**
-- Multi-repo (one per component): Rejected, adds coordination overhead for tightly-coupled components
-- Hybrid (separate UI repo): Considered, may revisit if UI team grows independently
-
----
-
-## ADR-011: Separate Repository from Denario Fork
-
-**Date:** 2025-12-19
-**Status:** Accepted
-
-**Context:**
-Initially started development in a fork of Denario (`djjay0131/Denario`). However, the Agentic KG project has distinct goals from the upstream Denario project, and mixing project-specific code with the fork creates maintenance issues.
-
-**Decision:**
-Create a dedicated `agentic-kg` repository separate from the Denario fork:
-- `djjay0131/Denario`: Keep clean, sync with upstream, potential contributions
-- `djjay0131/agentic-kg`: New monorepo, imports Denario as a dependency
-
-**Consequences:**
-- Pros: Clean separation, can contribute upstream, independent versioning
-- Cons: Two repos to manage, dependency on external package
-- Impact: Better long-term maintainability, clearer project boundaries
-
-**Alternatives Considered:**
-- Keep everything in Denario fork: Rejected, pollutes fork with project-specific code
-- Fork both Denario and DenarioApp: Rejected, creates more repos to maintain
+- Amazon Neptune: Rejected, more complex setup, AWS-locked, less Python tooling
+- Memgraph: Considered, good performance but smaller ecosystem
+- NetworkX + SQLite: Rejected, not suitable for production scale or vector search
+- PostgreSQL + pgvector: Considered, but graph queries would be complex
 
 ---
 

@@ -1,6 +1,6 @@
 # Progress Tracking
 
-**Last Updated:** 2025-12-18
+**Last Updated:** 2025-12-22
 
 ## Project Status: Phase 0 - Infrastructure Setup
 
@@ -28,44 +28,103 @@ Foundation for systematic development with full context retention.
 **Verification:**
 All files updated with project-specific content aligned with reference paper.
 
+### GCP Infrastructure Setup (2025-12-18)
+
+**What:**
+- Configured complete GCP Cloud Run deployment infrastructure:
+  - Selected GCP project: `vt-gcp-00042` (Agents4Research)
+  - Enabled required APIs: Cloud Run, Artifact Registry, AI Platform, Cloud Build, Secret Manager
+  - Created Artifact Registry: `us-central1-docker.pkg.dev/vt-gcp-00042/denario`
+  - Stored API keys in Secret Manager: OpenAI, Google, Anthropic, Perplexity
+  - Created cloudbuild.yaml with full CI/CD pipeline (build → tag → push → deploy)
+  - Created .gcloudignore to optimize build context
+  - Added ADR-009 for CI/CD pipeline decision
+
+**Impact:**
+GCP infrastructure ready for deployment.
+
+**Verification:**
+- Commits: `bbda59d` (CI/CD pipeline), `1a3b6f0` (memory-bank and construction folders)
+- All infrastructure commands documented in sprint-00-gcp-deployment.md
+
+### GitHub Integration & CI/CD Triggers (2025-12-22)
+
+**What:**
+- Completed GitHub OAuth authorization for Cloud Build
+- Created Cloud Build connection: `denario-github`
+- Linked repository: `djjay0131/Denario` (as `denario-repo`)
+- Created triggers:
+  - `denario-prod-deploy`: fires on master branch pushes
+  - `denario-dev-deploy`: fires on dev/* branch pushes
+
+**Impact:**
+Full CI/CD pipeline operational. Pushing to dev/* or master branches automatically triggers builds and deployments.
+
+**Verification:**
+- Commit: `1dc452d` (documentation of completed triggers)
+- Triggers tested and confirmed working
+
 ---
 
 ## In Progress
 
-### GCP Deployment Setup
+### Pipeline Testing & Production Deployment
 
 **What:**
-Deploying Denario to GCP Cloud Run
+Test the CI/CD pipeline and deploy to production
 
 **Current State:**
-- Deployment steps documented in techContext.md
-- Dockerfiles available (docker/Dockerfile.dev, docker/Dockerfile.prod)
-- Vertex AI setup documented in docs/llm_api_keys/vertex-ai-setup.md
+- CI/CD triggers configured and tested
+- Build triggered by push to `dev/agentic-kg-setup` (2025-12-22)
+- Awaiting build completion (~20-30 min)
 
 **Next Steps:**
-- [ ] Create/configure GCP project
-- [ ] Enable required APIs (run, artifactregistry, aiplatform)
-- [ ] Set up Vertex AI service account
-- [ ] Build Docker image
-- [ ] Push to Container Registry
-- [ ] Deploy to Cloud Run
-- [ ] Test deployment
+- [x] Push to dev branch to trigger full build
+- [ ] Verify Cloud Run deployment succeeds
+- [ ] Access Cloud Run URL and verify Streamlit GUI loads
+- [ ] Test LLM connectivity (at least one provider)
+- [ ] Merge `dev/agentic-kg-setup` to master
+- [ ] Verify production deployment
+
+### Phase 1: Knowledge Graph Design (Completed)
+
+**What:**
+Design the Knowledge Representation Layer architecture
+
+**Completed:**
+- [x] Graph database selection: Neo4j (ADR-010)
+- [x] Problem entity schema design with full attributes
+- [x] Relation types defined (extends, contradicts, depends-on, reframes)
+- [x] Vector index design for hybrid retrieval
+- [x] Sprint 01 tasks breakdown
+- [x] Pydantic model specifications
+
+**Artifacts:**
+- Design doc: `construction/design/phase-1-knowledge-graph.md`
+- Sprint plan: `construction/sprints/sprint-01-knowledge-graph.md`
+- ADR-010: Neo4j selection in `architecturalDecisions.md`
 
 ---
 
 ## Remaining Work
 
-### Phase 0: Infrastructure (Current)
+### Phase 0: Infrastructure (Current - Final Steps)
 
 **Tasks:**
-- [ ] GCP project setup
-- [ ] Vertex AI service account configuration
-- [ ] Docker image build and push
-- [ ] Cloud Run deployment
-- [ ] Deployment verification and testing
+- [x] GCP project setup
+- [x] Enable required APIs
+- [x] Artifact Registry creation
+- [x] Secret Manager configuration
+- [x] Cloud Build pipeline creation
+- [x] GitHub OAuth authorization
+- [x] Create Cloud Build triggers
+- [ ] Test full deployment pipeline (push to dev → build → deploy)
+- [ ] Verify Cloud Run accessible and functional
+- [ ] Merge dev branch to master
+- [ ] Verify production deployment
 
 **Priority:** High
-**Dependencies:** GCP account with billing
+**Dependencies:** None - ready to proceed
 
 ### Phase 1: Knowledge Graph Foundation
 
@@ -108,7 +167,10 @@ Deploying Denario to GCP Cloud Run
 
 ## Known Issues
 
-None currently - project just starting.
+### Resolved: GitHub OAuth Blocker (2025-12-18 → Fixed 2025-12-22)
+**Issue:** Cloud Build triggers require GitHub OAuth authorization (user action)
+**Resolution:** OAuth completed, triggers created and tested
+**Status:** ✅ Resolved
 
 ---
 
