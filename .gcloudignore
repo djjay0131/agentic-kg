@@ -1,0 +1,53 @@
+# .gcloudignore - Exclude files from Cloud Build context
+# This reduces upload size and speeds up builds
+
+# Git
+.git
+.gitignore
+.github
+
+# Claude Code
+.claude
+
+# Documentation (except README)
+*.md
+!README.md
+docs/
+examples/
+
+# Tests
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Project tracking
+memory-bank/
+construction/
+
+# Python artifacts
+*.pyc
+__pycache__/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Environment
+.env*
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/

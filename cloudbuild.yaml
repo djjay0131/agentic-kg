@@ -1,0 +1,39 @@
+steps:
+  # Build the Docker image with commit SHA tag
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-f', 'docker/Dockerfile.prod', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/denario/denario:$COMMIT_SHA', '.']
+
+  # Also tag as latest
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['tag', 'us-central1-docker.pkg.dev/$PROJECT_ID/denario/denario:$COMMIT_SHA', 'us-central1-docker.pkg.dev/$PROJECT_ID/denario/denario:latest']
+
+  # Push images to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/denario/denario:$COMMIT_SHA']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/denario/denario:latest']
+
+  # Deploy to Cloud Run with Secret Manager integration
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'denario'
+      - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/denario/denario:$COMMIT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--port=8501'
+      - '--memory=2Gi'
+      - '--allow-unauthenticated'
+      - '--set-secrets=OPENAI_API_KEY=OPENAI_API_KEY:latest,GOOGLE_API_KEY=GOOGLE_API_KEY:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,PERPLEXITY_API_KEY=PERPLEXITY_API_KEY:latest'
+
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/denario/denario:$COMMIT_SHA'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/denario/denario:latest'
+
+timeout: 1800s
+
+options:
+  logging: CLOUD_LOGGING_ONLY
