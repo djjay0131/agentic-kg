@@ -1,7 +1,8 @@
 # Knowledge Graph Options Comparison
 
 **Created:** 2026-01-04
-**Status:** Draft
+**Updated:** 2026-01-04
+**Status:** Complete
 **Purpose:** Compare existing scholarly knowledge graphs with a custom/dynamic solution for the Agentic-KG project
 
 ---
@@ -20,10 +21,12 @@ This document compares three existing scholarly knowledge graphs (CS-KG, Semanti
 | **Data Freshness** | ⚠️ Periodic updates | ✅ Live | ⚠️ Community-driven | ✅ Real-time |
 | **Setup Complexity** | ✅ None (API) | ✅ None (API) | ✅ None (Web) | ⚠️ Requires setup |
 
-**Recommendation:** Use a **hybrid approach**:
+**Recommendation:** Use a **simplified hybrid approach**:
 1. **Custom Neo4j** as the primary knowledge graph with problem-centric schema
-2. **Semantic Scholar API** as the primary data source for papers/metadata
-3. **CS-KG** as supplementary source for method/task relationships
+2. **Semantic Scholar API** as the external data source for paper metadata, citations, and embeddings
+3. **arXiv/OpenAlex** for paper full-text access
+
+**Note:** CS-KG was evaluated but excluded due to being a static academic dataset (data coverage ends at 2022) with no continuous updates. Since we must build a custom LLM extraction pipeline anyway for problems/assumptions/constraints, the pre-extracted task/method entities from CS-KG provide insufficient value to justify the integration complexity.
 
 ---
 
@@ -67,12 +70,14 @@ Example Triple:
 - **Automatic generation**: Pipeline produces consistent extractions
 
 ### Weaknesses
+- **Static dataset**: Data coverage ends at 2022; no continuous updates
 - **Paper-centric**: Problems are not first-class entities
 - **No vector search**: Lacks semantic similarity capabilities
 - **Fixed schema**: Cannot extend entity types or attributes
 - **CS-only**: Limited to Computer Science domain
 - **Extraction quality**: Automatic extraction has variable accuracy
 - **No provenance**: Limited evidence linking to source text
+- **Academic project**: Updates depend on research team releasing new versions (~2-3 year gaps)
 
 ### Alignment with Project Goals
 
@@ -384,26 +389,26 @@ RETURN path
 
 ## 6. Recommended Architecture
 
-### Hybrid Approach
+### Simplified Hybrid Approach
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                      Data Sources Layer                         │
-├─────────────────┬──────────────────┬────────────────────────────┤
-│  Semantic       │     CS-KG        │      arXiv / OpenAlex      │
-│  Scholar API    │   (SPARQL)       │        (Papers)            │
-│  - Metadata     │  - Task/Method   │     - Full text PDFs       │
-│  - Citations    │    relations     │     - Preprints            │
-│  - SPECTER2     │  - Materials     │                            │
-└────────┬────────┴────────┬─────────┴──────────────┬─────────────┘
-         │                 │                        │
-         ▼                 ▼                        ▼
+├───────────────────────────────┬─────────────────────────────────┤
+│       Semantic Scholar API    │        arXiv / OpenAlex         │
+│       - Paper metadata        │        - Full text PDFs         │
+│       - Citations/references  │        - Preprints              │
+│       - SPECTER2 embeddings   │        - Open access papers     │
+│       - Author information    │                                 │
+└───────────────┬───────────────┴─────────────────┬───────────────┘
+                │                                 │
+                ▼                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Extraction Layer (Phase 2)                    │
-│  - LLM-based problem extraction from papers                      │
-│  - Relation inference between problems                           │
-│  - Embedding generation for problems                             │
-│  - Enrichment with external KG data                              │
+│  - LLM-based problem extraction from paper full text             │
+│  - Assumption/constraint/dataset/metric extraction               │
+│  - Relation inference (EXTENDS, CONTRADICTS, DEPENDS_ON)         │
+│  - Problem embedding generation (OpenAI text-embedding-3-small)  │
 └─────────────────────────────┬───────────────────────────────────┘
                               │
                               ▼
@@ -427,27 +432,39 @@ RETURN path
 
 ### Integration Strategy
 
-1. **Semantic Scholar as Primary Paper Source**
-   - Fetch paper metadata via API
+1. **Semantic Scholar as Paper Metadata Source**
+   - Fetch paper metadata via API (title, abstract, authors, venue, year)
    - Use SPECTER2 embeddings for paper similarity
-   - Import citation graph for context
+   - Import citation graph for understanding paper relationships
+   - Author disambiguation and affiliation data
 
-2. **CS-KG as Supplementary Source**
-   - Query for task/method relationships
-   - Enrich problems with related materials/metrics
-   - Validate extracted entities against CS-KG
+2. **arXiv/OpenAlex for Full Text Access**
+   - Download PDFs for LLM extraction
+   - Access preprints and open access papers
+   - Supplement Semantic Scholar metadata
 
 3. **Custom Neo4j as Core KG**
-   - Store problems with full schema
+   - Store problems with full schema (first-class entities)
    - Maintain vector indexes for semantic search
    - Support hybrid queries (semantic + structured)
-   - Track provenance and human review
+   - Track provenance and human review status
 
-4. **LLM Extraction Pipeline**
-   - Extract problems from paper PDFs
+4. **LLM Extraction Pipeline (Custom)**
+   - Extract problems from paper PDFs (limitations, future work sections)
+   - Extract assumptions, constraints, datasets, metrics
    - Generate problem embeddings
-   - Infer EXTENDS/CONTRADICTS relations
-   - Validate against external sources
+   - Infer EXTENDS/CONTRADICTS/DEPENDS_ON relations
+
+### Why CS-KG Was Excluded
+
+| Factor | Impact |
+|--------|--------|
+| **Static data (ends 2022)** | Missing 3+ years of recent research |
+| **~2-3 year update gaps** | Cannot rely on timely updates |
+| **We need custom extraction anyway** | Problems/assumptions/constraints not in CS-KG |
+| **Schema mismatch** | CS-KG "tasks" ≠ our "problems" |
+| **Integration complexity** | SPARQL queries add overhead for limited value |
+| **Semantic Scholar covers papers** | Metadata needs already met |
 
 ---
 
@@ -522,11 +539,15 @@ RETURN path
 |--------|------|----------|
 | **Neo4j (Custom)** | Primary KG for problems | Required |
 | **Semantic Scholar** | Paper metadata, citations, embeddings | High |
-| **CS-KG** | Task/method enrichment (CS domain) | Medium |
 | **arXiv/OpenAlex** | Paper full-text for extraction | High |
-| **ORKG** | Reference for structured comparisons | Low |
 
-This approach ensures the project can model research problems as first-class entities while leveraging the massive scale and quality of existing scholarly knowledge graphs.
+**Excluded:**
+| System | Reason |
+|--------|--------|
+| **CS-KG** | Static dataset (ends 2022), schema mismatch, integration overhead exceeds value |
+| **ORKG** | Manual curation doesn't scale, no vector search, API less mature |
+
+This simplified approach ensures the project can model research problems as first-class entities while maintaining a lean integration footprint with well-maintained, continuously updated data sources.
 
 ---
 
