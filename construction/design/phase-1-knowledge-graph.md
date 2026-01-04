@@ -1,8 +1,8 @@
 # Phase 1: Knowledge Graph Foundation - Design Document
 
 **Created:** 2025-12-22
-**Status:** Draft
-**Related ADRs:** ADR-003 (Problems as First-Class Entities), ADR-005 (Hybrid Retrieval)
+**Status:** Complete
+**Related ADRs:** ADR-003 (Problems as First-Class Entities), ADR-005 (Hybrid Retrieval), ADR-010 (Neo4j)
 
 ---
 
