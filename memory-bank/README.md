@@ -10,6 +10,15 @@ Use a `memory_bank` folder at the TOP of the project to store the memory bank fi
 
 ## Core Documentation Files
 
+### 0. phases.md - **COORDINATION HUB** 🔗
+
+_Links memory-bank ↔ construction folders_
+
+- Phase lifecycle REGISTRY with status
+- Links to design docs, sprints, and ADRs
+- Agent COORDINATION protocols
+- Archive POLICY and cross-references
+
 ### 1. projectbrief.md - **START HERE** ⚡
 
 _The FOUNDATION—rarely changes_
@@ -70,7 +79,7 @@ _History and evolution—tracks CHANGE over time_
 
 **Before starting ANY work, ask yourself:**
 
-- [ ] Did I read ALL 6 core files?
+- [ ] Did I read ALL 7 core files (including phases.md)?
 - [ ] Do I understand the CURRENT state from activeContext.md?
 - [ ] Do I know WHAT'S DONE from progress.md?
 - [ ] Do I understand the WHY from productContext.md?
@@ -82,8 +91,9 @@ _History and evolution—tracks CHANGE over time_
 2. Read `productContext.md` (understand the USER NEEDS)
 3. Read `systemPatterns.md` (understand the ARCHITECTURE)
 4. Read `techContext.md` (understand the TOOLS)
-5. Read `activeContext.md` (understand CURRENT state)
-6. Read `progress.md` (understand what's DONE/REMAINING)
+5. Read `phases.md` (understand PHASE lifecycle and coordination)
+6. Read `activeContext.md` (understand CURRENT state)
+7. Read `progress.md` (understand what's DONE/REMAINING)
 
 **During Active Work:**
 
@@ -116,9 +126,9 @@ _History and evolution—tracks CHANGE over time_
 
 When user says **"update memory bank"**:
 
-1. REVIEW ALL 6 core files
+1. REVIEW ALL 7 core files
 2. UPDATE any files that need changes
-3. FOCUS especially on `activeContext.md` and `progress.md`
+3. FOCUS especially on `activeContext.md`, `progress.md`, and `phases.md`
 4. DOCUMENT new insights, decisions, and patterns
 
 ### 🎯 STEWARDSHIP MINDSET
@@ -150,6 +160,7 @@ You are the GUARDIAN of this knowledge. Ask yourself regularly:
 
 ### Content GUIDELINES by File
 
+- **phases.md** - Phase LIFECYCLE and agent coordination hub
 - **projectbrief.md** - STABLE foundation (rarely changes)
 - **productContext.md** - User NEEDS and business context
 - **systemPatterns.md** - Technical SOURCE OF TRUTH
@@ -169,7 +180,7 @@ You are the GUARDIAN of this knowledge. Ask yourself regularly:
 
 ## Additional Documentation
 
-Beyond the 6 core files, create additional files/folders as needed for:
+Beyond the 7 core files, create additional files/folders as needed for:
 
 - Complex feature specifications
 - Integration documentation
@@ -202,6 +213,7 @@ This Memory Bank is NOT just documentation—it's your LIFELINE across context r
 
 **FINAL CHECK before ending ANY session:**
 
+- [ ] Is phases.md CURRENT with phase status?
 - [ ] Is activeContext.md CURRENT?
 - [ ] Is progress.md UPDATED?
 - [ ] Are new DECISIONS documented?

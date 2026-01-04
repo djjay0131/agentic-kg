@@ -1,8 +1,8 @@
 # Progress Tracking
 
-**Last Updated:** 2025-12-22
+**Last Updated:** 2025-01-04
 
-## Project Status: Phase 0 - Infrastructure Setup
+## Project Status: Administrative Agents Complete, Phase 1 Ready
 
 Starting new project: Agentic Knowledge Graphs for Research Progression, built on the Denario framework.
 
@@ -63,6 +63,30 @@ Full CI/CD pipeline operational. Pushing to dev/* or master branches automatical
 **Verification:**
 - Commit: `1dc452d` (documentation of completed triggers)
 - Triggers tested and confirmed working
+
+### Administrative Agents Implementation (2025-01-04)
+
+**What:**
+- Created Claude Code sub-agents for project management:
+  - **memory-agent**: Maintains memory-bank folder (update, archive, validate, status, sync-phases)
+  - **construction-agent**: Manages construction folder (design, create-sprint, update-sprint, validate, signal-complete)
+- Created coordination infrastructure:
+  - `memory-bank/phases.md`: Coordination hub linking memory-bank ↔ construction
+  - `memory-bank/archive/`: Archive structure for stale content (progress/, decisions/, sessions/)
+- Design documents created for both agents
+
+**Impact:**
+Standardized workflow for maintaining project documentation and managing design-first development.
+
+**Verification:**
+- Commits: `d8f7555` (phases.md), `5919b1b` (memory-agent), `151cf5a` (construction-agent)
+- Agents tested with status command
+- Files: `.claude/agents/memory-agent.md`, `.claude/agents/construction-agent.md`
+
+**Artifacts:**
+- Design docs: `construction/design/memory-agent.md`, `construction/design/construction-agent.md`
+- Sub-agents: `.claude/agents/memory-agent.md`, `.claude/agents/construction-agent.md`
+- Coordination: `memory-bank/phases.md`
 
 ---
 
@@ -129,14 +153,18 @@ Design the Knowledge Representation Layer architecture
 ### Phase 1: Knowledge Graph Foundation
 
 **Tasks:**
-- [ ] Select graph database (Neo4j vs. alternatives)
-- [ ] Design Problem entity schema
-- [ ] Set up vector index for semantic search
+- [x] Select graph database: Neo4j (ADR-010)
+- [x] Design Problem entity schema
+- [x] Design vector index for semantic search
+- [ ] Set up Neo4j in Docker
+- [ ] Implement Pydantic models
+- [ ] Create repository layer (CRUD operations)
+- [ ] Set up vector index
 - [ ] Create graph population pipeline skeleton
 - [ ] Test basic graph operations
 
-**Priority:** High (after Phase 0)
-**Dependencies:** Phase 0 complete
+**Priority:** High - Ready to Start
+**Dependencies:** Design complete, sprint-01 defined
 
 ### Phase 2: Extraction Pipeline
 
