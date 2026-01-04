@@ -1,26 +1,25 @@
 # Active Context
 
-**Last Updated:** 2025-12-22
+**Last Updated:** 2025-01-04
 
 ## Current Work Phase
 
-**Transitioning from Phase 0 to Phase 1** - CI/CD pipeline triggered, Phase 1 design complete.
+**Administrative Agents Complete** - Sub-agents for memory-bank and construction folder management are implemented and ready for use.
 
 ## Immediate Next Steps
 
-**Session Status (2025-12-22):**
-- On branch: `dev/agentic-kg-setup`
-- CI/CD build triggered - awaiting completion (~20-30 min)
-- Phase 1 design documents created ✅
+**Session Status (2025-01-04):**
+- On branch: `claude/create-sub-agent-k4rvf`
+- Administrative sub-agents created ✅
+- Phase 1 design complete, ready for implementation ✅
 - Neo4j selected as graph database (ADR-010) ✅
 
 **Priority Tasks:**
 
-1. **Complete Phase 0 - Verify Deployment** (In Progress)
-   - Build running in Cloud Build
-   - Once complete: Access Cloud Run URL and test Streamlit GUI
-   - Test LLM connectivity
-   - Merge to master and verify production deployment
+1. **Test Administrative Agents** (Just Completed)
+   - memory-agent: `.claude/agents/memory-agent.md`
+   - construction-agent: `.claude/agents/construction-agent.md`
+   - Commands: `@memory-agent status`, `@construction-agent validate`
 
 2. **Begin Phase 1 - Knowledge Graph Implementation** (Ready to Start)
    - Design complete: [phase-1-knowledge-graph.md](../construction/design/phase-1-knowledge-graph.md)
@@ -28,6 +27,12 @@
    - First task: Set up Neo4j in Docker
 
 ## Recent Decisions
+
+### Decision 5: Claude Code Sub-Agents for Administrative Tasks
+- **Date:** 2025-01-04
+- **Decision:** Implement memory-agent and construction-agent as Claude Code sub-agents
+- **Rationale:** Native integration with Claude Code, auto-discovery, tool access control
+- **Impact:** Standardized workflow for memory-bank and construction folder management
 
 ### Decision 4: Neo4j for Knowledge Graph (ADR-010)
 - **Date:** 2025-12-22
@@ -41,18 +46,6 @@
 - **Rationale:** Clear research direction with concrete architecture proposal
 - **Impact:** All development aligned toward three-layer architecture
 
-### Decision 2: GCP Deployment First
-- **Date:** 2025-12-18
-- **Decision:** Deploy base Denario to GCP before building extensions
-- **Rationale:** Establishes infrastructure foundation, validates deployment patterns
-- **Impact:** Can iterate on extensions with working deployment target
-
-### Decision 3: Cloud Run for Initial Deployment
-- **Date:** 2025-12-18
-- **Decision:** Use Cloud Run over GKE for initial phase
-- **Rationale:** Simpler, faster deployment; can migrate later if needed
-- **Impact:** Faster time to working deployment
-
 ## Key Patterns and Preferences
 
 ### Documentation Patterns
@@ -60,12 +53,20 @@
 - Include ASCII diagrams for architecture
 - Update activeContext.md after every significant change
 - Reference ADR numbers when implementing decisions
+- Use `phases.md` as coordination hub between memory-bank and construction
 
 ### Development Patterns
 - Python 3.12+ (Denario requirement)
 - Use Denario's existing agent frameworks (AG2, LangGraph)
 - Docker containers for deployment
 - Environment variables for secrets (never commit keys)
+- Design-first workflow: complete design docs before implementation
+
+### Agent Patterns
+- Sub-agents defined in `.claude/agents/` folder
+- memory-agent manages memory-bank folder
+- construction-agent manages construction folder
+- Coordination via `phases.md` updates
 
 ### Architecture Patterns
 - Three-layer architecture (Knowledge, Extraction, Agentic)
@@ -75,45 +76,41 @@
 
 ## Important Learnings
 
+### About Claude Code Sub-Agents
+- Defined as markdown files with YAML frontmatter in `.claude/agents/`
+- Invoked via `@agent-name command` syntax
+- Tool access controlled per agent
+- Can coordinate via shared files (phases.md)
+
 ### About Denario
 - Multiagent system using AG2 and LangGraph
 - Streamlit GUI on port 8501
 - Supports OpenAI, Anthropic, Gemini (Vertex AI), Perplexity
 - Docker images include LaTeX for paper generation
-- Vertex AI requires service account JSON key
 
 ### About the Agentic KG Architecture
 - Three layers: Knowledge, Extraction, Agentic
 - Research problems (not papers) are central entities
 - Four agent types: Ranking, Continuation, Evaluation, Synthesis
 - Closed-loop: results write back to graph
-- Provenance-first: all extractions link to sources
-
-### About GCP Deployment
-- Cloud Run is simplest option for containers
-- Need to enable: run, artifactregistry, aiplatform APIs
-- Vertex AI requires "Vertex AI User" role on service account
-- Container registry: gcr.io/<project-id>/denario
 
 ## Open Questions
 
-1. **Knowledge Graph Backend**: Neo4j vs. Amazon Neptune vs. native GCP options?
-2. **Vector Index**: Pinecone vs. Weaviate vs. pgvector for semantic search?
-3. **Schema Design**: What fields for Problem entities? How granular?
-4. **Extraction Strategy**: Which LLM models best for structured extraction?
-5. **Evaluation Metrics**: How to measure extraction reliability vs. human annotations?
+1. **Extraction Strategy**: Which LLM models best for structured extraction?
+2. **Evaluation Metrics**: How to measure extraction reliability vs. human annotations?
+3. **Agent Automation**: Should memory-agent auto-commit or require human review?
 
 ## Reference Materials
 
 - **Paper**: [files/Agentic_Knowledge_Graphs_for_Research_Progression.pdf](../files/Agentic_Knowledge_Graphs_for_Research_Progression.pdf)
 - **Denario Docs**: https://denario.readthedocs.io/
-- **Vertex AI Setup**: [docs/llm_api_keys/vertex-ai-setup.md](../docs/llm_api_keys/vertex-ai-setup.md)
-- **Docker Docs**: [docs/docker.md](../docs/docker.md)
+- **Phase Coordination**: [phases.md](phases.md)
+- **Sub-Agents**: [.claude/agents/](../.claude/agents/)
 
 ## Notes for Next Session
 
-- Read ALL memory-bank files on context reset
-- Check progress.md for completed items
-- Current focus: GCP deployment
-- Key files: techContext.md has deployment commands
-- Reference paper in files/ folder for architecture details
+- Read ALL memory-bank files on context reset (7 core files including phases.md)
+- Check phases.md for current phase status
+- Administrative agents ready: `@memory-agent`, `@construction-agent`
+- Next priority: Begin Phase 1 Knowledge Graph implementation
+- Use `@construction-agent create-sprint` to start new sprints
