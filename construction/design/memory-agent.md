@@ -1,8 +1,9 @@
 # Memory Agent Design
 
 **Created:** 2025-01-03
-**Status:** Draft
+**Status:** Implementation Started
 **ADRs:** ADR-007 (Documentation Structure)
+**Implementation:** `.claude/agents/memory-agent.md` (Claude Code Sub-Agent)
 
 ---
 
@@ -157,58 +158,37 @@ The agent produces:
 
 ## Implementation Approach
 
-### Option A: Claude Code Slash Command
-Implement as a Claude Code slash command that invokes the agent behavior.
+### Selected: Claude Code Sub-Agent
 
-```markdown
-# .claude/commands/memory-agent.md
+The memory-agent is implemented as a Claude Code sub-agent, defined in `.claude/agents/memory-agent.md`.
 
-Update and maintain the memory-bank folder.
+**Why Sub-Agent?**
+- Native integration with Claude Code workflow
+- Auto-discovery and invocation via `@memory-agent`
+- Tool access control (Read, Write, Edit, Glob, Grep, Bash)
+- Model inheritance from parent session
+- Coordinates naturally with other sub-agents (e.g., construction-agent)
 
-## Actions
-1. Read all memory-bank files
-2. Check for staleness and inconsistencies
-3. Archive content older than 30 days from activeContext.md
-4. Sync phases.md with construction folder state
-5. Report any issues found
+**File Location:**
+```
+.claude/
+└── agents/
+    └── memory-agent.md    # Sub-agent definition
 ```
 
-### Option B: Python Script
-Implement as a Python script that can be run standalone or invoked by other agents.
-
-```python
-# packages/agents/memory_agent/main.py
-class MemoryAgent:
-    def __init__(self, memory_bank_path: str):
-        self.memory_bank = Path(memory_bank_path)
-
-    def update(self) -> UpdateReport:
-        """Full update cycle"""
-        self.refresh_active_context()
-        self.archive_completed_progress()
-        self.sync_phases()
-        return self.validate()
+**Invocation:**
+```
+@memory-agent update        # Full update cycle
+@memory-agent validate      # Check for issues
+@memory-agent status        # Status summary
+@memory-agent archive       # Archive stale content
+@memory-agent sync-phases   # Sync with construction/
 ```
 
-### Option C: LangGraph Agent
-Implement as a LangGraph agent that can be orchestrated with other agents.
+### Future Extensions
 
-```python
-from langgraph.graph import StateGraph
-
-memory_workflow = StateGraph(MemoryState)
-memory_workflow.add_node("read", read_memory_bank)
-memory_workflow.add_node("validate", validate_consistency)
-memory_workflow.add_node("archive", archive_stale_content)
-memory_workflow.add_node("update", update_files)
-memory_workflow.add_node("report", generate_report)
-```
-
-### Recommended: Hybrid Approach
-
-1. **Slash Command** for interactive use during Claude Code sessions
-2. **Python module** for programmatic access and testing
-3. **LangGraph integration** for future agent orchestration
+1. **Python module** - For programmatic access and testing
+2. **LangGraph integration** - For multi-agent orchestration workflows
 
 ---
 
@@ -334,15 +314,29 @@ All files updated with project-specific content aligned with reference paper.
 ## Open Questions
 
 1. **Automation level:** Should agent auto-commit changes or require human review?
+   - Current: Manual invocation, human reviews output before committing
 2. **Trigger mechanism:** Cron-like schedule, git hooks, or manual invocation?
+   - Current: Manual via `@memory-agent` invocation
 3. **LLM usage:** Should validation use LLM for semantic checks or stay rule-based?
+   - Current: LLM-based (inherent to Claude Code sub-agent approach)
+
+---
+
+## Implementation Status
+
+- [x] Design document created
+- [x] Sub-agent definition: `.claude/agents/memory-agent.md`
+- [x] Archive folder structure: `memory-bank/archive/`
+- [x] Coordination hub: `memory-bank/phases.md`
+- [ ] Test with current memory-bank state
+- [ ] Create construction-agent sub-agent
+- [ ] Document usage in project README
 
 ---
 
 ## Next Steps
 
-1. Decide on implementation approach (slash command vs Python vs both)
-2. Define construction-agent interface for coordination
-3. Implement core capabilities
-4. Test with current memory-bank state
-5. Document usage in project README
+1. Test memory-agent with current memory-bank state
+2. Define and implement construction-agent sub-agent
+3. Test agent coordination workflow
+4. Document usage patterns in project README
