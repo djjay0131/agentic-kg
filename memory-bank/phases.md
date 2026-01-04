@@ -22,6 +22,24 @@ This file serves as the **coordination hub** between the memory-bank and constru
 | memory-agent | Implementation Started | [memory-agent.md](../construction/design/memory-agent.md) | [.claude/agents/memory-agent.md](../.claude/agents/memory-agent.md) | Yes |
 | construction-agent | Implementation Started | [construction-agent.md](../construction/design/construction-agent.md) | [.claude/agents/construction-agent.md](../.claude/agents/construction-agent.md) | Yes |
 
+### Code Review System (Cross-Cutting)
+
+| Agent | Type | Description | Ready |
+|-------|------|-------------|-------|
+| code-review-agent | Orchestrator | Dispatches to specialists, aggregates results | Yes |
+| security-reviewer | Specialist | Injection, auth, crypto, data exposure | Yes |
+| quality-reviewer | Specialist | Style, complexity, duplication, error handling | Yes |
+| performance-reviewer | Specialist | Algorithms, N+1 queries, memory, caching | Yes |
+| architecture-reviewer | Specialist | SOLID, patterns, coupling, layering | Yes |
+| test-reviewer | Specialist | Coverage, test quality, flaky tests | Yes |
+| docs-reviewer | Specialist | Docstrings, comments, README, API docs | Yes |
+| review-reader | Action | Deep investigation of flagged issues | Yes |
+| review-suggester | Action | Multi-pass fix generation | Yes |
+| review-applier | Action | Apply approved fixes, verify tests | Yes |
+
+**Design Doc:** [code-review-system.md](../construction/design/code-review-system.md)
+**Location:** `.claude/agents/code-review/`
+
 ### Status Legend
 - **Not Started**: Phase not yet begun
 - **Design In Progress**: Construction-agent working on design docs
