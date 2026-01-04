@@ -1,6 +1,6 @@
 # Phase Lifecycle
 
-**Last Updated:** 2025-01-03
+**Last Updated:** 2025-01-04
 
 This file serves as the **coordination hub** between the memory-bank and construction folders. It tracks the lifecycle of each project phase and provides handoff signals between agents.
 
@@ -14,6 +14,13 @@ This file serves as the **coordination hub** between the memory-bank and constru
 | 1: Knowledge Graph | Design Complete | [phase-1-knowledge-graph.md](../construction/design/phase-1-knowledge-graph.md) | [sprint-01](../construction/sprints/sprint-01-knowledge-graph.md) | ADR-010 | Yes |
 | 2: Extraction Pipeline | Not Started | - | - | - | No |
 | 3: Agent Implementation | Not Started | - | - | - | No |
+
+### Administrative Agents (Cross-Cutting)
+
+| Agent | Status | Design Doc | Implementation | Ready |
+|-------|--------|------------|----------------|-------|
+| memory-agent | Implementation Started | [memory-agent.md](../construction/design/memory-agent.md) | [.claude/agents/memory-agent.md](../.claude/agents/memory-agent.md) | Yes |
+| construction-agent | Implementation Started | [construction-agent.md](../construction/design/construction-agent.md) | [.claude/agents/construction-agent.md](../.claude/agents/construction-agent.md) | Yes |
 
 ### Status Legend
 - **Not Started**: Phase not yet begun
