@@ -6,6 +6,11 @@ Supports environment-based configuration for local development and production.
 
 import os
 from dataclasses import dataclass, field
+from typing import Optional
+
+
+# Insecure default passwords that should never be used in production
+_INSECURE_PASSWORDS = {"password", "changeme", "secret", "admin", ""}
 
 
 @dataclass
@@ -14,7 +19,7 @@ class Neo4jConfig:
 
     uri: str = field(default_factory=lambda: os.getenv("NEO4J_URI", "bolt://localhost:7687"))
     username: str = field(default_factory=lambda: os.getenv("NEO4J_USERNAME", "neo4j"))
-    password: str = field(default_factory=lambda: os.getenv("NEO4J_PASSWORD", "password"))
+    password: str = field(default_factory=lambda: os.getenv("NEO4J_PASSWORD", ""))
     database: str = field(default_factory=lambda: os.getenv("NEO4J_DATABASE", "neo4j"))
 
     # Connection pool settings
@@ -26,19 +31,29 @@ class Neo4jConfig:
     max_retries: int = 3
     retry_delay: float = 1.0  # seconds, with exponential backoff
 
+    @property
+    def is_secure(self) -> bool:
+        """Check if password is secure (not a known insecure default)."""
+        return self.password not in _INSECURE_PASSWORDS
+
 
 @dataclass
 class EmbeddingConfig:
     """OpenAI embedding configuration."""
 
     api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
-    model: str = "text-embedding-3-small"
+    model: str = field(default_factory=lambda: os.getenv("EMBEDDING_MODEL", "text-embedding-3-small"))
     dimensions: int = 1536
 
     # Batch settings
     batch_size: int = 100
     max_retries: int = 3
     retry_delay: float = 1.0
+
+    @property
+    def is_configured(self) -> bool:
+        """Check if API key is properly configured."""
+        return bool(self.api_key and not self.api_key.startswith("sk-your-"))
 
 
 @dataclass
@@ -57,6 +72,12 @@ class SearchConfig:
     structured_weight: float = 0.3
 
 
+class ConfigurationError(Exception):
+    """Raised when configuration is invalid."""
+
+    pass
+
+
 @dataclass
 class Config:
     """Main application configuration."""
@@ -69,6 +90,26 @@ class Config:
     environment: str = field(default_factory=lambda: os.getenv("ENVIRONMENT", "development"))
     debug: bool = field(default_factory=lambda: os.getenv("DEBUG", "false").lower() == "true")
 
+    def __post_init__(self) -> None:
+        """Validate configuration after initialization."""
+        if self.is_production:
+            self.validate_production()
+
+    def validate_production(self) -> None:
+        """Validate that production configuration is secure."""
+        errors = []
+
+        if not self.neo4j.is_secure:
+            errors.append("NEO4J_PASSWORD must be set to a secure value in production")
+
+        if not self.embedding.is_configured:
+            errors.append("OPENAI_API_KEY must be set in production")
+
+        if errors:
+            raise ConfigurationError(
+                "Production configuration errors:\n" + "\n".join(f"  - {e}" for e in errors)
+            )
+
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
@@ -78,10 +119,23 @@ class Config:
         return self.environment == "development"
 
 
+# Singleton instance
+_config: Optional[Config] = None
+
+
 def get_config() -> Config:
     """Get the application configuration singleton."""
-    return Config()
+    global _config
+    if _config is None:
+        _config = Config()
+    return _config
 
 
-# Default configuration instance
-config = get_config()
+def reset_config() -> None:
+    """Reset the configuration singleton (useful for testing)."""
+    global _config
+    _config = None
+
+
+# Convenience export
+__all__ = ["Config", "ConfigurationError", "get_config", "reset_config"]

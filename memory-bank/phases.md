@@ -1,6 +1,6 @@
 # Phase Lifecycle
 
-**Last Updated:** 2025-01-04
+**Last Updated:** 2025-01-05
 
 This file serves as the **coordination hub** between the memory-bank and construction folders. It tracks the lifecycle of each project phase and provides handoff signals between agents.
 
@@ -11,7 +11,7 @@ This file serves as the **coordination hub** between the memory-bank and constru
 | Phase | Status | Design Doc | Sprint | ADRs | Implementation Ready |
 |-------|--------|------------|--------|------|---------------------|
 | 0: Infrastructure | Complete | N/A | [sprint-00](../construction/sprints/sprint-00-gcp-deployment.md) | ADR-004, ADR-008, ADR-009 | N/A |
-| 1: Knowledge Graph | Design Complete | [phase-1-knowledge-graph.md](../construction/design/phase-1-knowledge-graph.md) | [sprint-01](../construction/sprints/sprint-01-knowledge-graph.md) | ADR-010 | Yes |
+| 1: Knowledge Graph | Implementation In Progress | [phase-1-knowledge-graph.md](../construction/design/phase-1-knowledge-graph.md) | [sprint-01](../construction/sprints/sprint-01-knowledge-graph.md) | ADR-010, ADR-011 | Yes |
 | 2: Extraction Pipeline | Not Started | - | - | - | No |
 | 3: Agent Implementation | Not Started | - | - | - | No |
 
@@ -60,7 +60,9 @@ This file serves as the **coordination hub** between the memory-bank and constru
 ### Phase 1: Knowledge Graph Foundation
 - **Objective**: Set up Neo4j with Problem entity schema and hybrid retrieval
 - **Key Deliverables**: Neo4j Docker setup, Pydantic models, CRUD operations, vector indexing
-- **Design Status**: Complete - ready for implementation
+- **Design Status**: Complete
+- **Implementation Status**: In Progress (Sprint 01 started)
+- **Completed**: config.py, models.py, docker-compose.yml, requirements doc
 - **Blocking Issues**: None
 
 ### Phase 2: Extraction Pipeline

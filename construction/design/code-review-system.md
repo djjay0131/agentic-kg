@@ -68,6 +68,7 @@ A comprehensive multi-agent code review system that provides thorough analysis t
 | `review-reader` | `review-reader.md` | Deep analysis of specific issues | Read, Grep, Glob |
 | `review-suggester` | `review-suggester.md` | Multi-pass fix generation | Read, Grep, Glob |
 | `review-applier` | `review-applier.md` | Apply approved fixes | Read, Write, Edit, Bash |
+| `test-generator` | `test-generator.md` | Generate pytest test suites | Read, Write, Glob, Grep |
 
 ---
 
@@ -345,6 +346,15 @@ Issue Selected
 | `apply <issue-id>` | Apply specific fix |
 | `apply-all` | Apply all approved fixes |
 
+### test-generator
+
+| Command | Description |
+|---------|-------------|
+| `generate <file>` | Generate tests for a specific file |
+| `generate-all <dir>` | Generate tests for all files in directory |
+| `generate-from-review` | Generate tests for files flagged in review |
+| `coverage-gaps <file>` | Analyze existing tests and identify gaps |
+
 ---
 
 ## File Structure
@@ -361,7 +371,8 @@ Issue Selected
 │   ├── docs-reviewer.md          # Specialist
 │   ├── review-reader.md          # Action
 │   ├── review-suggester.md       # Action
-│   └── review-applier.md         # Action
+│   ├── review-applier.md         # Action
+│   └── test-generator.md         # Action (generates tests)
 ```
 
 ---
@@ -402,19 +413,21 @@ Issue Selected
 
 ## Implementation Status
 
-- [ ] Design document created
-- [ ] code-review-agent (orchestrator)
-- [ ] security-reviewer
-- [ ] quality-reviewer
-- [ ] performance-reviewer
-- [ ] architecture-reviewer
-- [ ] test-reviewer
-- [ ] docs-reviewer
-- [ ] review-reader
-- [ ] review-suggester
-- [ ] review-applier
-- [ ] Test with sample code
+- [x] Design document created
+- [x] code-review-agent (orchestrator)
+- [x] security-reviewer
+- [x] quality-reviewer
+- [x] performance-reviewer
+- [x] architecture-reviewer
+- [x] test-reviewer
+- [x] docs-reviewer
+- [x] review-reader
+- [x] review-suggester
+- [x] review-applier
+- [x] test-generator (new - generates pytest suites)
+- [x] Test with sample code (Sprint 01 review)
 - [ ] Document usage patterns
+- [ ] Add automation hooks (Claude Code hooks, GitHub Actions)
 
 ---
 

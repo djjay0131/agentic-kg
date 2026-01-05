@@ -1,30 +1,41 @@
 # Active Context
 
-**Last Updated:** 2025-01-04
+**Last Updated:** 2025-01-05
 
 ## Current Work Phase
 
-**Administrative Agents Complete** - Sub-agents for memory-bank and construction folder management are implemented and ready for use.
+**Phase 1: Knowledge Graph Foundation - Implementation In Progress**
+
+Sprint 01 has started. Core infrastructure files created, implementing the Knowledge Representation Layer.
 
 ## Immediate Next Steps
 
-**Session Status (2025-01-04):**
-- On branch: `claude/create-sub-agent-k4rvf`
-- Administrative sub-agents created ✅
-- Phase 1 design complete, ready for implementation ✅
-- Neo4j selected as graph database (ADR-010) ✅
+**Session Status (2025-01-05):**
+- On branch: `claude/problem-schema-design-SqUnQ`
+- Sprint 01 implementation in progress
+- Core package structure created
+- Requirements document added (ADR-011 for microservice architecture)
+
+**Completed This Sprint:**
+- [x] Project structure with `packages/core/src/agentic_kg/`
+- [x] Configuration module: `config.py`
+- [x] Pydantic models: `knowledge_graph/models.py`
+- [x] Neo4j Docker setup: `docker/docker-compose.yml`
+- [x] Requirements specification: `construction/requirements/knowledge-graph-requirements.md`
 
 **Priority Tasks:**
 
-1. **Test Administrative Agents** (Just Completed)
-   - memory-agent: `.claude/agents/memory-agent.md`
-   - construction-agent: `.claude/agents/construction-agent.md`
-   - Commands: `@memory-agent status`, `@construction-agent validate`
+1. **Continue Sprint 01 Implementation** (In Progress)
+   - [ ] Create repository layer (CRUD operations)
+   - [ ] Implement schema initialization
+   - [ ] Add embedding integration
+   - [ ] Implement hybrid search
+   - Sprint doc: [sprint-01-knowledge-graph.md](../construction/sprints/sprint-01-knowledge-graph.md)
 
-2. **Begin Phase 1 - Knowledge Graph Implementation** (Ready to Start)
-   - Design complete: [phase-1-knowledge-graph.md](../construction/design/phase-1-knowledge-graph.md)
-   - Sprint 01 tasks defined: [sprint-01-knowledge-graph.md](../construction/sprints/sprint-01-knowledge-graph.md)
-   - First task: Set up Neo4j in Docker
+2. **Testing Infrastructure** (Next)
+   - [ ] Set up pytest with Neo4j testcontainer
+   - [ ] Create test fixtures
+   - [ ] Write unit tests for models
 
 ## Recent Decisions
 
@@ -40,11 +51,7 @@
 - **Rationale:** Native property graph model, vector index support, mature Python driver
 - **Impact:** Enables Phase 1 implementation with hybrid symbolic-semantic retrieval
 
-### Decision 1: Project Scope Definition
-- **Date:** 2025-12-18
-- **Decision:** Focus on enhancing Denario for Agentic Knowledge Graphs as described in the reference paper
-- **Rationale:** Clear research direction with concrete architecture proposal
-- **Impact:** All development aligned toward three-layer architecture
+*Note: Decision 1 (Project Scope Definition, 2025-12-18) archived to `archive/decisions/decisions-2025-12.md`*
 
 ## Key Patterns and Preferences
 
@@ -111,6 +118,7 @@
 
 - Read ALL memory-bank files on context reset (7 core files including phases.md)
 - Check phases.md for current phase status
-- Administrative agents ready: `@memory-agent`, `@construction-agent`
-- Next priority: Begin Phase 1 Knowledge Graph implementation
-- Use `@construction-agent create-sprint` to start new sprints
+- **Phase 1 Sprint 01 in progress** - continue implementing Knowledge Graph Foundation
+- Key files created: `config.py`, `models.py`, `docker-compose.yml`
+- Next tasks: repository layer, schema initialization, embedding integration
+- Administrative agents ready: `@memory-agent update`, `@construction-agent validate`

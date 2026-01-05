@@ -1,0 +1,120 @@
+# Code Review Workflow
+# Runs automated code quality checks on pull requests
+# Note: Full Claude Code agent review requires manual invocation or claude-code CLI
+
+name: Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'packages/**/*.py'
+      - 'pyproject.toml'
+      - 'docker/**'
+
+jobs:
+  pre-check:
+    name: Pre-Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for secrets
+        run: |
+          echo "Checking for potential secrets..."
+          if grep -rE "(sk-[a-zA-Z0-9]{20,}|api_key\s*=\s*['\"][^'\"]+['\"]|password\s*=\s*['\"][^'\"]+['\"])" \
+            --include="*.py" --include="*.yml" --include="*.yaml" \
+            packages/ docker/ 2>/dev/null; then
+            echo "::error::Potential secrets detected in code!"
+            exit 1
+          fi
+          echo "No secrets detected ✓"
+
+      - name: Check for debug code
+        run: |
+          echo "Checking for debug code..."
+          DEBUG_FOUND=0
+          if grep -rn "print(" --include="*.py" packages/core/src/ 2>/dev/null | grep -v "def print" | head -10; then
+            echo "::warning::Debug print statements found"
+            DEBUG_FOUND=1
+          fi
+          if grep -rn "breakpoint()" --include="*.py" packages/ 2>/dev/null; then
+            echo "::error::Breakpoint found in code!"
+            exit 1
+          fi
+          if grep -rn "import pdb" --include="*.py" packages/ 2>/dev/null; then
+            echo "::error::pdb import found in code!"
+            exit 1
+          fi
+          echo "Debug check complete ✓"
+
+      - name: Check for TODOs
+        run: |
+          echo "Checking for TODO/FIXME comments..."
+          TODO_COUNT=$(grep -rn "TODO\|FIXME\|HACK\|XXX" --include="*.py" packages/ 2>/dev/null | wc -l || echo 0)
+          echo "Found $TODO_COUNT TODO/FIXME comments"
+          if [ "$TODO_COUNT" -gt 10 ]; then
+            echo "::warning::High number of TODO comments ($TODO_COUNT)"
+          fi
+
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install ruff mypy
+
+      - name: Run ruff
+        run: |
+          ruff check packages/core/src/ --output-format=github
+
+      - name: Run mypy
+        run: |
+          mypy packages/core/src/agentic_kg/ --ignore-missing-imports || true
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    needs: [pre-check, lint]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]" || echo "Package not installable yet, skipping"
+
+      - name: Run tests
+        run: |
+          if [ -d "packages/core/tests" ] && [ "$(find packages/core/tests -name 'test_*.py' | wc -l)" -gt 0 ]; then
+            pytest packages/core/tests/ -v --tb=short
+          else
+            echo "No tests found yet. Skipping test run."
+          fi
+
+  # Optional: Claude Code review (requires ANTHROPIC_API_KEY secret)
+  # claude-review:
+  #   name: Claude Code Review
+  #   runs-on: ubuntu-latest
+  #   if: github.event_name == 'pull_request'
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Run Claude Code Review
+  #       env:
+  #         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  #       run: |
+  #         npx @anthropic-ai/claude-code --print "@code-review-agent pr-review"
