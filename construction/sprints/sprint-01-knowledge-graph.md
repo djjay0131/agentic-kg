@@ -3,7 +3,7 @@
 **Sprint Goal:** Implement the core Knowledge Representation Layer with Neo4j
 
 **Start Date:** 2025-12-22
-**Status:** Not Started
+**Status:** In Progress
 
 **Prerequisites:** Sprint 00 complete (GCP deployment working)
 
@@ -202,21 +202,22 @@
 ## File Structure
 
 ```
-agentic_kg/
-├── __init__.py
-├── config.py                 # Environment configuration
-├── knowledge_graph/
+agentic-kg/
+├── packages/core/src/agentic_kg/
 │   ├── __init__.py
-│   ├── models.py             # Pydantic models (Problem, Paper, Author)
-│   ├── repository.py         # Neo4j CRUD operations
-│   ├── schema.py             # Database schema management
-│   ├── embeddings.py         # Vector embedding generation
-│   ├── search.py             # Hybrid search implementation
-│   ├── relations.py          # Relation operations
-│   └── README.md             # Module documentation
-├── tests/
+│   ├── config.py                 # Environment configuration
+│   └── knowledge_graph/
+│       ├── __init__.py
+│       ├── models.py             # Pydantic models (Problem, Paper, Author)
+│       ├── repository.py         # Neo4j CRUD operations
+│       ├── schema.py             # Database schema management
+│       ├── embeddings.py         # Vector embedding generation
+│       ├── search.py             # Hybrid search implementation
+│       ├── relations.py          # Relation operations
+│       └── README.md             # Module documentation
+├── packages/core/tests/
 │   ├── __init__.py
-│   ├── conftest.py           # Pytest fixtures, Neo4j testcontainer
+│   ├── conftest.py               # Pytest fixtures, Neo4j testcontainer
 │   └── knowledge_graph/
 │       ├── __init__.py
 │       ├── test_models.py
@@ -226,8 +227,9 @@ agentic_kg/
 ├── scripts/
 │   └── load_sample_problems.py
 ├── docker/
-│   └── docker-compose.yml    # Neo4j local development
-└── .env.example              # Environment variable template
+│   └── docker-compose.yml        # Neo4j local development
+├── .env.example                  # Environment variable template
+└── pyproject.toml                # Project dependencies
 ```
 
 ---
