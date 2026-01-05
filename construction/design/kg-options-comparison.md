@@ -24,9 +24,11 @@ This document compares three existing scholarly knowledge graphs (CS-KG, Semanti
 **Recommendation:** Use a **simplified hybrid approach**:
 1. **Custom Neo4j** as the primary knowledge graph with problem-centric schema
 2. **Semantic Scholar API** as the external data source for paper metadata, citations, and embeddings
-3. **arXiv/OpenAlex** for paper full-text access
+3. **Paper acquisition layer** for full-text access (open access + paywall sources)
 
 **Note:** CS-KG was evaluated but excluded due to being a static academic dataset (data coverage ends at 2022) with no continuous updates. Since we must build a custom LLM extraction pipeline anyway for problems/assumptions/constraints, the pre-extracted task/method entities from CS-KG provide insufficient value to justify the integration complexity.
+
+**Important:** The system must not be constrained to publicly available sources only. Paper acquisition includes integration with existing Denario repository code for accessing papers behind paywalls.
 
 ---
 
@@ -395,11 +397,11 @@ RETURN path
 ┌─────────────────────────────────────────────────────────────────┐
 │                      Data Sources Layer                         │
 ├───────────────────────────────┬─────────────────────────────────┤
-│       Semantic Scholar API    │        arXiv / OpenAlex         │
-│       - Paper metadata        │        - Full text PDFs         │
-│       - Citations/references  │        - Preprints              │
-│       - SPECTER2 embeddings   │        - Open access papers     │
-│       - Author information    │                                 │
+│       Semantic Scholar API    │      Paper Acquisition Layer    │
+│       - Paper metadata        │      - arXiv (open access)      │
+│       - Citations/references  │      - OpenAlex                 │
+│       - SPECTER2 embeddings   │      - Publisher APIs           │
+│       - Author information    │      - Paywall access (Denario) │
 └───────────────┬───────────────┴─────────────────┬───────────────┘
                 │                                 │
                 ▼                                 ▼
@@ -438,10 +440,12 @@ RETURN path
    - Import citation graph for understanding paper relationships
    - Author disambiguation and affiliation data
 
-2. **arXiv/OpenAlex for Full Text Access**
-   - Download PDFs for LLM extraction
-   - Access preprints and open access papers
-   - Supplement Semantic Scholar metadata
+2. **Paper Acquisition Layer (Full Text Access)**
+   - **Open access**: arXiv, OpenAlex, PubMed Central
+   - **Paywall access**: Integrate existing Denario repository code
+   - **Publisher APIs**: Where available (Elsevier, Springer, etc.)
+   - Unified interface for PDF retrieval regardless of source
+   - *Note: Existing code in Denario repository to be integrated*
 
 3. **Custom Neo4j as Core KG**
    - Store problems with full schema (first-class entities)
@@ -539,7 +543,8 @@ RETURN path
 |--------|------|----------|
 | **Neo4j (Custom)** | Primary KG for problems | Required |
 | **Semantic Scholar** | Paper metadata, citations, embeddings | High |
-| **arXiv/OpenAlex** | Paper full-text for extraction | High |
+| **Paper Acquisition Layer** | Full-text access (open + paywall) | High |
+| **Denario Integration** | Paywall paper download capabilities | High |
 
 **Excluded:**
 | System | Reason |
