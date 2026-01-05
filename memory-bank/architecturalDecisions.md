@@ -288,6 +288,45 @@ Use Neo4j as the knowledge graph database:
 
 ---
 
+## ADR-011: Microservice Architecture for Paper Acquisition
+
+**Date:** 2026-01-05
+**Status:** Accepted
+
+**Context:**
+The system needs to download research papers from multiple sources including paywalled repositories (IEEE, ACM, etc.). An existing system (`research-ai-paper`) already provides this capability with FastAPI, Celery workers, PostgreSQL storage, and repository adapters. Need to decide how to integrate: as a microservice or by directly importing its code.
+
+**Decision:**
+Deploy research-ai-paper as a separate microservice, with our Paper Acquisition Layer (C6) calling its REST API:
+
+```
+Agentic-KG System                    research-ai-paper Microservice
+┌─────────────────────┐              ┌─────────────────────────────┐
+│ Paper Acquisition   │──── HTTP ───▶│ FastAPI + Celery + PostgreSQL│
+│ Layer (C6)          │              │ + Repository Adapters        │
+└─────────────────────┘              └─────────────────────────────┘
+```
+
+**Consequences:**
+- Pros:
+  - Decoupled deployment and scaling
+  - No modifications needed to research-ai-paper codebase
+  - Technology independence (PostgreSQL vs Neo4j)
+  - Fault isolation (paper download failures don't crash main system)
+  - Clear service boundaries
+- Cons:
+  - Network latency between services
+  - Additional deployment complexity (two services)
+  - Need to handle service availability/retries
+- Impact: Clean architecture, independent scalability, easier maintenance
+
+**Alternatives Considered:**
+- Direct import of repository adapters: Rejected, would tightly couple codebases and mix database technologies
+- Fork and modify research-ai-paper: Rejected, creates maintenance burden for two diverging codebases
+- Rewrite paper download functionality: Rejected, unnecessary duplication of working code
+
+---
+
 ## Template for Future Decisions
 
 ```markdown

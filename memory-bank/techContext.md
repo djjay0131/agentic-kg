@@ -25,10 +25,18 @@
 - **Vertex AI** - Gemini model hosting and inference
 - **Docker** - Container runtime (Python 3.12-slim base)
 
-### Knowledge Graph Stack (To Be Selected)
-- **Property Graph**: Neo4j, Amazon Neptune, or similar
-- **RDF/SPARQL**: If interoperability with existing SKGs needed
-- **Vector Index**: For semantic search (e.g., Pinecone, Weaviate, pgvector)
+### Knowledge Graph Stack
+- **Property Graph**: Neo4j (selected - see ADR-010)
+- **Vector Index**: Neo4j native vector indexes (5.x+)
+- **Embeddings**: OpenAI text-embedding-3-small (1536 dims)
+
+### Paper Data Sources
+- **Semantic Scholar API**: Paper metadata, citations, SPECTER2 embeddings
+- **Paper Acquisition Layer**: Unified interface for full-text retrieval
+  - **Open access**: arXiv, OpenAlex, PubMed Central
+  - **Paywall access**: research-ai-paper repository integration (https://github.com/DJJayNet/research-ai-paper)
+  - **Publisher APIs**: Where available (Elsevier, Springer, etc.)
+- **Note**: System is NOT constrained to publicly available sources only
 
 ## Development Environment Setup
 
