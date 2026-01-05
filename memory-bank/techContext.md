@@ -34,7 +34,7 @@
 - **Semantic Scholar API**: Paper metadata, citations, SPECTER2 embeddings
 - **Paper Acquisition Layer**: Unified interface for full-text retrieval
   - **Open access**: arXiv, OpenAlex, PubMed Central
-  - **Paywall access**: Denario repository integration (existing code)
+  - **Paywall access**: research-ai-paper repository integration (https://github.com/DJJayNet/research-ai-paper)
   - **Publisher APIs**: Where available (Elsevier, Springer, etc.)
 - **Note**: System is NOT constrained to publicly available sources only
 

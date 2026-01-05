@@ -166,10 +166,10 @@ class PaperAcquisitionLayer:
 ```
 
 **Dependencies:**
-- Denario repository (paywall access code)
+- research-ai-paper repository (https://github.com/DJJayNet/research-ai-paper)
 - Semantic Scholar Client (for identifier resolution)
 
-**Integration Note:** Existing code in Denario repository for paywall access must be integrated. Location TBD.
+**Integration Note:** Existing code in research-ai-paper repository for paywall access must be integrated.
 
 ---
 
@@ -724,7 +724,7 @@ Parallelization opportunities:
 
 ## 9. Open Questions
 
-1. **Denario Integration:** Where is the paywall access code? What's the interface?
+1. **research-ai-paper Integration:** Review repository capabilities and interface design
 2. **Evaluation Agent Scope:** How much actual experiment execution vs. proposal only?
 3. **Multi-tenancy:** Do we need user/project isolation in the graph?
 4. **Embedding Model:** Stick with OpenAI or consider local models?

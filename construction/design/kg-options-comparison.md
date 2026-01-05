@@ -28,7 +28,7 @@ This document compares three existing scholarly knowledge graphs (CS-KG, Semanti
 
 **Note:** CS-KG was evaluated but excluded due to being a static academic dataset (data coverage ends at 2022) with no continuous updates. Since we must build a custom LLM extraction pipeline anyway for problems/assumptions/constraints, the pre-extracted task/method entities from CS-KG provide insufficient value to justify the integration complexity.
 
-**Important:** The system must not be constrained to publicly available sources only. Paper acquisition includes integration with existing Denario repository code for accessing papers behind paywalls.
+**Important:** The system must not be constrained to publicly available sources only. Paper acquisition includes integration with the research-ai-paper repository (https://github.com/DJJayNet/research-ai-paper) for accessing papers behind paywalls.
 
 ---
 
@@ -401,7 +401,7 @@ RETURN path
 │       - Paper metadata        │      - arXiv (open access)      │
 │       - Citations/references  │      - OpenAlex                 │
 │       - SPECTER2 embeddings   │      - Publisher APIs           │
-│       - Author information    │      - Paywall access (Denario) │
+│       - Author information    │      - Paywall access           │
 └───────────────┬───────────────┴─────────────────┬───────────────┘
                 │                                 │
                 ▼                                 ▼
@@ -442,10 +442,10 @@ RETURN path
 
 2. **Paper Acquisition Layer (Full Text Access)**
    - **Open access**: arXiv, OpenAlex, PubMed Central
-   - **Paywall access**: Integrate existing Denario repository code
+   - **Paywall access**: Integrate research-ai-paper repository
    - **Publisher APIs**: Where available (Elsevier, Springer, etc.)
    - Unified interface for PDF retrieval regardless of source
-   - *Note: Existing code in Denario repository to be integrated*
+   - *Note: Existing code in research-ai-paper repository to be integrated*
 
 3. **Custom Neo4j as Core KG**
    - Store problems with full schema (first-class entities)
@@ -544,7 +544,7 @@ RETURN path
 | **Neo4j (Custom)** | Primary KG for problems | Required |
 | **Semantic Scholar** | Paper metadata, citations, embeddings | High |
 | **Paper Acquisition Layer** | Full-text access (open + paywall) | High |
-| **Denario Integration** | Paywall paper download capabilities | High |
+| **research-ai-paper** | Paywall paper download capabilities | High |
 
 **Excluded:**
 | System | Reason |
