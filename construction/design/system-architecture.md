@@ -151,7 +151,7 @@ class SemanticScholarClient:
 **Responsibilities:**
 - Download PDFs from arXiv (open access)
 - Fetch papers from OpenAlex/PubMed Central
-- Integrate Denario paywall access code
+- Access paywalled papers via research-ai-paper system
 - Publisher API integration where available
 - Caching to avoid redundant downloads
 - Track paper source/provenance
@@ -169,7 +169,20 @@ class PaperAcquisitionLayer:
 - research-ai-paper repository (https://github.com/DJJayNet/research-ai-paper)
 - Semantic Scholar Client (for identifier resolution)
 
-**Integration Note:** Existing code in research-ai-paper repository for paywall access must be integrated.
+**Integration with research-ai-paper:**
+
+The research-ai-paper system provides:
+- **Multi-repository support**: arXiv, IEEE Xplore, ACM Digital Library, and more
+- **Celery task queue**: Distributed downloads with server selection
+- **FastAPI REST API**: Endpoints for papers, queue, repositories
+- **PostgreSQL storage**: Paper metadata and download tracking
+- **Repository adapters**: Pluggable connectors for each source
+- **Paywall authentication**: Environment-based credentials (IEEE_USERNAME, ACM_PASSWORD, etc.)
+
+Integration approach:
+1. Use research-ai-paper's FastAPI as a microservice
+2. Call its REST endpoints from our Paper Acquisition Layer
+3. Or import its repository adapters directly for tighter integration
 
 ---
 
@@ -724,7 +737,7 @@ Parallelization opportunities:
 
 ## 9. Open Questions
 
-1. **research-ai-paper Integration:** Review repository capabilities and interface design
+1. **research-ai-paper Integration:** Microservice vs. direct import? Shared PostgreSQL or separate?
 2. **Evaluation Agent Scope:** How much actual experiment execution vs. proposal only?
 3. **Multi-tenancy:** Do we need user/project isolation in the graph?
 4. **Embedding Model:** Stick with OpenAI or consider local models?
