@@ -57,7 +57,7 @@ The system shall support Create, Read, Update, and Delete operations for Problem
 | Create | Insert a new Problem with required fields (statement, evidence) |
 | Read | Retrieve a Problem by ID, with all nested objects |
 | Update | Modify Problem fields, auto-increment version number |
-| Delete | Soft-delete a Problem (set status to deprecated) |
+| Deprecate | Set status to deprecated (Problems are never hard-deleted) |
 | List | Query Problems with filtering (domain, status, date range) |
 
 **Validation Rules:**
@@ -491,15 +491,14 @@ The system shall support:
 
 ---
 
-## 8. Open Questions
+## 8. Design Decisions
 
-1. **Deduplication Threshold**: What cosine similarity threshold indicates duplicate Problems? (Propose: 0.95)
-
-2. **Soft Delete vs Hard Delete**: Should Problems be soft-deleted (status=deprecated) or hard-deleted? (Propose: soft delete)
-
-3. **Embedding Update Policy**: When Problem statement changes, regenerate embedding immediately or batch later? (Propose: immediate)
-
-4. **Multi-tenancy**: Do we need user/project isolation in the graph? (Propose: not for MVP)
+| Question | Decision | Rationale |
+|----------|----------|-----------|
+| Deduplication Threshold | 0.95 cosine similarity | High threshold to avoid false positives |
+| Delete Policy | Soft delete only (status change) | Problems should never be deleted, only deprecated |
+| Embedding Update | Immediate regeneration | Keep embeddings in sync with statements |
+| Multi-tenancy | Not for MVP | Simplifies initial implementation |
 
 ---
 
