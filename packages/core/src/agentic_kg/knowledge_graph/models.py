@@ -5,12 +5,17 @@ Defines Problem, Paper, Author, and supporting models for the research
 knowledge graph with validation and JSON serialization for Neo4j storage.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 import uuid
 
 from pydantic import BaseModel, Field, field_validator
+
+
+def _utc_now() -> datetime:
+    """Get current UTC time as timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 
 # =============================================================================
@@ -129,7 +134,7 @@ class Evidence(BaseModel):
 class ExtractionMetadata(BaseModel):
     """Metadata about how a problem was extracted."""
 
-    extracted_at: datetime = Field(default_factory=datetime.utcnow)
+    extracted_at: datetime = Field(default_factory=_utc_now)
     extractor_version: str = Field(default="1.0.0")
     extraction_model: str = Field(..., description="Model used (e.g., 'gpt-4', 'claude-3')")
     confidence_score: float = Field(ge=0, le=1, description="Extraction confidence")
@@ -173,8 +178,8 @@ class Problem(BaseModel):
     )
 
     # Timestamps and versioning
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utc_now)
+    updated_at: datetime = Field(default_factory=_utc_now)
     version: int = Field(default=1, ge=1, description="Version number")
 
     def to_neo4j_properties(self) -> dict:
@@ -221,7 +226,7 @@ class Paper(BaseModel):
     full_text: Optional[str] = Field(default=None, description="Full text content")
 
     # Metadata
-    ingested_at: datetime = Field(default_factory=datetime.utcnow)
+    ingested_at: datetime = Field(default_factory=_utc_now)
 
     @field_validator("doi")
     @classmethod
@@ -277,7 +282,7 @@ class ProblemRelation(BaseModel):
     relation_type: RelationType = Field(..., description="Type of relation")
     confidence: float = Field(ge=0, le=1, default=0.8, description="Confidence score")
     evidence_doi: Optional[str] = Field(default=None, description="Supporting paper DOI")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utc_now)
 
 
 class ExtendsRelation(ProblemRelation):
@@ -313,7 +318,7 @@ class ExtractedFromRelation(BaseModel):
     problem_id: str = Field(..., description="Problem ID")
     paper_doi: str = Field(..., description="Paper DOI")
     section: str = Field(..., description="Section where extracted")
-    extraction_date: datetime = Field(default_factory=datetime.utcnow)
+    extraction_date: datetime = Field(default_factory=_utc_now)
 
 
 class AuthoredByRelation(BaseModel):

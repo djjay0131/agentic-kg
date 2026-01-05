@@ -16,11 +16,11 @@
 ## Tasks
 
 ### Task 1: Project Structure & Configuration
-- [ ] Create `agentic_kg/` package directory structure
-- [ ] Create `agentic_kg/config.py` for environment-based settings
-- [ ] Add Neo4j connection configuration (local/Aura)
-- [ ] Add OpenAI API key configuration for embeddings
-- [ ] Create `.env.example` with required environment variables
+- [x] Create `agentic_kg/` package directory structure
+- [x] Create `agentic_kg/config.py` for environment-based settings
+- [x] Add Neo4j connection configuration (local/Aura)
+- [x] Add OpenAI API key configuration for embeddings
+- [x] Create `.env.example` with required environment variables
 
 **Acceptance Criteria:**
 - Clean package structure following Python conventions
@@ -30,9 +30,9 @@
 ---
 
 ### Task 2: Neo4j Setup
-- [ ] Add Neo4j to docker-compose for local development
+- [x] Add Neo4j to docker-compose for local development
 - [ ] Create Neo4j database initialization script
-- [ ] Configure connection settings via config module
+- [x] Configure connection settings via config module
 - [ ] Test connection from Python
 - [ ] Document Neo4j Aura setup for production
 
@@ -44,14 +44,14 @@
 ---
 
 ### Task 3: Pydantic Models
-- [ ] Create `agentic_kg/knowledge_graph/models.py`
-- [ ] Implement Problem model with all attributes from phase-1 design
-- [ ] Implement Paper model with DOI, metadata, and content fields
-- [ ] Implement Author model with affiliations and identifiers
-- [ ] Implement relation models (Extends, Contradicts, DependsOn, Reframes)
-- [ ] Implement Evidence and ExtractionMetadata models
-- [ ] Add JSON serialization for Neo4j storage
-- [ ] Add model validators for required fields
+- [x] Create `agentic_kg/knowledge_graph/models.py`
+- [x] Implement Problem model with all attributes from phase-1 design
+- [x] Implement Paper model with DOI, metadata, and content fields
+- [x] Implement Author model with affiliations and identifiers
+- [x] Implement relation models (Extends, Contradicts, DependsOn, Reframes)
+- [x] Implement Evidence and ExtractionMetadata models
+- [x] Add JSON serialization for Neo4j storage
+- [x] Add model validators for required fields
 
 **Acceptance Criteria:**
 - All models defined with proper validation

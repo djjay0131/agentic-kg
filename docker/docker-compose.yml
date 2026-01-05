@@ -1,5 +1,8 @@
 # Docker Compose for Agentic Knowledge Graph local development
 # Run with: docker compose -f docker/docker-compose.yml up -d
+#
+# IMPORTANT: Set NEO4J_PASSWORD in your environment or .env file before running
+# Example: NEO4J_PASSWORD=your-secure-password docker compose up -d
 
 version: "3.8"
 
@@ -11,7 +14,7 @@ services:
       - "7474:7474"  # HTTP (Browser)
       - "7687:7687"  # Bolt (Driver)
     environment:
-      - NEO4J_AUTH=neo4j/password  # Change in production!
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD must be set}
       - NEO4J_PLUGINS=["apoc"]
       # Enable vector index support
       - NEO4J_dbms_security_procedures_unrestricted=apoc.*
