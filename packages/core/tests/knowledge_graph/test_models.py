@@ -8,37 +8,35 @@ serialization, and edge cases.
 from datetime import datetime, timezone
 
 import pytest
-from pydantic import ValidationError
-
 from agentic_kg.knowledge_graph.models import (
+    # Supporting Models
+    Assumption,
+    # Core Entity Models
+    Author,
+    # Relation Models
+    AuthoredByRelation,
+    Baseline,
+    Constraint,
     # Enums
     ConstraintType,
     ContradictionType,
-    DependencyType,
-    ProblemStatus,
-    RelationType,
-    # Supporting Models
-    Assumption,
-    Baseline,
-    Constraint,
+    ContradictsRelation,
     Dataset,
+    DependencyType,
+    DependsOnRelation,
     Evidence,
+    ExtendsRelation,
+    ExtractedFromRelation,
     ExtractionMetadata,
     Metric,
-    # Core Entity Models
-    Author,
     Paper,
     Problem,
-    # Relation Models
-    AuthoredByRelation,
-    ContradictsRelation,
-    DependsOnRelation,
-    ExtractedFromRelation,
-    ExtendsRelation,
     ProblemRelation,
+    ProblemStatus,
     ReframesRelation,
+    RelationType,
 )
-
+from pydantic import ValidationError
 
 # =============================================================================
 # Enum Tests
@@ -417,7 +415,9 @@ class TestProblem:
     """Tests for Problem model."""
 
     # Happy path tests
-    def test_create_with_required_fields(self, sample_evidence_data, sample_extraction_metadata_data):
+    def test_create_with_required_fields(
+        self, sample_evidence_data, sample_extraction_metadata_data
+    ):
         """Problem can be created with required fields."""
         problem = Problem(
             statement="How can we improve machine learning model interpretability?",
@@ -466,7 +466,9 @@ class TestProblem:
                 extraction_metadata=sample_extraction_metadata_data,
             )
 
-    def test_statement_at_minimum_length(self, sample_evidence_data, sample_extraction_metadata_data):
+    def test_statement_at_minimum_length(
+        self, sample_evidence_data, sample_extraction_metadata_data
+    ):
         """Statement with exactly 20 characters is valid."""
         problem = Problem(
             statement="12345678901234567890",  # Exactly 20 chars
@@ -886,7 +888,9 @@ class TestModelEdgeCases:
         assumption = Assumption(text="Unicode text")
         assert "Unicode" in assumption.text
 
-    def test_problem_with_very_long_statement(self, sample_evidence_data, sample_extraction_metadata_data):
+    def test_problem_with_very_long_statement(
+        self, sample_evidence_data, sample_extraction_metadata_data
+    ):
         """Problem handles very long statements."""
         long_statement = "A" * 10000
         problem = Problem(

@@ -140,18 +140,18 @@
 
 ### Task 9: Testing
 - [x] Create test fixtures with sample problems, papers, authors (conftest.py)
-- [ ] Write unit tests for all CRUD operations (requires Neo4j container)
-- [ ] Write integration tests for search (requires Neo4j container)
-- [ ] Write tests for relation operations (requires Neo4j container)
-- [x] Add test coverage for edge cases and error handling (171 tests for models/config)
-- [ ] Set up pytest with Neo4j test container
+- [x] Write unit tests for all CRUD operations (test_repository.py)
+- [x] Write integration tests for search (test_search.py)
+- [x] Write tests for relation operations (test_relations.py)
+- [x] Add test coverage for edge cases and error handling
+- [x] Set up pytest with Neo4j test container
 
 **Acceptance Criteria:**
 - >80% test coverage for knowledge_graph module
 - All tests pass in CI
 - Test isolation using Neo4j testcontainer
 
-**Progress:** 171 tests for models.py and config.py passing. Repository/search/relations tests deferred until Neo4j testcontainer setup.
+**Progress:** 221 total tests (171 unit + 50 integration). Integration tests require Docker and skip gracefully in CI without Docker.
 
 ---
 
