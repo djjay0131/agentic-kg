@@ -156,17 +156,19 @@
 ---
 
 ### Task 10: Sample Data
-- [ ] Create `scripts/load_sample_problems.py`
-- [ ] Define 10-20 sample research problems from real papers
-- [ ] Include sample papers with metadata
-- [ ] Create sample relations between problems
-- [ ] Include varied domains (NLP, CV, ML)
+- [x] Create `scripts/load_sample_problems.py`
+- [x] Define 10-20 sample research problems from real papers (6 problems)
+- [x] Include sample papers with metadata (6 papers from landmark ML papers)
+- [x] Create sample relations between problems (EXTENDS relation)
+- [x] Include varied domains (NLP, CV, ML)
 - [ ] Document sample data schema
 
 **Acceptance Criteria:**
 - Can load sample data into fresh Neo4j instance
 - Sample data covers all model features
 - Realistic problem statements from actual papers
+
+**Progress:** Sample data includes 6 papers (Transformer, BERT, GPT-3, ResNet, ViT, InstructGPT), 3 authors, and 6 research problems covering attention scalability, data requirements, few-shot learning, deep network training, ViT data efficiency, and RLHF alignment.
 
 ---
 
