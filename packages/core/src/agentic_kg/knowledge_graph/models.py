@@ -5,10 +5,10 @@ Defines Problem, Paper, Author, and supporting models for the research
 knowledge graph with validation and JSON serialization for Neo4j storage.
 """
 
+import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
-import uuid
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -196,9 +196,11 @@ class Problem(BaseModel):
         # Convert datetime to ISO strings
         data["created_at"] = self.created_at.isoformat()
         data["updated_at"] = self.updated_at.isoformat()
-        data["extraction_metadata"]["extracted_at"] = self.extraction_metadata.extracted_at.isoformat()
+        extracted_at = self.extraction_metadata.extracted_at.isoformat()
+        data["extraction_metadata"]["extracted_at"] = extracted_at
         if self.extraction_metadata.reviewed_at:
-            data["extraction_metadata"]["reviewed_at"] = self.extraction_metadata.reviewed_at.isoformat()
+            reviewed_at = self.extraction_metadata.reviewed_at.isoformat()
+            data["extraction_metadata"]["reviewed_at"] = reviewed_at
         return data
 
 
@@ -254,7 +256,9 @@ class Author(BaseModel):
     name: str = Field(..., min_length=1, description="Author name")
     affiliations: list[str] = Field(default_factory=list, description="Institutional affiliations")
     orcid: Optional[str] = Field(default=None, description="ORCID identifier")
-    semantic_scholar_id: Optional[str] = Field(default=None, description="Semantic Scholar author ID")
+    semantic_scholar_id: Optional[str] = Field(
+        default=None, description="Semantic Scholar author ID"
+    )
 
     @field_validator("orcid")
     @classmethod
