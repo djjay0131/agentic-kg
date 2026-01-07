@@ -10,7 +10,7 @@ import logging
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Generator, Optional
+from typing import Any, Generator, Optional
 
 from neo4j import GraphDatabase, ManagedTransaction, Session
 from neo4j.exceptions import (
@@ -26,9 +26,6 @@ from agentic_kg.knowledge_graph.models import (
     Problem,
     ProblemStatus,
 )
-
-if TYPE_CHECKING:
-    from agentic_kg.knowledge_graph.embeddings import EmbeddingService
 
 logger = logging.getLogger(__name__)
 
