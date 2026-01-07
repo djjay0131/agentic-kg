@@ -103,7 +103,12 @@ jobs:
       - name: Run tests
         run: |
           if [ -d "packages/core/tests" ] && [ "$(find packages/core/tests -name 'test_*.py' | wc -l)" -gt 0 ]; then
-            pytest packages/core/tests/ -v --tb=short
+            # Run unit tests only - integration tests require Docker/Neo4j
+            # Integration tests: test_repository.py, test_search.py, test_relations.py
+            pytest packages/core/tests/ -v --tb=short \
+              --ignore=packages/core/tests/knowledge_graph/test_repository.py \
+              --ignore=packages/core/tests/knowledge_graph/test_search.py \
+              --ignore=packages/core/tests/knowledge_graph/test_relations.py
           else
             echo "No tests found yet. Skipping test run."
           fi
