@@ -1,14 +1,75 @@
 # Progress Tracking
 
-**Last Updated:** 2025-01-05
+**Last Updated:** 2026-01-07
 
-## Project Status: Phase 1 Implementation In Progress
+## Project Status: Sprint 01 Complete - Ready for Merge
 
-Starting new project: Agentic Knowledge Graphs for Research Progression, built on the Denario framework.
+Knowledge Graph Foundation (Sprint 01) is complete. Branch `claude/problem-schema-design-SqUnQ` ready for merge to master.
 
 ---
 
 ## Completed Work
+
+### Sprint 01: Knowledge Graph Foundation (2025-01-05 - 2026-01-07)
+
+**What:**
+- Implemented complete Knowledge Representation Layer with Neo4j
+- All 5 user stories (US-01 through US-05) implemented
+- All 11 sprint tasks completed (with minor items deferred)
+
+**Key Deliverables:**
+- `packages/core/src/agentic_kg/` - Core package with full KG implementation
+- `knowledge_graph/models.py` - Pydantic models (Problem, Paper, Author, Relations)
+- `knowledge_graph/repository.py` - Neo4j CRUD operations with auto-embedding
+- `knowledge_graph/search.py` - Hybrid search (semantic + structured)
+- `knowledge_graph/embeddings.py` - OpenAI embedding integration
+- `knowledge_graph/schema.py` - Database schema and migrations
+- 221 tests (171 unit + 50 integration) with Neo4j testcontainer
+
+**Auto-Embedding Fix (FR-2.4.1):**
+- `create_problem()` now auto-generates embeddings by default
+- `update_problem()` supports `regenerate_embedding=True` parameter
+- Graceful degradation: failures logged as warnings, problem created without embedding
+
+**Deferred Items (see construction/backlog/sprint-01-deferred.md):**
+- Multi-hop graph traversal (FR-2.3.4) - Target Sprint 03
+- Referential integrity on paper delete - Low priority
+- Neo4j Aura production docs - Target Sprint 02
+- Update techContext.md - Medium priority
+
+**Impact:**
+Knowledge Graph Foundation complete and ready for data acquisition layer.
+
+**Verification:**
+- Commits: See branch `claude/problem-schema-design-SqUnQ`
+- All tests passing (integration tests skip gracefully without Docker)
+- Sprint doc: `construction/sprints/sprint-01-knowledge-graph.md`
+
+---
+
+### Deployment Infrastructure Design (2026-01-07)
+
+**What:**
+- Created comprehensive deployment infrastructure design
+- Docker multi-service architecture (api, ui, worker)
+- GitHub Actions workflows for CI/CD
+
+**Artifacts:**
+- Design doc: `construction/design/deployment-infrastructure.md`
+- Dockerfiles: `docker/Dockerfile.{api,ui,worker,base}`
+- Workflows: `.github/workflows/deploy-{branch,master,tag}.yml`
+- Environment configs: `deploy/environments/{dev,staging,production}.yaml`
+
+**Key Features:**
+- Branch deployment on demand (manual trigger)
+- Master deployment after merge (automatic)
+- Service versioning with mix-and-match capability
+- Multi-environment support (dev, staging, production)
+
+**Impact:**
+Infrastructure ready for service deployment when API/UI are implemented.
+
+---
 
 ### Memory Bank Initialization (2025-12-18)
 
@@ -92,96 +153,95 @@ Standardized workflow for maintaining project documentation and managing design-
 
 ## In Progress
 
-### Pipeline Testing & Production Deployment
+### Sprint 01 Merge
 
 **What:**
-Test the CI/CD pipeline and deploy to production
+Merge Knowledge Graph Foundation to master
 
 **Current State:**
-- CI/CD triggers configured and tested
-- Build triggered by push to `dev/agentic-kg-setup` (2025-12-22)
-- Awaiting build completion (~20-30 min)
+- Sprint 01 implementation complete
+- Branch: `claude/problem-schema-design-SqUnQ`
+- All tests passing (CI skips integration tests without Docker)
+- Ready for PR review and merge
 
 **Next Steps:**
-- [x] Push to dev branch to trigger full build
-- [ ] Verify Cloud Run deployment succeeds
-- [ ] Access Cloud Run URL and verify Streamlit GUI loads
-- [ ] Test LLM connectivity (at least one provider)
-- [ ] Merge `dev/agentic-kg-setup` to master
-- [ ] Verify production deployment
+- [ ] Create PR from `claude/problem-schema-design-SqUnQ` to master
+- [ ] Review and merge PR
+- [ ] Tag release (v0.1.0?)
+- [ ] Begin Sprint 02 planning
 
-### Phase 1: Knowledge Graph Foundation (In Progress)
+### Sprint 02: Data Acquisition Layer (Planned)
 
 **What:**
-Implement the Knowledge Representation Layer with Neo4j
+Implement data acquisition from academic paper sources
 
-**Sprint 01 Progress (Started 2025-01-05):**
-- [x] Graph database selection: Neo4j (ADR-010)
-- [x] Problem entity schema design with full attributes
-- [x] Relation types defined (extends, contradicts, depends-on, reframes)
-- [x] Vector index design for hybrid retrieval
-- [x] Sprint 01 tasks breakdown
-- [x] Pydantic model specifications
-- [x] Project structure: `packages/core/src/agentic_kg/`
-- [x] Configuration module: `config.py`
-- [x] Pydantic models: `knowledge_graph/models.py`
-- [x] Docker Compose for Neo4j: `docker/docker-compose.yml`
-- [x] Requirements document: `construction/requirements/knowledge-graph-requirements.md`
-- [ ] Repository layer (CRUD operations)
-- [ ] Schema initialization scripts
-- [ ] Embedding integration
-- [ ] Hybrid search implementation
-- [ ] Testing infrastructure
+**Scope (from user requirements):**
+- Semantic Scholar API integration
+- arXiv API integration
+- OpenAlex API integration
+- Rate limiting and caching
+- Paper metadata extraction
+- Full-text retrieval
 
-**Artifacts:**
-- Design doc: `construction/design/phase-1-knowledge-graph.md`
-- Sprint plan: `construction/sprints/sprint-01-knowledge-graph.md`
-- Requirements: `construction/requirements/knowledge-graph-requirements.md`
-- ADR-010: Neo4j selection, ADR-011: Microservice architecture
+**Status:** Requirements and design documents to be created
+
+**Target Tasks (estimated 14 tasks):**
+- API client implementations
+- Rate limiting infrastructure
+- Caching layer
+- Paper ingestion pipeline
+- Metadata normalization
+- Full-text processing
+
+**Artifacts to create:**
+- `construction/requirements/sprint-02-requirements.md`
+- `construction/sprints/sprint-02-data-acquisition.md`
 
 ---
 
 ## Remaining Work
 
-### Phase 0: Infrastructure (Current - Final Steps)
+### Phase 1: Knowledge Graph Foundation - COMPLETE
+
+**Status:** All tasks complete, branch ready for merge
+**Sprint:** 01
+**Branch:** `claude/problem-schema-design-SqUnQ`
+
+**Completed Tasks:**
+- [x] Neo4j graph database with Docker setup
+- [x] Pydantic models (Problem, Paper, Author, Relations)
+- [x] Repository layer with CRUD operations
+- [x] Schema initialization and migrations
+- [x] Vector index with OpenAI embeddings
+- [x] Hybrid search (semantic + structured)
+- [x] Relation operations
+- [x] 221 tests (unit + integration)
+- [x] Sample data loading script
+- [x] Module documentation
+
+**Deferred to backlog:**
+- Multi-hop traversal (FR-2.3.4) - Sprint 03
+- Neo4j Aura production docs - Sprint 02
+- Referential integrity on delete - Low priority
+
+### Phase 2: Data Acquisition Layer (Next)
 
 **Tasks:**
-- [x] GCP project setup
-- [x] Enable required APIs
-- [x] Artifact Registry creation
-- [x] Secret Manager configuration
-- [x] Cloud Build pipeline creation
-- [x] GitHub OAuth authorization
-- [x] Create Cloud Build triggers
-- [ ] Test full deployment pipeline (push to dev → build → deploy)
-- [ ] Verify Cloud Run accessible and functional
-- [ ] Merge dev branch to master
-- [ ] Verify production deployment
+- [ ] Create requirements document
+- [ ] Design data acquisition architecture
+- [ ] Implement Semantic Scholar API client
+- [ ] Implement arXiv API client
+- [ ] Implement OpenAlex API client
+- [ ] Build rate limiting infrastructure
+- [ ] Add caching layer (Redis?)
+- [ ] Create paper ingestion pipeline
+- [ ] Normalize metadata across sources
+- [ ] Handle full-text retrieval
 
-**Priority:** High
-**Dependencies:** None - ready to proceed
+**Priority:** High - Next up after Sprint 01 merge
+**Dependencies:** Phase 1 complete (satisfied)
 
-### Phase 1: Knowledge Graph Foundation (Sprint 01)
-
-**Tasks:**
-- [x] Select graph database: Neo4j (ADR-010)
-- [x] Design Problem entity schema
-- [x] Design vector index for semantic search
-- [x] Set up Neo4j in Docker (docker-compose.yml)
-- [x] Implement Pydantic models (models.py)
-- [x] Create configuration module (config.py)
-- [x] Create requirements specification
-- [ ] Create repository layer (CRUD operations)
-- [ ] Implement schema initialization
-- [ ] Set up vector index
-- [ ] Add embedding integration
-- [ ] Implement hybrid search
-- [ ] Test basic graph operations
-
-**Priority:** High - In Progress
-**Dependencies:** Sprint 01 started, design complete
-
-### Phase 2: Extraction Pipeline
+### Phase 3: Extraction Pipeline
 
 **Tasks:**
 - [ ] Design extraction prompts for problem identification
@@ -191,9 +251,9 @@ Implement the Knowledge Representation Layer with Neo4j
 - [ ] Test on sample papers
 
 **Priority:** Medium
-**Dependencies:** Phase 1 complete
+**Dependencies:** Phase 2 complete
 
-### Phase 3: Agent Implementation
+### Phase 4: Agent Implementation
 
 **Tasks:**
 - [ ] Implement Ranking agent
@@ -204,7 +264,7 @@ Implement the Knowledge Representation Layer with Neo4j
 - [ ] Add human-in-the-loop checkpoints
 
 **Priority:** Medium
-**Dependencies:** Phases 1-2 complete
+**Dependencies:** Phases 2-3 complete
 
 ---
 
@@ -242,24 +302,30 @@ Implement the Knowledge Representation Layer with Neo4j
 ### M0: Infrastructure Ready
 - **Target:** After Phase 0
 - **Description:** Denario running on GCP, accessible via web
-- **Status:** In Progress
+- **Status:** Complete (2025-12-22)
 
 ### M1: Knowledge Graph MVP
 - **Target:** After Phase 1
 - **Description:** Basic graph with problem entities, can query
-- **Status:** In Progress (Sprint 01 started)
+- **Status:** Complete - Ready for Merge (2026-01-07)
+- **Deliverable:** Branch `claude/problem-schema-design-SqUnQ`
 
-### M2: Extraction Pipeline
-- **Target:** After Phase 2
+### M2: Data Acquisition
+- **Target:** After Sprint 02
+- **Description:** Can ingest papers from Semantic Scholar, arXiv, OpenAlex
+- **Status:** Planning (requirements to be created)
+
+### M3: Extraction Pipeline
+- **Target:** After Phase 3
 - **Description:** Can extract problems from papers, populate graph
 - **Status:** Not Started
 
-### M3: Agent System
-- **Target:** After Phase 3
+### M4: Agent System
+- **Target:** After Phase 4
 - **Description:** Agents can rank, propose, and update graph
 - **Status:** Not Started
 
-### M4: Integrated System
+### M5: Integrated System
 - **Target:** After all phases
 - **Description:** Full closed-loop research progression
 - **Status:** Not Started
