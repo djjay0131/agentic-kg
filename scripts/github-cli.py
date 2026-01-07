@@ -115,6 +115,39 @@ def pr_checks(args):
         print(f"Could not fetch checks: {e}")
 
 
+def pr_create(args):
+    """Create a pull request."""
+    api, owner, repo = get_api()
+
+    # Get current branch if not specified
+    head = args.head
+    if not head:
+        head = os.popen("git branch --show-current 2>/dev/null").read().strip()
+        if not head:
+            print("Error: Could not determine current branch")
+            sys.exit(1)
+
+    # Get default branch if base not specified
+    base = args.base
+    if not base:
+        repo_info = api.repos.get()
+        base = repo_info['default_branch']
+
+    try:
+        pr = api.pulls.create(
+            title=args.title,
+            head=head,
+            base=base,
+            body=args.body or ""
+        )
+        print(f"Created PR #{pr['number']}: {pr['title']}")
+        print(f"URL: {pr['html_url']}")
+        return pr
+    except Exception as e:
+        print(f"Error creating PR: {e}")
+        sys.exit(1)
+
+
 def issue_list(args):
     """List issues."""
     api, owner, repo = get_api()
@@ -172,6 +205,13 @@ def main():
     pr_checks_parser = pr_subparsers.add_parser("checks", help="View PR checks")
     pr_checks_parser.add_argument("number", type=int, help="PR number")
     pr_checks_parser.set_defaults(func=pr_checks)
+
+    pr_create_parser = pr_subparsers.add_parser("create", help="Create a PR")
+    pr_create_parser.add_argument("--title", "-t", required=True, help="PR title")
+    pr_create_parser.add_argument("--body", "-b", default="", help="PR body")
+    pr_create_parser.add_argument("--head", "-H", help="Head branch (default: current)")
+    pr_create_parser.add_argument("--base", "-B", help="Base branch (default: repo default)")
+    pr_create_parser.set_defaults(func=pr_create)
 
     # Issue commands
     issue_parser = subparsers.add_parser("issue", help="Issue commands")
