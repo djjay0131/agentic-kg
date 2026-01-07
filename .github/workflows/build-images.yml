@@ -1,0 +1,161 @@
+# Reusable workflow for building and pushing Docker images
+# Called by deploy-branch.yml and deploy-master.yml
+
+name: Build Images
+
+on:
+  workflow_call:
+    inputs:
+      services:
+        description: 'Comma-separated list of services to build (api,ui,worker) or "all"'
+        required: true
+        type: string
+      image_tag:
+        description: 'Tag for the built images'
+        required: true
+        type: string
+      push:
+        description: 'Whether to push images to registry'
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      api_image:
+        description: 'Full API image reference'
+        value: ${{ jobs.build.outputs.api_image }}
+      ui_image:
+        description: 'Full UI image reference'
+        value: ${{ jobs.build.outputs.ui_image }}
+      worker_image:
+        description: 'Full worker image reference'
+        value: ${{ jobs.build.outputs.worker_image }}
+
+env:
+  REGISTRY: us-central1-docker.pkg.dev
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REPOSITORY: agentic-kg
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    outputs:
+      api_image: ${{ steps.meta.outputs.api_image }}
+      ui_image: ${{ steps.meta.outputs.ui_image }}
+      worker_image: ${{ steps.meta.outputs.worker_image }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Parse services to build
+        id: parse
+        run: |
+          SERVICES="${{ inputs.services }}"
+          if [ "$SERVICES" = "all" ]; then
+            echo "build_api=true" >> $GITHUB_OUTPUT
+            echo "build_ui=true" >> $GITHUB_OUTPUT
+            echo "build_worker=true" >> $GITHUB_OUTPUT
+          else
+            echo "build_api=$(echo $SERVICES | grep -q 'api' && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "build_ui=$(echo $SERVICES | grep -q 'ui' && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "build_worker=$(echo $SERVICES | grep -q 'worker' && echo true || echo false)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set image metadata
+        id: meta
+        run: |
+          TAG="${{ inputs.image_tag }}"
+          REGISTRY="${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}"
+
+          echo "api_image=${REGISTRY}/api:${TAG}" >> $GITHUB_OUTPUT
+          echo "ui_image=${REGISTRY}/ui:${TAG}" >> $GITHUB_OUTPUT
+          echo "worker_image=${REGISTRY}/worker:${TAG}" >> $GITHUB_OUTPUT
+          echo "registry=${REGISTRY}" >> $GITHUB_OUTPUT
+
+      - name: Build API image
+        if: steps.parse.outputs.build_api == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.api
+          push: ${{ inputs.push }}
+          tags: |
+            ${{ steps.meta.outputs.api_image }}
+            ${{ steps.meta.outputs.registry }}/api:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Build UI image
+        if: steps.parse.outputs.build_ui == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.ui
+          push: ${{ inputs.push }}
+          tags: |
+            ${{ steps.meta.outputs.ui_image }}
+            ${{ steps.meta.outputs.registry }}/ui:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Build Worker image
+        if: steps.parse.outputs.build_worker == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.worker
+          push: ${{ inputs.push }}
+          tags: |
+            ${{ steps.meta.outputs.worker_image }}
+            ${{ steps.meta.outputs.registry }}/worker:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Scan images for vulnerabilities
+        if: inputs.push
+        run: |
+          # Install Trivy
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+          # Scan each built image
+          if [ "${{ steps.parse.outputs.build_api }}" = "true" ]; then
+            trivy image --exit-code 0 --severity HIGH,CRITICAL \
+              ${{ steps.meta.outputs.api_image }} || echo "API image has vulnerabilities"
+          fi
+
+          if [ "${{ steps.parse.outputs.build_ui }}" = "true" ]; then
+            trivy image --exit-code 0 --severity HIGH,CRITICAL \
+              ${{ steps.meta.outputs.ui_image }} || echo "UI image has vulnerabilities"
+          fi
+
+          if [ "${{ steps.parse.outputs.build_worker }}" = "true" ]; then
+            trivy image --exit-code 0 --severity HIGH,CRITICAL \
+              ${{ steps.meta.outputs.worker_image }} || echo "Worker image has vulnerabilities"
+          fi

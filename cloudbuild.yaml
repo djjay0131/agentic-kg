@@ -1,39 +1,113 @@
+# Google Cloud Build configuration
+# This file is used for manual Cloud Build triggers or local gcloud builds
+#
+# Usage:
+#   # Build and deploy API service
+#   gcloud builds submit --config=cloudbuild.yaml \
+#     --substitutions=_SERVICE=api,COMMIT_SHA=$(git rev-parse HEAD)
+#
+#   # Build specific service with version
+#   gcloud builds submit --config=cloudbuild.yaml \
+#     --substitutions=_SERVICE=ui,_VERSION=v1.0.0,COMMIT_SHA=$(git rev-parse HEAD)
+
+substitutions:
+  _SERVICE: api  # api, ui, or worker
+  _VERSION: ''   # Optional version tag (e.g., v1.0.0)
+  _REGION: us-central1
+  _REPOSITORY: agentic-kg
+
 steps:
-  # Build the Docker image with commit SHA tag
+  # Build the Docker image
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-f', 'docker/Dockerfile.prod', '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/denario/denario:$COMMIT_SHA', '.']
-
-  # Also tag as latest
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['tag', 'us-central1-docker.pkg.dev/$PROJECT_ID/denario/denario:$COMMIT_SHA', 'us-central1-docker.pkg.dev/$PROJECT_ID/denario/denario:latest']
-
-  # Push images to Artifact Registry
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/denario/denario:$COMMIT_SHA']
-
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/denario/denario:latest']
-
-  # Deploy to Cloud Run with Secret Manager integration
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: gcloud
+    id: 'build'
     args:
-      - 'run'
-      - 'deploy'
-      - 'denario'
-      - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/denario/denario:$COMMIT_SHA'
-      - '--region=us-central1'
-      - '--platform=managed'
-      - '--port=8501'
-      - '--memory=2Gi'
-      - '--allow-unauthenticated'
-      - '--set-secrets=OPENAI_API_KEY=OPENAI_API_KEY:latest,GOOGLE_API_KEY=GOOGLE_API_KEY:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,PERPLEXITY_API_KEY=PERPLEXITY_API_KEY:latest'
+      - 'build'
+      - '-f'
+      - 'docker/Dockerfile.${_SERVICE}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:latest'
+      - '.'
+
+  # Tag with version if provided
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'tag-version'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        if [ -n "${_VERSION}" ]; then
+          docker tag \
+            ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA \
+            ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:${_VERSION}
+        fi
+
+  # Push SHA-tagged image
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-sha'
+    args:
+      - 'push'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA'
+
+  # Push latest-tagged image
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-latest'
+    args:
+      - 'push'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:latest'
+
+  # Push version-tagged image if provided
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-version'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        if [ -n "${_VERSION}" ]; then
+          docker push \
+            ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:${_VERSION}
+        fi
+
+  # Deploy to Cloud Run (staging by default)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        # Determine port based on service
+        case "${_SERVICE}" in
+          api) PORT=8000 ;;
+          ui) PORT=8501 ;;
+          worker) PORT=8080 ;;
+        esac
+
+        # Determine memory based on service
+        case "${_SERVICE}" in
+          api) MEMORY=1Gi ;;
+          ui) MEMORY=512Mi ;;
+          worker) MEMORY=2Gi ;;
+        esac
+
+        # Deploy to staging (add -staging suffix)
+        gcloud run deploy agentic-kg-${_SERVICE}-staging \
+          --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA \
+          --region=${_REGION} \
+          --platform=managed \
+          --port=$PORT \
+          --memory=$MEMORY \
+          --min-instances=0 \
+          --max-instances=10 \
+          --set-secrets=NEO4J_URI=NEO4J_URI:latest,NEO4J_PASSWORD=NEO4J_PASSWORD:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest \
+          --allow-unauthenticated
 
 images:
-  - 'us-central1-docker.pkg.dev/$PROJECT_ID/denario/denario:$COMMIT_SHA'
-  - 'us-central1-docker.pkg.dev/$PROJECT_ID/denario/denario:latest'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:latest'
 
 timeout: 1800s
 
 options:
   logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'

@@ -1,0 +1,69 @@
+# Staging Environment Configuration
+# Used for testing before production deployment
+
+environment: staging
+region: us-central1
+
+# Service configurations for staging
+services:
+  api:
+    name: agentic-kg-api-staging
+    image_tag: latest  # Override with specific version if needed
+    replicas:
+      min: 0
+      max: 10
+    resources:
+      memory: 1Gi
+      cpu: 1
+    scaling:
+      target_cpu_utilization: 80
+      target_request_count: 100
+    health_check:
+      path: /health
+      initial_delay: 10s
+      period: 30s
+
+  ui:
+    name: agentic-kg-ui-staging
+    image_tag: latest
+    replicas:
+      min: 0
+      max: 5
+    resources:
+      memory: 512Mi
+      cpu: 1
+    scaling:
+      target_cpu_utilization: 80
+
+  worker:
+    name: agentic-kg-worker-staging
+    image_tag: latest
+    replicas:
+      min: 0
+      max: 3
+    resources:
+      memory: 2Gi
+      cpu: 2
+    # Worker is not publicly accessible
+    public: false
+
+# Secrets (references to GCP Secret Manager)
+secrets:
+  - name: NEO4J_URI
+    secret: NEO4J_URI_STAGING
+    version: latest
+  - name: NEO4J_PASSWORD
+    secret: NEO4J_PASSWORD_STAGING
+    version: latest
+  - name: OPENAI_API_KEY
+    secret: OPENAI_API_KEY
+    version: latest
+
+# Environment-specific settings
+settings:
+  log_level: DEBUG
+  enable_debug_endpoints: true
+  cors_origins:
+    - "http://localhost:3000"
+    - "http://localhost:8501"
+    - "https://*.run.app"

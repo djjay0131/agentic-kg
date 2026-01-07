@@ -1,0 +1,74 @@
+# Worker Service Dockerfile
+# Background worker for long-running tasks (extraction, embedding generation)
+#
+# Build: docker build -f docker/Dockerfile.worker -t agentic-kg-worker .
+# Run:   docker run --env-file .env agentic-kg-worker
+
+# Build stage
+FROM python:3.12-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy dependency files
+COPY pyproject.toml ./
+COPY packages/core/pyproject.toml packages/core/
+
+# Create and use virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install dependencies
+RUN pip install --upgrade pip \
+    && pip install hatchling \
+    && pip install neo4j pydantic openai \
+    && pip install celery redis  # Task queue dependencies
+
+# Runtime stage
+FROM python:3.12-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    PATH="/opt/venv/bin:$PATH"
+
+# Install runtime dependencies (minimal for worker)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN groupadd --gid 1000 appgroup \
+    && useradd --uid 1000 --gid appgroup --shell /bin/bash --create-home appuser
+
+WORKDIR /app
+
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+
+# Copy application source
+COPY packages/core/src/ packages/core/src/
+
+# Change ownership
+RUN chown -R appuser:appgroup /app
+
+USER appuser
+
+# No port exposure - worker doesn't serve HTTP
+# Health check via process status
+HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
+    CMD pgrep -f "celery" || exit 1
+
+# Run Celery worker
+# Note: This assumes celery app is defined in agentic_kg.tasks
+# Adjust the module path when worker is implemented
+CMD ["celery", "-A", "agentic_kg.tasks", "worker", "--loglevel=info"]
