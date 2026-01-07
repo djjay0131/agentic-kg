@@ -1,0 +1,203 @@
+# Manual branch deployment workflow
+# Trigger: workflow_dispatch (manual)
+# Use case: Deploy feature branches to staging for testing
+
+name: Deploy Branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      services:
+        description: 'Services to deploy (all, api, ui, worker, or comma-separated)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - api
+          - ui
+          - worker
+          - api,ui
+          - api,worker
+          - ui,worker
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - dev
+      skip_tests:
+        description: 'Skip tests before deployment'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: us-central1-docker.pkg.dev
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: us-central1
+
+jobs:
+  # Run tests first (unless skipped)
+  test:
+    if: ${{ !inputs.skip_tests }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+          pip install -e packages/core
+
+      - name: Run tests
+        run: |
+          python -m pytest packages/core/tests -v --ignore=packages/core/tests/knowledge_graph
+
+  # Build images
+  build:
+    needs: [test]
+    if: always() && (needs.test.result == 'success' || needs.test.result == 'skipped')
+    uses: ./.github/workflows/build-images.yml
+    with:
+      services: ${{ inputs.services }}
+      image_tag: ${{ github.ref_name }}-${{ github.sha }}
+      push: true
+    secrets: inherit
+
+  # Deploy to target environment
+  deploy:
+    needs: [build]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Parse services to deploy
+        id: parse
+        run: |
+          SERVICES="${{ inputs.services }}"
+          if [ "$SERVICES" = "all" ]; then
+            echo "deploy_api=true" >> $GITHUB_OUTPUT
+            echo "deploy_ui=true" >> $GITHUB_OUTPUT
+            echo "deploy_worker=true" >> $GITHUB_OUTPUT
+          else
+            echo "deploy_api=$(echo $SERVICES | grep -q 'api' && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "deploy_ui=$(echo $SERVICES | grep -q 'ui' && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "deploy_worker=$(echo $SERVICES | grep -q 'worker' && echo true || echo false)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set environment suffix
+        id: env
+        run: |
+          if [ "${{ inputs.environment }}" = "production" ]; then
+            echo "suffix=" >> $GITHUB_OUTPUT
+          else
+            echo "suffix=-${{ inputs.environment }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy API service
+        if: steps.parse.outputs.deploy_api == 'true'
+        run: |
+          gcloud run deploy agentic-kg-api${{ steps.env.outputs.suffix }} \
+            --image=${{ needs.build.outputs.api_image }} \
+            --region=${{ env.REGION }} \
+            --platform=managed \
+            --port=8000 \
+            --memory=1Gi \
+            --cpu=1 \
+            --min-instances=0 \
+            --max-instances=10 \
+            --set-secrets=NEO4J_URI=NEO4J_URI:latest,NEO4J_PASSWORD=NEO4J_PASSWORD:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest \
+            --allow-unauthenticated \
+            --labels=environment=${{ inputs.environment }},branch=${{ github.ref_name }}
+
+      - name: Deploy UI service
+        if: steps.parse.outputs.deploy_ui == 'true'
+        run: |
+          gcloud run deploy agentic-kg-ui${{ steps.env.outputs.suffix }} \
+            --image=${{ needs.build.outputs.ui_image }} \
+            --region=${{ env.REGION }} \
+            --platform=managed \
+            --port=8501 \
+            --memory=512Mi \
+            --cpu=1 \
+            --min-instances=0 \
+            --max-instances=5 \
+            --set-secrets=OPENAI_API_KEY=OPENAI_API_KEY:latest \
+            --allow-unauthenticated \
+            --labels=environment=${{ inputs.environment }},branch=${{ github.ref_name }}
+
+      - name: Deploy Worker service
+        if: steps.parse.outputs.deploy_worker == 'true'
+        run: |
+          gcloud run deploy agentic-kg-worker${{ steps.env.outputs.suffix }} \
+            --image=${{ needs.build.outputs.worker_image }} \
+            --region=${{ env.REGION }} \
+            --platform=managed \
+            --memory=2Gi \
+            --cpu=2 \
+            --min-instances=0 \
+            --max-instances=3 \
+            --no-cpu-throttling \
+            --set-secrets=NEO4J_URI=NEO4J_URI:latest,NEO4J_PASSWORD=NEO4J_PASSWORD:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest \
+            --no-allow-unauthenticated \
+            --labels=environment=${{ inputs.environment }},branch=${{ github.ref_name }}
+
+      - name: Get service URLs
+        id: urls
+        run: |
+          if [ "${{ steps.parse.outputs.deploy_api }}" = "true" ]; then
+            API_URL=$(gcloud run services describe agentic-kg-api${{ steps.env.outputs.suffix }} \
+              --region=${{ env.REGION }} --format='value(status.url)')
+            echo "api_url=${API_URL}" >> $GITHUB_OUTPUT
+          fi
+
+          if [ "${{ steps.parse.outputs.deploy_ui }}" = "true" ]; then
+            UI_URL=$(gcloud run services describe agentic-kg-ui${{ steps.env.outputs.suffix }} \
+              --region=${{ env.REGION }} --format='value(status.url)')
+            echo "ui_url=${UI_URL}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create deployment summary
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Deployed Services" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.parse.outputs.deploy_api }}" = "true" ]; then
+            echo "- **API:** ${{ steps.urls.outputs.api_url }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ steps.parse.outputs.deploy_ui }}" = "true" ]; then
+            echo "- **UI:** ${{ steps.urls.outputs.ui_url }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ steps.parse.outputs.deploy_worker }}" = "true" ]; then
+            echo "- **Worker:** Deployed (no public URL)" >> $GITHUB_STEP_SUMMARY
+          fi

@@ -1,0 +1,52 @@
+# Base image for agentic-kg services
+# Contains shared dependencies and Python environment
+#
+# Build: docker build -f docker/Dockerfile.base -t agentic-kg-base .
+# This image is used as a base for all other service images
+
+FROM python:3.12-slim AS base
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for security
+RUN groupadd --gid 1000 appgroup \
+    && useradd --uid 1000 --gid appgroup --shell /bin/bash --create-home appuser
+
+WORKDIR /app
+
+# Copy dependency files first for better caching
+COPY pyproject.toml ./
+COPY packages/core/pyproject.toml packages/core/
+
+# Install Python dependencies
+RUN pip install --upgrade pip \
+    && pip install hatchling \
+    && pip install -e . --no-deps \
+    && pip install neo4j pydantic openai
+
+# Copy core package source
+COPY packages/core/src/ packages/core/src/
+
+# Install the core package
+RUN pip install -e packages/core --no-deps
+
+# Change ownership to non-root user
+RUN chown -R appuser:appgroup /app
+
+# Switch to non-root user
+USER appuser
+
+# Health check endpoint (overridden in service images)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1

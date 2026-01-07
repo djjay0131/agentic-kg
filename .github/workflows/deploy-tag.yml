@@ -1,0 +1,261 @@
+# Version release deployment workflow
+# Trigger: Git tag push (v*.*.*)
+# Use case: Create versioned releases with semantic versioning
+
+name: Deploy Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+env:
+  REGISTRY: us-central1-docker.pkg.dev
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: us-central1
+
+jobs:
+  # Extract version from tag
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      major: ${{ steps.version.outputs.major }}
+      minor: ${{ steps.version.outputs.minor }}
+      patch: ${{ steps.version.outputs.patch }}
+    steps:
+      - name: Extract version
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          echo "version=${TAG}" >> $GITHUB_OUTPUT
+          echo "major=$(echo $TAG | cut -d. -f1)" >> $GITHUB_OUTPUT
+          echo "minor=$(echo $TAG | cut -d. -f2)" >> $GITHUB_OUTPUT
+          echo "patch=$(echo $TAG | cut -d. -f3)" >> $GITHUB_OUTPUT
+
+  # Run full test suite
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+          pip install -e packages/core
+
+      - name: Run linting
+        run: |
+          ruff check packages/core/src packages/core/tests
+
+      - name: Run tests
+        run: |
+          python -m pytest packages/core/tests -v \
+            --ignore=packages/core/tests/knowledge_graph
+
+  # Build all services with version tags
+  build:
+    needs: [version, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      api_image: ${{ steps.meta.outputs.api_image }}
+      ui_image: ${{ steps.meta.outputs.ui_image }}
+      worker_image: ${{ steps.meta.outputs.worker_image }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker
+        run: |
+          gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set image metadata
+        id: meta
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          MAJOR="${{ needs.version.outputs.major }}"
+          REGISTRY="${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/agentic-kg"
+
+          echo "api_image=${REGISTRY}/api:v${VERSION}" >> $GITHUB_OUTPUT
+          echo "ui_image=${REGISTRY}/ui:v${VERSION}" >> $GITHUB_OUTPUT
+          echo "worker_image=${REGISTRY}/worker:v${VERSION}" >> $GITHUB_OUTPUT
+          echo "registry=${REGISTRY}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "major=${MAJOR}" >> $GITHUB_OUTPUT
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.api
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.api_image }}
+            ${{ steps.meta.outputs.registry }}/api:v${{ steps.meta.outputs.major }}
+            ${{ steps.meta.outputs.registry }}/api:latest
+            ${{ steps.meta.outputs.registry }}/api:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.version=v${{ steps.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Build and push UI image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.ui
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.ui_image }}
+            ${{ steps.meta.outputs.registry }}/ui:v${{ steps.meta.outputs.major }}
+            ${{ steps.meta.outputs.registry }}/ui:latest
+            ${{ steps.meta.outputs.registry }}/ui:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.version=v${{ steps.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Build and push Worker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.worker
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.worker_image }}
+            ${{ steps.meta.outputs.registry }}/worker:v${{ steps.meta.outputs.major }}
+            ${{ steps.meta.outputs.registry }}/worker:latest
+            ${{ steps.meta.outputs.registry }}/worker:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.version=v${{ steps.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+  # Create GitHub Release
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          cat > release_notes.md << 'EOF'
+          ## Release v${{ needs.version.outputs.version }}
+
+          ### Docker Images
+
+          All images are available in Google Artifact Registry:
+
+          ```bash
+          # API Service
+          docker pull ${{ needs.build.outputs.api_image }}
+
+          # UI Service
+          docker pull ${{ needs.build.outputs.ui_image }}
+
+          # Worker Service
+          docker pull ${{ needs.build.outputs.worker_image }}
+          ```
+
+          ### Deployment
+
+          Deploy to Cloud Run using GitHub Actions:
+          1. Go to Actions > Deploy Branch
+          2. Select environment (staging/production)
+          3. Set image_tag to `v${{ needs.version.outputs.version }}`
+
+          ### Changes
+
+          See the full changelog in the commit history.
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: v${{ needs.version.outputs.version }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ contains(needs.version.outputs.version, '-') }}
+
+  # Deploy to production (requires approval)
+  deploy-production:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    environment: production  # Requires approval
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy API to production
+        run: |
+          gcloud run deploy agentic-kg-api \
+            --image=${{ needs.build.outputs.api_image }} \
+            --region=${{ env.REGION }} \
+            --platform=managed \
+            --port=8000 \
+            --memory=2Gi \
+            --cpu=2 \
+            --min-instances=1 \
+            --max-instances=20 \
+            --set-secrets=NEO4J_URI=NEO4J_URI:latest,NEO4J_PASSWORD=NEO4J_PASSWORD:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest \
+            --allow-unauthenticated \
+            --labels=environment=production,version=v${{ needs.version.outputs.version }}
+
+      - name: Deploy UI to production
+        run: |
+          gcloud run deploy agentic-kg-ui \
+            --image=${{ needs.build.outputs.ui_image }} \
+            --region=${{ env.REGION }} \
+            --platform=managed \
+            --port=8501 \
+            --memory=1Gi \
+            --cpu=1 \
+            --min-instances=1 \
+            --max-instances=10 \
+            --set-secrets=OPENAI_API_KEY=OPENAI_API_KEY:latest \
+            --allow-unauthenticated \
+            --labels=environment=production,version=v${{ needs.version.outputs.version }}
+
+      - name: Create production deployment summary
+        run: |
+          echo "## Production Release v${{ needs.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Services Deployed" >> $GITHUB_STEP_SUMMARY
+          echo "- API: ${{ needs.build.outputs.api_image }}" >> $GITHUB_STEP_SUMMARY
+          echo "- UI: ${{ needs.build.outputs.ui_image }}" >> $GITHUB_STEP_SUMMARY

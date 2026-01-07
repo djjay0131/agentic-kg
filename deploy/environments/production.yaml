@@ -1,0 +1,73 @@
+# Production Environment Configuration
+# High availability settings for production workloads
+
+environment: production
+region: us-central1
+
+# Service configurations for production
+services:
+  api:
+    name: agentic-kg-api
+    image_tag: v1.0.0  # Use specific version in production
+    replicas:
+      min: 1  # Always keep at least 1 instance warm
+      max: 20
+    resources:
+      memory: 2Gi
+      cpu: 2
+    scaling:
+      target_cpu_utilization: 70
+      target_request_count: 80
+    health_check:
+      path: /health
+      initial_delay: 10s
+      period: 30s
+      failure_threshold: 3
+
+  ui:
+    name: agentic-kg-ui
+    image_tag: v1.0.0
+    replicas:
+      min: 1
+      max: 10
+    resources:
+      memory: 1Gi
+      cpu: 1
+    scaling:
+      target_cpu_utilization: 70
+
+  worker:
+    name: agentic-kg-worker
+    image_tag: v1.0.0
+    replicas:
+      min: 1
+      max: 5
+    resources:
+      memory: 4Gi
+      cpu: 2
+    public: false
+
+# Secrets (references to GCP Secret Manager)
+secrets:
+  - name: NEO4J_URI
+    secret: NEO4J_URI
+    version: latest
+  - name: NEO4J_PASSWORD
+    secret: NEO4J_PASSWORD
+    version: latest
+  - name: OPENAI_API_KEY
+    secret: OPENAI_API_KEY
+    version: latest
+  - name: ANTHROPIC_API_KEY
+    secret: ANTHROPIC_API_KEY
+    version: latest
+
+# Environment-specific settings
+settings:
+  log_level: INFO
+  enable_debug_endpoints: false
+  cors_origins:
+    - "https://agentic-kg.example.com"  # Replace with actual domain
+  rate_limiting:
+    requests_per_minute: 100
+    burst: 20

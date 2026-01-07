@@ -1,0 +1,63 @@
+# Development Environment Configuration
+# Minimal resources for development and testing
+
+environment: dev
+region: us-central1
+
+# Service configurations for development
+services:
+  api:
+    name: agentic-kg-api-dev
+    image_tag: latest  # Always use latest in dev
+    replicas:
+      min: 0  # Scale to zero when not in use
+      max: 2
+    resources:
+      memory: 512Mi
+      cpu: 1
+    scaling:
+      target_cpu_utilization: 90
+    health_check:
+      path: /health
+      initial_delay: 5s
+      period: 60s
+
+  ui:
+    name: agentic-kg-ui-dev
+    image_tag: latest
+    replicas:
+      min: 0
+      max: 1
+    resources:
+      memory: 256Mi
+      cpu: 0.5
+
+  worker:
+    name: agentic-kg-worker-dev
+    image_tag: latest
+    replicas:
+      min: 0
+      max: 1
+    resources:
+      memory: 1Gi
+      cpu: 1
+    public: false
+
+# Secrets (references to GCP Secret Manager)
+secrets:
+  - name: NEO4J_URI
+    secret: NEO4J_URI_DEV
+    version: latest
+  - name: NEO4J_PASSWORD
+    secret: NEO4J_PASSWORD_DEV
+    version: latest
+  - name: OPENAI_API_KEY
+    secret: OPENAI_API_KEY
+    version: latest
+
+# Environment-specific settings
+settings:
+  log_level: DEBUG
+  enable_debug_endpoints: true
+  cors_origins:
+    - "*"  # Allow all origins in dev
