@@ -1,6 +1,6 @@
 # Phase Lifecycle
 
-**Last Updated:** 2026-01-07
+**Last Updated:** 2026-01-08
 
 This file serves as the **coordination hub** between the memory-bank and construction folders. It tracks the lifecycle of each project phase and provides handoff signals between agents.
 
@@ -11,8 +11,8 @@ This file serves as the **coordination hub** between the memory-bank and constru
 | Phase | Status | Design Doc | Sprint | ADRs | Implementation Ready |
 |-------|--------|------------|--------|------|---------------------|
 | 0: Infrastructure | Complete | N/A | [sprint-00](../construction/sprints/sprint-00-gcp-deployment.md) | ADR-004, ADR-008, ADR-009 | N/A |
-| 1: Knowledge Graph | Complete (Ready for Merge) | [phase-1-knowledge-graph.md](../construction/design/phase-1-knowledge-graph.md) | [sprint-01](../construction/sprints/sprint-01-knowledge-graph.md) | ADR-010, ADR-011 | Yes |
-| 2: Data Acquisition | Planning | - | - | - | No |
+| 1: Knowledge Graph | Complete (Merged) | [phase-1-knowledge-graph.md](../construction/design/phase-1-knowledge-graph.md) | [sprint-01](../construction/sprints/sprint-01-knowledge-graph.md) | ADR-010, ADR-011 | N/A |
+| 2: Data Acquisition | In Progress | [system-architecture.md](../construction/design/system-architecture.md) | [sprint-02](../construction/sprints/sprint-02-data-acquisition.md) | ADR-011 | Yes |
 | 3: Extraction Pipeline | Not Started | - | - | - | No |
 | 4: Agent Implementation | Not Started | - | - | - | No |
 
@@ -62,30 +62,33 @@ This file serves as the **coordination hub** between the memory-bank and constru
 - **Objective**: Set up Neo4j with Problem entity schema and hybrid retrieval
 - **Key Deliverables**: Neo4j Docker setup, Pydantic models, CRUD operations, vector indexing
 - **Design Status**: Complete
-- **Implementation Status**: Complete (Ready for Merge)
-- **Branch**: `claude/problem-schema-design-SqUnQ`
+- **Implementation Status**: Complete (Merged to master)
+- **Completion Date**: 2026-01-08
+- **PR**: #9 (merged)
 - **Completed**: All 11 tasks, 5 user stories (US-01 through US-05), 221 tests
 - **Deferred Items**: See `construction/backlog/sprint-01-deferred.md`
-- **Blocking Issues**: None
 
 ### Phase 2: Data Acquisition Layer
-- **Objective**: Ingest papers from academic sources (Semantic Scholar, arXiv, OpenAlex)
-- **Key Deliverables**: API clients, rate limiting, caching, paper ingestion pipeline
-- **Design Status**: Planning (requirements and sprint docs to be created)
-- **Estimated Tasks**: 14 tasks
+- **Objective**: Enable unified paper acquisition from multiple sources (open access and paywalled)
+- **Key Deliverables**: Semantic Scholar client, arXiv integration, OpenAlex integration, paywall microservice integration
+- **Design Status**: Complete (covered in system-architecture.md, Section 3.1)
+- **Implementation Status**: In Progress (Sprint 02)
+- **Requirements**: [sprint-02-requirements.md](../construction/requirements/sprint-02-requirements.md)
+- **Sprint Plan**: [sprint-02-data-acquisition.md](../construction/sprints/sprint-02-data-acquisition.md)
 - **Dependencies**: Phase 1 complete (satisfied)
+- **Components**: C5 (Semantic Scholar Client), C6 (Paper Acquisition Layer)
 
 ### Phase 3: Extraction Pipeline
 - **Objective**: LLM-based extraction of research problems from papers
 - **Key Deliverables**: Section segmentation, structured extraction, provenance tracking
 - **Design Status**: Not started
-- **Dependencies**: Phase 2 complete
+- **Dependencies**: Phases 1 and 2 complete
 
 ### Phase 4: Agent Implementation
 - **Objective**: Implement Ranking, Continuation, Evaluation, Synthesis agents
 - **Key Deliverables**: LangGraph workflows, agent orchestration, human-in-the-loop
 - **Design Status**: Not started
-- **Dependencies**: Phases 2-3 complete
+- **Dependencies**: Phases 1, 2, and 3 complete
 
 ---
 
