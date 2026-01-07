@@ -5,7 +5,6 @@ Tests configuration loading, validation, and security checks.
 """
 
 import pytest
-
 from agentic_kg.config import (
     Config,
     ConfigurationError,
@@ -15,7 +14,6 @@ from agentic_kg.config import (
     get_config,
     reset_config,
 )
-
 
 # =============================================================================
 # Neo4jConfig Tests

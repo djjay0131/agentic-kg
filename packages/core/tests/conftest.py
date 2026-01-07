@@ -4,11 +4,106 @@ Shared pytest fixtures for agentic-kg tests.
 Provides common test data and fixtures used across test modules.
 """
 
-import os
 from datetime import datetime, timezone
 from typing import Generator
 
 import pytest
+
+# =============================================================================
+# Neo4j Testcontainer Fixture
+# =============================================================================
+
+
+@pytest.fixture(scope="session")
+def neo4j_container():
+    """
+    Start a Neo4j container for integration tests.
+
+    This fixture is session-scoped to avoid starting a new container
+    for each test. Tests should clean up their own data.
+    """
+    try:
+        from testcontainers.neo4j import Neo4jContainer
+    except ImportError:
+        pytest.skip("testcontainers not installed")
+        return
+
+    # Check if Docker is available
+    try:
+        import docker
+        client = docker.from_env()
+        client.ping()
+    except Exception:
+        pytest.skip("Docker not available")
+        return
+
+    container = Neo4jContainer("neo4j:5.26-community")
+    container.with_env("NEO4J_PLUGINS", '["apoc"]')
+
+    try:
+        container.start()
+        yield container
+    finally:
+        container.stop()
+
+
+@pytest.fixture
+def neo4j_config(neo4j_container, monkeypatch):
+    """
+    Configure Neo4j connection to use the test container.
+
+    Returns the Neo4jConfig for direct use.
+    """
+    from agentic_kg.config import Neo4jConfig, reset_config
+
+    # Get connection details from container
+    uri = neo4j_container.get_connection_url()
+    username = "neo4j"
+    password = "neo4j"  # Default password for test container
+
+    # Set environment variables
+    monkeypatch.setenv("NEO4J_URI", uri)
+    monkeypatch.setenv("NEO4J_USERNAME", username)
+    monkeypatch.setenv("NEO4J_PASSWORD", password)
+    monkeypatch.setenv("NEO4J_DATABASE", "neo4j")
+
+    # Reset config to pick up new env vars
+    reset_config()
+
+    config = Neo4jConfig(
+        uri=uri,
+        username=username,
+        password=password,
+        database="neo4j",
+    )
+
+    yield config
+
+
+@pytest.fixture
+def neo4j_repository(neo4j_config):
+    """
+    Create a repository connected to the test container.
+
+    Initializes schema and cleans up after test.
+    """
+    from agentic_kg.knowledge_graph.repository import Neo4jRepository
+    from agentic_kg.knowledge_graph.schema import SchemaManager
+
+    repo = Neo4jRepository(config=neo4j_config)
+
+    try:
+        # Verify connection and initialize schema
+        repo.verify_connectivity()
+        schema_manager = SchemaManager(repository=repo)
+        schema_manager.initialize(force=True)
+
+        yield repo
+
+        # Clean up after test
+        schema_manager.drop_all(confirm=True)
+    finally:
+        repo.close()
 
 
 # =============================================================================
@@ -150,7 +245,10 @@ def sample_baseline_data(sample_doi) -> dict:
 def sample_problem_data(sample_evidence_data, sample_extraction_metadata_data) -> dict:
     """Return valid Problem model data."""
     return {
-        "statement": "How can we improve the efficiency of transformer models for long-context understanding?",
+        "statement": (
+            "How can we improve the efficiency of transformer models "
+            "for long-context understanding?"
+        ),
         "domain": "Natural Language Processing",
         "status": "open",
         "evidence": sample_evidence_data,
