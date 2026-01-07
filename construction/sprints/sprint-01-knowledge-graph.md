@@ -96,7 +96,7 @@
 - [x] Create `agentic_kg/knowledge_graph/embeddings.py`
 - [x] Integrate OpenAI embeddings (text-embedding-3-small, 1536 dims)
 - [x] Implement `generate_problem_embedding()` function
-- [ ] Add embedding generation on problem creation (deferred to integration)
+- [x] Add embedding generation on problem creation
 - [x] Add batch embedding for bulk imports
 - [x] Add fallback for embedding failures
 
@@ -104,6 +104,11 @@
 - Problems automatically get embeddings on creation
 - Embeddings stored in Neo4j vector index
 - Graceful handling of API failures
+
+**Implementation Notes:**
+- `create_problem()` auto-generates embedding by default (can disable with `generate_embedding=False`)
+- `update_problem()` supports `regenerate_embedding=True` for statement changes
+- Graceful degradation: failures logged as warnings, problem created without embedding
 
 ---
 
