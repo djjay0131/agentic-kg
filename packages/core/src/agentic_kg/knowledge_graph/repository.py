@@ -166,19 +166,42 @@ class Neo4jRepository:
     # Problem Operations
     # =========================================================================
 
-    def create_problem(self, problem: Problem) -> Problem:
+    def create_problem(
+        self,
+        problem: Problem,
+        generate_embedding: bool = True,
+    ) -> Problem:
         """
         Create a new Problem node.
 
         Args:
             problem: Problem to create.
+            generate_embedding: If True, auto-generate embedding for the problem.
+                Set to False for batch operations where embeddings are generated
+                separately.
 
         Returns:
-            Created problem with any server-generated values.
+            Created problem with any server-generated values (including embedding).
 
         Raises:
             DuplicateError: If problem with same ID exists.
         """
+        # Generate embedding if requested and not already present
+        if generate_embedding and problem.embedding is None:
+            try:
+                from agentic_kg.knowledge_graph.embeddings import (
+                    generate_problem_embedding,
+                )
+                problem.embedding = generate_problem_embedding(problem)
+                logger.debug(f"Generated embedding for problem {problem.id}")
+            except Exception as e:
+                # Graceful degradation: log warning but continue without embedding
+                # Problem can be embedded later via batch processing
+                logger.warning(
+                    f"Failed to generate embedding for problem {problem.id}: {e}. "
+                    "Problem will be created without embedding."
+                )
+
         def _create(tx: ManagedTransaction, props: dict) -> dict:
             # Check for duplicate
             check = tx.run(
@@ -209,6 +232,10 @@ class Neo4jRepository:
         props["baselines"] = json.dumps(props["baselines"])
         props["evidence"] = json.dumps(props["evidence"])
         props["extraction_metadata"] = json.dumps(props["extraction_metadata"])
+
+        # Add embedding if present (excluded by to_neo4j_properties for size)
+        if problem.embedding is not None:
+            props["embedding"] = problem.embedding
 
         with self.session() as session:
             self._execute_with_retry(session, _create, props)
@@ -245,12 +272,18 @@ class Neo4jRepository:
 
         return self._problem_from_neo4j(data)
 
-    def update_problem(self, problem: Problem) -> Problem:
+    def update_problem(
+        self,
+        problem: Problem,
+        regenerate_embedding: bool = False,
+    ) -> Problem:
         """
         Update an existing Problem.
 
         Args:
             problem: Problem with updated values.
+            regenerate_embedding: If True, regenerate embedding (use when
+                statement has changed).
 
         Returns:
             Updated problem.
@@ -270,6 +303,19 @@ class Neo4jRepository:
             )
             return result.single() is not None
 
+        # Regenerate embedding if requested
+        if regenerate_embedding:
+            try:
+                from agentic_kg.knowledge_graph.embeddings import (
+                    generate_problem_embedding,
+                )
+                problem.embedding = generate_problem_embedding(problem)
+                logger.debug(f"Regenerated embedding for problem {problem.id}")
+            except Exception as e:
+                logger.warning(
+                    f"Failed to regenerate embedding for problem {problem.id}: {e}"
+                )
+
         # Update timestamp and version
         problem.updated_at = datetime.now(timezone.utc)
         problem.version += 1
@@ -282,6 +328,10 @@ class Neo4jRepository:
         props["baselines"] = json.dumps(props["baselines"])
         props["evidence"] = json.dumps(props["evidence"])
         props["extraction_metadata"] = json.dumps(props["extraction_metadata"])
+
+        # Add embedding if present
+        if problem.embedding is not None:
+            props["embedding"] = problem.embedding
 
         with self.session() as session:
             found = self._execute_with_retry(session, _update, problem.id, props)

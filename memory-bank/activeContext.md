@@ -1,43 +1,65 @@
 # Active Context
 
-**Last Updated:** 2025-01-05
+**Last Updated:** 2026-01-07
 
 ## Current Work Phase
 
-**Phase 1: Knowledge Graph Foundation - Implementation In Progress**
+**Phase 1: Knowledge Graph Foundation - COMPLETE**
 
-Sprint 01 has started. Core infrastructure files created, implementing the Knowledge Representation Layer.
+Sprint 01 is finished. All user stories implemented, tests passing, ready for merge.
 
 ## Immediate Next Steps
 
-**Session Status (2025-01-05):**
+**Session Status (2026-01-07):**
 - On branch: `claude/problem-schema-design-SqUnQ`
-- Sprint 01 implementation in progress
-- Core package structure created
-- Requirements document added (ADR-011 for microservice architecture)
+- Sprint 01 complete - ready for merge to master
+- Auto-embedding on problem creation working (FR-2.4.1 fixed)
+- Deferred items documented in `construction/backlog/sprint-01-deferred.md`
 
-**Completed This Sprint:**
+**Sprint 01 Completed:**
 - [x] Project structure with `packages/core/src/agentic_kg/`
 - [x] Configuration module: `config.py`
-- [x] Pydantic models: `knowledge_graph/models.py`
+- [x] Pydantic models: `knowledge_graph/models.py` (Problem, Paper, Author, Relations)
 - [x] Neo4j Docker setup: `docker/docker-compose.yml`
-- [x] Requirements specification: `construction/requirements/knowledge-graph-requirements.md`
+- [x] Repository layer: `knowledge_graph/repository.py` (CRUD + auto-embedding)
+- [x] Schema initialization: `knowledge_graph/schema.py`
+- [x] Embedding integration: `knowledge_graph/embeddings.py`
+- [x] Hybrid search: `knowledge_graph/search.py`
+- [x] Relation operations: `knowledge_graph/relations.py`
+- [x] 221 tests (171 unit + 50 integration)
+- [x] Sample data script: `scripts/load_sample_problems.py`
+- [x] Module documentation: `knowledge_graph/README.md`
 
 **Priority Tasks:**
 
-1. **Continue Sprint 01 Implementation** (In Progress)
-   - [ ] Create repository layer (CRUD operations)
-   - [ ] Implement schema initialization
-   - [ ] Add embedding integration
-   - [ ] Implement hybrid search
-   - Sprint doc: [sprint-01-knowledge-graph.md](../construction/sprints/sprint-01-knowledge-graph.md)
+1. **Merge Sprint 01** (Immediate)
+   - [ ] Create PR from `claude/problem-schema-design-SqUnQ` to master
+   - [ ] Review and merge
+   - [ ] Consider tagging v0.1.0
 
-2. **Testing Infrastructure** (Next)
-   - [ ] Set up pytest with Neo4j testcontainer
-   - [ ] Create test fixtures
-   - [ ] Write unit tests for models
+2. **Sprint 02 Planning** (Next)
+   - [ ] Create `construction/requirements/sprint-02-requirements.md`
+   - [ ] Create `construction/sprints/sprint-02-data-acquisition.md`
+   - Scope: Semantic Scholar, arXiv, OpenAlex APIs
+   - Estimated: 14 tasks
+
+3. **Documentation Cleanup** (Medium Priority)
+   - [ ] Update techContext.md with Neo4j details (deferred from Sprint 01)
+   - [ ] Document Neo4j Aura production setup
 
 ## Recent Decisions
+
+### Decision 7: Deferred Items to Backlog
+- **Date:** 2026-01-07
+- **Decision:** Document Sprint 01 deferred items in `construction/backlog/sprint-01-deferred.md`
+- **Rationale:** Keep sprint focused on core deliverables, track non-blocking items separately
+- **Impact:** Clear separation between done and deferred work
+
+### Decision 6: Auto-Embedding on Problem Creation
+- **Date:** 2026-01-07
+- **Decision:** `create_problem()` auto-generates embeddings by default; opt-out via `generate_embedding=False`
+- **Rationale:** Ensures all problems are searchable by default; graceful degradation on API failure
+- **Impact:** Simplified workflow - no separate step needed for embedding generation
 
 ### Decision 5: Claude Code Sub-Agents for Administrative Tasks
 - **Date:** 2025-01-04
@@ -51,7 +73,7 @@ Sprint 01 has started. Core infrastructure files created, implementing the Knowl
 - **Rationale:** Native property graph model, vector index support, mature Python driver
 - **Impact:** Enables Phase 1 implementation with hybrid symbolic-semantic retrieval
 
-*Note: Decision 1 (Project Scope Definition, 2025-12-18) archived to `archive/decisions/decisions-2025-12.md`*
+*Note: Decisions 1-3 (2025-12-18) archived to `archive/decisions/decisions-2025-12.md`*
 
 ## Key Patterns and Preferences
 
@@ -118,7 +140,9 @@ Sprint 01 has started. Core infrastructure files created, implementing the Knowl
 
 - Read ALL memory-bank files on context reset (7 core files including phases.md)
 - Check phases.md for current phase status
-- **Phase 1 Sprint 01 in progress** - continue implementing Knowledge Graph Foundation
-- Key files created: `config.py`, `models.py`, `docker-compose.yml`
-- Next tasks: repository layer, schema initialization, embedding integration
+- **Sprint 01 COMPLETE** - ready to merge branch `claude/problem-schema-design-SqUnQ`
+- Next steps: Create PR, merge to master, plan Sprint 02
+- Sprint 02 scope: Data Acquisition Layer (Semantic Scholar, arXiv, OpenAlex APIs)
+- Deferred items tracked in: `construction/backlog/sprint-01-deferred.md`
+- Deployment infrastructure designed in: `construction/design/deployment-infrastructure.md`
 - Administrative agents ready: `@memory-agent update`, `@construction-agent validate`
