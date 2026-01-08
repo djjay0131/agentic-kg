@@ -187,22 +187,31 @@
 ### Task 7: PDF Caching
 **Estimate:** 1 day
 
-- [ ] Create `agentic_kg/data_acquisition/cache.py`
-- [ ] Implement `PaperCache` class with disk-based storage
-- [ ] Implement content-addressable storage (SHA-256 hash)
-- [ ] Implement `store_pdf(identifier, content)` method
-- [ ] Implement `get_pdf(identifier)` method
-- [ ] Implement `has_pdf(identifier)` method
-- [ ] Add SQLite metadata database for cache tracking
-- [ ] Track source, download date, file size, content hash
-- [ ] Implement LRU eviction when cache exceeds size limit
-- [ ] Add cache statistics (hits, misses, size)
+- [x] Create `agentic_kg/data_acquisition/cache.py`
+- [x] Implement `PaperCache` class with disk-based storage
+- [x] Implement content-addressable storage (SHA-256 hash)
+- [x] Implement `store_pdf(identifier, content)` method
+- [x] Implement `get_pdf(identifier)` method
+- [x] Implement `has_pdf(identifier)` method
+- [x] Add SQLite metadata database for cache tracking
+- [x] Track source, download date, file size, content hash
+- [x] Implement LRU eviction when cache exceeds size limit
+- [x] Add cache statistics (hits, misses, size)
 
 **Acceptance Criteria:**
 - PDFs cached and retrievable by identifier
 - Duplicate content detected via hash
 - Cache respects size limits
 - Statistics available for monitoring
+
+**Implementation Notes:**
+- `PaperCache` with SQLite metadata database for fast lookups
+- Content-addressable storage using SHA-256 hash (2-level directory)
+- Deduplication: identical content stored once even with different identifiers
+- LRU eviction to 80% of max size when limit exceeded
+- Thread-safe operations with thread-local database connections
+- `get_stats()` returns hits, misses, hit_rate, total_size, item_count
+- Singleton pattern with `get_paper_cache()` factory
 
 ---
 

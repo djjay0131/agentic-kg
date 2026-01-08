@@ -73,6 +73,13 @@ from agentic_kg.data_acquisition.acquisition import (
     reset_acquisition_layer,
 )
 
+# Caching
+from agentic_kg.data_acquisition.cache import (
+    PaperCache,
+    get_paper_cache,
+    reset_paper_cache,
+)
+
 __all__ = [
     # Models
     "AuthorRef",
@@ -114,4 +121,8 @@ __all__ = [
     "detect_identifier_type",
     "get_acquisition_layer",
     "reset_acquisition_layer",
+    # Caching
+    "PaperCache",
+    "get_paper_cache",
+    "reset_paper_cache",
 ]
