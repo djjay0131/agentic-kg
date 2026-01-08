@@ -63,8 +63,15 @@ from agentic_kg.data_acquisition.openalex import (
     reset_openalex_client,
 )
 
-# Acquisition layer will be added in Task 6
-# from agentic_kg.data_acquisition.acquisition import PaperAcquisitionLayer
+# Unified Acquisition Layer
+from agentic_kg.data_acquisition.acquisition import (
+    IdentifierType,
+    PaperAcquisitionLayer,
+    clean_identifier,
+    detect_identifier_type,
+    get_acquisition_layer,
+    reset_acquisition_layer,
+)
 
 __all__ = [
     # Models
@@ -100,6 +107,11 @@ __all__ = [
     "OpenAlexRateLimitError",
     "get_openalex_client",
     "reset_openalex_client",
-    # Acquisition layer (Task 6)
-    # "PaperAcquisitionLayer",
+    # Unified Acquisition Layer
+    "IdentifierType",
+    "PaperAcquisitionLayer",
+    "clean_identifier",
+    "detect_identifier_type",
+    "get_acquisition_layer",
+    "reset_acquisition_layer",
 ]

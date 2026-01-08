@@ -155,22 +155,32 @@
 ### Task 6: Paper Acquisition Layer (Unified Interface)
 **Estimate:** 1.5 days
 
-- [ ] Create `agentic_kg/data_acquisition/acquisition.py`
-- [ ] Implement `PaperAcquisitionLayer` class
-- [ ] Implement `get_paper_metadata(identifier)` with source resolution
-- [ ] Implement `get_pdf(identifier)` returning PDF bytes
-- [ ] Implement `get_pdf_path(identifier)` with caching
-- [ ] Implement `is_available(identifier)` to check availability
-- [ ] Implement `get_source_type(identifier)` to identify source
-- [ ] Implement identifier type detection (DOI, arXiv, URL, S2 ID)
-- [ ] Add source priority resolution (cache > arXiv > OpenAlex > paywall)
-- [ ] Add provenance tracking for retrieved papers
+- [x] Create `agentic_kg/data_acquisition/acquisition.py`
+- [x] Implement `PaperAcquisitionLayer` class
+- [x] Implement `get_paper_metadata(identifier)` with source resolution
+- [x] Implement `get_pdf(identifier)` returning PDF bytes
+- [x] Implement `get_pdf_path(identifier)` with caching
+- [x] Implement `is_available(identifier)` to check availability
+- [x] Implement `get_source_type(identifier)` to identify source
+- [x] Implement identifier type detection (DOI, arXiv, URL, S2 ID)
+- [x] Add source priority resolution (cache > arXiv > OpenAlex > paywall)
+- [x] Add provenance tracking for retrieved papers
 
 **Acceptance Criteria:**
 - Single interface works for all paper sources
 - Identifier type auto-detected
 - Best available source selected automatically
 - Provenance tracked with each retrieval
+
+**Implementation Notes:**
+- `PaperAcquisitionLayer` unifies all three API clients
+- `detect_identifier_type()` auto-detects DOI, arXiv, S2, OpenAlex, and URL formats
+- `get_paper_metadata()` tries sources in priority order based on identifier type
+- `get_pdf()` returns `DownloadResult` with status, path, and provenance
+- `search()` queries all sources and deduplicates by DOI
+- Source priority: arXiv > Semantic Scholar > OpenAlex for metadata
+- PDF priority: arXiv > open access URL from metadata
+- Singleton pattern with `get_acquisition_layer()` factory
 
 ---
 
