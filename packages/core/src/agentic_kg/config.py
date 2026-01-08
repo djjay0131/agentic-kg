@@ -73,6 +73,113 @@ class SearchConfig:
     structured_weight: float = 0.3
 
 
+@dataclass
+class SemanticScholarConfig:
+    """Semantic Scholar API configuration."""
+
+    api_key: str = field(
+        default_factory=lambda: os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
+    )
+    base_url: str = "https://api.semanticscholar.org/graph/v1"
+
+    # Rate limiting (requests per second)
+    rate_limit_authenticated: float = 10.0
+    rate_limit_unauthenticated: float = 1.0
+
+    # Retry settings
+    max_retries: int = 3
+    retry_delay: float = 1.0
+
+    # Request timeout (seconds)
+    timeout: float = 30.0
+
+    @property
+    def is_authenticated(self) -> bool:
+        """Check if API key is configured for higher rate limits."""
+        return bool(self.api_key)
+
+    @property
+    def rate_limit(self) -> float:
+        """Get effective rate limit based on authentication."""
+        return (
+            self.rate_limit_authenticated
+            if self.is_authenticated
+            else self.rate_limit_unauthenticated
+        )
+
+
+@dataclass
+class ArxivConfig:
+    """arXiv API configuration."""
+
+    base_url: str = "https://export.arxiv.org/api/query"
+    pdf_base_url: str = "https://arxiv.org/pdf"
+
+    # Rate limiting (requests per second) - arXiv recommends max 3/sec
+    rate_limit: float = 3.0
+
+    # Retry settings
+    max_retries: int = 3
+    retry_delay: float = 1.0
+
+    # Request timeout (seconds)
+    timeout: float = 30.0
+
+
+@dataclass
+class OpenAlexConfig:
+    """OpenAlex API configuration."""
+
+    base_url: str = "https://api.openalex.org"
+
+    # Polite pool email for higher rate limits
+    polite_email: str = field(
+        default_factory=lambda: os.getenv("OPENALEX_EMAIL", "")
+    )
+
+    # Rate limiting (requests per second)
+    rate_limit: float = 10.0
+
+    # Retry settings
+    max_retries: int = 3
+    retry_delay: float = 1.0
+
+    # Request timeout (seconds)
+    timeout: float = 30.0
+
+
+@dataclass
+class CacheConfig:
+    """PDF and metadata caching configuration."""
+
+    # Cache directory
+    cache_dir: str = field(
+        default_factory=lambda: os.getenv("CACHE_DIR", ".cache/papers")
+    )
+
+    # Maximum cache size in bytes (default: 10GB)
+    max_size_bytes: int = field(
+        default_factory=lambda: int(os.getenv("CACHE_MAX_SIZE_GB", "10")) * 1024**3
+    )
+
+    # Metadata cache TTL in seconds (default: 7 days)
+    metadata_ttl: int = field(
+        default_factory=lambda: int(os.getenv("CACHE_METADATA_TTL_DAYS", "7")) * 86400
+    )
+
+
+@dataclass
+class DataAcquisitionConfig:
+    """Data acquisition layer configuration."""
+
+    semantic_scholar: SemanticScholarConfig = field(
+        default_factory=SemanticScholarConfig
+    )
+    arxiv: ArxivConfig = field(default_factory=ArxivConfig)
+    openalex: OpenAlexConfig = field(default_factory=OpenAlexConfig)
+    cache: CacheConfig = field(default_factory=CacheConfig)
+
+
 class ConfigurationError(Exception):
     """Raised when configuration is invalid."""
 
@@ -86,6 +193,9 @@ class Config:
     neo4j: Neo4jConfig = field(default_factory=Neo4jConfig)
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
+    data_acquisition: DataAcquisitionConfig = field(
+        default_factory=DataAcquisitionConfig
+    )
 
     # Environment
     environment: str = field(default_factory=lambda: os.getenv("ENVIRONMENT", "development"))

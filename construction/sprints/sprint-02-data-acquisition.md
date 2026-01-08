@@ -2,8 +2,8 @@
 
 **Sprint Goal:** Implement unified paper acquisition from multiple sources (Semantic Scholar, arXiv, OpenAlex, paywall)
 
-**Start Date:** TBD (after Sprint 01 completion)
-**Status:** Not Started
+**Start Date:** 2026-01-08
+**Status:** In Progress
 
 **Prerequisites:** Sprint 01 complete (Knowledge Graph Foundation)
 
@@ -18,17 +18,21 @@
 ### Task 1: Project Structure & Configuration
 **Estimate:** 0.5 days
 
-- [ ] Create `agentic_kg/data_acquisition/` package directory
-- [ ] Create `agentic_kg/data_acquisition/__init__.py` with public exports
-- [ ] Add Semantic Scholar API key to configuration
-- [ ] Add cache directory configuration
-- [ ] Add rate limit settings to config
-- [ ] Update `.env.example` with new environment variables
+- [x] Create `agentic_kg/data_acquisition/` package directory
+- [x] Create `agentic_kg/data_acquisition/__init__.py` with public exports
+- [x] Add Semantic Scholar API key to configuration
+- [x] Add cache directory configuration
+- [x] Add rate limit settings to config
+- [x] Update `.env.example` with new environment variables
 
 **Acceptance Criteria:**
 - Clean package structure following existing conventions
 - Configuration supports all required API keys and settings
 - Environment variables documented in `.env.example`
+
+**Implementation Notes:**
+- Added `SemanticScholarConfig`, `ArxivConfig`, `OpenAlexConfig`, `CacheConfig` to config.py
+- All wrapped in `DataAcquisitionConfig` accessible via `config.data_acquisition`
 
 ---
 
