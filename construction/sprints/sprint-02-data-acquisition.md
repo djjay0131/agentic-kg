@@ -218,16 +218,26 @@
 ### Task 8: Metadata Caching
 **Estimate:** 0.5 days
 
-- [ ] Add TTL-based metadata caching to clients
-- [ ] Implement in-memory cache with cachetools
-- [ ] Configure TTL (default: 7 days for metadata)
-- [ ] Add cache invalidation on explicit refresh
-- [ ] Add cache bypass option for fresh data
+- [x] Add TTL-based metadata caching to clients
+- [x] Implement in-memory cache with cachetools
+- [x] Configure TTL (default: 7 days for metadata)
+- [x] Add cache invalidation on explicit refresh
+- [x] Add cache bypass option for fresh data
 
 **Acceptance Criteria:**
 - Repeated metadata queries use cache
 - Cache expires after TTL
 - Can force refresh when needed
+
+**Implementation Notes:**
+- `TTLCache[T]` generic class with configurable TTL and max size
+- `MetadataCache` specialized wrapper for `PaperMetadata`
+- Auto-caching by alternate identifiers (DOI, arXiv, S2 ID)
+- LRU eviction when max size exceeded
+- `bypass=True` parameter to skip cache and fetch fresh
+- `cleanup_expired()` for manual cache maintenance
+- Thread-safe with `RLock` for concurrent access
+- Singleton pattern with `get_metadata_cache()` factory
 
 ---
 

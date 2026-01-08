@@ -80,6 +80,13 @@ from agentic_kg.data_acquisition.cache import (
     reset_paper_cache,
 )
 
+from agentic_kg.data_acquisition.metadata_cache import (
+    MetadataCache,
+    TTLCache,
+    get_metadata_cache,
+    reset_metadata_cache,
+)
+
 __all__ = [
     # Models
     "AuthorRef",
@@ -121,8 +128,13 @@ __all__ = [
     "detect_identifier_type",
     "get_acquisition_layer",
     "reset_acquisition_layer",
-    # Caching
+    # PDF Caching
     "PaperCache",
     "get_paper_cache",
     "reset_paper_cache",
+    # Metadata Caching
+    "MetadataCache",
+    "TTLCache",
+    "get_metadata_cache",
+    "reset_metadata_cache",
 ]
