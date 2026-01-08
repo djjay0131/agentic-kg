@@ -367,18 +367,28 @@
 ### Task 14: Documentation
 **Estimate:** 0.5 days
 
-- [ ] Create `agentic_kg/data_acquisition/README.md`
-- [ ] Document all public APIs with examples
-- [ ] Document rate limiting behavior
-- [ ] Document cache configuration
-- [ ] Document paywall integration setup
-- [ ] Add API docstrings to all public methods
+- [x] Create `agentic_kg/data_acquisition/README.md`
+- [x] Document all public APIs with examples
+- [x] Document rate limiting behavior
+- [x] Document cache configuration
+- [x] Document paywall integration setup
+- [x] Add API docstrings to all public methods
 - [ ] Update memory-bank/techContext.md with data acquisition details
 
 **Acceptance Criteria:**
 - New developers can understand and use the module
 - All configuration options documented
 - Examples for common use cases
+
+**Implementation Notes:**
+- Comprehensive README.md with code examples
+- Quick start guide and API client documentation
+- Configuration section with env vars and config object
+- Rate limiting table and custom limiter usage
+- Caching documentation for PDF and metadata
+- KG integration and CLI tool usage
+- Data models and error handling
+- All modules have docstrings (techContext update deferred)
 
 ---
 
