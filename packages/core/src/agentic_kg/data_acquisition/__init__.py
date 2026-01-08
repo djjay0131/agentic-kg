@@ -43,7 +43,17 @@ from agentic_kg.data_acquisition.semantic_scholar import (
     reset_semantic_scholar_client,
 )
 
-# from agentic_kg.data_acquisition.arxiv import ArxivClient
+from agentic_kg.data_acquisition.arxiv import (
+    ArxivClient,
+    ArxivError,
+    ArxivNotFoundError,
+    ArxivRateLimitError,
+    get_arxiv_client,
+    normalize_arxiv_id,
+    parse_arxiv_id,
+    reset_arxiv_client,
+)
+
 # from agentic_kg.data_acquisition.openalex import OpenAlexClient
 
 # Acquisition layer will be added in Task 6
@@ -67,8 +77,16 @@ __all__ = [
     "SemanticScholarError",
     "get_semantic_scholar_client",
     "reset_semantic_scholar_client",
-    # Clients (Tasks 4-5)
-    # "ArxivClient",
+    # arXiv Client
+    "ArxivClient",
+    "ArxivError",
+    "ArxivNotFoundError",
+    "ArxivRateLimitError",
+    "get_arxiv_client",
+    "normalize_arxiv_id",
+    "parse_arxiv_id",
+    "reset_arxiv_client",
+    # Clients (Task 5)
     # "OpenAlexClient",
     # Acquisition layer (Task 6)
     # "PaperAcquisitionLayer",

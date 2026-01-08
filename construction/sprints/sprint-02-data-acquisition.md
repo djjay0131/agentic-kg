@@ -96,21 +96,29 @@
 ### Task 4: arXiv Integration
 **Estimate:** 1.5 days
 
-- [ ] Create `agentic_kg/data_acquisition/arxiv.py`
-- [ ] Implement `ArxivClient` class
-- [ ] Implement arXiv ID parsing (old-style: `cs.AI/0501001`, new-style: `2301.12345`)
-- [ ] Implement `get_metadata(arxiv_id)` using arXiv API
-- [ ] Implement `download_pdf(arxiv_id)` from arXiv CDN
-- [ ] Implement `get_pdf_url(arxiv_id)` for direct URL generation
-- [ ] Add rate limiting (3 requests/second)
-- [ ] Add retry logic for failed downloads
-- [ ] Handle version specifiers (e.g., `2301.12345v2`)
+- [x] Create `agentic_kg/data_acquisition/arxiv.py`
+- [x] Implement `ArxivClient` class
+- [x] Implement arXiv ID parsing (old-style: `cs.AI/0501001`, new-style: `2301.12345`)
+- [x] Implement `get_metadata(arxiv_id)` using arXiv API
+- [x] Implement `download_pdf(arxiv_id)` from arXiv CDN
+- [x] Implement `get_pdf_url(arxiv_id)` for direct URL generation
+- [x] Add rate limiting (3 requests/second)
+- [x] Add retry logic for failed downloads
+- [x] Handle version specifiers (e.g., `2301.12345v2`)
 
 **Acceptance Criteria:**
 - Can parse all arXiv ID formats
 - PDF download succeeds for valid papers
 - Metadata extraction returns title, authors, abstract
 - Rate limits prevent API throttling
+
+**Implementation Notes:**
+- ArxivClient parses Atom XML responses from arXiv API
+- `parse_arxiv_id()` and `normalize_arxiv_id()` handle both old and new ID formats
+- `search()` method with full arXiv query syntax support
+- `download_pdf()` streams to file, `get_pdf_bytes()` returns content
+- Version specifiers preserved through parse/normalize cycle
+- Singleton pattern with `get_arxiv_client()` factory
 
 ---
 
