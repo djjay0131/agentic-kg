@@ -22,14 +22,16 @@ Example usage:
     pdf_path = await acquisition.get_pdf_path("10.1038/nature12373")
 """
 
-# Models will be added in Task 2
-# from agentic_kg.data_acquisition.models import (
-#     PaperMetadata,
-#     AuthorRef,
-#     Citation,
-#     SourceType,
-#     DownloadStatus,
-# )
+from agentic_kg.data_acquisition.models import (
+    AuthorRef,
+    Citation,
+    DownloadResult,
+    DownloadStatus,
+    PaperMetadata,
+    SourceType,
+    is_valid_arxiv_id,
+    is_valid_doi,
+)
 
 # Clients will be added in Tasks 3-5
 # from agentic_kg.data_acquisition.semantic_scholar import SemanticScholarClient
@@ -40,12 +42,16 @@ Example usage:
 # from agentic_kg.data_acquisition.acquisition import PaperAcquisitionLayer
 
 __all__ = [
-    # Models (Task 2)
-    # "PaperMetadata",
-    # "AuthorRef",
-    # "Citation",
-    # "SourceType",
-    # "DownloadStatus",
+    # Models
+    "AuthorRef",
+    "Citation",
+    "DownloadResult",
+    "DownloadStatus",
+    "PaperMetadata",
+    "SourceType",
+    # Validators
+    "is_valid_arxiv_id",
+    "is_valid_doi",
     # Clients (Tasks 3-5)
     # "SemanticScholarClient",
     # "ArxivClient",

@@ -39,20 +39,25 @@
 ### Task 2: Data Models
 **Estimate:** 1 day
 
-- [ ] Create `agentic_kg/data_acquisition/models.py`
-- [ ] Implement `PaperMetadata` model with all fields
-- [ ] Implement `AuthorRef` model for author references
-- [ ] Implement `Citation` model for citation data
-- [ ] Implement `SourceType` enum (ARXIV, OPENALEX, SEMANTIC_SCHOLAR, PAYWALL, CACHE)
-- [ ] Implement `DownloadStatus` enum for async downloads
-- [ ] Add JSON serialization for caching
-- [ ] Add model validators for DOI and arXiv ID formats
+- [x] Create `agentic_kg/data_acquisition/models.py`
+- [x] Implement `PaperMetadata` model with all fields
+- [x] Implement `AuthorRef` model for author references
+- [x] Implement `Citation` model for citation data
+- [x] Implement `SourceType` enum (ARXIV, OPENALEX, SEMANTIC_SCHOLAR, PAYWALL, CACHE)
+- [x] Implement `DownloadStatus` enum for async downloads
+- [x] Add JSON serialization for caching
+- [x] Add model validators for DOI and arXiv ID formats
 
 **Acceptance Criteria:**
 - All models defined with proper validation
 - DOI regex validation (10.XXXX/...)
 - arXiv ID validation (both old and new formats)
 - Models compatible with Knowledge Graph Paper entity
+
+**Implementation Notes:**
+- Added `DownloadResult` model for tracking download status
+- DOI/arXiv validators auto-clean common prefixes (https://doi.org/, arXiv:)
+- 45 unit tests in test_models.py
 
 ---
 
