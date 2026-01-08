@@ -87,6 +87,15 @@ from agentic_kg.data_acquisition.metadata_cache import (
     reset_metadata_cache,
 )
 
+# Rate Limiting
+from agentic_kg.data_acquisition.ratelimit import (
+    CompositeRateLimiter,
+    RateLimiterRegistry,
+    TokenBucketRateLimiter,
+    get_rate_limiter_registry,
+    reset_rate_limiter_registry,
+)
+
 __all__ = [
     # Models
     "AuthorRef",
@@ -137,4 +146,10 @@ __all__ = [
     "TTLCache",
     "get_metadata_cache",
     "reset_metadata_cache",
+    # Rate Limiting
+    "CompositeRateLimiter",
+    "RateLimiterRegistry",
+    "TokenBucketRateLimiter",
+    "get_rate_limiter_registry",
+    "reset_rate_limiter_registry",
 ]

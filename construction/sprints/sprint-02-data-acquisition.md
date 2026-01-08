@@ -264,16 +264,26 @@
 ### Task 10: Rate Limiting Infrastructure
 **Estimate:** 0.5 days
 
-- [ ] Create `agentic_kg/data_acquisition/ratelimit.py`
-- [ ] Implement token bucket rate limiter
-- [ ] Implement per-client rate limit configuration
-- [ ] Add rate limit state persistence (optional)
-- [ ] Add rate limit metrics/logging
+- [x] Create `agentic_kg/data_acquisition/ratelimit.py`
+- [x] Implement token bucket rate limiter
+- [x] Implement per-client rate limit configuration
+- [x] Add rate limit state persistence (optional)
+- [x] Add rate limit metrics/logging
 
 **Acceptance Criteria:**
 - Rate limiters prevent API throttling
 - Each client has independent limits
 - Rate limit events logged for debugging
+
+**Implementation Notes:**
+- `TokenBucketRateLimiter` with configurable rate and burst size
+- `CompositeRateLimiter` for multiple concurrent limits
+- `RateLimiterRegistry` for centralized management
+- `acquire()` blocks until token available, `try_acquire()` non-blocking
+- Per-limiter metrics: total_acquired, total_waited_ms, total_throttled
+- Default limiters: S2 (1/10 req/s), arXiv (3 req/s), OpenAlex (10 req/s)
+- Thread-safe with proper locking
+- Global registry via `get_rate_limiter_registry()`
 
 ---
 
