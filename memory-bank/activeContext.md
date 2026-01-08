@@ -1,47 +1,53 @@
 # Active Context
 
-**Last Updated:** 2026-01-07
+**Last Updated:** 2026-01-08
 
 ## Current Work Phase
 
-**Phase 1: Knowledge Graph Foundation - COMPLETE**
+**Phase 2: Data Acquisition Layer - IN PROGRESS**
 
-Sprint 01 is finished. All user stories implemented, tests passing, ready for merge.
+Sprint 01 merged to master (PR #9, 2026-01-08). Sprint 02 is now underway with Task 3 (Semantic Scholar client) as the next task.
 
 ## Immediate Next Steps
 
-**Session Status (2026-01-07):**
-- On branch: `claude/problem-schema-design-SqUnQ`
-- Sprint 01 complete - ready for merge to master
-- Auto-embedding on problem creation working (FR-2.4.1 fixed)
-- Deferred items documented in `construction/backlog/sprint-01-deferred.md`
+**Session Status (2026-01-08):**
+- On branch: `claude/sprint-02-data-acquisition-SqUnQ`
+- Sprint 01 merged to master (PR #9)
+- Sprint 02 in progress: Tasks 1-2 complete, Task 3 next
+- Branch cleanup complete: old feature branches deleted
 
-**Sprint 01 Completed:**
-- [x] Project structure with `packages/core/src/agentic_kg/`
-- [x] Configuration module: `config.py`
-- [x] Pydantic models: `knowledge_graph/models.py` (Problem, Paper, Author, Relations)
-- [x] Neo4j Docker setup: `docker/docker-compose.yml`
-- [x] Repository layer: `knowledge_graph/repository.py` (CRUD + auto-embedding)
-- [x] Schema initialization: `knowledge_graph/schema.py`
-- [x] Embedding integration: `knowledge_graph/embeddings.py`
-- [x] Hybrid search: `knowledge_graph/search.py`
-- [x] Relation operations: `knowledge_graph/relations.py`
-- [x] 221 tests (171 unit + 50 integration)
-- [x] Sample data script: `scripts/load_sample_problems.py`
-- [x] Module documentation: `knowledge_graph/README.md`
+**Branch Cleanup (2026-01-08):**
+- Deleted: `claude/problem-schema-design-SqUnQ` (merged)
+- Deleted: `claude/create-sub-agent-k4rvf` (merged)
+- Deleted: `claude/compare-kg-options-SqUnQ` (renamed)
+- Current: `claude/sprint-02-data-acquisition-SqUnQ`
+
+**Sprint 02 Progress:**
+- [x] Task 1: Package structure & configuration
+- [x] Task 2: Data models (PaperMetadata, AuthorRef, Citation, SourceType, DownloadStatus, DownloadResult)
+- [ ] Task 3: Semantic Scholar client - NEXT
+- [ ] Tasks 4-14: Pending
+
+**Key Files Created in Sprint 02:**
+- `packages/core/src/agentic_kg/data_acquisition/__init__.py`
+- `packages/core/src/agentic_kg/data_acquisition/models.py`
+- `packages/core/tests/data_acquisition/test_models.py` (45 unit tests)
+- Updated `config.py` with `DataAcquisitionConfig`
+- Updated `.env.example` with new environment variables
 
 **Priority Tasks:**
 
-1. **Merge Sprint 01** (Immediate)
-   - [ ] Create PR from `claude/problem-schema-design-SqUnQ` to master
-   - [ ] Review and merge
-   - [ ] Consider tagging v0.1.0
+1. **Task 3: Semantic Scholar Client** (Immediate)
+   - [ ] Create `agentic_kg/data_acquisition/semantic_scholar.py`
+   - [ ] Implement `SemanticScholarClient` with httpx
+   - [ ] Add `search_papers()`, `get_paper()`, `get_references()`, `get_citations()`
+   - [ ] Add rate limiting (1 req/sec unauthenticated, 10 req/sec authenticated)
+   - [ ] Add pagination and retry logic
 
-2. **Sprint 02 Planning** (Next)
-   - [ ] Create `construction/requirements/sprint-02-requirements.md`
-   - [ ] Create `construction/sprints/sprint-02-data-acquisition.md`
-   - Scope: Semantic Scholar, arXiv, OpenAlex APIs
-   - Estimated: 14 tasks
+2. **Remaining API Clients** (Next)
+   - [ ] Task 4: arXiv integration
+   - [ ] Task 5: OpenAlex integration
+   - [ ] Task 6: Unified PaperAcquisitionLayer
 
 3. **Documentation Cleanup** (Medium Priority)
    - [ ] Update techContext.md with Neo4j details (deferred from Sprint 01)
@@ -140,9 +146,10 @@ Sprint 01 is finished. All user stories implemented, tests passing, ready for me
 
 - Read ALL memory-bank files on context reset (7 core files including phases.md)
 - Check phases.md for current phase status
-- **Sprint 01 COMPLETE** - ready to merge branch `claude/problem-schema-design-SqUnQ`
-- Next steps: Create PR, merge to master, plan Sprint 02
-- Sprint 02 scope: Data Acquisition Layer (Semantic Scholar, arXiv, OpenAlex APIs)
+- **Sprint 01 MERGED** - PR #9 merged to master on 2026-01-08
+- **Sprint 02 IN PROGRESS** - on branch `claude/sprint-02-data-acquisition-SqUnQ`
+- Current task: Task 3 - Semantic Scholar client implementation
+- Tasks 1-2 complete: Package structure, data models, 45 tests
 - Deferred items tracked in: `construction/backlog/sprint-01-deferred.md`
 - Deployment infrastructure designed in: `construction/design/deployment-infrastructure.md`
 - Administrative agents ready: `@memory-agent update`, `@construction-agent validate`

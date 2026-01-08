@@ -73,6 +73,8 @@ This file serves as the **coordination hub** between the memory-bank and constru
 - **Key Deliverables**: Semantic Scholar client, arXiv integration, OpenAlex integration, paywall microservice integration
 - **Design Status**: Complete (covered in system-architecture.md, Section 3.1)
 - **Implementation Status**: In Progress (Sprint 02)
+- **Branch**: `claude/sprint-02-data-acquisition-SqUnQ`
+- **Progress**: Tasks 1-2 complete, Task 3 next (2/14 tasks)
 - **Requirements**: [sprint-02-requirements.md](../construction/requirements/sprint-02-requirements.md)
 - **Sprint Plan**: [sprint-02-data-acquisition.md](../construction/sprints/sprint-02-data-acquisition.md)
 - **Dependencies**: Phase 1 complete (satisfied)

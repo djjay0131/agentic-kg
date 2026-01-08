@@ -1,21 +1,22 @@
 # Progress Tracking
 
-**Last Updated:** 2026-01-07
+**Last Updated:** 2026-01-08
 
-## Project Status: Sprint 01 Complete - Ready for Merge
+## Project Status: Sprint 02 In Progress
 
-Knowledge Graph Foundation (Sprint 01) is complete. Branch `claude/problem-schema-design-SqUnQ` ready for merge to master.
+Sprint 01 (Knowledge Graph Foundation) merged to master via PR #9 on 2026-01-08. Sprint 02 (Data Acquisition Layer) is now underway.
 
 ---
 
 ## Completed Work
 
-### Sprint 01: Knowledge Graph Foundation (2025-01-05 - 2026-01-07)
+### Sprint 01: Knowledge Graph Foundation (2025-01-05 - 2026-01-08) - MERGED
 
 **What:**
 - Implemented complete Knowledge Representation Layer with Neo4j
 - All 5 user stories (US-01 through US-05) implemented
 - All 11 sprint tasks completed (with minor items deferred)
+- **Merged to master: PR #9 on 2026-01-08**
 
 **Key Deliverables:**
 - `packages/core/src/agentic_kg/` - Core package with full KG implementation
@@ -38,10 +39,11 @@ Knowledge Graph Foundation (Sprint 01) is complete. Branch `claude/problem-schem
 - Update techContext.md - Medium priority
 
 **Impact:**
-Knowledge Graph Foundation complete and ready for data acquisition layer.
+Knowledge Graph Foundation complete and merged. Foundation ready for data acquisition layer.
 
 **Verification:**
-- Commits: See branch `claude/problem-schema-design-SqUnQ`
+- PR: #9 (merged 2026-01-08)
+- Branch: `claude/problem-schema-design-SqUnQ` (deleted after merge)
 - All tests passing (integration tests skip gracefully without Docker)
 - Sprint doc: `construction/sprints/sprint-01-knowledge-graph.md`
 
@@ -153,92 +155,79 @@ Standardized workflow for maintaining project documentation and managing design-
 
 ## In Progress
 
-### Sprint 01 Merge
+### Sprint 02: Data Acquisition Layer (2026-01-08 - ongoing)
 
 **What:**
-Merge Knowledge Graph Foundation to master
+Implement unified paper acquisition from multiple sources (Semantic Scholar, arXiv, OpenAlex, paywall)
 
-**Current State:**
-- Sprint 01 implementation complete
-- Branch: `claude/problem-schema-design-SqUnQ`
-- All tests passing (CI skips integration tests without Docker)
-- Ready for PR review and merge
+**Branch:** `claude/sprint-02-data-acquisition-SqUnQ`
+
+**Current State (2026-01-08):**
+- [x] Task 1: Package structure & configuration - COMPLETE
+- [x] Task 2: Data models (PaperMetadata, AuthorRef, Citation, etc.) - COMPLETE
+- [ ] Task 3: Semantic Scholar client - NEXT
+- [ ] Tasks 4-14: Pending
+
+**Key Files Created:**
+- `packages/core/src/agentic_kg/data_acquisition/__init__.py`
+- `packages/core/src/agentic_kg/data_acquisition/models.py` (PaperMetadata, AuthorRef, Citation, SourceType, DownloadStatus, DownloadResult)
+- `packages/core/tests/data_acquisition/test_models.py` (45 unit tests)
+- Updated `config.py` with `DataAcquisitionConfig` (SemanticScholarConfig, ArxivConfig, OpenAlexConfig, CacheConfig)
+- Updated `.env.example` with new environment variables
 
 **Next Steps:**
-- [ ] Create PR from `claude/problem-schema-design-SqUnQ` to master
-- [ ] Review and merge PR
-- [ ] Tag release (v0.1.0?)
-- [ ] Begin Sprint 02 planning
+- [ ] Task 3: Implement `SemanticScholarClient` with httpx
+- [ ] Task 4: arXiv integration
+- [ ] Task 5: OpenAlex integration
+- [ ] Task 6: Unified `PaperAcquisitionLayer` interface
 
-### Sprint 02: Data Acquisition Layer (Planned)
-
-**What:**
-Implement data acquisition from academic paper sources
-
-**Scope (from user requirements):**
-- Semantic Scholar API integration
-- arXiv API integration
-- OpenAlex API integration
-- Rate limiting and caching
-- Paper metadata extraction
-- Full-text retrieval
-
-**Status:** Requirements and design documents to be created
-
-**Target Tasks (estimated 14 tasks):**
-- API client implementations
-- Rate limiting infrastructure
-- Caching layer
-- Paper ingestion pipeline
-- Metadata normalization
-- Full-text processing
-
-**Artifacts to create:**
-- `construction/requirements/sprint-02-requirements.md`
-- `construction/sprints/sprint-02-data-acquisition.md`
+**Artifacts:**
+- Requirements: `construction/requirements/sprint-02-requirements.md`
+- Sprint plan: `construction/sprints/sprint-02-data-acquisition.md`
+- Design: `construction/design/system-architecture.md` (Section 3.1)
 
 ---
 
 ## Remaining Work
 
-### Phase 1: Knowledge Graph Foundation - COMPLETE
+### Phase 1: Knowledge Graph Foundation - MERGED
 
-**Status:** All tasks complete, branch ready for merge
+**Status:** Complete and merged to master (PR #9)
 **Sprint:** 01
-**Branch:** `claude/problem-schema-design-SqUnQ`
+**Completion Date:** 2026-01-08
 
-**Completed Tasks:**
-- [x] Neo4j graph database with Docker setup
-- [x] Pydantic models (Problem, Paper, Author, Relations)
-- [x] Repository layer with CRUD operations
-- [x] Schema initialization and migrations
-- [x] Vector index with OpenAI embeddings
-- [x] Hybrid search (semantic + structured)
-- [x] Relation operations
-- [x] 221 tests (unit + integration)
-- [x] Sample data loading script
-- [x] Module documentation
+All 11 tasks complete. 221 tests passing. See Completed Work section for details.
 
 **Deferred to backlog:**
 - Multi-hop traversal (FR-2.3.4) - Sprint 03
 - Neo4j Aura production docs - Sprint 02
 - Referential integrity on delete - Low priority
 
-### Phase 2: Data Acquisition Layer (Next)
+### Phase 2: Data Acquisition Layer - IN PROGRESS
 
-**Tasks:**
-- [ ] Create requirements document
-- [ ] Design data acquisition architecture
-- [ ] Implement Semantic Scholar API client
-- [ ] Implement arXiv API client
-- [ ] Implement OpenAlex API client
-- [ ] Build rate limiting infrastructure
-- [ ] Add caching layer (Redis?)
-- [ ] Create paper ingestion pipeline
-- [ ] Normalize metadata across sources
-- [ ] Handle full-text retrieval
+**Status:** Implementation in progress
+**Sprint:** 02
+**Branch:** `claude/sprint-02-data-acquisition-SqUnQ`
 
-**Priority:** High - Next up after Sprint 01 merge
+**Completed Tasks:**
+- [x] Task 1: Package structure & configuration
+- [x] Task 2: Data models
+
+**Pending Tasks:**
+- [ ] Task 3: Semantic Scholar client (NEXT)
+- [ ] Task 4: arXiv integration
+- [ ] Task 5: OpenAlex integration
+- [ ] Task 6: Paper Acquisition Layer (unified interface)
+- [ ] Task 7: PDF caching
+- [ ] Task 8: Metadata caching
+- [ ] Task 9: Paywall integration (optional)
+- [ ] Task 10: Rate limiting infrastructure
+- [ ] Task 11: Testing
+- [ ] Task 12: Knowledge Graph integration
+- [ ] Task 13: CLI tools
+- [ ] Task 14: Documentation
+
+**Priority:** High - Active development
 **Dependencies:** Phase 1 complete (satisfied)
 
 ### Phase 3: Extraction Pipeline
@@ -307,13 +296,13 @@ Implement data acquisition from academic paper sources
 ### M1: Knowledge Graph MVP
 - **Target:** After Phase 1
 - **Description:** Basic graph with problem entities, can query
-- **Status:** Complete - Ready for Merge (2026-01-07)
-- **Deliverable:** Branch `claude/problem-schema-design-SqUnQ`
+- **Status:** Complete - Merged (2026-01-08)
+- **Deliverable:** PR #9
 
 ### M2: Data Acquisition
 - **Target:** After Sprint 02
 - **Description:** Can ingest papers from Semantic Scholar, arXiv, OpenAlex
-- **Status:** Planning (requirements to be created)
+- **Status:** In Progress (2/14 tasks complete)
 
 ### M3: Extraction Pipeline
 - **Target:** After Phase 3
