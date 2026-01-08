@@ -54,7 +54,14 @@ from agentic_kg.data_acquisition.arxiv import (
     reset_arxiv_client,
 )
 
-# from agentic_kg.data_acquisition.openalex import OpenAlexClient
+from agentic_kg.data_acquisition.openalex import (
+    OpenAlexClient,
+    OpenAlexError,
+    OpenAlexNotFoundError,
+    OpenAlexRateLimitError,
+    get_openalex_client,
+    reset_openalex_client,
+)
 
 # Acquisition layer will be added in Task 6
 # from agentic_kg.data_acquisition.acquisition import PaperAcquisitionLayer
@@ -86,8 +93,13 @@ __all__ = [
     "normalize_arxiv_id",
     "parse_arxiv_id",
     "reset_arxiv_client",
-    # Clients (Task 5)
-    # "OpenAlexClient",
+    # OpenAlex Client
+    "OpenAlexClient",
+    "OpenAlexError",
+    "OpenAlexNotFoundError",
+    "OpenAlexRateLimitError",
+    "get_openalex_client",
+    "reset_openalex_client",
     # Acquisition layer (Task 6)
     # "PaperAcquisitionLayer",
 ]

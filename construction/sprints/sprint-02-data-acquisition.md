@@ -125,20 +125,30 @@
 ### Task 5: OpenAlex Integration
 **Estimate:** 1 day
 
-- [ ] Create `agentic_kg/data_acquisition/openalex.py`
-- [ ] Implement `OpenAlexClient` class
-- [ ] Implement `get_work(doi)` method for paper lookup
-- [ ] Implement `search_works(query, filters)` method
-- [ ] Implement `get_open_access_url(work)` to find PDF links
-- [ ] Extract author and institution metadata
-- [ ] Add polite pool email header for rate limits
-- [ ] Add retry logic
+- [x] Create `agentic_kg/data_acquisition/openalex.py`
+- [x] Implement `OpenAlexClient` class
+- [x] Implement `get_work(doi)` method for paper lookup
+- [x] Implement `search_works(query, filters)` method
+- [x] Implement `get_open_access_url(work)` to find PDF links
+- [x] Extract author and institution metadata
+- [x] Add polite pool email header for rate limits
+- [x] Add retry logic
 
 **Acceptance Criteria:**
 - Paper lookup by DOI works
 - Open access PDF URLs extracted when available
 - Author metadata includes affiliations
 - Polite headers configured for higher rate limits
+
+**Implementation Notes:**
+- OpenAlexClient with polite pool email for higher rate limits
+- `get_work_by_doi()` and `get_work()` for paper lookup
+- `search_works()` with filter and sort support
+- `get_works_by_author()` for author-centric queries
+- `_reconstruct_abstract()` handles OpenAlex inverted index format
+- `_extract_best_oa_url()` finds PDFs from multiple locations
+- `get_author()` and `get_institution()` for entity details
+- Singleton pattern with `get_openalex_client()` factory
 
 ---
 
