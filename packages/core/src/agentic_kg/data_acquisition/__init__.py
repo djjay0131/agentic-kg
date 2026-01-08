@@ -96,6 +96,18 @@ from agentic_kg.data_acquisition.ratelimit import (
     reset_rate_limiter_registry,
 )
 
+# Knowledge Graph Integration
+from agentic_kg.data_acquisition.kg_sync import (
+    KGSyncError,
+    KGSyncResult,
+    author_ref_to_kg_author,
+    get_paper_from_kg,
+    paper_exists_in_kg,
+    paper_metadata_to_kg_paper,
+    sync_paper_to_kg,
+    sync_papers_batch,
+)
+
 __all__ = [
     # Models
     "AuthorRef",
@@ -152,4 +164,13 @@ __all__ = [
     "TokenBucketRateLimiter",
     "get_rate_limiter_registry",
     "reset_rate_limiter_registry",
+    # Knowledge Graph Integration
+    "KGSyncError",
+    "KGSyncResult",
+    "author_ref_to_kg_author",
+    "get_paper_from_kg",
+    "paper_exists_in_kg",
+    "paper_metadata_to_kg_paper",
+    "sync_paper_to_kg",
+    "sync_papers_batch",
 ]

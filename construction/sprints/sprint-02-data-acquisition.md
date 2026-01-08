@@ -312,19 +312,29 @@
 ### Task 12: Knowledge Graph Integration
 **Estimate:** 1 day
 
-- [ ] Create `agentic_kg/data_acquisition/kg_sync.py`
-- [ ] Implement `sync_paper_to_kg(metadata, repository)` function
-- [ ] Map `PaperMetadata` to Knowledge Graph `Paper` entity
-- [ ] Map `AuthorRef` to Knowledge Graph `Author` entity
-- [ ] Create AUTHORED_BY relations for paper authors
-- [ ] Handle duplicate detection via DOI
-- [ ] Update existing papers with new metadata
+- [x] Create `agentic_kg/data_acquisition/kg_sync.py`
+- [x] Implement `sync_paper_to_kg(metadata, repository)` function
+- [x] Map `PaperMetadata` to Knowledge Graph `Paper` entity
+- [x] Map `AuthorRef` to Knowledge Graph `Author` entity
+- [x] Create AUTHORED_BY relations for paper authors
+- [x] Handle duplicate detection via DOI
+- [x] Update existing papers with new metadata
 
 **Acceptance Criteria:**
 - Acquired papers automatically synced to Neo4j
 - Authors created and linked correctly
 - Duplicates detected and handled
 - Existing papers updated (not duplicated)
+
+**Implementation Notes:**
+- `sync_paper_to_kg()` syncs single paper with optional author sync
+- `sync_papers_batch()` for bulk syncing
+- `paper_metadata_to_kg_paper()` converts acquisition model to KG model
+- `author_ref_to_kg_author()` with stable ID from S2 ID or ORCID
+- `find_existing_author()` looks up by S2 ID or ORCID
+- `KGSyncResult` tracks created/updated/skipped counts and errors
+- DOI duplicate detection with update_existing option
+- AUTHORED_BY relations with author position
 
 ---
 
