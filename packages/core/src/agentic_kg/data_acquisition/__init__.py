@@ -33,8 +33,16 @@ from agentic_kg.data_acquisition.models import (
     is_valid_doi,
 )
 
-# Clients will be added in Tasks 3-5
-# from agentic_kg.data_acquisition.semantic_scholar import SemanticScholarClient
+# Clients
+from agentic_kg.data_acquisition.semantic_scholar import (
+    NotFoundError,
+    RateLimitError,
+    SemanticScholarClient,
+    SemanticScholarError,
+    get_semantic_scholar_client,
+    reset_semantic_scholar_client,
+)
+
 # from agentic_kg.data_acquisition.arxiv import ArxivClient
 # from agentic_kg.data_acquisition.openalex import OpenAlexClient
 
@@ -52,8 +60,14 @@ __all__ = [
     # Validators
     "is_valid_arxiv_id",
     "is_valid_doi",
-    # Clients (Tasks 3-5)
-    # "SemanticScholarClient",
+    # Semantic Scholar Client
+    "NotFoundError",
+    "RateLimitError",
+    "SemanticScholarClient",
+    "SemanticScholarError",
+    "get_semantic_scholar_client",
+    "reset_semantic_scholar_client",
+    # Clients (Tasks 4-5)
     # "ArxivClient",
     # "OpenAlexClient",
     # Acquisition layer (Task 6)

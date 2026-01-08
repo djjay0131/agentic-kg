@@ -64,25 +64,32 @@
 ### Task 3: Semantic Scholar Client
 **Estimate:** 2 days
 
-- [ ] Create `agentic_kg/data_acquisition/semantic_scholar.py`
-- [ ] Implement `SemanticScholarClient` class with httpx
-- [ ] Implement `search_papers(query, limit, fields)` method
-- [ ] Implement `get_paper(paper_id)` method for single paper lookup
-- [ ] Implement `get_paper_by_doi(doi)` method
-- [ ] Implement `get_paper_by_arxiv_id(arxiv_id)` method
-- [ ] Implement `get_references(paper_id, limit)` method
-- [ ] Implement `get_citations(paper_id, limit)` method
-- [ ] Implement `get_embedding(paper_id)` for SPECTER2 embeddings
-- [ ] Add pagination support for large result sets
-- [ ] Add rate limiting (1 req/sec unauthenticated, 10 req/sec authenticated)
-- [ ] Add retry logic with exponential backoff
-- [ ] Add API key authentication support
+- [x] Create `agentic_kg/data_acquisition/semantic_scholar.py`
+- [x] Implement `SemanticScholarClient` class with httpx
+- [x] Implement `search_papers(query, limit, fields)` method
+- [x] Implement `get_paper(paper_id)` method for single paper lookup
+- [x] Implement `get_paper_by_doi(doi)` method
+- [x] Implement `get_paper_by_arxiv_id(arxiv_id)` method
+- [x] Implement `get_references(paper_id, limit)` method
+- [x] Implement `get_citations(paper_id, limit)` method
+- [x] Implement `get_embedding(paper_id)` for SPECTER2 embeddings
+- [x] Add pagination support for large result sets
+- [x] Add rate limiting (1 req/sec unauthenticated, 10 req/sec authenticated)
+- [x] Add retry logic with exponential backoff
+- [x] Add API key authentication support
 
 **Acceptance Criteria:**
 - All search and retrieval methods functional
 - Rate limits respected (no 429 errors in normal use)
 - Pagination works for large citation lists
 - API key enables higher rate limits when configured
+
+**Implementation Notes:**
+- SemanticScholarClient with lazy-loaded httpx client
+- Token bucket rate limiting based on authenticated status
+- Exponential backoff with configurable retry count and delay
+- Batch methods for bulk paper retrieval and embedding fetching
+- Singleton pattern with `get_semantic_scholar_client()` factory
 
 ---
 
