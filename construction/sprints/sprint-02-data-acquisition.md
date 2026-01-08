@@ -341,16 +341,26 @@
 ### Task 13: CLI Tools
 **Estimate:** 0.5 days
 
-- [ ] Create `scripts/fetch_paper.py` CLI tool
-- [ ] Accept DOI, arXiv ID, or URL as input
-- [ ] Display paper metadata
-- [ ] Download PDF to specified location
-- [ ] Show source used for retrieval
+- [x] Create `scripts/fetch_paper.py` CLI tool
+- [x] Accept DOI, arXiv ID, or URL as input
+- [x] Display paper metadata
+- [x] Download PDF to specified location
+- [x] Show source used for retrieval
 
 **Acceptance Criteria:**
 - CLI works for all identifier types
 - Output is human-readable
 - PDF downloads to correct location
+
+**Implementation Notes:**
+- `fetch_paper.py` with argparse CLI
+- Supports DOI, arXiv ID, URL, S2 ID identifiers
+- `--search` flag for paper search
+- `--download` flag to download PDF
+- `--json` flag for JSON output
+- `--embedding` flag to include SPECTER2 embedding
+- `--sync` flag to sync to Knowledge Graph
+- Human-readable output with word-wrapped abstract
 
 ---
 
