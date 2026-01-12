@@ -20,7 +20,7 @@ from agentic_kg.knowledge_graph.repository import (
     NotFoundError,
     get_repository,
 )
-from agentic_kg.knowledge_graph.relations import RelationRepository
+from agentic_kg.knowledge_graph.relations import RelationService
 
 logger = logging.getLogger(__name__)
 
@@ -252,7 +252,7 @@ def _sync_authors_for_paper(
         Sync result for authors
     """
     result = KGSyncResult()
-    relation_repo = RelationRepository(repository)
+    relation_repo = RelationService(repository)
 
     for position, author_ref in enumerate(authors, start=1):
         # Try to find existing author

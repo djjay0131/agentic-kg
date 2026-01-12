@@ -387,7 +387,7 @@ class PaperCache:
 
     def _maybe_evict(self) -> None:
         """Evict oldest items if cache exceeds size limit."""
-        max_size = self._config.max_size_mb * 1024 * 1024
+        max_size = self._config.max_size_bytes
         current_size = self._get_total_size()
 
         if current_size <= max_size:
