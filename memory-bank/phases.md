@@ -1,6 +1,6 @@
 # Phase Lifecycle
 
-**Last Updated:** 2026-01-25
+**Last Updated:** 2026-01-26
 
 This file serves as the **coordination hub** between the memory-bank and construction folders. It tracks the lifecycle of each project phase and provides handoff signals between agents.
 
@@ -13,7 +13,7 @@ This file serves as the **coordination hub** between the memory-bank and constru
 | 0: Infrastructure | Complete | N/A | [sprint-00](../construction/sprints/sprint-00-gcp-deployment.md) | ADR-004, ADR-008, ADR-009 | N/A |
 | 1: Knowledge Graph | Complete (Merged) | [phase-1-knowledge-graph.md](../construction/design/phase-1-knowledge-graph.md) | [sprint-01](../construction/sprints/sprint-01-knowledge-graph.md) | ADR-010, ADR-011 | N/A |
 | 2: Data Acquisition | Complete (Merged) | - | [sprint-02](../construction/sprints/sprint-02-data-acquisition.md) | ADR-012 | N/A |
-| 3: Extraction Pipeline | Planning | [extraction-pipeline-requirements.md](../construction/requirements/extraction-pipeline-requirements.md) | [sprint-03](../construction/sprints/sprint-03-extraction-pipeline.md) | ADR-013 | Yes |
+| 3: Extraction Pipeline | In Progress (77%) | [extraction-pipeline-requirements.md](../construction/requirements/extraction-pipeline-requirements.md) | [sprint-03](../construction/sprints/sprint-03-extraction-pipeline.md) | ADR-013 | N/A |
 | 4: Agent Implementation | Not Started | - | - | - | No |
 
 ### Administrative Agents (Cross-Cutting)
@@ -92,20 +92,23 @@ This file serves as the **coordination hub** between the memory-bank and constru
 - **Objective**: LLM-based extraction of research problems from papers
 - **Key Deliverables**: PDF text extraction, section segmentation, LLM-based structured extraction, provenance tracking, batch processing
 - **Design Status**: Complete
-- **Implementation Status**: Planning
-- **Branch**: TBD (will be `claude/sprint-03-extraction-pipeline`)
+- **Implementation Status**: In Progress (77% - Tasks 1-10 complete)
+- **Branch**: PR #11 open
 - **Sprint**: [sprint-03-extraction-pipeline.md](../construction/sprints/sprint-03-extraction-pipeline.md)
 - **Requirements**: [extraction-pipeline-requirements.md](../construction/requirements/extraction-pipeline-requirements.md)
-- **Tasks**: 13 total (8 high priority, 4 medium, 1 deferred)
-- **Components Planned**:
-  - PDF text extraction with PyMuPDF
-  - Heuristic + LLM section segmentation
-  - LLM client abstraction layer (OpenAI/Anthropic)
-  - Versioned prompt templates
-  - Problem extractor with structured output
-  - Relationship extraction
-  - Knowledge Graph integration
-  - Batch processing with resume capability
+- **Tasks**: 10/13 complete (all high priority done, 2 medium remaining, 1 deferred)
+- **Components Built**:
+  - `pdf_extractor.py` - PyMuPDF text extraction with cleanup
+  - `section_segmenter.py` - Heuristic pattern matching for sections
+  - `llm_client.py` - OpenAI/Anthropic abstraction via instructor
+  - `prompts/templates.py` - Versioned extraction prompts
+  - `schemas.py` - Pydantic models for extraction output
+  - `problem_extractor.py` - Main extraction logic with filtering
+  - `relation_extractor.py` - Problem-to-problem relation detection
+  - `pipeline.py` - End-to-end PDF → KG workflow
+  - `kg_integration.py` - KG storage and deduplication
+  - `batch.py` - SQLite job queue with parallel processing
+- **Remaining Tasks**: CLI Commands (Task 11), Test Fixtures (Task 12)
 - **Dependencies**: Phase 2 complete (merged)
 
 ### Phase 4: Agent Implementation
