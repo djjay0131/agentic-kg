@@ -253,7 +253,7 @@ class TestBatchExtractionResult:
                 problems=[
                     ExtractedProblem(
                         statement="Problem from limitations section here.",
-                        quoted_text="quote 1",
+                        quoted_text="quote text for limitations problem",
                     )
                 ],
             ),
@@ -262,11 +262,11 @@ class TestBatchExtractionResult:
                 problems=[
                     ExtractedProblem(
                         statement="Problem from future work section.",
-                        quoted_text="quote 2",
+                        quoted_text="quote text for future work",
                     ),
                     ExtractedProblem(
                         statement="Another future work problem here.",
-                        quoted_text="quote 3",
+                        quoted_text="another quote text here",
                     ),
                 ],
             ),
@@ -288,12 +288,12 @@ class TestBatchExtractionResult:
                 problems=[
                     ExtractedProblem(
                         statement="High confidence problem in limitations.",
-                        quoted_text="quote",
+                        quoted_text="quote text for high confidence",
                         confidence=0.95,
                     ),
                     ExtractedProblem(
                         statement="Low confidence problem in limitations.",
-                        quoted_text="quote",
+                        quoted_text="quote text for low confidence",
                         confidence=0.5,
                     ),
                 ],

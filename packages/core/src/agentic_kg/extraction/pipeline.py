@@ -9,7 +9,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -297,7 +297,7 @@ class PaperProcessingPipeline:
 
     async def process_pdf_file(
         self,
-        file_path: str | Path,
+        file_path: Union[str, Path],
         paper_title: Optional[str] = None,
         paper_doi: Optional[str] = None,
         authors: Optional[list[str]] = None,

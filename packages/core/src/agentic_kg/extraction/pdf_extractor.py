@@ -11,7 +11,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 from urllib.parse import urlparse
 
 import httpx
@@ -166,7 +166,7 @@ class PDFExtractor:
 
         return self._extract_from_bytes(pdf_bytes, source_path=url)
 
-    def extract_from_file(self, file_path: str | Path) -> ExtractedText:
+    def extract_from_file(self, file_path: Union[str, Path]) -> ExtractedText:
         """
         Extract text from a local PDF file.
 
