@@ -4,19 +4,36 @@
 
 ## Current Work Phase
 
-**Phase 2: Data Acquisition Layer - READY TO START**
+**Phase 2: Data Acquisition Layer - COMPLETE**
 
-Sprint 01 (Knowledge Graph Foundation) is merged to master. Sprint 02 planning is complete.
+Sprint 02 (Data Acquisition Layer) implementation is complete on branch `claude/sprint-02-data-acquisition`. Ready for PR and merge.
 
 ## Immediate Next Steps
 
 **Session Status (2026-01-25):**
-- On branch: `master`
-- Sprint 01 merged (PR #9)
-- Sprint 02 requirements and sprint documents created
-- Ready to begin implementation
+- On branch: `claude/sprint-02-data-acquisition`
+- Sprint 02 implementation complete (13/14 tasks - integration tests deferred)
+- Ready for PR creation and merge to master
 
-**Sprint 01 Completed (Merged):**
+**Sprint 02 Completed (On Branch):**
+- [x] Data acquisition module structure (`data_acquisition/`)
+- [x] Configuration module: `config.py` (API keys, rate limits, cache TTL)
+- [x] Base API client: `base.py` (httpx async client)
+- [x] Exceptions: `exceptions.py` (APIError, RateLimitError, etc.)
+- [x] Rate limiting: `rate_limiter.py` (Token bucket with registry)
+- [x] Resilience: `resilience.py` (Circuit breaker, retry with backoff)
+- [x] Caching: `cache.py` (TTL cache with cachetools)
+- [x] Semantic Scholar client: `semantic_scholar.py`
+- [x] arXiv client: `arxiv.py` (with Atom feed parsing)
+- [x] OpenAlex client: `openalex.py` (with abstract reconstruction)
+- [x] Paper normalization: `normalizer.py` (unified schema)
+- [x] Multi-source aggregator: `aggregator.py`
+- [x] KG importer: `importer.py`
+- [x] CLI script: `scripts/import_papers.py`
+- [x] Unit tests: 11 test files, 3627 lines of tests
+- [ ] Integration tests (deferred - requires test environment)
+
+**Sprint 01 Completed (Merged to Master):**
 - [x] Project structure with `packages/core/src/agentic_kg/`
 - [x] Configuration module: `config.py`
 - [x] Pydantic models: `knowledge_graph/models.py` (Problem, Paper, Author, Relations)
@@ -27,38 +44,24 @@ Sprint 01 (Knowledge Graph Foundation) is merged to master. Sprint 02 planning i
 - [x] Hybrid search: `knowledge_graph/search.py`
 - [x] Relation operations: `knowledge_graph/relations.py`
 - [x] 221 tests (171 unit + 50 integration)
-- [x] Sample data script: `scripts/load_sample_problems.py`
-- [x] Module documentation: `knowledge_graph/README.md`
-
-**Sprint 02 Ready (14 tasks):**
-- [ ] Data acquisition module structure
-- [ ] Base API client infrastructure
-- [ ] Rate limiting infrastructure
-- [ ] Retry and circuit breaker
-- [ ] Caching layer
-- [ ] Semantic Scholar client
-- [ ] arXiv client
-- [ ] OpenAlex client
-- [ ] Paper metadata normalization
-- [ ] Multi-source aggregator
-- [ ] Knowledge Graph integration
-- [ ] CLI/Script interface
-- [ ] Unit tests
-- [ ] Integration tests
 
 **Priority Tasks:**
 
-1. **Begin Sprint 02 Implementation** (Immediate)
-   - Start with Task 1: Module structure and configuration
-   - Then Task 2-4: Infrastructure (base client, rate limiting, resilience)
-   - Requirements: `construction/requirements/data-acquisition-requirements.md`
-   - Sprint doc: `construction/sprints/sprint-02-data-acquisition.md`
+1. **Merge Sprint 02** (Immediate)
+   - Create PR from `claude/sprint-02-data-acquisition` to master
+   - Review and merge
 
-2. **Documentation Cleanup** (Medium Priority)
-   - [ ] Update techContext.md with Neo4j details (deferred from Sprint 01)
-   - [ ] Document Neo4j Aura production setup
+2. **Plan Sprint 03** (Next Session)
+   - Phase 3: Information Extraction Layer
+   - LLM-based entity and relation extraction from papers
 
 ## Recent Decisions
+
+### Decision 8: Data Acquisition Architecture
+- **Date:** 2026-01-25
+- **Decision:** Implement token bucket rate limiting with per-source configuration
+- **Rationale:** Academic APIs have different rate limits; centralized registry simplifies management
+- **Impact:** Robust API usage across Semantic Scholar, arXiv, and OpenAlex
 
 ### Decision 7: Deferred Items to Backlog
 - **Date:** 2026-01-07
@@ -78,13 +81,7 @@ Sprint 01 (Knowledge Graph Foundation) is merged to master. Sprint 02 planning i
 - **Rationale:** Native integration with Claude Code, auto-discovery, tool access control
 - **Impact:** Standardized workflow for memory-bank and construction folder management
 
-### Decision 4: Neo4j for Knowledge Graph (ADR-010)
-- **Date:** 2025-12-22
-- **Decision:** Use Neo4j as the graph database for the Knowledge Representation Layer
-- **Rationale:** Native property graph model, vector index support, mature Python driver
-- **Impact:** Enables Phase 1 implementation with hybrid symbolic-semantic retrieval
-
-*Note: Decisions 1-3 (2025-12-18) archived to `archive/decisions/decisions-2025-12.md`*
+*Note: Decisions 1-4 archived*
 
 ## Key Patterns and Preferences
 
@@ -116,6 +113,12 @@ Sprint 01 (Knowledge Graph Foundation) is merged to master. Sprint 02 planning i
 
 ## Important Learnings
 
+### About Data Acquisition Layer
+- Token bucket rate limiting with registry pattern for per-source limits
+- Circuit breaker protects against cascading failures
+- Paper normalization unifies different API response schemas
+- Multi-source aggregation merges data by DOI for best metadata
+
 ### About Claude Code Sub-Agents
 - Defined as markdown files with YAML frontmatter in `.claude/agents/`
 - Invoked via `@agent-name command` syntax
@@ -138,7 +141,7 @@ Sprint 01 (Knowledge Graph Foundation) is merged to master. Sprint 02 planning i
 
 1. **Extraction Strategy**: Which LLM models best for structured extraction?
 2. **Evaluation Metrics**: How to measure extraction reliability vs. human annotations?
-3. **Agent Automation**: Should memory-agent auto-commit or require human review?
+3. **Integration Testing**: Set up test environment with API credentials and Neo4j?
 
 ## Reference Materials
 
@@ -151,10 +154,8 @@ Sprint 01 (Knowledge Graph Foundation) is merged to master. Sprint 02 planning i
 
 - Read ALL memory-bank files on context reset (7 core files including phases.md)
 - Check phases.md for current phase status
-- **Sprint 01 MERGED** - Knowledge Graph Foundation complete on master
-- **Sprint 02 READY** - Data Acquisition Layer planning complete
+- **Sprint 02 COMPLETE** - Data Acquisition Layer on branch, ready for PR
 - Sprint 02 docs: `construction/sprints/sprint-02-data-acquisition.md`
 - Requirements: `construction/requirements/data-acquisition-requirements.md`
 - Deferred items tracked in: `construction/backlog/sprint-01-deferred.md`
-- Deployment infrastructure designed in: `construction/design/deployment-infrastructure.md`
 - Administrative agents ready: `@memory-agent update`, `@construction-agent validate`
