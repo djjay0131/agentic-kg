@@ -1,6 +1,6 @@
 # Phase Lifecycle
 
-**Last Updated:** 2026-01-07
+**Last Updated:** 2026-01-25
 
 This file serves as the **coordination hub** between the memory-bank and construction folders. It tracks the lifecycle of each project phase and provides handoff signals between agents.
 
@@ -12,7 +12,7 @@ This file serves as the **coordination hub** between the memory-bank and constru
 |-------|--------|------------|--------|------|---------------------|
 | 0: Infrastructure | Complete | N/A | [sprint-00](../construction/sprints/sprint-00-gcp-deployment.md) | ADR-004, ADR-008, ADR-009 | N/A |
 | 1: Knowledge Graph | Complete (Ready for Merge) | [phase-1-knowledge-graph.md](../construction/design/phase-1-knowledge-graph.md) | [sprint-01](../construction/sprints/sprint-01-knowledge-graph.md) | ADR-010, ADR-011 | Yes |
-| 2: Data Acquisition | Planning | - | - | - | No |
+| 2: Data Acquisition | Design Complete | - | [sprint-02](../construction/sprints/sprint-02-data-acquisition.md) | - | Yes |
 | 3: Extraction Pipeline | Not Started | - | - | - | No |
 | 4: Agent Implementation | Not Started | - | - | - | No |
 
@@ -71,8 +71,11 @@ This file serves as the **coordination hub** between the memory-bank and constru
 ### Phase 2: Data Acquisition Layer
 - **Objective**: Ingest papers from academic sources (Semantic Scholar, arXiv, OpenAlex)
 - **Key Deliverables**: API clients, rate limiting, caching, paper ingestion pipeline
-- **Design Status**: Planning (requirements and sprint docs to be created)
-- **Estimated Tasks**: 14 tasks
+- **Design Status**: Complete
+- **Implementation Status**: Ready to Start
+- **Sprint**: [sprint-02-data-acquisition.md](../construction/sprints/sprint-02-data-acquisition.md)
+- **Requirements**: [data-acquisition-requirements.md](../construction/requirements/data-acquisition-requirements.md)
+- **Tasks**: 14 tasks
 - **Dependencies**: Phase 1 complete (satisfied)
 
 ### Phase 3: Extraction Pipeline

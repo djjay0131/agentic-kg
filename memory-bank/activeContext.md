@@ -1,22 +1,22 @@
 # Active Context
 
-**Last Updated:** 2026-01-07
+**Last Updated:** 2026-01-25
 
 ## Current Work Phase
 
-**Phase 1: Knowledge Graph Foundation - COMPLETE**
+**Phase 2: Data Acquisition Layer - READY TO START**
 
-Sprint 01 is finished. All user stories implemented, tests passing, ready for merge.
+Sprint 01 (Knowledge Graph Foundation) is merged to master. Sprint 02 planning is complete.
 
 ## Immediate Next Steps
 
-**Session Status (2026-01-07):**
-- On branch: `claude/problem-schema-design-SqUnQ`
-- Sprint 01 complete - ready for merge to master
-- Auto-embedding on problem creation working (FR-2.4.1 fixed)
-- Deferred items documented in `construction/backlog/sprint-01-deferred.md`
+**Session Status (2026-01-25):**
+- On branch: `master`
+- Sprint 01 merged (PR #9)
+- Sprint 02 requirements and sprint documents created
+- Ready to begin implementation
 
-**Sprint 01 Completed:**
+**Sprint 01 Completed (Merged):**
 - [x] Project structure with `packages/core/src/agentic_kg/`
 - [x] Configuration module: `config.py`
 - [x] Pydantic models: `knowledge_graph/models.py` (Problem, Paper, Author, Relations)
@@ -30,20 +30,31 @@ Sprint 01 is finished. All user stories implemented, tests passing, ready for me
 - [x] Sample data script: `scripts/load_sample_problems.py`
 - [x] Module documentation: `knowledge_graph/README.md`
 
+**Sprint 02 Ready (14 tasks):**
+- [ ] Data acquisition module structure
+- [ ] Base API client infrastructure
+- [ ] Rate limiting infrastructure
+- [ ] Retry and circuit breaker
+- [ ] Caching layer
+- [ ] Semantic Scholar client
+- [ ] arXiv client
+- [ ] OpenAlex client
+- [ ] Paper metadata normalization
+- [ ] Multi-source aggregator
+- [ ] Knowledge Graph integration
+- [ ] CLI/Script interface
+- [ ] Unit tests
+- [ ] Integration tests
+
 **Priority Tasks:**
 
-1. **Merge Sprint 01** (Immediate)
-   - [ ] Create PR from `claude/problem-schema-design-SqUnQ` to master
-   - [ ] Review and merge
-   - [ ] Consider tagging v0.1.0
+1. **Begin Sprint 02 Implementation** (Immediate)
+   - Start with Task 1: Module structure and configuration
+   - Then Task 2-4: Infrastructure (base client, rate limiting, resilience)
+   - Requirements: `construction/requirements/data-acquisition-requirements.md`
+   - Sprint doc: `construction/sprints/sprint-02-data-acquisition.md`
 
-2. **Sprint 02 Planning** (Next)
-   - [ ] Create `construction/requirements/sprint-02-requirements.md`
-   - [ ] Create `construction/sprints/sprint-02-data-acquisition.md`
-   - Scope: Semantic Scholar, arXiv, OpenAlex APIs
-   - Estimated: 14 tasks
-
-3. **Documentation Cleanup** (Medium Priority)
+2. **Documentation Cleanup** (Medium Priority)
    - [ ] Update techContext.md with Neo4j details (deferred from Sprint 01)
    - [ ] Document Neo4j Aura production setup
 
@@ -140,9 +151,10 @@ Sprint 01 is finished. All user stories implemented, tests passing, ready for me
 
 - Read ALL memory-bank files on context reset (7 core files including phases.md)
 - Check phases.md for current phase status
-- **Sprint 01 COMPLETE** - ready to merge branch `claude/problem-schema-design-SqUnQ`
-- Next steps: Create PR, merge to master, plan Sprint 02
-- Sprint 02 scope: Data Acquisition Layer (Semantic Scholar, arXiv, OpenAlex APIs)
+- **Sprint 01 MERGED** - Knowledge Graph Foundation complete on master
+- **Sprint 02 READY** - Data Acquisition Layer planning complete
+- Sprint 02 docs: `construction/sprints/sprint-02-data-acquisition.md`
+- Requirements: `construction/requirements/data-acquisition-requirements.md`
 - Deferred items tracked in: `construction/backlog/sprint-01-deferred.md`
 - Deployment infrastructure designed in: `construction/design/deployment-infrastructure.md`
 - Administrative agents ready: `@memory-agent update`, `@construction-agent validate`
