@@ -12,8 +12,8 @@ This file serves as the **coordination hub** between the memory-bank and constru
 |-------|--------|------------|--------|------|---------------------|
 | 0: Infrastructure | Complete | N/A | [sprint-00](../construction/sprints/sprint-00-gcp-deployment.md) | ADR-004, ADR-008, ADR-009 | N/A |
 | 1: Knowledge Graph | Complete (Merged) | [phase-1-knowledge-graph.md](../construction/design/phase-1-knowledge-graph.md) | [sprint-01](../construction/sprints/sprint-01-knowledge-graph.md) | ADR-010, ADR-011 | N/A |
-| 2: Data Acquisition | Complete (Ready for Merge) | - | [sprint-02](../construction/sprints/sprint-02-data-acquisition.md) | ADR-012 | N/A |
-| 3: Extraction Pipeline | Not Started | - | - | - | No |
+| 2: Data Acquisition | Complete (Merged) | - | [sprint-02](../construction/sprints/sprint-02-data-acquisition.md) | ADR-012 | N/A |
+| 3: Extraction Pipeline | Planning | [extraction-pipeline-requirements.md](../construction/requirements/extraction-pipeline-requirements.md) | [sprint-03](../construction/sprints/sprint-03-extraction-pipeline.md) | ADR-013 | Yes |
 | 4: Agent Implementation | Not Started | - | - | - | No |
 
 ### Administrative Agents (Cross-Cutting)
@@ -90,9 +90,23 @@ This file serves as the **coordination hub** between the memory-bank and constru
 
 ### Phase 3: Extraction Pipeline
 - **Objective**: LLM-based extraction of research problems from papers
-- **Key Deliverables**: Section segmentation, structured extraction, provenance tracking
-- **Design Status**: Not started
-- **Dependencies**: Phase 2 complete
+- **Key Deliverables**: PDF text extraction, section segmentation, LLM-based structured extraction, provenance tracking, batch processing
+- **Design Status**: Complete
+- **Implementation Status**: Planning
+- **Branch**: TBD (will be `claude/sprint-03-extraction-pipeline`)
+- **Sprint**: [sprint-03-extraction-pipeline.md](../construction/sprints/sprint-03-extraction-pipeline.md)
+- **Requirements**: [extraction-pipeline-requirements.md](../construction/requirements/extraction-pipeline-requirements.md)
+- **Tasks**: 13 total (8 high priority, 4 medium, 1 deferred)
+- **Components Planned**:
+  - PDF text extraction with PyMuPDF
+  - Heuristic + LLM section segmentation
+  - LLM client abstraction layer (OpenAI/Anthropic)
+  - Versioned prompt templates
+  - Problem extractor with structured output
+  - Relationship extraction
+  - Knowledge Graph integration
+  - Batch processing with resume capability
+- **Dependencies**: Phase 2 complete (merged)
 
 ### Phase 4: Agent Implementation
 - **Objective**: Implement Ranking, Continuation, Evaluation, Synthesis agents

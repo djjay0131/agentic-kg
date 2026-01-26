@@ -327,6 +327,70 @@ Agentic-KG System                    research-ai-paper Microservice
 
 ---
 
+## ADR-012: Token Bucket Rate Limiting for API Clients
+
+**Date:** 2026-01-25
+**Status:** Accepted
+
+**Context:**
+The Data Acquisition Layer needs to call multiple external APIs (Semantic Scholar, arXiv, OpenAlex) with different rate limits. Need a consistent approach to prevent rate limit violations and handle API throttling.
+
+**Decision:**
+Implement token bucket rate limiting with per-source registry:
+- Each API source has its own rate limiter instance
+- Token bucket algorithm for smooth rate limiting
+- Configurable tokens per second and bucket capacity
+- Async-compatible with semaphore-based waiting
+- Central registry for limiter access across components
+
+**Consequences:**
+- Pros: Prevents rate limit violations, smooth request distribution, source-specific configuration
+- Cons: Memory overhead for token tracking, slight latency for bucket checks
+- Impact: Reliable API access, no bans from external services
+
+**Alternatives Considered:**
+- Fixed delay between requests: Rejected, inefficient for burst workloads
+- Leaky bucket: Considered, token bucket more flexible for our use case
+- No rate limiting (rely on retries): Rejected, would cause bans and degraded service
+
+---
+
+## ADR-013: LLM-Based Structured Extraction with Instructor
+
+**Date:** 2026-01-26
+**Status:** Accepted
+
+**Context:**
+Phase 3 requires extracting structured research problems from unstructured paper text. Need reliable extraction with schema validation and provenance tracking. Options include rule-based extraction, NER + relation extraction, or LLM-based approaches.
+
+**Decision:**
+Use LLM-based extraction with structured output via the `instructor` library:
+- OpenAI GPT-4 as primary extraction model (Claude 3.5 Sonnet as alternative)
+- Pydantic schema definitions for extraction output
+- `instructor` library for type-safe structured output
+- Multi-pass extraction: candidate identification → attribute extraction → validation
+- Confidence scoring based on LLM self-assessment + heuristics
+
+**Extraction Pipeline:**
+```
+PDF → Text Extraction → Section Segmentation → LLM Extraction → Schema Validation → KG Storage
+            ↓                    ↓                    ↓
+         PyMuPDF          Heuristic+LLM          instructor
+```
+
+**Consequences:**
+- Pros: High quality extraction, handles complex language, schema-validated output, can be improved via prompt engineering
+- Cons: API costs, latency, requires prompt tuning, potential hallucination
+- Impact: Enables automated problem extraction at scale, key Phase 3 capability
+
+**Alternatives Considered:**
+- Rule-based extraction: Rejected, too brittle for diverse paper formats
+- NER + relation extraction: Considered, but LLMs better for complex semantic understanding
+- Fine-tuned local models: Future consideration, LLM APIs faster to deploy
+- Raw JSON output (no instructor): Rejected, prone to format errors
+
+---
+
 ## Template for Future Decisions
 
 ```markdown
