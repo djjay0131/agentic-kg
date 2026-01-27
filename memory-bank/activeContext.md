@@ -4,17 +4,17 @@
 
 ## Current Work Phase
 
-**Phase 3: Information Extraction Pipeline - IN PROGRESS (77%)**
+**Phase 3: Information Extraction Pipeline - IN PROGRESS (92%)**
 
-Sprint 03 (Information Extraction Pipeline) implementation is well underway. Tasks 1-10 complete (all high-priority tasks). PR #11 open for review.
+Sprint 03 (Information Extraction Pipeline) nearly complete. Tasks 1-12 done (all high and medium priority). Task 13 (integration tests) deferred. PR #11 open for review.
 
 ## Immediate Next Steps
 
-**Session Status (2026-01-26):**
-- On branch: `master` with PR #11 open
-- Sprint 03 implementation 77% complete
-- All high-priority tasks finished
-- Medium-priority tasks remaining (CLI, fixtures)
+**Session Status (2026-01-27):**
+- On branch: `claude/sprint-03-extraction-pipeline` with PR #11 open
+- Sprint 03 implementation 92% complete
+- All high and medium priority tasks finished
+- Only Task 13 (integration tests) deferred
 
 **Sprint 03 Progress:**
 
@@ -28,8 +28,8 @@ Sprint 03 (Information Extraction Pipeline) implementation is well underway. Tas
 - [x] Task 8: Paper Processing Pipeline
 - [x] Task 9: Knowledge Graph Integration
 - [x] Task 10: Batch Processing
-- [ ] Task 11: CLI Commands (Medium priority)
-- [ ] Task 12: Test Fixtures and Conftest (Medium priority)
+- [x] Task 11: CLI Commands (Medium priority)
+- [x] Task 12: Test Fixtures and Conftest (Medium priority)
 - [ ] Task 13: Integration Tests (Deferred)
 
 **Sprint 02 Completed (Merged to Master):**
@@ -64,13 +64,15 @@ Sprint 03 (Information Extraction Pipeline) implementation is well underway. Tas
 **Priority Tasks:**
 
 1. **Complete Sprint 03** (Immediate)
-   - Finish Task 11: CLI Commands
-   - Finish Task 12: Test Fixtures
+   - Tasks 11-12: Complete ✅
+   - Task 13: Integration tests (deferred)
    - Merge PR #11
 
-2. **Begin Sprint 04 Planning** (After Sprint 03)
+2. **Begin Sprint 04 Planning** (Next)
    - Agent Implementation (Ranking, Continuation, Evaluation, Synthesis)
    - LangGraph workflows
+   - API service (`packages/api/`) - FastAPI + GraphQL
+   - UI service (`packages/ui/`) - Streamlit
 
 ## Recent Decisions
 
@@ -161,9 +163,9 @@ Sprint 03 (Information Extraction Pipeline) implementation is well underway. Tas
 
 - Read ALL memory-bank files on context reset (7 core files including phases.md)
 - Check phases.md for current phase status
-- **Sprint 03 IN PROGRESS** - 77% complete (Tasks 1-10 done)
+- **Sprint 03 IN PROGRESS** - 92% complete (Tasks 1-12 done)
 - Sprint 03 docs: `construction/sprints/sprint-03-extraction-pipeline.md`
 - Requirements: `construction/requirements/extraction-pipeline-requirements.md`
 - ADR-013 documents extraction approach decision
 - PR #11 open with extraction pipeline implementation
-- Next: Complete Task 11 (CLI Commands) and Task 12 (Test Fixtures)
+- Next: Merge PR #11, begin Sprint 04 planning (API/UI/Agents)
