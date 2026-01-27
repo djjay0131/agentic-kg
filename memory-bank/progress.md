@@ -1,14 +1,89 @@
 # Progress Tracking
 
-**Last Updated:** 2026-01-07
+**Last Updated:** 2026-01-26
 
-## Project Status: Sprint 01 Complete - Ready for Merge
+## Project Status: Sprint 03 In Progress (77% Complete)
 
-Knowledge Graph Foundation (Sprint 01) is complete. Branch `claude/problem-schema-design-SqUnQ` ready for merge to master.
+Information Extraction Pipeline (Sprint 03) is in active development. Tasks 1-10 complete, Tasks 11-13 remaining. PR #11 open.
 
 ---
 
 ## Completed Work
+
+### Sprint 03: Information Extraction Pipeline (2026-01-26 - In Progress)
+
+**What:**
+- Implemented complete extraction pipeline for academic papers
+- 10 of 13 tasks complete (all high-priority tasks done)
+- PR #11 open for review
+
+**Key Deliverables:**
+- `packages/core/src/agentic_kg/extraction/` - Complete extraction module
+- `pdf_extractor.py` - PyMuPDF-based text extraction with cleanup
+- `section_segmenter.py` - Heuristic pattern matching for section detection
+- `llm_client.py` - OpenAI/Anthropic abstraction via instructor library
+- `prompts/templates.py` - Versioned extraction prompts
+- `schemas.py` - Pydantic models for extraction output
+- `problem_extractor.py` - Main extraction logic with filtering
+- `relation_extractor.py` - Problem-to-problem relation detection
+- `pipeline.py` - End-to-end PDF → KG workflow
+- `kg_integration.py` - KG storage and deduplication
+- `batch.py` - SQLite job queue with parallel processing
+- 9 test files with comprehensive unit tests
+
+**Tasks Completed:**
+- [x] Task 1: PDF Text Extraction Module (PyMuPDF)
+- [x] Task 2: Section Segmentation (heuristic patterns)
+- [x] Task 3: LLM Client Wrapper (OpenAI/Anthropic with instructor)
+- [x] Task 4: Prompt Templates (versioned)
+- [x] Task 5: Extraction Schema Models
+- [x] Task 6: Problem Extractor Core
+- [x] Task 7: Relationship Extractor
+- [x] Task 8: Paper Processing Pipeline
+- [x] Task 9: Knowledge Graph Integration
+- [x] Task 10: Batch Processing
+
+**Tasks Remaining:**
+- [ ] Task 11: CLI Commands
+- [ ] Task 12: Fixtures and Conftest
+- [ ] Task 13: Integration Tests (deferred)
+
+**Impact:**
+End-to-end extraction from PDF papers to Knowledge Graph. Enables automated population of problem entities from scientific literature.
+
+**Verification:**
+- Commits: `b219b46` (Tasks 1-6), `49489be` (Tasks 7-10), `cecfc69` (Python 3.9 fixes)
+- PR: #11
+- 207/237 tests passing (some test fixture issues remaining)
+
+---
+
+### Sprint 02: Data Acquisition Layer (2026-01-25 - Complete)
+
+**What:**
+- Implemented complete data acquisition module for academic paper sources
+- All 14 tasks completed (integration tests deferred)
+- PR #10 merged to master
+
+**Key Deliverables:**
+- `packages/core/src/agentic_kg/data_acquisition/` - Complete data acquisition module
+- Token bucket rate limiting with per-source registry
+- Circuit breaker and exponential backoff retry
+- TTL-based response caching with cachetools
+- Semantic Scholar, arXiv, and OpenAlex API clients
+- Paper metadata normalization and multi-source aggregation
+- Knowledge Graph import pipeline
+- CLI script for paper import
+- Comprehensive unit test suite (11 test files)
+
+**Impact:**
+Can ingest papers from multiple academic sources with resilient API handling.
+
+**Verification:**
+- Commits: See PR #10
+- Merged to master on 2026-01-26
+
+---
 
 ### Sprint 01: Knowledge Graph Foundation (2025-01-05 - 2026-01-07)
 
@@ -153,109 +228,78 @@ Standardized workflow for maintaining project documentation and managing design-
 
 ## In Progress
 
-### Sprint 01 Merge
+### Sprint 03: Information Extraction Pipeline (Current)
 
 **What:**
-Merge Knowledge Graph Foundation to master
+Implement LLM-based extraction of research problems from scientific papers
 
 **Current State:**
-- Sprint 01 implementation complete
-- Branch: `claude/problem-schema-design-SqUnQ`
-- All tests passing (CI skips integration tests without Docker)
-- Ready for PR review and merge
+- Branch: Working on master (PR #11 open)
+- Tasks 1-10 complete (77% done)
+- All high-priority tasks finished
+- Medium-priority tasks (CLI, fixtures) remaining
+
+**Remaining Tasks:**
+
+- [ ] Task 11: CLI Commands (Medium priority)
+- [ ] Task 12: Fixtures and Conftest (Medium priority)
+- [ ] Task 13: Integration Tests (Deferred)
 
 **Next Steps:**
-- [ ] Create PR from `claude/problem-schema-design-SqUnQ` to master
-- [ ] Review and merge PR
-- [ ] Tag release (v0.1.0?)
-- [ ] Begin Sprint 02 planning
 
-### Sprint 02: Data Acquisition Layer (Planned)
-
-**What:**
-Implement data acquisition from academic paper sources
-
-**Scope (from user requirements):**
-- Semantic Scholar API integration
-- arXiv API integration
-- OpenAlex API integration
-- Rate limiting and caching
-- Paper metadata extraction
-- Full-text retrieval
-
-**Status:** Requirements and design documents to be created
-
-**Target Tasks (estimated 14 tasks):**
-- API client implementations
-- Rate limiting infrastructure
-- Caching layer
-- Paper ingestion pipeline
-- Metadata normalization
-- Full-text processing
-
-**Artifacts to create:**
-- `construction/requirements/sprint-02-requirements.md`
-- `construction/sprints/sprint-02-data-acquisition.md`
+- [ ] Complete Task 11 (CLI Commands)
+- [ ] Complete Task 12 (Test Fixtures)
+- [ ] Merge PR #11
+- [ ] Begin Sprint 04 planning (Agent Implementation)
 
 ---
 
 ## Remaining Work
 
-### Phase 1: Knowledge Graph Foundation - COMPLETE
+### Phase 1: Knowledge Graph Foundation - COMPLETE ✅
 
-**Status:** All tasks complete, branch ready for merge
+**Status:** Complete and merged to master
 **Sprint:** 01
-**Branch:** `claude/problem-schema-design-SqUnQ`
+**Commits:** Merged via PR #9
+
+### Phase 2: Data Acquisition Layer - COMPLETE ✅
+
+**Status:** Complete and merged to master
+**Sprint:** 02
+**Commits:** Merged via PR #10
+
+### Phase 3: Extraction Pipeline - IN PROGRESS (77%)
+
+**Status:** Tasks 1-10 complete, Tasks 11-13 remaining
+**Sprint:** 03
+**Branch:** PR #11 open
 
 **Completed Tasks:**
-- [x] Neo4j graph database with Docker setup
-- [x] Pydantic models (Problem, Paper, Author, Relations)
-- [x] Repository layer with CRUD operations
-- [x] Schema initialization and migrations
-- [x] Vector index with OpenAI embeddings
-- [x] Hybrid search (semantic + structured)
-- [x] Relation operations
-- [x] 221 tests (unit + integration)
-- [x] Sample data loading script
-- [x] Module documentation
 
-**Deferred to backlog:**
-- Multi-hop traversal (FR-2.3.4) - Sprint 03
-- Neo4j Aura production docs - Sprint 02
-- Referential integrity on delete - Low priority
+- [x] PDF text extraction with PyMuPDF
+- [x] Section segmentation with heuristic patterns
+- [x] LLM client wrapper (OpenAI/Anthropic)
+- [x] Prompt templates (versioned)
+- [x] Extraction schema models
+- [x] Problem extractor core
+- [x] Relationship extractor
+- [x] Paper processing pipeline
+- [x] Knowledge Graph integration
+- [x] Batch processing with SQLite queue
 
-### Phase 2: Data Acquisition Layer (Next)
+**Remaining Tasks:**
 
-**Tasks:**
-- [ ] Create requirements document
-- [ ] Design data acquisition architecture
-- [ ] Implement Semantic Scholar API client
-- [ ] Implement arXiv API client
-- [ ] Implement OpenAlex API client
-- [ ] Build rate limiting infrastructure
-- [ ] Add caching layer (Redis?)
-- [ ] Create paper ingestion pipeline
-- [ ] Normalize metadata across sources
-- [ ] Handle full-text retrieval
+- [ ] CLI Commands
+- [ ] Test fixtures and conftest
+- [ ] Integration tests (deferred)
 
-**Priority:** High - Next up after Sprint 01 merge
-**Dependencies:** Phase 1 complete (satisfied)
+**Priority:** High - Active sprint
+**Dependencies:** Phase 2 complete (satisfied)
 
-### Phase 3: Extraction Pipeline
+### Phase 4: Agent Implementation (Next)
 
 **Tasks:**
-- [ ] Design extraction prompts for problem identification
-- [ ] Implement section segmentation
-- [ ] Build structured extraction with schema validation
-- [ ] Add provenance tracking
-- [ ] Test on sample papers
 
-**Priority:** Medium
-**Dependencies:** Phase 2 complete
-
-### Phase 4: Agent Implementation
-
-**Tasks:**
 - [ ] Implement Ranking agent
 - [ ] Implement Continuation agent
 - [ ] Implement Evaluation agent
@@ -264,7 +308,7 @@ Implement data acquisition from academic paper sources
 - [ ] Add human-in-the-loop checkpoints
 
 **Priority:** Medium
-**Dependencies:** Phases 2-3 complete
+**Dependencies:** Phase 3 complete
 
 ---
 
@@ -313,12 +357,13 @@ Implement data acquisition from academic paper sources
 ### M2: Data Acquisition
 - **Target:** After Sprint 02
 - **Description:** Can ingest papers from Semantic Scholar, arXiv, OpenAlex
-- **Status:** Planning (requirements to be created)
+- **Status:** Complete (2026-01-26)
+- **Deliverable:** PR #10 merged to master
 
 ### M3: Extraction Pipeline
 - **Target:** After Phase 3
 - **Description:** Can extract problems from papers, populate graph
-- **Status:** Not Started
+- **Status:** In Progress (77% complete)
 
 ### M4: Agent System
 - **Target:** After Phase 4

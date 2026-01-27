@@ -1,25 +1,43 @@
 # Active Context
 
-**Last Updated:** 2026-01-25
+**Last Updated:** 2026-01-26
 
 ## Current Work Phase
 
-**Phase 2: Data Acquisition Layer - COMPLETE**
+**Phase 3: Information Extraction Pipeline - IN PROGRESS (92%)**
 
-Sprint 02 (Data Acquisition Layer) implementation is complete on branch `claude/sprint-02-data-acquisition`. Ready for PR and merge.
+Sprint 03 (Information Extraction Pipeline) nearly complete. Tasks 1-12 done (all high and medium priority). Task 13 (integration tests) deferred. PR #11 open for review.
 
 ## Immediate Next Steps
 
-**Session Status (2026-01-25):**
-- On branch: `claude/sprint-02-data-acquisition`
-- Sprint 02 implementation complete (13/14 tasks - integration tests deferred)
-- Ready for PR creation and merge to master
+**Session Status (2026-01-27):**
+- On branch: `claude/sprint-03-extraction-pipeline` with PR #11 open
+- Sprint 03 implementation 92% complete
+- All high and medium priority tasks finished
+- Only Task 13 (integration tests) deferred
 
-**Sprint 02 Completed (On Branch):**
+**Sprint 03 Progress:**
+
+- [x] Task 1: PDF Text Extraction Module (PyMuPDF)
+- [x] Task 2: Section Segmentation (Heuristic patterns)
+- [x] Task 3: LLM Client Wrapper (OpenAI/Anthropic with instructor)
+- [x] Task 4: Prompt Templates (versioned)
+- [x] Task 5: Extraction Schema Models
+- [x] Task 6: Problem Extractor Core
+- [x] Task 7: Relationship Extractor
+- [x] Task 8: Paper Processing Pipeline
+- [x] Task 9: Knowledge Graph Integration
+- [x] Task 10: Batch Processing
+- [x] Task 11: CLI Commands (Medium priority)
+- [x] Task 12: Test Fixtures and Conftest (Medium priority)
+- [ ] Task 13: Integration Tests (Deferred)
+
+**Sprint 02 Completed (Merged to Master):**
+
 - [x] Data acquisition module structure (`data_acquisition/`)
-- [x] Configuration module: `config.py` (API keys, rate limits, cache TTL)
-- [x] Base API client: `base.py` (httpx async client)
-- [x] Exceptions: `exceptions.py` (APIError, RateLimitError, etc.)
+- [x] Configuration module: `config.py`
+- [x] Base API client: `base.py`
+- [x] Exceptions: `exceptions.py`
 - [x] Rate limiting: `rate_limiter.py` (Token bucket with registry)
 - [x] Resilience: `resilience.py` (Circuit breaker, retry with backoff)
 - [x] Caching: `cache.py` (TTL cache with cachetools)
@@ -30,34 +48,41 @@ Sprint 02 (Data Acquisition Layer) implementation is complete on branch `claude/
 - [x] Multi-source aggregator: `aggregator.py`
 - [x] KG importer: `importer.py`
 - [x] CLI script: `scripts/import_papers.py`
-- [x] Unit tests: 11 test files, 3627 lines of tests
-- [ ] Integration tests (deferred - requires test environment)
+- [x] Unit tests: 11 test files
 
 **Sprint 01 Completed (Merged to Master):**
-- [x] Project structure with `packages/core/src/agentic_kg/`
-- [x] Configuration module: `config.py`
-- [x] Pydantic models: `knowledge_graph/models.py` (Problem, Paper, Author, Relations)
+
+- [x] Pydantic models: `knowledge_graph/models.py`
 - [x] Neo4j Docker setup: `docker/docker-compose.yml`
-- [x] Repository layer: `knowledge_graph/repository.py` (CRUD + auto-embedding)
+- [x] Repository layer: `knowledge_graph/repository.py`
 - [x] Schema initialization: `knowledge_graph/schema.py`
 - [x] Embedding integration: `knowledge_graph/embeddings.py`
 - [x] Hybrid search: `knowledge_graph/search.py`
 - [x] Relation operations: `knowledge_graph/relations.py`
-- [x] 221 tests (171 unit + 50 integration)
+- [x] 221 tests
 
 **Priority Tasks:**
 
-1. **Merge Sprint 02** (Immediate)
-   - Create PR from `claude/sprint-02-data-acquisition` to master
-   - Review and merge
+1. **Complete Sprint 03** (Immediate)
+   - Tasks 11-12: Complete ✅
+   - Task 13: Integration tests (deferred)
+   - Merge PR #11
 
-2. **Plan Sprint 03** (Next Session)
-   - Phase 3: Information Extraction Layer
-   - LLM-based entity and relation extraction from papers
+2. **Begin Sprint 04 Planning** (Next)
+   - Agent Implementation (Ranking, Continuation, Evaluation, Synthesis)
+   - LangGraph workflows
+   - API service (`packages/api/`) - FastAPI + GraphQL
+   - UI service (`packages/ui/`) - Streamlit
 
 ## Recent Decisions
 
-### Decision 8: Data Acquisition Architecture
+### Decision 9: LLM-Based Structured Extraction (ADR-013)
+- **Date:** 2026-01-26
+- **Decision:** Use LLM-based extraction with `instructor` library for structured output
+- **Rationale:** High quality extraction, schema validation, better than rule-based for diverse papers
+- **Impact:** Enables automated problem extraction at scale
+
+### Decision 8: Data Acquisition Architecture (ADR-012)
 - **Date:** 2026-01-25
 - **Decision:** Implement token bucket rate limiting with per-source configuration
 - **Rationale:** Academic APIs have different rate limits; centralized registry simplifies management
@@ -69,19 +94,7 @@ Sprint 02 (Data Acquisition Layer) implementation is complete on branch `claude/
 - **Rationale:** Keep sprint focused on core deliverables, track non-blocking items separately
 - **Impact:** Clear separation between done and deferred work
 
-### Decision 6: Auto-Embedding on Problem Creation
-- **Date:** 2026-01-07
-- **Decision:** `create_problem()` auto-generates embeddings by default; opt-out via `generate_embedding=False`
-- **Rationale:** Ensures all problems are searchable by default; graceful degradation on API failure
-- **Impact:** Simplified workflow - no separate step needed for embedding generation
-
-### Decision 5: Claude Code Sub-Agents for Administrative Tasks
-- **Date:** 2025-01-04
-- **Decision:** Implement memory-agent and construction-agent as Claude Code sub-agents
-- **Rationale:** Native integration with Claude Code, auto-discovery, tool access control
-- **Impact:** Standardized workflow for memory-bank and construction folder management
-
-*Note: Decisions 1-4 archived*
+*Note: Decisions 1-6 archived*
 
 ## Key Patterns and Preferences
 
@@ -99,11 +112,12 @@ Sprint 02 (Data Acquisition Layer) implementation is complete on branch `claude/
 - Environment variables for secrets (never commit keys)
 - Design-first workflow: complete design docs before implementation
 
-### Agent Patterns
-- Sub-agents defined in `.claude/agents/` folder
-- memory-agent manages memory-bank folder
-- construction-agent manages construction folder
-- Coordination via `phases.md` updates
+### Extraction Patterns (New for Phase 3)
+- PyMuPDF for PDF text extraction
+- Heuristic-first, LLM-fallback for section detection
+- Instructor library for structured LLM output
+- Multi-pass extraction: identify → extract → validate
+- Confidence scoring: LLM self-assessment + schema completeness
 
 ### Architecture Patterns
 - Three-layer architecture (Knowledge, Extraction, Agentic)
@@ -112,6 +126,12 @@ Sprint 02 (Data Acquisition Layer) implementation is complete on branch `claude/
 - Human-in-the-loop governance
 
 ## Important Learnings
+
+### About Information Extraction (Phase 3)
+- Section segmentation critical for targeting limitations/future work sections
+- LLM structured output via instructor reduces parsing errors
+- Confidence scoring should combine multiple signals
+- Batch processing needs job state persistence for resume
 
 ### About Data Acquisition Layer
 - Token bucket rate limiting with registry pattern for per-source limits
@@ -125,23 +145,12 @@ Sprint 02 (Data Acquisition Layer) implementation is complete on branch `claude/
 - Tool access controlled per agent
 - Can coordinate via shared files (phases.md)
 
-### About Denario
-- Multiagent system using AG2 and LangGraph
-- Streamlit GUI on port 8501
-- Supports OpenAI, Anthropic, Gemini (Vertex AI), Perplexity
-- Docker images include LaTeX for paper generation
-
-### About the Agentic KG Architecture
-- Three layers: Knowledge, Extraction, Agentic
-- Research problems (not papers) are central entities
-- Four agent types: Ranking, Continuation, Evaluation, Synthesis
-- Closed-loop: results write back to graph
-
 ## Open Questions
 
-1. **Extraction Strategy**: Which LLM models best for structured extraction?
-2. **Evaluation Metrics**: How to measure extraction reliability vs. human annotations?
-3. **Integration Testing**: Set up test environment with API credentials and Neo4j?
+1. **Extraction Quality**: What F1 score is achievable on structured extraction vs manual annotation?
+2. **Prompt Optimization**: How many iterations needed to stabilize extraction prompts?
+3. **Cost Management**: Token usage per paper extraction?
+4. **Integration Testing**: Set up test environment with API credentials and Neo4j?
 
 ## Reference Materials
 
@@ -154,8 +163,9 @@ Sprint 02 (Data Acquisition Layer) implementation is complete on branch `claude/
 
 - Read ALL memory-bank files on context reset (7 core files including phases.md)
 - Check phases.md for current phase status
-- **Sprint 02 COMPLETE** - Data Acquisition Layer on branch, ready for PR
-- Sprint 02 docs: `construction/sprints/sprint-02-data-acquisition.md`
-- Requirements: `construction/requirements/data-acquisition-requirements.md`
-- Deferred items tracked in: `construction/backlog/sprint-01-deferred.md`
-- Administrative agents ready: `@memory-agent update`, `@construction-agent validate`
+- **Sprint 03 IN PROGRESS** - 92% complete (Tasks 1-12 done)
+- Sprint 03 docs: `construction/sprints/sprint-03-extraction-pipeline.md`
+- Requirements: `construction/requirements/extraction-pipeline-requirements.md`
+- ADR-013 documents extraction approach decision
+- PR #11 open with extraction pipeline implementation
+- Next: Merge PR #11, begin Sprint 04 planning (API/UI/Agents)

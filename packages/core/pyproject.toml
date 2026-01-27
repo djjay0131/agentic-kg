@@ -15,6 +15,9 @@ dependencies = [
     "feedparser>=6.0.0",
 ]
 
+[project.scripts]
+agentic-kg = "agentic_kg.cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
