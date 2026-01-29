@@ -139,7 +139,7 @@ This file serves as the **coordination hub** between the memory-bank and constru
 - **Implementation Status**: In Progress
 - **Branch**: `claude/sprint-05-agent-implementation`
 - **Sprint**: [sprint-05-agent-implementation.md](../construction/sprints/sprint-05-agent-implementation.md)
-- **Tasks**: 17 total (14 complete, 3 in progress)
+- **Tasks**: 17 total (17 complete)
 - **Components Built**:
   - Agent schemas and Pydantic models
   - ResearchState TypedDict for LangGraph

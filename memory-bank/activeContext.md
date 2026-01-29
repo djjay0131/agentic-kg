@@ -1,23 +1,32 @@
 # Active Context
 
-**Last Updated:** 2026-01-27
+**Last Updated:** 2026-01-29
 
 ## Current Work Phase
 
-**Phase 4: API Service + Production Web UI - IN PROGRESS (93%)**
+**Phase 5: Agent Implementation - COMPLETE (PR #12)**
 
-Sprint 04 (API + UI) in progress. Building FastAPI backend and Next.js frontend. 13/14 tasks complete. Only API tests pending.
+Sprint 05 complete. Four research agents with LangGraph workflow, HITL checkpoints, Docker sandbox, WebSocket updates, and workflow UI. 215 tests passing. PR #12 open for merge.
 
 ## Immediate Next Steps
 
-**Session Status (2026-01-27):**
+**Session Status (2026-01-29):**
 
-- On branch: `claude/sprint-04-api-and-ui`
-- Sprint 04 implementation 93% complete
-- API Service complete (Tasks 1-5), UI complete (Tasks 7-12)
-- Task 6 (API tests) pending
+- On branch: `claude/sprint-05-agent-implementation`
+- Sprint 05 implementation 100% complete (17/17 tasks)
+- PR #12 open: https://github.com/djjay0131/agentic-kg/pull/12
+- All 215 tests passing (126 agent + 89 API)
+- Next.js build succeeds
 
-**Sprint 04 Progress:**
+**Sprint 05 Progress:**
+
+- [x] Tasks 1-4: Agent Foundation (schemas, state, base, config, prompts)
+- [x] Tasks 5-8: Individual Agents (ranking, continuation, evaluation+sandbox, synthesis)
+- [x] Tasks 9-11: Orchestration (LangGraph workflow, checkpoints, runner)
+- [x] Tasks 12-14: API + UI (WebSocket, agent router, workflow pages)
+- [x] Tasks 15-17: Testing + Documentation (126 tests, sprint docs)
+
+**Sprint 04 Complete (Merged):**
 
 - [x] Task 1: FastAPI Scaffolding
 - [x] Task 2: Problem Endpoints (CRUD)
