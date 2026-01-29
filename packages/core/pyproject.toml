@@ -13,6 +13,10 @@ dependencies = [
     "tenacity>=8.0.0",
     "cachetools>=5.0.0",
     "feedparser>=6.0.0",
+    # Agent workflow
+    "langgraph>=0.2.0",
+    "langchain-core>=0.3.0",
+    "docker>=7.0.0",
 ]
 
 [project.scripts]

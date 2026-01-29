@@ -1,36 +1,51 @@
 # Active Context
 
-**Last Updated:** 2026-01-26
+**Last Updated:** 2026-01-29
 
 ## Current Work Phase
 
-**Phase 3: Information Extraction Pipeline - IN PROGRESS (92%)**
+**Phase 5: Agent Implementation - COMPLETE (PR #12)**
 
-Sprint 03 (Information Extraction Pipeline) nearly complete. Tasks 1-12 done (all high and medium priority). Task 13 (integration tests) deferred. PR #11 open for review.
+Sprint 05 complete. Four research agents with LangGraph workflow, HITL checkpoints, Docker sandbox, WebSocket updates, and workflow UI. 215 tests passing. PR #12 open for merge.
 
 ## Immediate Next Steps
 
-**Session Status (2026-01-27):**
-- On branch: `claude/sprint-03-extraction-pipeline` with PR #11 open
-- Sprint 03 implementation 92% complete
-- All high and medium priority tasks finished
-- Only Task 13 (integration tests) deferred
+**Session Status (2026-01-29):**
 
-**Sprint 03 Progress:**
+- On branch: `claude/sprint-05-agent-implementation`
+- Sprint 05 implementation 100% complete (17/17 tasks)
+- PR #12 open: https://github.com/djjay0131/agentic-kg/pull/12
+- All 215 tests passing (126 agent + 89 API)
+- Next.js build succeeds
 
-- [x] Task 1: PDF Text Extraction Module (PyMuPDF)
-- [x] Task 2: Section Segmentation (Heuristic patterns)
-- [x] Task 3: LLM Client Wrapper (OpenAI/Anthropic with instructor)
-- [x] Task 4: Prompt Templates (versioned)
-- [x] Task 5: Extraction Schema Models
-- [x] Task 6: Problem Extractor Core
-- [x] Task 7: Relationship Extractor
-- [x] Task 8: Paper Processing Pipeline
-- [x] Task 9: Knowledge Graph Integration
-- [x] Task 10: Batch Processing
-- [x] Task 11: CLI Commands (Medium priority)
-- [x] Task 12: Test Fixtures and Conftest (Medium priority)
-- [ ] Task 13: Integration Tests (Deferred)
+**Sprint 05 Progress:**
+
+- [x] Tasks 1-4: Agent Foundation (schemas, state, base, config, prompts)
+- [x] Tasks 5-8: Individual Agents (ranking, continuation, evaluation+sandbox, synthesis)
+- [x] Tasks 9-11: Orchestration (LangGraph workflow, checkpoints, runner)
+- [x] Tasks 12-14: API + UI (WebSocket, agent router, workflow pages)
+- [x] Tasks 15-17: Testing + Documentation (126 tests, sprint docs)
+
+**Sprint 04 Complete (Merged):**
+
+- [x] Task 1: FastAPI Scaffolding
+- [x] Task 2: Problem Endpoints (CRUD)
+- [x] Task 3: Paper Endpoints
+- [x] Task 4: Search Endpoint (hybrid)
+- [x] Task 5: Extraction Trigger Endpoints
+- [ ] Task 6: API Tests (Pending)
+- [x] Task 7: Next.js Project Setup
+- [x] Task 8: Layout & Navigation
+- [x] Task 9: Dashboard Page
+- [x] Task 10: Problem Browser
+- [x] Task 11: Paper Browser & Extraction Form
+- [x] Task 12: Knowledge Graph Visualization
+- [x] Task 13: Docker & Deployment Updates
+- [x] Task 14: Documentation & Sprint Docs
+
+**Sprint 03 Completed (Merged to Master):**
+
+- [x] All extraction pipeline tasks (1-12)
 
 **Sprint 02 Completed (Merged to Master):**
 

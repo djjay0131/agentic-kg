@@ -1,6 +1,6 @@
 # Phase Lifecycle
 
-**Last Updated:** 2026-01-26
+**Last Updated:** 2026-01-27
 
 This file serves as the **coordination hub** between the memory-bank and construction folders. It tracks the lifecycle of each project phase and provides handoff signals between agents.
 
@@ -13,8 +13,9 @@ This file serves as the **coordination hub** between the memory-bank and constru
 | 0: Infrastructure | Complete | N/A | [sprint-00](../construction/sprints/sprint-00-gcp-deployment.md) | ADR-004, ADR-008, ADR-009 | N/A |
 | 1: Knowledge Graph | Complete (Merged) | [phase-1-knowledge-graph.md](../construction/design/phase-1-knowledge-graph.md) | [sprint-01](../construction/sprints/sprint-01-knowledge-graph.md) | ADR-010, ADR-011 | N/A |
 | 2: Data Acquisition | Complete (Merged) | - | [sprint-02](../construction/sprints/sprint-02-data-acquisition.md) | ADR-012 | N/A |
-| 3: Extraction Pipeline | In Progress (77%) | [extraction-pipeline-requirements.md](../construction/requirements/extraction-pipeline-requirements.md) | [sprint-03](../construction/sprints/sprint-03-extraction-pipeline.md) | ADR-013 | N/A |
-| 4: Agent Implementation | Not Started | - | - | - | No |
+| 3: Extraction Pipeline | Complete (Merged) | [extraction-pipeline-requirements.md](../construction/requirements/extraction-pipeline-requirements.md) | [sprint-03](../construction/sprints/sprint-03-extraction-pipeline.md) | ADR-013 | N/A |
+| 4: API + Web UI | Complete (Merged) | - | [sprint-04](../construction/sprints/sprint-04-api-and-ui.md) | ADR-014 | N/A |
+| 5: Agent Implementation | In Progress | - | [sprint-05](../construction/sprints/sprint-05-agent-implementation.md) | - | Yes |
 
 ### Administrative Agents (Cross-Cutting)
 
@@ -92,11 +93,10 @@ This file serves as the **coordination hub** between the memory-bank and constru
 - **Objective**: LLM-based extraction of research problems from papers
 - **Key Deliverables**: PDF text extraction, section segmentation, LLM-based structured extraction, provenance tracking, batch processing
 - **Design Status**: Complete
-- **Implementation Status**: In Progress (77% - Tasks 1-10 complete)
-- **Branch**: PR #11 open
+- **Implementation Status**: Complete (Merged)
 - **Sprint**: [sprint-03-extraction-pipeline.md](../construction/sprints/sprint-03-extraction-pipeline.md)
 - **Requirements**: [extraction-pipeline-requirements.md](../construction/requirements/extraction-pipeline-requirements.md)
-- **Tasks**: 10/13 complete (all high priority done, 2 medium remaining, 1 deferred)
+- **Tasks**: 12/13 complete (integration tests deferred)
 - **Components Built**:
   - `pdf_extractor.py` - PyMuPDF text extraction with cleanup
   - `section_segmenter.py` - Heuristic pattern matching for sections
@@ -108,14 +108,56 @@ This file serves as the **coordination hub** between the memory-bank and constru
   - `pipeline.py` - End-to-end PDF → KG workflow
   - `kg_integration.py` - KG storage and deduplication
   - `batch.py` - SQLite job queue with parallel processing
-- **Remaining Tasks**: CLI Commands (Task 11), Test Fixtures (Task 12)
-- **Dependencies**: Phase 2 complete (merged)
+  - `cli.py` - CLI with extract command
+  - `conftest.py` - Shared test fixtures
 
-### Phase 4: Agent Implementation
+### Phase 4: API + Web UI
+
+- **Objective**: Build FastAPI backend and Next.js frontend
+- **Key Deliverables**: REST API, production web UI, graph visualization
+- **Design Status**: N/A (ADR-driven)
+- **Implementation Status**: In Progress (93%)
+- **Branch**: `claude/sprint-04-api-and-ui`
+- **Sprint**: [sprint-04-api-and-ui.md](../construction/sprints/sprint-04-api-and-ui.md)
+- **Tasks**: 13/14 complete (API tests pending)
+- **Components Built**:
+  - FastAPI application with CORS, error handling
+  - Problem CRUD endpoints
+  - Paper endpoints
+  - Hybrid search endpoint
+  - Extraction trigger endpoint
+  - Graph data endpoint
+  - Next.js 14 with App Router
+  - Dashboard, Problems, Papers, Extract, Graph pages
+  - Knowledge graph visualization with react-force-graph
+  - Docker configuration updated for Next.js
+
+### Phase 5: Agent Implementation
 - **Objective**: Implement Ranking, Continuation, Evaluation, Synthesis agents
-- **Key Deliverables**: LangGraph workflows, agent orchestration, human-in-the-loop
-- **Design Status**: Not started
-- **Dependencies**: Phases 2-3 complete
+- **Key Deliverables**: LangGraph workflows, agent orchestration, human-in-the-loop, WebSocket, workflow UI
+- **Design Status**: Complete
+- **Implementation Status**: In Progress
+- **Branch**: `claude/sprint-05-agent-implementation`
+- **Sprint**: [sprint-05-agent-implementation.md](../construction/sprints/sprint-05-agent-implementation.md)
+- **Tasks**: 17 total (17 complete)
+- **Components Built**:
+  - Agent schemas and Pydantic models
+  - ResearchState TypedDict for LangGraph
+  - BaseAgent ABC with dependency injection
+  - Prompt templates for all four agents
+  - AgentConfig with per-agent LLM settings
+  - RankingAgent - KG query + LLM scoring
+  - ContinuationAgent - problem context + LLM proposal
+  - EvaluationAgent - code generation + Docker sandbox execution
+  - SynthesisAgent - report generation + KG writeback
+  - DockerSandbox - isolated code execution
+  - LangGraph StateGraph workflow definition
+  - CheckpointManager for HITL decisions
+  - WorkflowRunner for session management
+  - WebSocket infrastructure for real-time updates
+  - Agent API router (REST + WebSocket)
+  - Workflow UI pages (list, detail, stepper, checkpoint forms)
+- **Dependencies**: Phases 1-4 complete
 
 ---
 

@@ -88,7 +88,7 @@ services:
       - api
 
   # ==========================================================================
-  # UI Service - Streamlit frontend (when implemented)
+  # UI Service - Next.js frontend
   # ==========================================================================
   ui:
     build:
@@ -96,14 +96,14 @@ services:
       dockerfile: docker/Dockerfile.ui
     container_name: agentic-kg-ui
     ports:
-      - "8501:8501"
+      - "3000:3000"
     environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
       - API_URL=http://api:8000
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
     depends_on:
       - api
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -111,7 +111,6 @@ services:
     restart: unless-stopped
     networks:
       - agentic-kg-network
-    # Uncomment when UI service is implemented
     profiles:
       - full
       - ui
