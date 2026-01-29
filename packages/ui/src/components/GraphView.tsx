@@ -250,14 +250,14 @@ export default function GraphView({
             <span className="text-xs text-gray-400 uppercase">{hoveredNode.type}</span>
           </div>
           <p className="text-sm text-white">{hoveredNode.label}</p>
-          {hoveredNode.properties.domain && (
+          {hoveredNode.properties.domain != null && (
             <p className="text-xs text-gray-400 mt-1">
-              Domain: {hoveredNode.properties.domain as string}
+              Domain: {String(hoveredNode.properties.domain)}
             </p>
           )}
-          {hoveredNode.properties.status && (
+          {hoveredNode.properties.status != null && (
             <p className="text-xs text-gray-400">
-              Status: {hoveredNode.properties.status as string}
+              Status: {String(hoveredNode.properties.status)}
             </p>
           )}
         </div>

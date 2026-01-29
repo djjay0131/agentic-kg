@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from agentic_kg_api import __version__
 from agentic_kg_api.config import get_api_config
 from agentic_kg_api.dependencies import get_repo, reset_dependencies
-from agentic_kg_api.routers import extract, graph, papers, problems, search
+from agentic_kg_api.routers import agents, extract, graph, papers, problems, search
 from agentic_kg_api.schemas import HealthResponse, StatsResponse
 
 logging.basicConfig(
@@ -68,6 +68,7 @@ app.include_router(papers.router)
 app.include_router(search.router)
 app.include_router(extract.router)
 app.include_router(graph.router)
+app.include_router(agents.router)
 
 
 # Health and stats endpoints

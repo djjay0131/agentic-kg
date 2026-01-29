@@ -8,6 +8,7 @@ import {
   FileText,
   Upload,
   Network,
+  Play,
 } from 'lucide-react';
 
 const navItems = [
@@ -16,6 +17,7 @@ const navItems = [
   { href: '/papers', label: 'Papers', icon: FileText },
   { href: '/extract', label: 'Extract', icon: Upload },
   { href: '/graph', label: 'Graph', icon: Network },
+  { href: '/workflows', label: 'Workflows', icon: Play },
 ];
 
 export default function Sidebar() {

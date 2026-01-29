@@ -14,8 +14,8 @@ This file serves as the **coordination hub** between the memory-bank and constru
 | 1: Knowledge Graph | Complete (Merged) | [phase-1-knowledge-graph.md](../construction/design/phase-1-knowledge-graph.md) | [sprint-01](../construction/sprints/sprint-01-knowledge-graph.md) | ADR-010, ADR-011 | N/A |
 | 2: Data Acquisition | Complete (Merged) | - | [sprint-02](../construction/sprints/sprint-02-data-acquisition.md) | ADR-012 | N/A |
 | 3: Extraction Pipeline | Complete (Merged) | [extraction-pipeline-requirements.md](../construction/requirements/extraction-pipeline-requirements.md) | [sprint-03](../construction/sprints/sprint-03-extraction-pipeline.md) | ADR-013 | N/A |
-| 4: API + Web UI | In Progress (93%) | - | [sprint-04](../construction/sprints/sprint-04-api-and-ui.md) | ADR-014 | N/A |
-| 5: Agent Implementation | Not Started | - | - | - | No |
+| 4: API + Web UI | Complete (Merged) | - | [sprint-04](../construction/sprints/sprint-04-api-and-ui.md) | ADR-014 | N/A |
+| 5: Agent Implementation | In Progress | - | [sprint-05](../construction/sprints/sprint-05-agent-implementation.md) | - | Yes |
 
 ### Administrative Agents (Cross-Cutting)
 
@@ -134,9 +134,30 @@ This file serves as the **coordination hub** between the memory-bank and constru
 
 ### Phase 5: Agent Implementation
 - **Objective**: Implement Ranking, Continuation, Evaluation, Synthesis agents
-- **Key Deliverables**: LangGraph workflows, agent orchestration, human-in-the-loop
-- **Design Status**: Not started
-- **Dependencies**: Phases 3-4 complete
+- **Key Deliverables**: LangGraph workflows, agent orchestration, human-in-the-loop, WebSocket, workflow UI
+- **Design Status**: Complete
+- **Implementation Status**: In Progress
+- **Branch**: `claude/sprint-05-agent-implementation`
+- **Sprint**: [sprint-05-agent-implementation.md](../construction/sprints/sprint-05-agent-implementation.md)
+- **Tasks**: 17 total (14 complete, 3 in progress)
+- **Components Built**:
+  - Agent schemas and Pydantic models
+  - ResearchState TypedDict for LangGraph
+  - BaseAgent ABC with dependency injection
+  - Prompt templates for all four agents
+  - AgentConfig with per-agent LLM settings
+  - RankingAgent - KG query + LLM scoring
+  - ContinuationAgent - problem context + LLM proposal
+  - EvaluationAgent - code generation + Docker sandbox execution
+  - SynthesisAgent - report generation + KG writeback
+  - DockerSandbox - isolated code execution
+  - LangGraph StateGraph workflow definition
+  - CheckpointManager for HITL decisions
+  - WorkflowRunner for session management
+  - WebSocket infrastructure for real-time updates
+  - Agent API router (REST + WebSocket)
+  - Workflow UI pages (list, detail, stepper, checkpoint forms)
+- **Dependencies**: Phases 1-4 complete
 
 ---
 

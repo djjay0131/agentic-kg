@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api, SearchResult } from '@/lib/api';
 import { Search, Filter, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
 function ConfidenceBar({ value }: { value: number | null }) {
@@ -25,6 +25,14 @@ function ConfidenceBar({ value }: { value: number | null }) {
 }
 
 export default function ProblemsPage() {
+  return (
+    <Suspense fallback={<div className="text-center py-12 text-gray-500">Loading...</div>}>
+      <ProblemsContent />
+    </Suspense>
+  );
+}
+
+function ProblemsContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
