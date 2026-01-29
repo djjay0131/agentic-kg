@@ -1,36 +1,42 @@
 # Active Context
 
-**Last Updated:** 2026-01-26
+**Last Updated:** 2026-01-27
 
 ## Current Work Phase
 
-**Phase 3: Information Extraction Pipeline - IN PROGRESS (92%)**
+**Phase 4: API Service + Production Web UI - IN PROGRESS (93%)**
 
-Sprint 03 (Information Extraction Pipeline) nearly complete. Tasks 1-12 done (all high and medium priority). Task 13 (integration tests) deferred. PR #11 open for review.
+Sprint 04 (API + UI) in progress. Building FastAPI backend and Next.js frontend. 13/14 tasks complete. Only API tests pending.
 
 ## Immediate Next Steps
 
 **Session Status (2026-01-27):**
-- On branch: `claude/sprint-03-extraction-pipeline` with PR #11 open
-- Sprint 03 implementation 92% complete
-- All high and medium priority tasks finished
-- Only Task 13 (integration tests) deferred
 
-**Sprint 03 Progress:**
+- On branch: `claude/sprint-04-api-and-ui`
+- Sprint 04 implementation 93% complete
+- API Service complete (Tasks 1-5), UI complete (Tasks 7-12)
+- Task 6 (API tests) pending
 
-- [x] Task 1: PDF Text Extraction Module (PyMuPDF)
-- [x] Task 2: Section Segmentation (Heuristic patterns)
-- [x] Task 3: LLM Client Wrapper (OpenAI/Anthropic with instructor)
-- [x] Task 4: Prompt Templates (versioned)
-- [x] Task 5: Extraction Schema Models
-- [x] Task 6: Problem Extractor Core
-- [x] Task 7: Relationship Extractor
-- [x] Task 8: Paper Processing Pipeline
-- [x] Task 9: Knowledge Graph Integration
-- [x] Task 10: Batch Processing
-- [x] Task 11: CLI Commands (Medium priority)
-- [x] Task 12: Test Fixtures and Conftest (Medium priority)
-- [ ] Task 13: Integration Tests (Deferred)
+**Sprint 04 Progress:**
+
+- [x] Task 1: FastAPI Scaffolding
+- [x] Task 2: Problem Endpoints (CRUD)
+- [x] Task 3: Paper Endpoints
+- [x] Task 4: Search Endpoint (hybrid)
+- [x] Task 5: Extraction Trigger Endpoints
+- [ ] Task 6: API Tests (Pending)
+- [x] Task 7: Next.js Project Setup
+- [x] Task 8: Layout & Navigation
+- [x] Task 9: Dashboard Page
+- [x] Task 10: Problem Browser
+- [x] Task 11: Paper Browser & Extraction Form
+- [x] Task 12: Knowledge Graph Visualization
+- [x] Task 13: Docker & Deployment Updates
+- [x] Task 14: Documentation & Sprint Docs
+
+**Sprint 03 Completed (Merged to Master):**
+
+- [x] All extraction pipeline tasks (1-12)
 
 **Sprint 02 Completed (Merged to Master):**
 
