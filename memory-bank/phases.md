@@ -15,7 +15,8 @@ This file serves as the **coordination hub** between the memory-bank and constru
 | 2: Data Acquisition | Complete (Merged) | - | [sprint-02](../construction/sprints/sprint-02-data-acquisition.md) | ADR-012 | N/A |
 | 3: Extraction Pipeline | Complete (Merged) | [extraction-pipeline-requirements.md](../construction/requirements/extraction-pipeline-requirements.md) | [sprint-03](../construction/sprints/sprint-03-extraction-pipeline.md) | ADR-013 | N/A |
 | 4: API + Web UI | Complete (Merged) | - | [sprint-04](../construction/sprints/sprint-04-api-and-ui.md) | ADR-014 | N/A |
-| 5: Agent Implementation | In Progress | - | [sprint-05](../construction/sprints/sprint-05-agent-implementation.md) | - | Yes |
+| 5: Agent Implementation | Complete (Merged) | - | [sprint-05](../construction/sprints/sprint-05-agent-implementation.md) | - | N/A |
+| 6: Full-Stack Integration | In Progress | - | [sprint-06](../construction/sprints/sprint-06-integration.md) | - | Yes |
 
 ### Administrative Agents (Cross-Cutting)
 
