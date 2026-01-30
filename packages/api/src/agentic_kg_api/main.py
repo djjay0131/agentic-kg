@@ -13,9 +13,10 @@ from fastapi.responses import JSONResponse
 
 from agentic_kg_api import __version__
 from agentic_kg_api.config import get_api_config
-from agentic_kg_api.dependencies import get_repo, reset_dependencies
+from agentic_kg_api.dependencies import get_repo, get_search, get_relations, reset_dependencies
 from agentic_kg_api.routers import agents, extract, graph, papers, problems, search
 from agentic_kg_api.schemas import HealthResponse, StatsResponse
+from agentic_kg_api.tasks import setup_event_bridge, teardown_event_bridge
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,8 +29,34 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Manage application lifecycle."""
     logger.info("Starting Agentic KG API...")
+
+    # Initialize WorkflowRunner with shared dependencies
+    try:
+        from agentic_kg.extraction.llm_client import create_llm_client
+
+        llm_client = create_llm_client()
+        repo = get_repo()
+        search_svc = get_search()
+        relation_svc = get_relations()
+
+        from agentic_kg.agents.runner import WorkflowRunner
+
+        runner = WorkflowRunner(
+            llm_client=llm_client,
+            repository=repo,
+            search_service=search_svc,
+            relation_service=relation_svc,
+        )
+        agents.set_workflow_runner(runner)
+        setup_event_bridge()
+        logger.info("WorkflowRunner initialized successfully")
+    except Exception as e:
+        logger.warning(f"WorkflowRunner initialization failed: {e}. Agent workflows will be unavailable.")
+
     yield
+
     logger.info("Shutting down Agentic KG API...")
+    teardown_event_bridge()
     reset_dependencies()
 
 

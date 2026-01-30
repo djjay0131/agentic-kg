@@ -4,19 +4,19 @@
 
 ## Current Work Phase
 
-**Phase 5: Agent Implementation - COMPLETE (PR #12)**
+**Phase 6: Full-Stack Integration - IN PROGRESS**
 
-Sprint 05 complete. Four research agents with LangGraph workflow, HITL checkpoints, Docker sandbox, WebSocket updates, and workflow UI. 215 tests passing. PR #12 open for merge.
+Sprint 06 wires the agent workflow end-to-end. WorkflowRunner now initializes in API lifespan, event bus bridges workflow events to WebSocket, integration tests added.
 
 ## Immediate Next Steps
 
 **Session Status (2026-01-29):**
 
-- On branch: `claude/sprint-05-agent-implementation`
-- Sprint 05 implementation 100% complete (17/17 tasks)
-- PR #12 open: https://github.com/djjay0131/agentic-kg/pull/12
-- All 215 tests passing (126 agent + 89 API)
-- Next.js build succeeds
+- On branch: `claude/sprint-06-integration`
+- Sprint 05 merged (PR #12)
+- Sprint 06: 10/10 tasks complete
+- All 237 tests passing (126 agent + 111 API)
+- New: event bus, background tasks, Makefile, Docker socket mount
 
 **Sprint 05 Progress:**
 
