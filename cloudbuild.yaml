@@ -95,8 +95,8 @@ steps:
           --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA \
           --region=${_REGION} \
           --platform=managed \
-          --port=$PORT \
-          --memory=$MEMORY \
+          --port=$$PORT \
+          --memory=$$MEMORY \
           --min-instances=0 \
           --max-instances=10 \
           --set-secrets=NEO4J_URI=NEO4J_URI:latest,NEO4J_PASSWORD=NEO4J_PASSWORD:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest \
