@@ -31,15 +31,16 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Install dependencies
 RUN pip install --upgrade pip \
     && pip install hatchling \
-    && pip install neo4j pydantic openai \
-    && pip install fastapi uvicorn strawberry-graphql
+    && pip install neo4j pydantic openai anthropic instructor tenacity \
+    && pip install fastapi uvicorn strawberry-graphql python-multipart \
+    && pip install langgraph langchain-core docker
 
 # Runtime stage
 FROM python:3.12-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app \
+    PYTHONPATH=/app/packages/core/src:/app/packages/api/src \
     PATH="/opt/venv/bin:$PATH"
 
 # Install runtime dependencies
