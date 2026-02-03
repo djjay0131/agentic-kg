@@ -1,4 +1,4 @@
-.PHONY: install test test-core test-api lint build-ui dev docker-up docker-down clean
+.PHONY: install test test-core test-api test-e2e smoke-test lint build-ui dev docker-up docker-down clean
 
 # Install all packages in development mode
 install:
@@ -16,6 +16,14 @@ test-core:
 # API tests
 test-api:
 	pytest packages/api/tests/ -v
+
+# E2E tests (requires staging env vars)
+test-e2e:
+	pytest packages/core/tests/e2e/ packages/api/tests/e2e/ -v -m e2e
+
+# Smoke test against staging
+smoke-test:
+	python scripts/smoke_test.py
 
 # Lint (ruff)
 lint:

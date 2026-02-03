@@ -39,3 +39,15 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["packages/core/tests", "packages/api/tests"]
+markers = [
+    "e2e: end-to-end tests against live services (requires staging env vars)",
+    "slow: tests that take >10 seconds",
+    "costly: tests that incur API costs (LLM calls)",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
