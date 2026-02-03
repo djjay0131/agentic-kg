@@ -1,0 +1,10 @@
+project_id        = "vt-gcp-00042"
+region            = "us-central1"
+zone              = "us-central1-a"
+env               = "staging"
+neo4j_machine_type = "e2-medium"
+neo4j_disk_size    = 20
+api_memory         = "1Gi"
+api_cpu            = "1"
+api_min_instances  = 0
+api_max_instances  = 5

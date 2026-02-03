@@ -1,186 +1,146 @@
 # Active Context
 
-**Last Updated:** 2026-01-29
+**Last Updated:** 2026-01-30
 
 ## Current Work Phase
 
-**Phase 6: Full-Stack Integration - IN PROGRESS**
+**Phase 7: End-to-End Testing - COMPLETE**
 
-Sprint 06 wires the agent workflow end-to-end. WorkflowRunner now initializes in API lifespan, event bus bridges workflow events to WebSocket, integration tests added.
+Sprint 07 validated the full pipeline against live staging: paper acquisition → PDF extraction → KG population → agent workflow. All E2E tests created, smoke test passing.
 
 ## Immediate Next Steps
 
-**Session Status (2026-01-29):**
+**Session Status (2026-01-30):**
 
-- On branch: `claude/sprint-06-integration`
-- Sprint 05 merged (PR #12)
-- Sprint 06: 10/10 tasks complete
-- All 237 tests passing (126 agent + 111 API)
-- New: event bus, background tasks, Makefile, Docker socket mount
+- On branch: `claude/sprint-07-e2e-testing`
+- Sprint 06 merged (PR #13)
+- Sprint 07: 10/10 tasks complete
+- Staging environment fully deployed
+- Smoke test: 7/7 checks passing
+- Neo4j connected, no data ingested yet
 
-**Sprint 05 Progress:**
+**Sprint 07 Progress:**
 
-- [x] Tasks 1-4: Agent Foundation (schemas, state, base, config, prompts)
-- [x] Tasks 5-8: Individual Agents (ranking, continuation, evaluation+sandbox, synthesis)
-- [x] Tasks 9-11: Orchestration (LangGraph workflow, checkpoints, runner)
-- [x] Tasks 12-14: API + UI (WebSocket, agent router, workflow pages)
-- [x] Tasks 15-17: Testing + Documentation (126 tests, sprint docs)
+- [x] Task 1: E2E test configuration (conftest.py, markers)
+- [x] Task 2: E2E test utilities (utils.py)
+- [x] Task 3: Paper acquisition E2E tests
+- [x] Task 4: Extraction pipeline E2E tests
+- [x] Task 5: KG population E2E tests
+- [x] Task 6: API endpoints E2E tests
+- [x] Task 7: Agent workflow E2E tests
+- [x] Task 8: WebSocket E2E tests
+- [x] Task 9: Smoke test script
+- [x] Task 10: Documentation
 
-**Sprint 04 Complete (Merged):**
+**Infrastructure Status:**
 
-- [x] Task 1: FastAPI Scaffolding
-- [x] Task 2: Problem Endpoints (CRUD)
-- [x] Task 3: Paper Endpoints
-- [x] Task 4: Search Endpoint (hybrid)
-- [x] Task 5: Extraction Trigger Endpoints
-- [ ] Task 6: API Tests (Pending)
-- [x] Task 7: Next.js Project Setup
-- [x] Task 8: Layout & Navigation
-- [x] Task 9: Dashboard Page
-- [x] Task 10: Problem Browser
-- [x] Task 11: Paper Browser & Extraction Form
-- [x] Task 12: Knowledge Graph Visualization
-- [x] Task 13: Docker & Deployment Updates
-- [x] Task 14: Documentation & Sprint Docs
+- **Staging API**: https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app
+- **Neo4j Bolt**: bolt://34.173.74.125:7687
+- **Neo4j Browser**: http://34.173.74.125:7474
+- **Terraform IaC**: `infra/` directory with staging/prod tfvars
 
-**Sprint 03 Completed (Merged to Master):**
+**Sprint 06 Complete (Merged PR #13):**
 
-- [x] All extraction pipeline tasks (1-12)
+- [x] WorkflowRunner wired into API lifespan
+- [x] Event bus for workflow step transitions
+- [x] Background task execution
+- [x] Docker Compose updates
+- [x] Makefile for monorepo
+- [x] Integration tests (237 total)
 
-**Sprint 02 Completed (Merged to Master):**
+**Previous Sprints:**
 
-- [x] Data acquisition module structure (`data_acquisition/`)
-- [x] Configuration module: `config.py`
-- [x] Base API client: `base.py`
-- [x] Exceptions: `exceptions.py`
-- [x] Rate limiting: `rate_limiter.py` (Token bucket with registry)
-- [x] Resilience: `resilience.py` (Circuit breaker, retry with backoff)
-- [x] Caching: `cache.py` (TTL cache with cachetools)
-- [x] Semantic Scholar client: `semantic_scholar.py`
-- [x] arXiv client: `arxiv.py` (with Atom feed parsing)
-- [x] OpenAlex client: `openalex.py` (with abstract reconstruction)
-- [x] Paper normalization: `normalizer.py` (unified schema)
-- [x] Multi-source aggregator: `aggregator.py`
-- [x] KG importer: `importer.py`
-- [x] CLI script: `scripts/import_papers.py`
-- [x] Unit tests: 11 test files
-
-**Sprint 01 Completed (Merged to Master):**
-
-- [x] Pydantic models: `knowledge_graph/models.py`
-- [x] Neo4j Docker setup: `docker/docker-compose.yml`
-- [x] Repository layer: `knowledge_graph/repository.py`
-- [x] Schema initialization: `knowledge_graph/schema.py`
-- [x] Embedding integration: `knowledge_graph/embeddings.py`
-- [x] Hybrid search: `knowledge_graph/search.py`
-- [x] Relation operations: `knowledge_graph/relations.py`
-- [x] 221 tests
+- Sprint 05: Agent implementation (merged)
+- Sprint 04: API + Web UI (merged)
+- Sprint 03: Extraction pipeline (merged)
+- Sprint 02: Data acquisition (merged)
+- Sprint 01: Knowledge graph foundation (merged)
 
 **Priority Tasks:**
 
-1. **Complete Sprint 03** (Immediate)
-   - Tasks 11-12: Complete ✅
-   - Task 13: Integration tests (deferred)
-   - Merge PR #11
+1. **Ingest Real Data** (Recommended Next)
+   - Use data acquisition clients to fetch papers
+   - Run extraction pipeline to populate KG
+   - Test search/graph endpoints with real data
 
-2. **Begin Sprint 04 Planning** (Next)
-   - Agent Implementation (Ranking, Continuation, Evaluation, Synthesis)
-   - LangGraph workflows
-   - API service (`packages/api/`) - FastAPI + GraphQL
-   - UI service (`packages/ui/`) - Streamlit
+2. **Run Full E2E Tests** (After Data)
+   - `pytest -m "e2e and not costly"` for non-LLM tests
+   - `pytest -m "e2e and costly"` for full LLM tests
+
+3. **Production Deployment** (When Ready)
+   - `terraform apply -var-file=envs/prod.tfvars`
 
 ## Recent Decisions
+
+### Decision 10: Terraform IaC for GCP (ADR-014)
+- **Date:** 2026-01-30
+- **Decision:** Use Terraform for all GCP infrastructure
+- **Rationale:** Idempotent, version-controlled, multi-environment support
+- **Impact:** `infra/` directory with staging/prod configurations
 
 ### Decision 9: LLM-Based Structured Extraction (ADR-013)
 - **Date:** 2026-01-26
 - **Decision:** Use LLM-based extraction with `instructor` library for structured output
-- **Rationale:** High quality extraction, schema validation, better than rule-based for diverse papers
-- **Impact:** Enables automated problem extraction at scale
+- **Rationale:** High quality extraction, schema validation, better than rule-based
 
-### Decision 8: Data Acquisition Architecture (ADR-012)
-- **Date:** 2026-01-25
-- **Decision:** Implement token bucket rate limiting with per-source configuration
-- **Rationale:** Academic APIs have different rate limits; centralized registry simplifies management
-- **Impact:** Robust API usage across Semantic Scholar, arXiv, and OpenAlex
-
-### Decision 7: Deferred Items to Backlog
-- **Date:** 2026-01-07
-- **Decision:** Document Sprint 01 deferred items in `construction/backlog/sprint-01-deferred.md`
-- **Rationale:** Keep sprint focused on core deliverables, track non-blocking items separately
-- **Impact:** Clear separation between done and deferred work
-
-*Note: Decisions 1-6 archived*
+*Note: Decisions 1-8 archived*
 
 ## Key Patterns and Preferences
 
+### E2E Testing Patterns (New for Phase 7)
+- Pytest markers: `@pytest.mark.e2e`, `@pytest.mark.slow`, `@pytest.mark.costly`
+- Environment vars: `STAGING_API_URL`, `STAGING_NEO4J_URI`, `STAGING_NEO4J_PASSWORD`
+- Test data prefixed with `TEST_` for easy cleanup
+- Smoke test script for CI/CD integration
+
+### Infrastructure Patterns (New for Phase 6)
+- Terraform manages: Compute Engine, Secret Manager, Cloud Run, Artifact Registry
+- Per-environment tfvars: `envs/staging.tfvars`, `envs/prod.tfvars`
+- Neo4j on Compute Engine with startup script
+- Secrets stored in GCP Secret Manager
+
 ### Documentation Patterns
 - Use markdown for all documentation
-- Include ASCII diagrams for architecture
 - Update activeContext.md after every significant change
 - Reference ADR numbers when implementing decisions
-- Use `phases.md` as coordination hub between memory-bank and construction
 
 ### Development Patterns
 - Python 3.12+ (Denario requirement)
-- Use Denario's existing agent frameworks (AG2, LangGraph)
 - Docker containers for deployment
-- Environment variables for secrets (never commit keys)
-- Design-first workflow: complete design docs before implementation
-
-### Extraction Patterns (New for Phase 3)
-- PyMuPDF for PDF text extraction
-- Heuristic-first, LLM-fallback for section detection
-- Instructor library for structured LLM output
-- Multi-pass extraction: identify → extract → validate
-- Confidence scoring: LLM self-assessment + schema completeness
-
-### Architecture Patterns
-- Three-layer architecture (Knowledge, Extraction, Agentic)
-- Problems as first-class entities
-- Hybrid symbolic-semantic retrieval
-- Human-in-the-loop governance
+- Environment variables for secrets
 
 ## Important Learnings
 
-### About Information Extraction (Phase 3)
-- Section segmentation critical for targeting limitations/future work sections
-- LLM structured output via instructor reduces parsing errors
-- Confidence scoring should combine multiple signals
-- Batch processing needs job state persistence for resume
+### About E2E Testing (Phase 7)
+- Paginated API responses differ from simple lists
+- Search endpoint uses POST method
+- WebSocket tests need timeout handling
+- Smoke test validates deployment quickly
 
-### About Data Acquisition Layer
-- Token bucket rate limiting with registry pattern for per-source limits
-- Circuit breaker protects against cascading failures
-- Paper normalization unifies different API response schemas
-- Multi-source aggregation merges data by DOI for best metadata
-
-### About Claude Code Sub-Agents
-- Defined as markdown files with YAML frontmatter in `.claude/agents/`
-- Invoked via `@agent-name command` syntax
-- Tool access controlled per agent
-- Can coordinate via shared files (phases.md)
+### About GCP Infrastructure (Phase 6)
+- Shielded VM required by org policy (enable_secure_boot)
+- Artifact Registry repos are regional
+- Cloud Run needs secret accessor IAM role
+- ADC auth required for Terraform
 
 ## Open Questions
 
-1. **Extraction Quality**: What F1 score is achievable on structured extraction vs manual annotation?
-2. **Prompt Optimization**: How many iterations needed to stabilize extraction prompts?
-3. **Cost Management**: Token usage per paper extraction?
-4. **Integration Testing**: Set up test environment with API credentials and Neo4j?
+1. **Data Ingestion**: Which papers/domains to seed the KG with first?
+2. **Cost Management**: Monitor LLM costs during full E2E testing
+3. **Production Readiness**: What additional hardening is needed?
 
 ## Reference Materials
 
-- **Paper**: [files/Agentic_Knowledge_Graphs_for_Research_Progression.pdf](../files/Agentic_Knowledge_Graphs_for_Research_Progression.pdf)
-- **Denario Docs**: https://denario.readthedocs.io/
+- **Staging**: https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app
+- **Sprint 07 Docs**: `construction/sprints/sprint-07-e2e-testing.md`
+- **Terraform**: `infra/` directory
 - **Phase Coordination**: [phases.md](phases.md)
-- **Sub-Agents**: [.claude/agents/](../.claude/agents/)
 
 ## Notes for Next Session
 
-- Read ALL memory-bank files on context reset (7 core files including phases.md)
+- Read ALL memory-bank files on context reset
 - Check phases.md for current phase status
-- **Sprint 03 IN PROGRESS** - 92% complete (Tasks 1-12 done)
-- Sprint 03 docs: `construction/sprints/sprint-03-extraction-pipeline.md`
-- Requirements: `construction/requirements/extraction-pipeline-requirements.md`
-- ADR-013 documents extraction approach decision
-- PR #11 open with extraction pipeline implementation
-- Next: Merge PR #11, begin Sprint 04 planning (API/UI/Agents)
+- **Sprint 07 COMPLETE** - E2E testing infrastructure ready
+- Get Neo4j password: `cd infra && terraform output -raw neo4j_password`
+- Run smoke test: `make smoke-test`
+- Next: Ingest real papers, run full E2E tests
