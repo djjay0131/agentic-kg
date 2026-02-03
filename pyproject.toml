@@ -47,6 +47,7 @@ markers = [
     "e2e: end-to-end tests against live services (requires staging env vars)",
     "slow: tests that take >10 seconds",
     "costly: tests that incur API costs (LLM calls)",
+    "integration: integration tests requiring external services (Neo4j, APIs)",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",

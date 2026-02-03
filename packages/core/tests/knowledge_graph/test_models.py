@@ -483,21 +483,23 @@ class TestProblem:
         with pytest.raises(ValidationError):
             Problem(**sample_problem_data)
 
-    def test_evidence_required(self, sample_extraction_metadata_data):
-        """Evidence field is required."""
-        with pytest.raises(ValidationError):
-            Problem(
-                statement="This is a valid problem statement.",
-                extraction_metadata=sample_extraction_metadata_data,
-            )
+    def test_evidence_optional(self, sample_extraction_metadata_data):
+        """Evidence field is now optional."""
+        # Should not raise - evidence is optional
+        problem = Problem(
+            statement="This is a valid problem statement.",
+            extraction_metadata=sample_extraction_metadata_data,
+        )
+        assert problem.evidence is None
 
-    def test_extraction_metadata_required(self, sample_evidence_data):
-        """Extraction metadata field is required."""
-        with pytest.raises(ValidationError):
-            Problem(
-                statement="This is a valid problem statement.",
-                evidence=sample_evidence_data,
-            )
+    def test_extraction_metadata_optional(self, sample_evidence_data):
+        """Extraction metadata field is now optional."""
+        # Should not raise - extraction_metadata is optional
+        problem = Problem(
+            statement="This is a valid problem statement.",
+            evidence=sample_evidence_data,
+        )
+        assert problem.extraction_metadata is None
 
     # Serialization tests
     def test_to_neo4j_properties(self, sample_problem_data, sample_assumption_data):

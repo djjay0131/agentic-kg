@@ -334,22 +334,18 @@ class TestValidateProblem:
         assert extractor._validate_problem(problem) is True
 
     def test_invalid_short_statement(self, extractor):
-        """Test that short statement fails validation."""
-        problem = ExtractedProblem(
-            statement="Too short",  # Less than 20 chars
-            quoted_text="some quoted text from the paper",
-            confidence=0.9,
-        )
+        """Test that Pydantic rejects short statements."""
+        from pydantic import ValidationError
 
-        # Note: Pydantic will actually raise an error, but let's test the logic
-        # by creating with __init__ bypassed
-        problem_dict = {
-            "statement": "Short",
-            "quoted_text": "quote",
-            "confidence": 0.9,
-        }
-        # Manual check since Pydantic would reject this
-        assert len("Short") < 20
+        # Pydantic should reject statements shorter than 20 chars
+        with pytest.raises(ValidationError) as exc_info:
+            ExtractedProblem(
+                statement="Too short",  # Less than 20 chars
+                quoted_text="some quoted text from the paper",
+                confidence=0.9,
+            )
+
+        assert "at least 20 characters" in str(exc_info.value)
 
     def test_invalid_short_quote(self, extractor):
         """Test that short quoted text fails validation."""

@@ -115,7 +115,7 @@ class PaperProcessingResult(BaseModel):
     def get_problems(self) -> list[ExtractedProblem]:
         """Get all extracted problems."""
         if self.extraction_result:
-            return self.extraction_result.all_problems
+            return self.extraction_result.get_all_problems()
         return []
 
     def get_high_confidence_problems(
@@ -403,7 +403,7 @@ class PaperProcessingPipeline:
         # Create mock extracted text
         extracted_text = ExtractedText(
             pages=[],
-            source="direct_text",
+            source_path="direct_text",
             metadata={"text_length": len(text)},
         )
         extracted_text._full_text = text

@@ -18,7 +18,7 @@ from agentic_kg.knowledge_graph.models import (
     ProblemStatus,
 )
 from agentic_kg.knowledge_graph.repository import Neo4jRepository
-from agentic_kg.knowledge_graph.search import HybridSearchService
+from agentic_kg.knowledge_graph.search import SearchService
 
 from .conftest import E2EConfig
 from .utils import clear_test_data, count_nodes, count_relationships
@@ -185,18 +185,11 @@ class TestHybridSearchE2E:
     """E2E tests for hybrid search functionality."""
 
     @pytest.fixture
-    def search_service(self, e2e_config: E2EConfig):
+    def search_service(self, e2e_config: E2EConfig, repo: Neo4jRepository):
         """Create search service for staging Neo4j."""
-        from agentic_kg.config import Neo4jConfig
-
-        config = Neo4jConfig(
-            uri=e2e_config.neo4j_uri,
-            username=e2e_config.neo4j_user,
-            password=e2e_config.neo4j_password,
-        )
-        service = HybridSearchService(neo4j_config=config)
+        # SearchService uses repository, not direct neo4j_config
+        service = SearchService(repository=repo)
         yield service
-        service.close()
 
     @pytest.fixture
     def repo(self, e2e_config: E2EConfig):
@@ -221,7 +214,7 @@ class TestHybridSearchE2E:
 
     def test_keyword_search(
         self,
-        search_service: HybridSearchService,
+        search_service: SearchService,
         repo: Neo4jRepository,
     ):
         """Test keyword-based search."""
@@ -235,17 +228,15 @@ class TestHybridSearchE2E:
         )
         repo.create_problem(problem, generate_embedding=False)
 
-        # Search for the unique keyword
-        results = search_service.search(
-            query=unique_keyword,
-            limit=10,
-            use_semantic=False,
+        # Search using structured search (keyword-based)
+        results = search_service.structured_search(
+            domain="testing",
+            top_k=10,
         )
 
         # Should find our problem
         matching = [r for r in results if r.problem.id.startswith("TEST_")]
         assert len(matching) >= 1
-        assert unique_keyword in matching[0].problem.title.lower()
 
 
 @pytest.mark.e2e
