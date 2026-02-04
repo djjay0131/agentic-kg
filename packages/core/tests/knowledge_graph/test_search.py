@@ -5,6 +5,8 @@ These tests require Docker and will be skipped if Docker is not available.
 Semantic search tests are limited since they require OpenAI API key.
 """
 
+import uuid
+
 import pytest
 from agentic_kg.knowledge_graph.models import (
     Evidence,
@@ -18,6 +20,11 @@ from agentic_kg.knowledge_graph.search import SearchService
 pytestmark = pytest.mark.integration
 
 
+def _test_id() -> str:
+    """Generate a TEST_ prefixed unique ID for test isolation."""
+    return f"TEST_{uuid.uuid4().hex[:16]}"
+
+
 @pytest.fixture
 def search_service(neo4j_repository):
     """Create a search service with the test repository."""
@@ -25,19 +32,31 @@ def search_service(neo4j_repository):
 
 
 @pytest.fixture
-def sample_problems(neo4j_repository, sample_evidence_data):
+def test_domains():
+    """Generate unique test domains to avoid interference from other tests."""
+    run_id = uuid.uuid4().hex[:8]
+    return {
+        "NLP": f"TEST_NLP_{run_id}",
+        "CV": f"TEST_CV_{run_id}",
+        "ML": f"TEST_ML_{run_id}",
+    }
+
+
+@pytest.fixture
+def sample_problems(neo4j_repository, sample_evidence_data, test_domains):
     """Create sample problems for search testing."""
     problems = []
     test_data = [
-        ("NLP", ProblemStatus.OPEN, "Transformer attention scaling"),
-        ("NLP", ProblemStatus.IN_PROGRESS, "Language model pretraining"),
-        ("CV", ProblemStatus.OPEN, "Image classification efficiency"),
-        ("CV", ProblemStatus.RESOLVED, "Object detection accuracy"),
-        ("ML", ProblemStatus.OPEN, "Reinforcement learning exploration"),
+        (test_domains["NLP"], ProblemStatus.OPEN, "Transformer attention scaling"),
+        (test_domains["NLP"], ProblemStatus.IN_PROGRESS, "Language model pretraining"),
+        (test_domains["CV"], ProblemStatus.OPEN, "Image classification efficiency"),
+        (test_domains["CV"], ProblemStatus.RESOLVED, "Object detection accuracy"),
+        (test_domains["ML"], ProblemStatus.OPEN, "Reinforcement learning exploration"),
     ]
 
     for domain, status, topic in test_data:
         problem = Problem(
+            id=_test_id(),
             statement=f"Research problem about {topic} in {domain} domain - " + "x" * 20,
             domain=domain,
             status=status,
@@ -56,47 +75,57 @@ def sample_problems(neo4j_repository, sample_evidence_data):
 class TestStructuredSearch:
     """Test structured search operations."""
 
-    def test_search_by_domain(self, search_service, sample_problems):
+    def test_search_by_domain(self, search_service, sample_problems, test_domains):
         """Test searching problems by domain."""
-        results = search_service.structured_search(domain="NLP")
+        results = search_service.structured_search(domain=test_domains["NLP"])
 
         assert len(results) == 2
-        assert all(r.problem.domain == "NLP" for r in results)
+        assert all(r.problem.domain == test_domains["NLP"] for r in results)
         assert all(r.match_type == "structured" for r in results)
 
-    def test_search_by_status(self, search_service, sample_problems):
+    def test_search_by_status(self, search_service, sample_problems, test_domains):
         """Test searching problems by status."""
-        results = search_service.structured_search(status=ProblemStatus.OPEN)
+        # Search with specific domain to only get our test data
+        results = search_service.structured_search(
+            domain=test_domains["NLP"],
+            status=ProblemStatus.OPEN,
+        )
+        assert len(results) == 1  # Only 1 NLP problem is OPEN
 
-        assert len(results) == 3
+        results = search_service.structured_search(
+            domain=test_domains["ML"],
+            status=ProblemStatus.OPEN,
+        )
+        assert len(results) == 1  # Only 1 ML problem exists and is OPEN
         assert all(r.problem.status == ProblemStatus.OPEN for r in results)
 
-    def test_search_by_domain_and_status(self, search_service, sample_problems):
+    def test_search_by_domain_and_status(self, search_service, sample_problems, test_domains):
         """Test searching with multiple filters."""
         results = search_service.structured_search(
-            domain="CV",
+            domain=test_domains["CV"],
             status=ProblemStatus.OPEN,
         )
 
         assert len(results) == 1
-        assert results[0].problem.domain == "CV"
+        assert results[0].problem.domain == test_domains["CV"]
         assert results[0].problem.status == ProblemStatus.OPEN
 
-    def test_search_with_limit(self, search_service, sample_problems):
+    def test_search_with_limit(self, search_service, sample_problems, test_domains):
         """Test limiting search results."""
-        results = search_service.structured_search(top_k=2)
+        # Use specific domain to get predictable count
+        results = search_service.structured_search(domain=test_domains["NLP"], top_k=1)
 
-        assert len(results) == 2
+        assert len(results) == 1
 
     def test_search_no_results(self, search_service, sample_problems):
         """Test search with no matching results."""
-        results = search_service.structured_search(domain="Nonexistent")
+        results = search_service.structured_search(domain="Nonexistent_Domain_12345")
 
         assert len(results) == 0
 
-    def test_search_result_score(self, search_service, sample_problems):
+    def test_search_result_score(self, search_service, sample_problems, test_domains):
         """Test that structured search results have score of 1.0."""
-        results = search_service.structured_search(domain="NLP")
+        results = search_service.structured_search(domain=test_domains["NLP"])
 
         assert all(r.score == 1.0 for r in results)
 

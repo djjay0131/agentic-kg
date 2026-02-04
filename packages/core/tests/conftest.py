@@ -6,6 +6,7 @@ Provides common test data and fixtures used across test modules.
 
 from datetime import datetime, timezone
 from typing import Generator
+import uuid
 
 import pytest
 
@@ -144,9 +145,21 @@ def neo4j_repository(neo4j_config):
 
         yield repo
 
-        # Clean up only TEST_ prefixed data (safe for shared instances)
+        # Clean up only test data (safe for shared instances)
+        # Cleans up:
+        # - Problem.id starting with 'TEST_'
+        # - Paper.doi starting with '10.TEST_'
+        # - Author.name starting with 'TEST_'
+        # - Any node with domain starting with 'TEST_'
         with repo.session() as session:
-            session.run("MATCH (n) WHERE n.id STARTS WITH 'TEST_' DETACH DELETE n")
+            session.run("""
+                MATCH (n)
+                WHERE n.id STARTS WITH 'TEST_'
+                   OR n.doi STARTS WITH '10.TEST_'
+                   OR n.name STARTS WITH 'TEST_'
+                   OR n.domain STARTS WITH 'TEST_'
+                DETACH DELETE n
+            """)
 
     finally:
         repo.close()
@@ -196,14 +209,20 @@ def development_env(monkeypatch) -> None:
 
 @pytest.fixture
 def sample_doi() -> str:
-    """Return a valid DOI string."""
-    return "10.1234/example.2024.001"
+    """Return a unique DOI string with TEST_ suffix for test isolation.
+    DOI must start with '10.' per Pydantic validation.
+    """
+    return f"10.TEST_{uuid.uuid4().hex[:8]}/example.2024.001"
 
 
 @pytest.fixture
 def sample_orcid() -> str:
-    """Return a valid ORCID string."""
-    return "0000-0001-2345-6789"
+    """Return a unique ORCID string for test isolation.
+    ORCID must start with '0000-' per validation.
+    Uses a random hex segment to make each test run unique.
+    """
+    hex_segment = uuid.uuid4().hex[:4].upper()
+    return f"0000-{hex_segment}-2345-6789"
 
 
 @pytest.fixture

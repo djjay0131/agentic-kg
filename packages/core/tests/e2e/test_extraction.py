@@ -62,7 +62,7 @@ class TestPDFExtractionE2E:
         extracted = await pdf_extractor.extract_from_url(pdf_url, timeout=120.0)
 
         assert extracted is not None
-        assert extracted.page_count > 0
+        assert extracted.total_pages > 0
         assert len(extracted.full_text) > 1000
 
         # Should contain key terms from the Transformer paper

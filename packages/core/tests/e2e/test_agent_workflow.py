@@ -162,16 +162,21 @@ class TestWorkflowStateMachine:
         """Test RankedProblem schema validation."""
         ranked = RankedProblem(
             problem_id="prob-001",
-            title="Test Problem",
-            description="A test research problem.",
+            statement="How can we improve transformer efficiency?",
             score=0.85,
-            rationale="High impact potential.",
+            tractability=0.7,
+            data_availability=0.9,
+            cross_domain_impact=0.8,
+            rationale="High impact potential with available datasets.",
             domain="testing",
         )
 
         assert ranked.problem_id == "prob-001"
         assert ranked.score == 0.85
         assert 0.0 <= ranked.score <= 1.0
+        assert ranked.tractability == 0.7
+        assert ranked.data_availability == 0.9
+        assert ranked.cross_domain_impact == 0.8
 
     def test_state_transitions(self):
         """Test valid state transitions."""
