@@ -9,6 +9,7 @@ resource "google_project_service" "apis" {
     "artifactregistry.googleapis.com",
     "secretmanager.googleapis.com",
     "iam.googleapis.com",
+    "sourcerepo.googleapis.com",
   ])
 
   project            = var.project_id
@@ -328,4 +329,74 @@ resource "github_actions_secret" "staging_api_url" {
   repository      = var.github_repo
   secret_name     = "STAGING_API_URL"
   plaintext_value = google_cloud_run_v2_service.api.uri
+}
+
+# =============================================================================
+# Cloud Build Triggers
+# =============================================================================
+# Triggers for automatic builds on push to master branch.
+# Requires GitHub connection to be set up in Cloud Build console first:
+# https://console.cloud.google.com/cloud-build/triggers/connect
+
+# API service trigger - builds on changes to packages/api/** or packages/core/**
+resource "google_cloudbuild_trigger" "api" {
+  count    = var.enable_build_triggers ? 1 : 0
+  name     = "agentic-kg-api-${var.env}"
+  location = var.region
+
+  github {
+    owner = var.github_owner
+    name  = var.github_repo
+
+    push {
+      branch = var.env == "staging" ? "^master$" : "^release/.*$"
+    }
+  }
+
+  included_files = [
+    "packages/api/**",
+    "packages/core/**",
+    "docker/Dockerfile.api",
+    "cloudbuild.yaml",
+  ]
+
+  filename = "cloudbuild.yaml"
+
+  substitutions = {
+    _SERVICE = "api"
+    _REGION  = var.region
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+# UI service trigger - builds on changes to packages/ui/**
+resource "google_cloudbuild_trigger" "ui" {
+  count    = var.enable_build_triggers ? 1 : 0
+  name     = "agentic-kg-ui-${var.env}"
+  location = var.region
+
+  github {
+    owner = var.github_owner
+    name  = var.github_repo
+
+    push {
+      branch = var.env == "staging" ? "^master$" : "^release/.*$"
+    }
+  }
+
+  included_files = [
+    "packages/ui/**",
+    "docker/Dockerfile.ui",
+    "cloudbuild.yaml",
+  ]
+
+  filename = "cloudbuild.yaml"
+
+  substitutions = {
+    _SERVICE = "ui"
+    _REGION  = var.region
+  }
+
+  depends_on = [google_project_service.apis]
 }
