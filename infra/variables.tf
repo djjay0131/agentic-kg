@@ -108,3 +108,10 @@ variable "sync_github_secrets" {
   type        = bool
   default     = false
 }
+
+# Cloud Build
+variable "enable_build_triggers" {
+  description = "Whether to create Cloud Build triggers (requires GitHub connection in Cloud Build console)"
+  type        = bool
+  default     = false
+}
