@@ -17,18 +17,38 @@ substitutions:
   _REPOSITORY: agentic-kg
 
 steps:
+  # Get API URL for UI build (needed at build time for Next.js)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'get-api-url'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        if [ "${_SERVICE}" = "ui" ]; then
+          API_URL=$(gcloud run services describe agentic-kg-api-staging --region=${_REGION} --format='value(status.url)' 2>/dev/null || echo "")
+          echo "$${API_URL}" > /workspace/api_url.txt
+        else
+          echo "" > /workspace/api_url.txt
+        fi
+
   # Build the Docker image
   - name: 'gcr.io/cloud-builders/docker'
     id: 'build'
+    entrypoint: 'bash'
     args:
-      - 'build'
-      - '-f'
-      - 'docker/Dockerfile.${_SERVICE}'
-      - '-t'
-      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA'
-      - '-t'
-      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:latest'
-      - '.'
+      - '-c'
+      - |
+        API_URL=$(cat /workspace/api_url.txt)
+        BUILD_ARGS=""
+        if [ "${_SERVICE}" = "ui" ] && [ -n "$${API_URL}" ]; then
+          BUILD_ARGS="--build-arg NEXT_PUBLIC_API_URL=$${API_URL}"
+        fi
+        docker build \
+          -f docker/Dockerfile.${_SERVICE} \
+          -t ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA \
+          -t ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:latest \
+          $${BUILD_ARGS} \
+          .
 
   # Tag with version if provided
   - name: 'gcr.io/cloud-builders/docker'
