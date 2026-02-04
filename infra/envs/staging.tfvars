@@ -8,3 +8,10 @@ api_memory         = "1Gi"
 api_cpu            = "1"
 api_min_instances  = 0
 api_max_instances  = 5
+
+# GitHub Actions secrets sync
+# Set github_owner and sync_github_secrets=true to auto-sync staging credentials
+# Requires GITHUB_TOKEN env var with repo and secrets permissions
+github_owner        = "djjay0131"
+github_repo         = "agentic-kg"
+sync_github_secrets = true

@@ -57,3 +57,29 @@ variable "api_max_instances" {
   type        = number
   default     = 5
 }
+
+# GitHub
+variable "github_owner" {
+  description = "GitHub repository owner (user or organization)"
+  type        = string
+  default     = ""
+}
+
+variable "github_repo" {
+  description = "GitHub repository name"
+  type        = string
+  default     = "agentic-kg"
+}
+
+variable "github_token" {
+  description = "GitHub personal access token (or use GITHUB_TOKEN env var)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "sync_github_secrets" {
+  description = "Whether to sync secrets to GitHub Actions"
+  type        = bool
+  default     = false
+}

@@ -249,3 +249,30 @@ resource "google_cloud_run_v2_service_iam_member" "public" {
   role     = "roles/run.invoker"
   member   = "allUsers"
 }
+
+# =============================================================================
+# GitHub Actions Secrets (optional - enabled via sync_github_secrets)
+# =============================================================================
+# These secrets are automatically synced to GitHub Actions so CI can run
+# integration tests against the staging environment without manual setup.
+
+resource "github_actions_secret" "staging_neo4j_uri" {
+  count           = var.sync_github_secrets && var.env == "staging" ? 1 : 0
+  repository      = var.github_repo
+  secret_name     = "STAGING_NEO4J_URI"
+  plaintext_value = "bolt://${google_compute_instance.neo4j.network_interface[0].access_config[0].nat_ip}:7687"
+}
+
+resource "github_actions_secret" "staging_neo4j_password" {
+  count           = var.sync_github_secrets && var.env == "staging" ? 1 : 0
+  repository      = var.github_repo
+  secret_name     = "STAGING_NEO4J_PASSWORD"
+  plaintext_value = random_password.neo4j.result
+}
+
+resource "github_actions_secret" "staging_api_url" {
+  count           = var.sync_github_secrets && var.env == "staging" ? 1 : 0
+  repository      = var.github_repo
+  secret_name     = "STAGING_API_URL"
+  plaintext_value = google_cloud_run_v2_service.api.uri
+}
