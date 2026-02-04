@@ -24,6 +24,11 @@ output "api_url" {
   value       = google_cloud_run_v2_service.api.uri
 }
 
+output "ui_url" {
+  description = "Cloud Run UI URL"
+  value       = google_cloud_run_v2_service.ui.uri
+}
+
 output "artifact_registry" {
   description = "Artifact Registry repository path"
   value       = "${var.region}-docker.pkg.dev/${var.project_id}/agentic-kg"

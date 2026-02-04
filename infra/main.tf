@@ -242,9 +242,62 @@ resource "google_cloud_run_v2_service" "api" {
   ]
 }
 
-# Allow unauthenticated access
-resource "google_cloud_run_v2_service_iam_member" "public" {
+# Allow unauthenticated access to API
+resource "google_cloud_run_v2_service_iam_member" "api_public" {
   name     = google_cloud_run_v2_service.api.name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
+
+# =============================================================================
+# Cloud Run — UI service (Next.js)
+# =============================================================================
+resource "google_cloud_run_v2_service" "ui" {
+  name     = "agentic-kg-ui-${var.env}"
+  location = var.region
+
+  template {
+    scaling {
+      min_instance_count = var.ui_min_instances
+      max_instance_count = var.ui_max_instances
+    }
+
+    containers {
+      image = "${var.region}-docker.pkg.dev/${var.project_id}/agentic-kg/ui:latest"
+
+      ports {
+        container_port = 3000
+      }
+
+      resources {
+        limits = {
+          memory = var.ui_memory
+          cpu    = var.ui_cpu
+        }
+      }
+
+      env {
+        name  = "API_URL"
+        value = google_cloud_run_v2_service.api.uri
+      }
+
+      env {
+        name  = "NODE_ENV"
+        value = "production"
+      }
+    }
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_cloud_run_v2_service.api,
+  ]
+}
+
+# Allow unauthenticated access to UI
+resource "google_cloud_run_v2_service_iam_member" "ui_public" {
+  name     = google_cloud_run_v2_service.ui.name
   location = var.region
   role     = "roles/run.invoker"
   member   = "allUsers"

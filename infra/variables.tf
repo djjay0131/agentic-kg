@@ -58,6 +58,31 @@ variable "api_max_instances" {
   default     = 5
 }
 
+# UI (Next.js)
+variable "ui_memory" {
+  description = "Memory for UI Cloud Run service"
+  type        = string
+  default     = "512Mi"
+}
+
+variable "ui_cpu" {
+  description = "CPU for UI Cloud Run service"
+  type        = string
+  default     = "1"
+}
+
+variable "ui_min_instances" {
+  description = "Minimum instances for UI"
+  type        = number
+  default     = 0
+}
+
+variable "ui_max_instances" {
+  description = "Maximum instances for UI"
+  type        = number
+  default     = 3
+}
+
 # GitHub
 variable "github_owner" {
   description = "GitHub repository owner (user or organization)"

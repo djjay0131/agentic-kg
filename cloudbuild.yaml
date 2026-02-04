@@ -79,7 +79,7 @@ steps:
         # Determine port based on service
         case "${_SERVICE}" in
           api) PORT=8000 ;;
-          ui) PORT=8501 ;;
+          ui) PORT=3000 ;;
           worker) PORT=8080 ;;
         esac
 
@@ -90,8 +90,24 @@ steps:
           worker) MEMORY=2Gi ;;
         esac
 
-        # Deploy to staging (add -staging suffix)
-        gcloud run deploy agentic-kg-${_SERVICE}-staging \
+        # Set secrets based on service
+        case "${_SERVICE}" in
+          api) SECRETS="NEO4J_URI=NEO4J_URI:latest,NEO4J_PASSWORD=NEO4J_PASSWORD:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest" ;;
+          ui) SECRETS="" ;;  # UI only needs API_URL, set below
+          worker) SECRETS="NEO4J_URI=NEO4J_URI:latest,NEO4J_PASSWORD=NEO4J_PASSWORD:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest" ;;
+        esac
+
+        # Set env vars based on service
+        case "${_SERVICE}" in
+          ui)
+            API_URL=$(gcloud run services describe agentic-kg-api-staging --region=${_REGION} --format='value(status.url)' 2>/dev/null || echo "")
+            ENV_VARS="API_URL=$${API_URL},NODE_ENV=production"
+            ;;
+          *) ENV_VARS="" ;;
+        esac
+
+        # Build deploy command
+        DEPLOY_CMD="gcloud run deploy agentic-kg-${_SERVICE}-staging \
           --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA \
           --region=${_REGION} \
           --platform=managed \
@@ -99,8 +115,20 @@ steps:
           --memory=$$MEMORY \
           --min-instances=0 \
           --max-instances=10 \
-          --set-secrets=NEO4J_URI=NEO4J_URI:latest,NEO4J_PASSWORD=NEO4J_PASSWORD:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest \
-          --allow-unauthenticated
+          --allow-unauthenticated"
+
+        # Add secrets if any
+        if [ -n "$$SECRETS" ]; then
+          DEPLOY_CMD="$$DEPLOY_CMD --set-secrets=$$SECRETS"
+        fi
+
+        # Add env vars if any
+        if [ -n "$$ENV_VARS" ]; then
+          DEPLOY_CMD="$$DEPLOY_CMD --set-env-vars=$$ENV_VARS"
+        fi
+
+        # Deploy to staging
+        eval $$DEPLOY_CMD
 
 images:
   - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA'
