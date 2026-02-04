@@ -32,9 +32,11 @@ def relation_service(neo4j_repository):
 @pytest.fixture
 def two_problems(neo4j_repository, sample_evidence_data):
     """Create two problems for relation testing."""
+    import uuid as uuid_mod
     problems = []
     for i in range(2):
         problem = Problem(
+            id=f"TEST_{uuid_mod.uuid4().hex[:16]}",
             statement=f"Research problem {i} - " + "x" * 20,
             domain="NLP",
             status=ProblemStatus.OPEN,
@@ -52,8 +54,11 @@ def two_problems(neo4j_repository, sample_evidence_data):
 @pytest.fixture
 def paper_and_author(neo4j_repository, sample_paper_data, sample_author_data):
     """Create a paper and author for relation testing."""
+    import uuid as uuid_mod
     paper = Paper(**sample_paper_data)
-    author = Author(**sample_author_data)
+    # Override author name with TEST_ prefix for cleanup isolation
+    author_data = {**sample_author_data, "name": f"TEST_{uuid_mod.uuid4().hex[:8]}_Author"}
+    author = Author(**author_data)
     neo4j_repository.create_paper(paper)
     neo4j_repository.create_author(author)
     return paper, author

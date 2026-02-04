@@ -54,3 +54,8 @@ Thumbs.db
 # Project specific
 *.log
 project/
+
+# Node.js
+node_modules/
+.next/
+*.code-workspace

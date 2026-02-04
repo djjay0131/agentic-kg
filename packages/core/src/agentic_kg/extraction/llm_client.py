@@ -406,7 +406,14 @@ def create_llm_client(
 
     Returns:
         Configured LLM client.
+
+    Raises:
+        ValueError: If provider is not a valid LLMProvider.
     """
+    # Validate provider before creating config
+    if not isinstance(provider, LLMProvider):
+        raise ValueError(f"Unsupported provider: {provider}")
+
     config = LLMConfig(
         provider=provider,
         temperature=temperature,

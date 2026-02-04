@@ -1,6 +1,6 @@
 # Phase Lifecycle
 
-**Last Updated:** 2026-01-27
+**Last Updated:** 2026-02-03
 
 This file serves as the **coordination hub** between the memory-bank and construction folders. It tracks the lifecycle of each project phase and provides handoff signals between agents.
 
@@ -16,7 +16,8 @@ This file serves as the **coordination hub** between the memory-bank and constru
 | 3: Extraction Pipeline | Complete (Merged) | [extraction-pipeline-requirements.md](../construction/requirements/extraction-pipeline-requirements.md) | [sprint-03](../construction/sprints/sprint-03-extraction-pipeline.md) | ADR-013 | N/A |
 | 4: API + Web UI | Complete (Merged) | - | [sprint-04](../construction/sprints/sprint-04-api-and-ui.md) | ADR-014 | N/A |
 | 5: Agent Implementation | Complete (Merged) | - | [sprint-05](../construction/sprints/sprint-05-agent-implementation.md) | - | N/A |
-| 6: Full-Stack Integration | In Progress | - | [sprint-06](../construction/sprints/sprint-06-integration.md) | - | Yes |
+| 6: Full-Stack Integration | Complete (Merged) | - | [sprint-06](../construction/sprints/sprint-06-integration.md) | ADR-014 | N/A |
+| 7: End-to-End Testing | Complete (Merged) | - | [sprint-07](../construction/sprints/sprint-07-e2e-testing.md) | - | N/A |
 
 ### Administrative Agents (Cross-Cutting)
 
@@ -116,11 +117,9 @@ This file serves as the **coordination hub** between the memory-bank and constru
 
 - **Objective**: Build FastAPI backend and Next.js frontend
 - **Key Deliverables**: REST API, production web UI, graph visualization
-- **Design Status**: N/A (ADR-driven)
-- **Implementation Status**: In Progress (93%)
-- **Branch**: `claude/sprint-04-api-and-ui`
+- **Design Status**: Complete
+- **Implementation Status**: Complete (Merged)
 - **Sprint**: [sprint-04-api-and-ui.md](../construction/sprints/sprint-04-api-and-ui.md)
-- **Tasks**: 13/14 complete (API tests pending)
 - **Components Built**:
   - FastAPI application with CORS, error handling
   - Problem CRUD endpoints
@@ -137,10 +136,9 @@ This file serves as the **coordination hub** between the memory-bank and constru
 - **Objective**: Implement Ranking, Continuation, Evaluation, Synthesis agents
 - **Key Deliverables**: LangGraph workflows, agent orchestration, human-in-the-loop, WebSocket, workflow UI
 - **Design Status**: Complete
-- **Implementation Status**: In Progress
-- **Branch**: `claude/sprint-05-agent-implementation`
+- **Implementation Status**: Complete (Merged)
 - **Sprint**: [sprint-05-agent-implementation.md](../construction/sprints/sprint-05-agent-implementation.md)
-- **Tasks**: 17 total (17 complete)
+- **Tasks**: 17/17 complete
 - **Components Built**:
   - Agent schemas and Pydantic models
   - ResearchState TypedDict for LangGraph
@@ -159,6 +157,39 @@ This file serves as the **coordination hub** between the memory-bank and constru
   - Agent API router (REST + WebSocket)
   - Workflow UI pages (list, detail, stepper, checkpoint forms)
 - **Dependencies**: Phases 1-4 complete
+
+### Phase 6: Full-Stack Integration
+- **Objective**: Wire all components together, deploy to GCP
+- **Key Deliverables**: Docker Compose, Terraform IaC, CI/CD, staging environment
+- **Design Status**: Complete
+- **Implementation Status**: Complete (Merged)
+- **Sprint**: [sprint-06-integration.md](../construction/sprints/sprint-06-integration.md)
+- **Components Built**:
+  - WorkflowRunner wired into API lifespan
+  - Event bus for workflow step transitions
+  - Background task execution
+  - Docker Compose for local development
+  - Makefile for monorepo commands
+  - Terraform IaC for GCP infrastructure
+  - Staging environment deployed (Neo4j + Cloud Run)
+
+### Phase 7: End-to-End Testing
+- **Objective**: Validate full pipeline against live staging
+- **Key Deliverables**: E2E test suite, smoke test script, pytest markers
+- **Design Status**: Complete
+- **Implementation Status**: Complete (Merged)
+- **Sprint**: [sprint-07-e2e-testing.md](../construction/sprints/sprint-07-e2e-testing.md)
+- **Components Built**:
+  - E2E test configuration and fixtures
+  - E2E test utilities (wait, cleanup, retry)
+  - Paper acquisition E2E tests
+  - Extraction pipeline E2E tests
+  - KG population E2E tests
+  - API endpoints E2E tests
+  - Agent workflow E2E tests
+  - WebSocket E2E tests
+  - Smoke test script (scripts/smoke_test.py)
+  - Pytest markers: e2e, slow, costly
 
 ---
 

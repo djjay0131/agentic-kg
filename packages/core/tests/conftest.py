@@ -6,12 +6,28 @@ Provides common test data and fixtures used across test modules.
 
 from datetime import datetime, timezone
 from typing import Generator
+import uuid
 
 import pytest
 
 # =============================================================================
-# Neo4j Testcontainer Fixture
+# Neo4j Integration Test Fixtures
 # =============================================================================
+#
+# These fixtures support two modes:
+# 1. Environment variables (CI/staging): Set NEO4J_URI, NEO4J_PASSWORD
+# 2. Testcontainers (local dev): Spins up a Neo4j container via Docker
+#
+
+
+import os
+
+
+def _get_neo4j_from_env():
+    """Check if Neo4j connection details are in environment."""
+    uri = os.environ.get("NEO4J_URI")
+    password = os.environ.get("NEO4J_PASSWORD")
+    return uri, password
 
 
 @pytest.fixture(scope="session")
@@ -21,11 +37,22 @@ def neo4j_container():
 
     This fixture is session-scoped to avoid starting a new container
     for each test. Tests should clean up their own data.
+
+    If NEO4J_URI is set in environment, this fixture is skipped
+    (we use the external Neo4j instance instead).
     """
+    # Check if we should use environment variables instead
+    uri, password = _get_neo4j_from_env()
+    if uri and password:
+        # Return None - we'll use env vars in neo4j_config
+        yield None
+        return
+
+    # Otherwise, try to use testcontainers
     try:
         from testcontainers.neo4j import Neo4jContainer
     except ImportError:
-        pytest.skip("testcontainers not installed")
+        pytest.skip("testcontainers not installed and NEO4J_URI not set")
         return
 
     # Check if Docker is available
@@ -34,7 +61,7 @@ def neo4j_container():
         client = docker.from_env()
         client.ping()
     except Exception:
-        pytest.skip("Docker not available")
+        pytest.skip("Docker not available and NEO4J_URI not set")
         return
 
     container = Neo4jContainer("neo4j:5.26-community")
@@ -50,22 +77,37 @@ def neo4j_container():
 @pytest.fixture
 def neo4j_config(neo4j_container, monkeypatch):
     """
-    Configure Neo4j connection to use the test container.
+    Configure Neo4j connection for tests.
 
+    Uses environment variables if set, otherwise uses testcontainer.
     Returns the Neo4jConfig for direct use.
     """
     from agentic_kg.config import Neo4jConfig, reset_config
 
-    # Get connection details from container
-    uri = neo4j_container.get_connection_url()
-    username = "neo4j"
-    password = "neo4j"  # Default password for test container
+    # Check for environment variables first
+    env_uri, env_password = _get_neo4j_from_env()
 
-    # Set environment variables
+    if env_uri and env_password:
+        # Use environment variables (CI mode)
+        uri = env_uri
+        username = os.environ.get("NEO4J_USERNAME", "neo4j")
+        password = env_password
+        database = os.environ.get("NEO4J_DATABASE", "neo4j")
+    elif neo4j_container is not None:
+        # Use testcontainer (local dev mode)
+        uri = neo4j_container.get_connection_url()
+        username = "neo4j"
+        password = "neo4j"  # Default password for test container
+        database = "neo4j"
+    else:
+        pytest.skip("No Neo4j connection available")
+        return
+
+    # Set environment variables for the test
     monkeypatch.setenv("NEO4J_URI", uri)
     monkeypatch.setenv("NEO4J_USERNAME", username)
     monkeypatch.setenv("NEO4J_PASSWORD", password)
-    monkeypatch.setenv("NEO4J_DATABASE", "neo4j")
+    monkeypatch.setenv("NEO4J_DATABASE", database)
 
     # Reset config to pick up new env vars
     reset_config()
@@ -74,7 +116,7 @@ def neo4j_config(neo4j_container, monkeypatch):
         uri=uri,
         username=username,
         password=password,
-        database="neo4j",
+        database=database,
     )
 
     yield config
@@ -83,9 +125,10 @@ def neo4j_config(neo4j_container, monkeypatch):
 @pytest.fixture
 def neo4j_repository(neo4j_config):
     """
-    Create a repository connected to the test container.
+    Create a repository connected to Neo4j.
 
-    Initializes schema and cleans up after test.
+    Initializes schema and cleans up test data after each test.
+    When using staging/CI, only cleans up TEST_ prefixed data.
     """
     from agentic_kg.knowledge_graph.repository import Neo4jRepository
     from agentic_kg.knowledge_graph.schema import SchemaManager
@@ -93,15 +136,31 @@ def neo4j_repository(neo4j_config):
     repo = Neo4jRepository(config=neo4j_config)
 
     try:
-        # Verify connection and initialize schema
+        # Verify connection
         repo.verify_connectivity()
+
+        # Initialize schema (idempotent - won't destroy existing data)
         schema_manager = SchemaManager(repository=repo)
-        schema_manager.initialize(force=True)
+        schema_manager.initialize(force=False)
 
         yield repo
 
-        # Clean up after test
-        schema_manager.drop_all(confirm=True)
+        # Clean up only test data (safe for shared instances)
+        # Cleans up:
+        # - Problem.id starting with 'TEST_'
+        # - Paper.doi starting with '10.TEST_'
+        # - Author.name starting with 'TEST_'
+        # - Any node with domain starting with 'TEST_'
+        with repo.session() as session:
+            session.run("""
+                MATCH (n)
+                WHERE n.id STARTS WITH 'TEST_'
+                   OR n.doi STARTS WITH '10.TEST_'
+                   OR n.name STARTS WITH 'TEST_'
+                   OR n.domain STARTS WITH 'TEST_'
+                DETACH DELETE n
+            """)
+
     finally:
         repo.close()
 
@@ -150,14 +209,20 @@ def development_env(monkeypatch) -> None:
 
 @pytest.fixture
 def sample_doi() -> str:
-    """Return a valid DOI string."""
-    return "10.1234/example.2024.001"
+    """Return a unique DOI string with TEST_ suffix for test isolation.
+    DOI must start with '10.' per Pydantic validation.
+    """
+    return f"10.TEST_{uuid.uuid4().hex[:8]}/example.2024.001"
 
 
 @pytest.fixture
 def sample_orcid() -> str:
-    """Return a valid ORCID string."""
-    return "0000-0001-2345-6789"
+    """Return a unique ORCID string for test isolation.
+    ORCID must start with '0000-' per validation.
+    Uses a random hex segment to make each test run unique.
+    """
+    hex_segment = uuid.uuid4().hex[:4].upper()
+    return f"0000-{hex_segment}-2345-6789"
 
 
 @pytest.fixture

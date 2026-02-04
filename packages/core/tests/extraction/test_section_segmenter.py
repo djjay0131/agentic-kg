@@ -319,6 +319,8 @@ Future work will address these limitations and extend applicability.
 
     def test_segment_numbered_headings(self, segmenter):
         """Test handling of numbered section headings."""
+        # Use lower min_section_words for this test since sections have limited content
+        segmenter_small = SectionSegmenter(min_section_words=10)
         text = """
 1. Introduction
 
@@ -346,7 +348,7 @@ The experimental results demonstrate the effectiveness of our approach.
 We conclude with a summary of contributions and future directions.
 """
 
-        result = segmenter.segment(text)
+        result = segmenter_small.segment(text)
 
         types = [s.section_type for s in result.sections]
         assert SectionType.INTRODUCTION in types
@@ -357,6 +359,8 @@ We conclude with a summary of contributions and future directions.
 
     def test_segment_preserves_content(self, segmenter):
         """Test that section content is preserved correctly."""
+        # Use lower min_section_words for this test since sections have limited content
+        segmenter_small = SectionSegmenter(min_section_words=10)
         text = """
 Introduction
 
@@ -369,7 +373,7 @@ This conclusion sentence should be in the conclusion section only.
 Final remarks are added here for completeness of the document.
 """
 
-        result = segmenter.segment(text)
+        result = segmenter_small.segment(text)
 
         intro = result.get_sections_by_type(SectionType.INTRODUCTION)
         assert len(intro) == 1

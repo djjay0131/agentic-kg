@@ -330,7 +330,7 @@ class ArxivClient:
 
             return {
                 "id": arxiv_id,
-                "title": entry.get("title", "").replace("\n", " ").strip(),
+                "title": " ".join(entry.get("title", "").split()),
                 "summary": entry.get("summary", "").strip(),
                 "authors": authors,
                 "published": entry.get("published", ""),

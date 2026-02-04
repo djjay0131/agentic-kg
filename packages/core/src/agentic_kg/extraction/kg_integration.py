@@ -168,11 +168,14 @@ class KnowledgeGraphIntegrator:
                 integration.problems_skipped += 1
                 continue
 
+            # Get section from problem metadata if available
+            section = getattr(extracted_problem, 'section', 'unknown')
+
             stored = self._store_problem(
                 problem=extracted_problem,
                 paper_doi=result.paper_doi if paper_exists else None,
                 paper_title=result.paper_title,
-                authors=result.paper_authors,
+                section=section,
             )
 
             integration.problems_stored.append(stored)
@@ -197,7 +200,7 @@ class KnowledgeGraphIntegrator:
         problem: ExtractedProblem,
         paper_doi: Optional[str] = None,
         paper_title: Optional[str] = None,
-        authors: Optional[list[str]] = None,
+        section: str = "unknown",
     ) -> StoredProblem:
         """
         Store a single extracted problem.
@@ -206,7 +209,7 @@ class KnowledgeGraphIntegrator:
             problem: Extracted problem to store
             paper_doi: Optional paper DOI for linking
             paper_title: Optional paper title
-            authors: Optional author list
+            section: Section where problem was extracted
 
         Returns:
             StoredProblem with storage result
@@ -215,7 +218,7 @@ class KnowledgeGraphIntegrator:
             problem=problem,
             paper_doi=paper_doi,
             paper_title=paper_title,
-            authors=authors,
+            section=section,
         )
 
     def _store_problem(
@@ -223,7 +226,7 @@ class KnowledgeGraphIntegrator:
         problem: ExtractedProblem,
         paper_doi: Optional[str],
         paper_title: Optional[str],
-        authors: Optional[list[str]],
+        section: str = "unknown",
     ) -> StoredProblem:
         """Internal method to store a problem."""
         # Check for duplicates
@@ -245,7 +248,7 @@ class KnowledgeGraphIntegrator:
             extracted=problem,
             paper_doi=paper_doi,
             paper_title=paper_title,
-            authors=authors or [],
+            section=section,
         )
 
         # Store in repository
@@ -260,13 +263,7 @@ class KnowledgeGraphIntegrator:
             extraction_linked = False
             if paper_doi:
                 try:
-                    # Get section from extraction metadata
-                    section = "unknown"
-                    if kg_problem.extraction_metadata:
-                        section = kg_problem.extraction_metadata.get(
-                            "section_type", "unknown"
-                        )
-
+                    # Use the section we were given
                     self.relation_service.link_problem_to_paper(
                         problem_id=kg_problem.id,
                         paper_doi=paper_doi,

@@ -109,7 +109,8 @@ class TestArxivE2E:
         paper = await client.get_paper(TRANSFORMER_ARXIV_ID)
 
         assert paper is not None
-        assert paper["id"] == TRANSFORMER_ARXIV_ID
+        # arXiv returns versioned IDs (e.g., 1706.03762v7)
+        assert paper["id"].startswith(TRANSFORMER_ARXIV_ID)
         assert "Attention" in paper["title"]
         assert len(paper["authors"]) > 0
         assert paper["pdf_url"] is not None
@@ -139,7 +140,11 @@ class TestArxivE2E:
         papers = await client.get_papers_by_ids(arxiv_ids)
 
         assert len(papers) == 2
-        assert all(p["id"] in arxiv_ids for p in papers)
+        # arXiv returns versioned IDs (e.g., 1706.03762v7), so check startswith
+        assert all(
+            any(p["id"].startswith(base_id) for base_id in arxiv_ids)
+            for p in papers
+        )
 
     @pytest.mark.asyncio
     async def test_pdf_url_construction(self, client: ArxivClient):

@@ -169,8 +169,8 @@ class Problem(BaseModel):
     baselines: list[Baseline] = Field(default_factory=list)
 
     # Provenance
-    evidence: Evidence = Field(..., description="Source evidence from paper")
-    extraction_metadata: ExtractionMetadata = Field(..., description="Extraction details")
+    evidence: Optional[Evidence] = Field(default=None, description="Source evidence from paper")
+    extraction_metadata: Optional[ExtractionMetadata] = Field(default=None, description="Extraction details")
 
     # Semantic search
     embedding: Optional[list[float]] = Field(

@@ -190,8 +190,8 @@ class ExtractionResult(BaseModel):
 
 def extracted_to_kg_problem(
     extracted: ExtractedProblem,
-    paper_doi: str,
-    paper_title: str,
+    paper_doi: Optional[str],
+    paper_title: Optional[str],
     section: str,
     extraction_model: str = "gpt-4-turbo",
     extractor_version: str = "1.0.0",
@@ -201,8 +201,8 @@ def extracted_to_kg_problem(
 
     Args:
         extracted: The extracted problem from LLM.
-        paper_doi: DOI of the source paper.
-        paper_title: Title of the source paper.
+        paper_doi: DOI of the source paper (optional).
+        paper_title: Title of the source paper (optional).
         section: Section where the problem was extracted from.
         extraction_model: LLM model used for extraction.
         extractor_version: Version of the extraction pipeline.
@@ -266,13 +266,15 @@ def extracted_to_kg_problem(
         for b in extracted.baselines
     ]
 
-    # Create evidence
-    evidence = Evidence(
-        source_doi=paper_doi,
-        source_title=paper_title,
-        section=section,
-        quoted_text=extracted.quoted_text,
-    )
+    # Create evidence only if we have valid paper info
+    evidence = None
+    if paper_doi and paper_title:
+        evidence = Evidence(
+            source_doi=paper_doi,
+            source_title=paper_title,
+            section=section,
+            quoted_text=extracted.quoted_text,
+        )
 
     # Create extraction metadata
     extraction_metadata = ExtractionMetadata(
@@ -306,14 +308,18 @@ class BatchExtractionResult(BaseModel):
     paper_doi: Optional[str] = None
     total_problems: int = 0
     total_high_confidence: int = 0
+    total_tokens: int = 0
 
-    def __post_init__(self):
+    def model_post_init(self, __context) -> None:
         """Calculate totals if not provided."""
         if self.total_problems == 0:
-            self.total_problems = sum(r.problem_count for r in self.results)
+            object.__setattr__(
+                self, 'total_problems', sum(r.problem_count for r in self.results)
+            )
         if self.total_high_confidence == 0:
-            self.total_high_confidence = sum(
-                len(r.high_confidence_problems) for r in self.results
+            object.__setattr__(
+                self, 'total_high_confidence',
+                sum(len(r.high_confidence_problems) for r in self.results)
             )
 
     def get_all_problems(self) -> list[ExtractedProblem]:

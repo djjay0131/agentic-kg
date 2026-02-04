@@ -158,7 +158,7 @@ class TestNormalizedToKgPaper:
     def test_convert_defaults_year_to_current(self):
         """Test that year defaults to current year when not specified."""
         normalized = NormalizedPaper(
-            title="Test",
+            title="Test Paper Title for Testing",
             source="test",
             doi="10.1234/test",
             year=None,
@@ -425,7 +425,7 @@ class TestPaperImporter:
         papers = []
         for i in range(3):
             paper = NormalizedPaper(
-                title=f"Paper {i}",
+                title=f"Test Paper Number {i}",
                 source="test",
                 doi=f"10.1234/test{i}",
             )
@@ -457,7 +457,7 @@ class TestPaperImporter:
     ):
         """Test batch import handles partial failures."""
         # First paper succeeds, second fails
-        paper1 = NormalizedPaper(title="Paper 1", source="test", doi="10.1234/test1")
+        paper1 = NormalizedPaper(title="Test Paper Number 1", source="test", doi="10.1234/test1")
 
         mock_aggregator.get_paper.side_effect = [
             AggregatedResult(paper=paper1, sources=["test"]),
@@ -484,7 +484,7 @@ class TestPaperImporter:
         mock_repository,
     ):
         """Test that progress callback is called."""
-        paper = NormalizedPaper(title="Paper", source="test", doi="10.1234/test")
+        paper = NormalizedPaper(title="Test Paper Title", source="test", doi="10.1234/test")
         mock_aggregator.get_paper.return_value = AggregatedResult(
             paper=paper, sources=["test"]
         )
@@ -522,7 +522,7 @@ class TestPaperImporter:
         }
 
         # Mock paper fetching
-        paper = NormalizedPaper(title="Paper", source="test", doi="10.1234/test1")
+        paper = NormalizedPaper(title="Test Paper Title", source="test", doi="10.1234/test1")
         mock_aggregator.get_paper.return_value = AggregatedResult(
             paper=paper, sources=["semantic_scholar"]
         )
@@ -554,7 +554,7 @@ class TestPaperImporter:
             ]
         }
 
-        paper = NormalizedPaper(title="Paper", source="test", doi="10.1234/test1")
+        paper = NormalizedPaper(title="Test Paper Title", source="test", doi="10.1234/test1")
         mock_aggregator.get_paper.return_value = AggregatedResult(
             paper=paper, sources=["openalex"]
         )

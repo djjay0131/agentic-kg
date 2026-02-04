@@ -318,6 +318,8 @@ class TestArxivClient:
         author1.get.return_value = "John Doe"
         author1.arxiv_affiliation = "MIT"
 
+        authors_list = [author1]
+
         entry = MagicMock()
         entry.get.side_effect = lambda k, d=None: {
             "id": "2106.01345",
@@ -325,9 +327,9 @@ class TestArxivClient:
             "summary": "Abstract",
             "published": "",
             "updated": "",
+            "authors": authors_list,
+            "tags": [],
         }.get(k, d)
-        entry.authors = [author1]
-        entry.tags = []
 
         # Mock hasattr for affiliation check
         with patch("builtins.hasattr", return_value=True):

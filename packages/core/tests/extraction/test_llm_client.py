@@ -3,6 +3,7 @@ Unit tests for LLM client wrapper.
 """
 
 import pytest
+from tenacity import RetryError
 from unittest.mock import AsyncMock, MagicMock, patch
 from pydantic import BaseModel
 
@@ -233,7 +234,8 @@ class TestOpenAIClient:
         )
 
         with patch.object(client, "_get_instructor_client", return_value=mock_instructor):
-            with pytest.raises(LLMRateLimitError):
+            # Rate limit errors are retried by tenacity, so we get RetryError after 3 attempts
+            with pytest.raises(RetryError):
                 await client.extract(
                     prompt="Extract this",
                     response_model=SampleExtraction,

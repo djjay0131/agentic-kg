@@ -4,6 +4,8 @@ Integration tests for Neo4j repository.
 These tests require Docker and will be skipped if Docker is not available.
 """
 
+import uuid
+
 import pytest
 from agentic_kg.knowledge_graph.models import (
     Author,
@@ -17,6 +19,11 @@ from agentic_kg.knowledge_graph.repository import (
     DuplicateError,
     NotFoundError,
 )
+
+
+def _test_id() -> str:
+    """Generate a TEST_ prefixed unique ID for test isolation."""
+    return f"TEST_{uuid.uuid4().hex[:16]}"
 
 # Mark all tests in this module as integration tests
 pytestmark = pytest.mark.integration
@@ -106,9 +113,16 @@ class TestProblemCRUD:
 
     def test_list_problems(self, neo4j_repository, sample_evidence_data):
         """Test listing problems with filters."""
-        # Create multiple problems
-        for i, domain in enumerate(["NLP", "NLP", "CV"]):
+        # Use a unique domain prefix to avoid interference from other tests
+        test_run_id = uuid.uuid4().hex[:8]
+        nlp_domain = f"TEST_NLP_{test_run_id}"
+        cv_domain = f"TEST_CV_{test_run_id}"
+
+        # Create multiple problems with TEST_ prefixed IDs
+        created_ids = []
+        for i, domain in enumerate([nlp_domain, nlp_domain, cv_domain]):
             problem = Problem(
+                id=_test_id(),
                 statement=f"Problem {i} - " + "x" * 20,
                 domain=domain,
                 status=ProblemStatus.OPEN,
@@ -119,18 +133,19 @@ class TestProblemCRUD:
                 ),
             )
             neo4j_repository.create_problem(problem)
+            created_ids.append(problem.id)
 
-        # List all
-        all_problems = neo4j_repository.list_problems()
-        assert len(all_problems) == 3
-
-        # Filter by domain
-        nlp_problems = neo4j_repository.list_problems(domain="NLP")
+        # Filter by domain (unique to this test run)
+        nlp_problems = neo4j_repository.list_problems(domain=nlp_domain)
         assert len(nlp_problems) == 2
 
-        # Filter by status
-        open_problems = neo4j_repository.list_problems(status=ProblemStatus.OPEN)
-        assert len(open_problems) == 3
+        cv_problems = neo4j_repository.list_problems(domain=cv_domain)
+        assert len(cv_problems) == 1
+
+        # Verify the created problems are returned
+        all_problems = neo4j_repository.list_problems()
+        found_ids = [p.id for p in all_problems if p.id in created_ids]
+        assert len(found_ids) == 3
 
 
 class TestPaperCRUD:

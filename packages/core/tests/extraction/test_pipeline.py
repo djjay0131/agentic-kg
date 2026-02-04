@@ -211,7 +211,7 @@ class TestPaperProcessingPipeline:
         """Create sample extracted text."""
         return ExtractedText(
             pages=[
-                ExtractedPage(page_num=1, text="Abstract: This paper studies..."),
+                ExtractedPage(page_number=1, text="Abstract: This paper studies..."),
                 ExtractedPage(
                     page_num=2,
                     text="""
@@ -235,7 +235,7 @@ class TestPaperProcessingPipeline:
                     """,
                 ),
             ],
-            source="test.pdf",
+            source_path="test.pdf",
             metadata={},
         )
 
@@ -278,7 +278,7 @@ class TestPaperProcessingPipeline:
                     content="Our approach has limitations with computational resources and training time." * 10,
                 ),
             ],
-            raw_text="Full paper text here",
+            full_text="Full paper text here",
         )
 
         with patch.object(
@@ -324,7 +324,7 @@ class TestPaperProcessingPipeline:
                     content="Limitations content here..." * 20,
                 ),
             ],
-            raw_text="Full text",
+            full_text="Full text",
         )
 
         mock_extraction = BatchExtractionResult(
@@ -387,7 +387,7 @@ class TestPaperProcessingPipeline:
                     content="This is a longer conclusion section with more content." * 5,
                 ),
             ],
-            raw_text="Full text",
+            full_text="Full text",
         )
 
         mock_extraction = BatchExtractionResult(
@@ -428,7 +428,7 @@ class TestPaperProcessingPipeline:
                     content="[1] Paper reference here..." * 10,
                 ),
             ],
-            raw_text="Full text",
+            full_text="Full text",
         )
 
         mock_extraction = BatchExtractionResult(
@@ -454,8 +454,8 @@ class TestPaperProcessingPipeline:
     async def test_process_pdf_file_success(self, pipeline, mock_client):
         """Test processing local PDF file."""
         mock_extracted = ExtractedText(
-            pages=[ExtractedPage(page_num=1, text="Paper content here")],
-            source="test.pdf",
+            pages=[ExtractedPage(page_number=1, text="Paper content here")],
+            source_path="test.pdf",
             metadata={},
         )
 
@@ -467,7 +467,7 @@ class TestPaperProcessingPipeline:
                     content="Abstract content here with sufficient length." * 5,
                 ),
             ],
-            raw_text="Paper content",
+            full_text="Paper content",
         )
 
         mock_extraction = BatchExtractionResult(
@@ -501,8 +501,8 @@ class TestPaperProcessingPipeline:
     async def test_process_pdf_url_success(self, pipeline, mock_client):
         """Test processing PDF from URL."""
         mock_extracted = ExtractedText(
-            pages=[ExtractedPage(page_num=1, text="Paper content here")],
-            source="https://example.com/paper.pdf",
+            pages=[ExtractedPage(page_number=1, text="Paper content here")],
+            source_path="https://example.com/paper.pdf",
             metadata={},
         )
 
@@ -514,7 +514,7 @@ class TestPaperProcessingPipeline:
                     content="Abstract content here with sufficient length." * 5,
                 ),
             ],
-            raw_text="Paper content",
+            full_text="Paper content",
         )
 
         mock_extraction = BatchExtractionResult(
@@ -590,7 +590,7 @@ class TestPaperProcessingPipeline:
                     content="Abstract content here..." * 50,
                 ),
             ],
-            raw_text="Full text",
+            full_text="Full text",
         )
 
         priority = pipeline.get_priority_sections(segmented, top_n=2)

@@ -243,17 +243,18 @@ class TestPDFExtractor:
     @pytest.mark.asyncio
     async def test_extract_from_url_http_error(self, extractor):
         """Test handling of HTTP errors."""
-        with patch("httpx.AsyncClient") as mock_client:
+        # Patch where httpx is used, not where it's defined
+        with patch("agentic_kg.extraction.pdf_extractor.httpx.AsyncClient") as mock_client:
             mock_response = MagicMock()
             mock_response.status_code = 404
             mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
                 "Not Found", request=MagicMock(), response=mock_response
             )
 
-            mock_instance = AsyncMock()
-            mock_instance.get = AsyncMock(return_value=mock_response)
-            mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
-            mock_client.return_value.__aexit__ = AsyncMock()
+            mock_client_instance = AsyncMock()
+            mock_client_instance.get.return_value = mock_response
+            mock_client.return_value.__aenter__.return_value = mock_client_instance
+            mock_client.return_value.__aexit__.return_value = None
 
             with pytest.raises(PDFExtractionError) as exc_info:
                 await extractor.extract_from_url("https://example.com/paper.pdf")
@@ -271,9 +272,9 @@ class TestPDFExtractorWithMockedPyMuPDF:
 
     def test_extract_from_bytes_success(self, extractor):
         """Test successful extraction from bytes."""
-        # Create mock document
+        # Create mock document with enough text to not be considered scanned (>100 chars)
         mock_page = MagicMock()
-        mock_page.get_text.return_value = "This is page content.\nWith multiple lines."
+        mock_page.get_text.return_value = "This is page content with a lot of text to ensure it is not marked as a scanned PDF. We need more than 100 characters total."
 
         mock_doc = MagicMock()
         mock_doc.__iter__ = lambda self: iter([mock_page, mock_page])

@@ -181,8 +181,8 @@ class TestKnowledgeGraphIntegrator:
         result = integrator.store_single_problem(
             problem=sample_problem,
             paper_doi="10.1234/test",
-            paper_title="Test Paper",
-            authors=["Author One"],
+            paper_title="Test Paper Title",
+            section="introduction",
         )
 
         assert result.is_new is True
@@ -239,7 +239,7 @@ class TestKnowledgeGraphIntegrator:
         """Test integrating a full processing result."""
         mock_repository.get_paper.return_value = Paper(
             doi="10.1234/test",
-            title="Test Paper",
+            title="Test Paper Title for Testing",
             authors=["Author One"],
             year=2026,
         )
@@ -295,7 +295,7 @@ class TestKnowledgeGraphIntegrator:
         )
 
         mock_repository.get_paper.return_value = Paper(
-            doi="10.1234/test", title="Test", authors=[], year=2026
+            doi="10.1234/test", title="Test Paper Title for Testing", authors=[], year=2026
         )
 
         result = integrator.integrate_extraction_result(low_conf_result)
@@ -362,7 +362,7 @@ class TestKnowledgeGraphIntegrator:
         )
 
         mock_repository.get_paper.return_value = Paper(
-            doi="10.1234/test", title="Test", authors=[], year=2026
+            doi="10.1234/test", title="Test Paper Title for Testing", authors=[], year=2026
         )
         mock_repository.create_problem.return_value = MagicMock()
         mock_relation_service.link_problem_to_paper.return_value = MagicMock()
@@ -386,7 +386,7 @@ class TestKnowledgeGraphIntegrator:
                 target_problem_id="Problem B",
                 relation_type=RelationType.EXTENDS,
                 confidence=0.8,
-                evidence="Evidence",
+                evidence="Evidence text that is long enough for validation.",
             ),
         ]
 
@@ -408,7 +408,7 @@ class TestKnowledgeGraphIntegrator:
         integration = IntegrationResult()
         result = integrator._ensure_paper_exists(
             doi="10.1234/new",
-            title="New Paper",
+            title="New Paper Title for Testing",
             authors=["Author"],
             integration=integration,
         )
