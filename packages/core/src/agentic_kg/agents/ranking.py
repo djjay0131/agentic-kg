@@ -84,12 +84,12 @@ class RankingAgent(BaseAgent):
                 results = self.search.structured_search(
                     domain=domain,
                     status=status_filter,
-                    limit=max_problems,
+                    top_k=max_problems,
                 )
             else:
                 results = self.search.structured_search(
                     status=status_filter,
-                    limit=max_problems,
+                    top_k=max_problems,
                 )
             return [
                 {
