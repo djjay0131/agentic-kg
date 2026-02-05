@@ -125,6 +125,12 @@ steps:
 
         # Set env vars based on service
         case "${_SERVICE}" in
+          api)
+            # Get UI URLs for CORS
+            UI_URL_NEW=$(gcloud run services describe agentic-kg-ui-staging --region=${_REGION} --format='value(status.url)' 2>/dev/null || echo "")
+            UI_URL_LEGACY=$(gcloud run services describe agentic-kg-ui-staging --region=${_REGION} --format='value(status.traffic[0].url)' 2>/dev/null || echo "")
+            ENV_VARS="CORS_ORIGINS=http://localhost:3000;http://localhost:8501;$${UI_URL_NEW};$${UI_URL_LEGACY}"
+            ;;
           ui)
             API_URL=$(gcloud run services describe agentic-kg-api-staging --region=${_REGION} --format='value(status.url)' 2>/dev/null || echo "")
             ENV_VARS="API_URL=$${API_URL},NODE_ENV=production"
