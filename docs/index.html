@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic KG Services - Documentation Hub</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .service-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }
+
+        .service-card {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            transition: all 0.3s ease;
+            background: white;
+        }
+
+        .service-card:hover {
+            box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+            transform: translateY(-4px);
+        }
+
+        .service-card h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: 600;
+        }
+
+        .status.healthy {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status.warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .service-card p {
+            color: #666;
+            margin: 10px 0;
+        }
+
+        .service-card .links {
+            margin-top: 15px;
+        }
+
+        .service-card a {
+            display: inline-block;
+            padding: 8px 16px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            margin-right: 10px;
+            margin-top: 5px;
+            font-size: 0.9em;
+            transition: background 0.3s;
+        }
+
+        .service-card a:hover {
+            background: #5568d3;
+        }
+
+        .section {
+            margin: 40px 0;
+        }
+
+        .section h2 {
+            color: #333;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+        }
+
+        .info-box {
+            background: #f8f9fa;
+            padding: 20px;
+            border-left: 4px solid #667eea;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+
+        .info-box h4 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        footer {
+            background: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .quick-links {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin: 20px 0;
+        }
+
+        .quick-links a {
+            padding: 10px 20px;
+            background: white;
+            border: 2px solid #667eea;
+            color: #667eea;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .quick-links a:hover {
+            background: #667eea;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔬 Agentic KG Services</h1>
+            <p>Research Knowledge Graph & AI Paper Generation Platform</p>
+        </header>
+
+        <div class="content">
+            <div class="quick-links">
+                <a href="SERVICE_INVENTORY.html">📋 Service Inventory</a>
+                <a href="https://github.com/djjay0131/agentic-kg">💻 GitHub Repository</a>
+                <a href="https://github.com/djjay0131/agentic-kg/blob/master/construction/sprints/sprint-08-documentation-and-cleanup.md">📝 Sprint 08 Docs</a>
+            </div>
+
+            <div class="section">
+                <h2>🌐 Live Services</h2>
+
+                <div class="service-grid">
+                    <div class="service-card">
+                        <h3>
+                            <span>Agentic KG API</span>
+                            <span class="status healthy">✓ Healthy</span>
+                        </h3>
+                        <p><strong>Type:</strong> FastAPI Backend</p>
+                        <p>REST API for research problem knowledge graph operations, LLM extraction, and agent workflows.</p>
+                        <div class="links">
+                            <a href="https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app/health" target="_blank">Health Check</a>
+                            <a href="https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app/docs" target="_blank">API Docs</a>
+                        </div>
+                    </div>
+
+                    <div class="service-card">
+                        <h3>
+                            <span>Agentic KG UI</span>
+                            <span class="status warning">⚠ Fixing</span>
+                        </h3>
+                        <p><strong>Type:</strong> Next.js Dashboard</p>
+                        <p>Web interface for exploring the knowledge graph, visualizing relationships, and managing workflows.</p>
+                        <div class="links">
+                            <a href="https://agentic-kg-ui-staging-tqpsba7pza-uc.a.run.app" target="_blank">Open UI</a>
+                        </div>
+                    </div>
+
+                    <div class="service-card">
+                        <h3>
+                            <span>Denario App</span>
+                            <span class="status healthy">✓ Active</span>
+                        </h3>
+                        <p><strong>Type:</strong> Streamlit Interface</p>
+                        <p>Enhanced AI-powered research paper generation interface with Vertex AI integration and file handling improvements.</p>
+                        <div class="links">
+                            <a href="https://denario-app-tqpsba7pza-uc.a.run.app" target="_blank">Launch App</a>
+                            <a href="https://github.com/djjay0131/DenarioApp" target="_blank">Repository</a>
+                        </div>
+                    </div>
+
+                    <div class="service-card">
+                        <h3>
+                            <span>Denario (Legacy)</span>
+                            <span class="status warning">⚠ Legacy</span>
+                        </h3>
+                        <p><strong>Type:</strong> Streamlit Interface</p>
+                        <p>Original Denario interface. Consider using Denario App instead for latest features and bug fixes.</p>
+                        <div class="links">
+                            <a href="https://denario-tqpsba7pza-uc.a.run.app" target="_blank">Launch</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>🏗️ Architecture</h2>
+
+                <div class="info-box">
+                    <h4>Agentic-KG Stack</h4>
+                    <p><strong>Frontend:</strong> Next.js 14 with React Query, TailwindCSS, react-force-graph</p>
+                    <p><strong>Backend:</strong> FastAPI with Pydantic, LangChain, instructor</p>
+                    <p><strong>Database:</strong> Neo4j (bolt://34.173.74.125:7687)</p>
+                    <p><strong>LLM Providers:</strong> OpenAI (GPT-4, text-embedding-3-small), Anthropic (Claude)</p>
+                    <p><strong>Infrastructure:</strong> GCP Cloud Run, Secret Manager, Terraform IaC</p>
+                </div>
+
+                <div class="info-box">
+                    <h4>Denario Stack</h4>
+                    <p><strong>Framework:</strong> Streamlit with AG2 (AutoGen), LangGraph</p>
+                    <p><strong>Agents:</strong> Multi-agent research assistance system</p>
+                    <p><strong>LLM Support:</strong> OpenAI, Anthropic, Google Gemini (via Vertex AI), Perplexity</p>
+                    <p><strong>Capabilities:</strong> Idea generation, methodology development, paper writing with LaTeX</p>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>📚 Documentation</h2>
+
+                <div class="service-grid">
+                    <div class="service-card">
+                        <h3>Service Inventory</h3>
+                        <p>Complete catalog of all deployed services with URLs, environment variables, and deployment commands.</p>
+                        <div class="links">
+                            <a href="SERVICE_INVENTORY.html">View Inventory</a>
+                        </div>
+                    </div>
+
+                    <div class="service-card">
+                        <h3>Sprint Documentation</h3>
+                        <p>Detailed sprint plans, requirements, and implementation tracking for all development phases.</p>
+                        <div class="links">
+                            <a href="https://github.com/djjay0131/agentic-kg/tree/master/construction/sprints" target="_blank">View Sprints</a>
+                        </div>
+                    </div>
+
+                    <div class="service-card">
+                        <h3>Memory Bank</h3>
+                        <p>Active context, technical details, and progress tracking for the project.</p>
+                        <div class="links">
+                            <a href="https://github.com/djjay0131/agentic-kg/tree/master/memory-bank" target="_blank">View Memory Bank</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>🔗 Related Repositories</h2>
+                <ul style="list-style-type: none; padding-left: 0;">
+                    <li style="margin: 10px 0;">📦 <strong><a href="https://github.com/djjay0131/agentic-kg">agentic-kg</a></strong> - Main research KG project</li>
+                    <li style="margin: 10px 0;">🚀 <strong><a href="https://github.com/djjay0131/DenarioApp">DenarioApp</a></strong> - Enhanced Streamlit UI (fork)</li>
+                    <li style="margin: 10px 0;">🔬 <strong><a href="https://github.com/djjay0131/Denario">Denario</a></strong> - Core agent library (fork)</li>
+                    <li style="margin: 10px 0;">⬆️ <strong><a href="https://github.com/AstroPilot-AI/Denario">Upstream Denario</a></strong> - Original Denario project</li>
+                </ul>
+            </div>
+
+            <div class="info-box">
+                <h4>ℹ️ URL Note</h4>
+                <p>Each Cloud Run service has two URL formats:</p>
+                <ul style="margin-left: 20px; margin-top: 10px;">
+                    <li><strong>Legacy:</strong> <code>https://service-542888988741.us-central1.run.app</code></li>
+                    <li><strong>New:</strong> <code>https://service-tqpsba7pza-uc.a.run.app</code></li>
+                </ul>
+                <p style="margin-top: 10px;">Both URLs point to the same service and are fully functional.</p>
+            </div>
+        </div>
+
+        <footer>
+            <p>Built with ❤️ using Claude Code | Last Updated: 2026-02-04</p>
+            <p><a href="https://github.com/djjay0131/agentic-kg" style="color: #667eea;">GitHub Repository</a></p>
+        </footer>
+    </div>
+</body>
+</html>

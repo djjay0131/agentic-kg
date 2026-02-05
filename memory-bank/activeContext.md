@@ -1,12 +1,12 @@
 # Active Context
 
-**Last Updated:** 2026-02-03
+**Last Updated:** 2026-02-04
 
 ## Current Work Phase
 
 **Phase 8: Test Fixes & Production Readiness**
 
-All 7 sprints complete and merged. Focus now on fixing failing tests, addressing backlog items, and preparing for production deployment.
+All 7 sprints complete and merged. Currently troubleshooting UI deployment issue where client-side code can't connect to API.
 
 ## Current State
 
@@ -24,6 +24,15 @@ All 7 sprints complete and merged. Focus now on fixing failing tests, addressing
 - **Terraform IaC**: `infra/` directory
 
 ## Priority Tasks
+
+### 0. Fix UI Deployment (URGENT - In Progress)
+
+**Issue:** UI shows "Offline" status - can't connect to API
+
+- **Root Cause:** `NEXT_PUBLIC_API_URL` not embedded at build time
+- **Fix:** Rebuild UI with proper build args (in progress)
+- **Status:** Build running - commit 38aaa5c has the fix
+- **Files:** packages/ui/src/lib/api.ts:5, docker/Dockerfile.ui, cloudbuild.yaml
 
 ### 1. Fix Failing Tests (High Priority)
 
