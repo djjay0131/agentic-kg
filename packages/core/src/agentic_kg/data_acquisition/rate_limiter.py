@@ -64,8 +64,15 @@ class TokenBucketRateLimiter:
             last_update=time.monotonic(),
         )
 
-        # Lock for thread safety
-        self._lock = asyncio.Lock()
+        # Lock for thread safety (created lazily to avoid event loop issues)
+        self._lock: asyncio.Lock | None = None
+
+    @property
+    def lock(self) -> asyncio.Lock:
+        """Get or create the async lock."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     def _refill(self) -> None:
         """Refill tokens based on elapsed time."""
@@ -87,7 +94,7 @@ class TokenBucketRateLimiter:
         Returns:
             Wait time in seconds (0 if no wait was needed)
         """
-        async with self._lock:
+        async with self.lock:
             self._refill()
 
             if self._state.tokens >= tokens:
@@ -113,7 +120,7 @@ class TokenBucketRateLimiter:
         await asyncio.sleep(wait_time)
 
         # Acquire after waiting
-        async with self._lock:
+        async with self.lock:
             self._refill()
             self._state.tokens -= tokens
             self._state.requests_made += 1
@@ -129,7 +136,7 @@ class TokenBucketRateLimiter:
         Returns:
             True if tokens were acquired, False otherwise
         """
-        async with self._lock:
+        async with self.lock:
             self._refill()
 
             if self._state.tokens >= tokens:

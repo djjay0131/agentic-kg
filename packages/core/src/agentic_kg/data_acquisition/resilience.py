@@ -71,7 +71,15 @@ class CircuitBreaker:
         self.config = config or CircuitBreakerConfig()
         self.source = source
         self._state = CircuitBreakerState()
-        self._lock = asyncio.Lock()
+        # Lock for thread safety (created lazily to avoid event loop issues)
+        self._lock: asyncio.Lock | None = None
+
+    @property
+    def lock(self) -> asyncio.Lock:
+        """Get or create the async lock."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     @property
     def state(self) -> CircuitState:
@@ -112,7 +120,7 @@ class CircuitBreaker:
         Raises:
             CircuitOpenError: If circuit is open
         """
-        async with self._lock:
+        async with self.lock:
             if self._state.state == CircuitState.OPEN:
                 if self._should_attempt_reset():
                     # Transition to half-open
@@ -131,7 +139,7 @@ class CircuitBreaker:
 
     async def record_success(self) -> None:
         """Record a successful request."""
-        async with self._lock:
+        async with self.lock:
             if self._state.state == CircuitState.HALF_OPEN:
                 self._state.success_count += 1
                 if self._state.success_count >= self.config.success_threshold:
@@ -150,7 +158,7 @@ class CircuitBreaker:
 
     async def record_failure(self) -> None:
         """Record a failed request."""
-        async with self._lock:
+        async with self.lock:
             self._state.failure_count += 1
             self._state.last_failure_time = time.monotonic()
 
