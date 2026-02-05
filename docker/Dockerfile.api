@@ -19,22 +19,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency files
+# Copy source code for installation
 COPY pyproject.toml ./
-COPY packages/core/pyproject.toml packages/core/
-COPY packages/api/pyproject.toml packages/api/
+COPY packages/core/ packages/core/
+COPY packages/api/ packages/api/
 
 # Create and use virtual environment
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install dependencies
+# Install packages from pyproject.toml (ensures dependency sync)
 RUN pip install --upgrade pip \
-    && pip install hatchling \
-    && pip install neo4j pydantic openai anthropic instructor tenacity \
-    && pip install fastapi uvicorn strawberry-graphql python-multipart \
-    && pip install langgraph langchain-core docker \
-    && pip install PyMuPDF httpx cachetools feedparser
+    && pip install ./packages/core \
+    && pip install ./packages/api
 
 # Runtime stage
 FROM python:3.12-slim AS runtime
