@@ -2,6 +2,16 @@
 
 A system for building and maintaining research knowledge graphs with AI agents that model scientific problems as first-class entities.
 
+[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://djjay0131.github.io/agentic-kg/)
+[![API Status](https://img.shields.io/badge/API-Healthy-success)](https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app/health)
+
+## 🌐 Live Services
+
+- **📚 Documentation:** [https://djjay0131.github.io/agentic-kg/](https://djjay0131.github.io/agentic-kg/)
+- **🔌 API:** [https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app](https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app)
+- **🎨 UI Dashboard:** [https://agentic-kg-ui-staging-tqpsba7pza-uc.a.run.app](https://agentic-kg-ui-staging-tqpsba7pza-uc.a.run.app)
+- **🔬 Denario App:** [https://denario-app-tqpsba7pza-uc.a.run.app](https://denario-app-tqpsba7pza-uc.a.run.app)
+
 ## Overview
 
 This project implements the concepts from ["Agentic Knowledge Graphs for Research Progression"](https://arxiv.org/abs/your-paper) using [Denario](https://github.com/AstroPilot-AI/Denario) as the core agent framework.
@@ -63,9 +73,48 @@ pip install -e ".[dev]"
 # streamlit run packages/ui/src/app.py
 ```
 
+## Documentation
+
+- **📖 Main Docs:** [GitHub Pages](https://djjay0131.github.io/agentic-kg/)
+- **📋 Service Inventory:** [docs/SERVICE_INVENTORY.md](docs/SERVICE_INVENTORY.md)
+- **🏗️ Architecture:** See [construction/sprints/](construction/sprints/) for detailed design docs
+- **💾 Project Context:** [memory-bank/](memory-bank/) for active development tracking
+
+## API Documentation
+
+- **OpenAPI Spec:** [/docs](https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app/docs)
+- **ReDoc:** [/redoc](https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app/redoc)
+- **Health Check:** [/health](https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app/health)
+
 ## Development
 
 See [memory-bank/](memory-bank/) for project context and documentation.
+
+### Local Development
+
+```bash
+# Start the API
+cd packages/api
+uvicorn agentic_kg.api.main:app --reload
+
+# Start the UI
+cd packages/ui
+npm run dev
+```
+
+### Running Tests
+
+```bash
+# Run unit tests
+pytest packages/core/tests/ --ignore=packages/core/tests/e2e
+
+# Run smoke test against staging
+make smoke-test
+```
+
+## Contributing
+
+We use a sprint-based development process. See [construction/sprints/](construction/sprints/) for active work.
 
 ## License
 
