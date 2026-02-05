@@ -17,8 +17,8 @@ class APIConfig:
         default_factory=lambda: [
             origin.strip()
             for origin in os.getenv(
-                "CORS_ORIGINS", "http://localhost:3000;http://localhost:8501"
-            ).split(";")
+                "CORS_ORIGINS", "http://localhost:3000 http://localhost:8501"
+            ).split()
             if origin.strip()
         ]
     )
