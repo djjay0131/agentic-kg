@@ -260,7 +260,7 @@ class PaperProcessingPipeline:
                         success=True,
                         duration_ms=(time.time() - stage_start) * 1000,
                         metadata={
-                            "pages": extracted_text.page_count,
+                            "pages": extracted_text.total_pages,
                             "chars": len(extracted_text.full_text),
                         },
                     )
@@ -337,7 +337,7 @@ class PaperProcessingPipeline:
                         success=True,
                         duration_ms=(time.time() - stage_start) * 1000,
                         metadata={
-                            "pages": extracted_text.page_count,
+                            "pages": extracted_text.total_pages,
                             "chars": len(extracted_text.full_text),
                         },
                     )
