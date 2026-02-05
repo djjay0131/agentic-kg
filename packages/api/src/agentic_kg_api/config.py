@@ -14,13 +14,15 @@ class APIConfig:
     port: int = field(default_factory=lambda: int(os.getenv("API_PORT", "8000")))
     debug: bool = field(default_factory=lambda: os.getenv("API_DEBUG", "false").lower() == "true")
     cors_origins: list[str] = field(
-        default_factory=lambda: [
-            origin.strip()
-            for origin in os.getenv(
-                "CORS_ORIGINS", "http://localhost:3000 http://localhost:8501"
-            ).split()
-            if origin.strip()
-        ]
+        default_factory=lambda: (
+            ["*"]
+            if os.getenv("CORS_ORIGINS", "").strip() == "*"
+            else [
+                origin.strip()
+                for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000 http://localhost:8501").split()
+                if origin.strip()
+            ]
+        )
     )
     api_key: str = field(default_factory=lambda: os.getenv("API_KEY", ""))
 

@@ -126,13 +126,8 @@ steps:
         # Set env vars based on service
         case "${_SERVICE}" in
           api)
-            # Get UI URLs for CORS - use space-separated list to avoid shell parsing issues
-            UI_URL=$(gcloud run services describe agentic-kg-ui-staging --region=${_REGION} --format='value(status.url)' 2>/dev/null || echo "")
-            CORS_URLS="http://localhost:3000 http://localhost:8501"
-            if [ -n "$${UI_URL}" ]; then
-              CORS_URLS="$${CORS_URLS} $${UI_URL}"
-            fi
-            ENV_VARS="CORS_ORIGINS=$${CORS_URLS}"
+            # Allow all origins for CORS (simplifies configuration)
+            ENV_VARS="CORS_ORIGINS=*"
             ;;
           ui)
             API_URL=$(gcloud run services describe agentic-kg-api-staging --region=${_REGION} --format='value(status.url)' 2>/dev/null || echo "")
