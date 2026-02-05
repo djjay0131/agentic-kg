@@ -3,6 +3,8 @@ Resilience infrastructure for Data Acquisition.
 
 Implements retry logic with exponential backoff and circuit breaker pattern.
 """
+from __future__ import annotations
+
 
 import asyncio
 import logging

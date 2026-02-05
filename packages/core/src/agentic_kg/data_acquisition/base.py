@@ -3,6 +3,8 @@ Base API client infrastructure for Data Acquisition.
 
 Provides abstract base class and common functionality for all API clients.
 """
+from __future__ import annotations
+
 
 import logging
 from abc import ABC, abstractmethod

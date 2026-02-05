@@ -4,6 +4,10 @@ Custom exceptions for the Data Acquisition module.
 Provides specific exception types for API errors, rate limiting,
 and data processing issues.
 """
+from __future__ import annotations
+
+
+from typing import Optional
 
 
 class DataAcquisitionError(Exception):
@@ -19,8 +23,8 @@ class APIError(DataAcquisitionError):
         self,
         message: str,
         source: str,
-        status_code: int | None = None,
-        response_body: str | None = None,
+        status_code: Optional[int] = None,
+        response_body: Optional[str] = None,
     ):
         self.source = source
         self.status_code = status_code
@@ -34,7 +38,7 @@ class RateLimitError(APIError):
     def __init__(
         self,
         source: str,
-        retry_after: float | None = None,
+        retry_after: Optional[float] = None,
     ):
         self.retry_after = retry_after
         message = "Rate limit exceeded"
@@ -56,7 +60,7 @@ class NotFoundError(DataAcquisitionError):
 class ValidationError(DataAcquisitionError):
     """Raised when data validation fails."""
 
-    def __init__(self, message: str, field: str | None = None):
+    def __init__(self, message: str, field: Optional[str] = None):
         self.field = field
         super().__init__(message)
 
@@ -75,7 +79,7 @@ class CircuitOpenError(DataAcquisitionError):
 class NormalizationError(DataAcquisitionError):
     """Raised when paper metadata normalization fails."""
 
-    def __init__(self, message: str, source: str, raw_data: dict | None = None):
+    def __init__(self, message: str, source: str, raw_data: Optional[dict] = None):
         self.source = source
         self.raw_data = raw_data
         super().__init__(f"[{source}] Normalization failed: {message}")

@@ -4,6 +4,8 @@ Multi-source paper aggregator for Data Acquisition.
 Aggregates paper data from multiple sources (Semantic Scholar, arXiv, OpenAlex)
 with deduplication and data merging.
 """
+from __future__ import annotations
+
 
 import asyncio
 import logging

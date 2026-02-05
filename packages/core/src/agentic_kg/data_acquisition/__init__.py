@@ -9,6 +9,8 @@ Provides:
 - Multi-source aggregation and deduplication
 - Knowledge Graph import
 """
+from __future__ import annotations
+
 
 # Config
 from agentic_kg.data_acquisition.config import (

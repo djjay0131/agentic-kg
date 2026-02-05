@@ -4,6 +4,8 @@ OpenAlex API client.
 Provides access to the OpenAlex API for scholarly metadata including
 works, authors, venues, and concepts.
 """
+from __future__ import annotations
+
 
 import logging
 import re

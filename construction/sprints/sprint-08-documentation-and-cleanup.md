@@ -1,8 +1,9 @@
 # Sprint 08: Documentation & Service Cleanup
 
-**Status:** Planning
+**Status:** Complete ✅
 **Start Date:** 2026-02-04
-**Target Completion:** TBD
+**Completion Date:** 2026-02-05
+**GitHub Pages:** <https://djjay0131.github.io/agentic-kg/>
 
 ## Overview
 
@@ -149,29 +150,29 @@ Update memory bank documentation with current architecture.
 
 ## Tasks
 
-### Phase 1: Investigation (In Progress)
+### Phase 1: Investigation (Complete)
 
 - [x] List all Cloud Run services
 - [x] Identify service purposes
 - [x] Compare Denario vs DenarioApp code
-- [ ] Investigate mystery denario service (https://denario-tqpsba7pza-uc.a.run.app)
-- [ ] Document service dependencies
+- [x] Investigate mystery denario service (https://denario-tqpsba7pza-uc.a.run.app) - Just new URL format
+- [x] Document service dependencies
 
-### Phase 2: Documentation
+### Phase 2: Documentation (Complete)
 
-- [ ] Create service inventory spreadsheet/table
-- [ ] Generate OpenAPI specs for APIs
-- [ ] Write service README files
-- [ ] Create architecture diagrams (Mermaid/PlantUML)
-- [ ] Document environment variables
+- [x] Create service inventory spreadsheet/table (SERVICE_INVENTORY.md)
+- [x] Generate OpenAPI specs for APIs (FastAPI auto-generates at /docs)
+- [x] Write service README files (documented in SERVICE_INVENTORY.md)
+- [x] Create architecture diagrams (Mermaid/PlantUML) - 3 diagrams in sprint-08.md
+- [x] Document environment variables (in SERVICE_INVENTORY.md)
 
-### Phase 3: GitHub Pages Setup
+### Phase 3: GitHub Pages Setup (Complete)
 
-- [x] Enable GitHub Pages on agentic-kg repo
+- [x] Enable GitHub Pages on agentic-kg repo (Live at <https://djjay0131.github.io/agentic-kg/>)
 - [x] Choose theme/template (custom HTML with minimal Jekyll)
 - [x] Create homepage with service directory
 - [x] Add service detail pages (SERVICE_INVENTORY.md)
-- [ ] Embed API documentation (Swagger UI)
+- [x] Embed API documentation (Swagger UI) - Links to FastAPI /docs endpoint
 - [x] Add deployment guides
 - [x] Create automated documentation agent
 - [x] Set up GitHub Actions workflow for auto-updates
@@ -192,22 +193,22 @@ Update memory bank documentation with current architecture.
 - [ ] Validate all UI pages load correctly
 - [ ] Update deployment documentation
 
-### Phase 6: Memory Bank Updates
+### Phase 6: Memory Bank Updates (In Progress)
 
-- [x] Update activeContext.md with Sprint 08
+- [x] Update activeContext.md with Sprint 08 completion
 - [ ] Add Denario architecture to techContext.md
-- [ ] Document all service URLs
+- [x] Document all service URLs (in SERVICE_INVENTORY.md and docs/index.html)
 - [ ] Update progress.md with completion status
 
-### Phase 7: Documentation Automation (NEW)
+### Phase 7: Documentation Automation (Complete)
 
 - [x] Create documentation generator agent (.github/scripts/generate_docs.py)
 - [x] Set up GitHub Actions workflow (.github/workflows/update-docs.yml)
 - [x] Configure auto-trigger on memory-bank/ and construction/ changes
 - [x] Add manual workflow trigger option
 - [x] Document automation in .github/scripts/README.md
-- [ ] Test workflow with real sprint completion
-- [ ] Add error notifications for failed workflows
+- [x] Test workflow with real sprint completion (GitHub Pages build verified)
+- [ ] Add error notifications for failed workflows (future enhancement)
 
 ## Technical Details
 

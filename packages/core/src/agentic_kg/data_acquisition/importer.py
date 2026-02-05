@@ -3,6 +3,8 @@ Knowledge Graph importer for Data Acquisition.
 
 Imports papers from external sources into the Knowledge Graph.
 """
+from __future__ import annotations
+
 
 import logging
 from dataclasses import dataclass, field

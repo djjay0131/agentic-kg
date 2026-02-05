@@ -4,6 +4,8 @@ Semantic Scholar API client.
 Provides access to the Semantic Scholar Academic Graph API for
 paper metadata, citations, and author information.
 """
+from __future__ import annotations
+
 
 import logging
 from typing import Any

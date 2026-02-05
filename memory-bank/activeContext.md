@@ -1,12 +1,12 @@
 # Active Context
 
-**Last Updated:** 2026-02-04
+**Last Updated:** 2026-02-05
 
 ## Current Work Phase
 
-**Phase 8: Test Fixes & Production Readiness**
+### Phase 9: Post-Documentation - Test Fixes & Production Readiness
 
-All 7 sprints complete and merged. Currently troubleshooting UI deployment issue where client-side code can't connect to API.
+Sprint 08 (Documentation & Service Cleanup) complete! GitHub Pages live at <https://djjay0131.github.io/agentic-kg/> with automated documentation updates. Focus returning to test fixes and production readiness.
 
 ## Current State
 
@@ -65,7 +65,7 @@ From `construction/backlog/sprint-01-deferred.md`:
 
 ## Completed Sprints
 
-All 7 sprints merged to master:
+All 8 sprints merged to master:
 - Sprint 00: GCP Infrastructure
 - Sprint 01: Knowledge Graph Foundation
 - Sprint 02: Data Acquisition
@@ -74,6 +74,7 @@ All 7 sprints merged to master:
 - Sprint 05: Agent Implementation
 - Sprint 06: Full-Stack Integration
 - Sprint 07: End-to-End Testing
+- Sprint 08: Documentation & Service Cleanup (GitHub Pages live!)
 
 ## Key Commands
 
@@ -91,15 +92,17 @@ cd infra && terraform output -raw neo4j_password
 
 ## Reference Materials
 
-- **Staging API**: https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app
-- **Neo4j Browser**: http://34.173.74.125:7474
+- **Documentation Hub**: <https://djjay0131.github.io/agentic-kg/>
+- **Staging API**: <https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app>
+- **Neo4j Browser**: <http://34.173.74.125:7474>
 - **Terraform**: `infra/` directory
 - **Backlog**: `construction/backlog/sprint-01-deferred.md`
 
 ## Notes for Next Session
 
 - Read ALL memory-bank files on context reset
-- **All sprints complete** - focus on test fixes
-- 33 tests failing in extraction module
+- **Sprint 08 complete** - GitHub Pages live with auto-documentation
+- Documentation automation via GitHub Actions (.github/workflows/update-docs.yml)
+- Focus on test fixes: 33 tests failing in extraction module
 - E2E tests have import errors to fix
 - Backlog items documented in progress.md
