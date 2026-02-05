@@ -25,8 +25,11 @@ steps:
       - '-c'
       - |
         if [ "${_SERVICE}" = "ui" ]; then
+          echo "Fetching API URL for UI build..."
           API_URL=$(gcloud run services describe agentic-kg-api-staging --region=${_REGION} --format='value(status.url)' 2>/dev/null || echo "")
+          echo "API URL found: $${API_URL}"
           echo "$${API_URL}" > /workspace/api_url.txt
+          echo "Saved to /workspace/api_url.txt"
         else
           echo "" > /workspace/api_url.txt
         fi
@@ -39,10 +42,13 @@ steps:
       - '-c'
       - |
         API_URL=$(cat /workspace/api_url.txt)
+        echo "Read API URL from file: '$${API_URL}'"
         BUILD_ARGS=""
         if [ "${_SERVICE}" = "ui" ] && [ -n "$${API_URL}" ]; then
           BUILD_ARGS="--build-arg NEXT_PUBLIC_API_URL=$${API_URL}"
+          echo "Build args for UI: $${BUILD_ARGS}"
         fi
+        echo "Running docker build with args: $${BUILD_ARGS}"
         docker build \
           -f docker/Dockerfile.${_SERVICE} \
           -t ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA \
