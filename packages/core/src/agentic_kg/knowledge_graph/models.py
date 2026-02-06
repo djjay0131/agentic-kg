@@ -180,9 +180,9 @@ class Problem(BaseModel):
                 raise ValueError(
                     f"Status '{self.status.value}' requires evidence field with reference to supporting paper"
                 )
-            if not self.evidence.doi:
+            if not self.evidence.source_doi:
                 raise ValueError(
-                    f"Status '{self.status.value}' requires evidence.doi pointing to the paper that resolves/deprecates this problem"
+                    f"Status '{self.status.value}' requires evidence.source_doi pointing to the paper that resolves/deprecates this problem"
                 )
         return self
 
