@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 def _utc_now() -> datetime:
@@ -171,6 +171,20 @@ class Problem(BaseModel):
     # Provenance
     evidence: Optional[Evidence] = Field(default=None, description="Source evidence from paper")
     extraction_metadata: Optional[ExtractionMetadata] = Field(default=None, description="Extraction details")
+
+    @model_validator(mode='after')
+    def validate_resolved_status(self) -> 'Problem':
+        """Require evidence with DOI when problem status is RESOLVED or DEPRECATED."""
+        if self.status in [ProblemStatus.RESOLVED, ProblemStatus.DEPRECATED]:
+            if not self.evidence:
+                raise ValueError(
+                    f"Status '{self.status.value}' requires evidence field with reference to supporting paper"
+                )
+            if not self.evidence.doi:
+                raise ValueError(
+                    f"Status '{self.status.value}' requires evidence.doi pointing to the paper that resolves/deprecates this problem"
+                )
+        return self
 
     # Semantic search
     embedding: Optional[list[float]] = Field(

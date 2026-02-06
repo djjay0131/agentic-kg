@@ -166,10 +166,55 @@ class Neo4jRepository:
     # Problem Operations
     # =========================================================================
 
+    def _find_duplicate_problem(
+        self,
+        statement: str,
+        domain: Optional[str] = None,
+    ) -> Optional[dict]:
+        """
+        Check if a problem with similar statement already exists.
+
+        Uses exact match on normalized statement within the same domain.
+
+        Args:
+            statement: Problem statement to check
+            domain: Optional domain to narrow search
+
+        Returns:
+            Dict with existing problem info if found, None otherwise
+        """
+        # Normalize statement for comparison (lowercase, strip whitespace)
+        normalized = statement.lower().strip()
+
+        def _check(tx: ManagedTransaction) -> Optional[dict]:
+            query = """
+            MATCH (p:Problem)
+            WHERE toLower(trim(p.statement)) = $statement
+            """
+            params = {"statement": normalized}
+
+            # Narrow by domain if provided
+            if domain:
+                query += " AND p.domain = $domain"
+                params["domain"] = domain
+
+            query += """
+            RETURN p.id as id, p.statement as statement, p.status as status
+            LIMIT 1
+            """
+
+            result = tx.run(query, **params)
+            record = result.single()
+            return dict(record) if record else None
+
+        with self.session() as session:
+            return session.execute_read(_check)
+
     def create_problem(
         self,
         problem: Problem,
         generate_embedding: bool = True,
+        skip_duplicate_check: bool = False,
     ) -> Problem:
         """
         Create a new Problem node.
@@ -179,13 +224,24 @@ class Neo4jRepository:
             generate_embedding: If True, auto-generate embedding for the problem.
                 Set to False for batch operations where embeddings are generated
                 separately.
+            skip_duplicate_check: If True, skip checking for duplicate problem statements.
+                Use with caution - may create duplicates.
 
         Returns:
             Created problem with any server-generated values (including embedding).
 
         Raises:
-            DuplicateError: If problem with same ID exists.
+            DuplicateError: If problem with same ID or statement already exists.
         """
+        # Check for duplicate problem statement (before generating embedding)
+        if not skip_duplicate_check:
+            existing = self._find_duplicate_problem(problem.statement, problem.domain)
+            if existing:
+                raise DuplicateError(
+                    f"Problem with similar statement already exists (ID: {existing['id']}). "
+                    f"Existing: '{existing['statement']}'"
+                )
+
         # Generate embedding if requested and not already present
         if generate_embedding and problem.embedding is None:
             try:
