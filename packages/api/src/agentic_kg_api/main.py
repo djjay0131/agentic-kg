@@ -4,13 +4,14 @@ FastAPI application for Agentic Knowledge Graphs.
 Run with: uvicorn agentic_kg_api.main:app --reload
 """
 
-import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from agentic_kg.logging_config import setup_logging, get_logger
 from agentic_kg_api import __version__
 from agentic_kg_api.config import get_api_config
 from agentic_kg_api.dependencies import get_repo, get_search, get_relations, reset_dependencies
@@ -18,22 +19,14 @@ from agentic_kg_api.routers import agents, extract, graph, papers, problems, sea
 from agentic_kg_api.schemas import HealthResponse, StatsResponse
 from agentic_kg_api.tasks import setup_event_bridge, teardown_event_bridge
 
-# Configure comprehensive logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-    ],
+# Configure centralized logging
+setup_logging(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format=os.getenv("LOG_FORMAT", "text"),  # Use "json" in production
+    enable_cloud_logging=os.getenv("ENABLE_CLOUD_LOGGING", "false").lower() == "true",
 )
 
-# Set specific log levels for key modules
-logging.getLogger("agentic_kg.extraction").setLevel(logging.INFO)
-logging.getLogger("agentic_kg_api").setLevel(logging.INFO)
-logging.getLogger("httpx").setLevel(logging.WARNING)  # Reduce httpx noise
-logging.getLogger("httpcore").setLevel(logging.WARNING)
-
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
