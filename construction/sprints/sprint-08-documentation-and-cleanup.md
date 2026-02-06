@@ -400,6 +400,84 @@ graph LR
 - Consider automating service inventory updates
 - API documentation should be generated from code (OpenAPI)
 
+## Post-Sprint Improvements (2026-02-05)
+
+After sprint completion, additional critical improvements were made:
+
+### Test Coverage & Quality Fixes
+
+**Issue:** 33 failing tests in extraction module that would have caught deployment bugs
+
+**Fixes Applied:**
+1. **Python 3.9 Compatibility** - Added `from __future__ import annotations` to all data_acquisition modules
+2. **Async Lock Issues** - Made asyncio.Lock creation lazy in rate_limiter.py and resilience.py
+3. **Integration Tests** - Added smoke tests for PDF extraction (test_extraction_smoke.py)
+4. **CI/CD Gates** - Created `.github/workflows/test.yml` to run tests on all PRs
+5. **Dockerfile Sync** - Updated Dockerfile.api to install from pyproject.toml (prevents dependency drift)
+
+**Result:** All 805 tests passing, 0 failures
+
+### Problem Validation & Deduplication
+
+**Issues Reported:**
+- Problems marked RESOLVED/DEPRECATED without supporting evidence
+- Duplicate problems with same statement but different IDs/statuses
+
+**Fixes Applied:**
+1. **Status Validation** - Added model_validator to Problem class requiring evidence.doi for RESOLVED/DEPRECATED status
+2. **Deduplication** - Added `_find_duplicate_problem()` to repository, checks normalized statements before creation
+3. **DuplicateError** - Raises error if problem with same statement already exists in same domain
+
+**Files Modified:**
+- `packages/core/src/agentic_kg/knowledge_graph/models.py` - Added validation
+- `packages/core/src/agentic_kg/knowledge_graph/repository.py` - Added deduplication
+
+### URL Extraction Diagnosis & Logging
+
+**Issue Reported:** PDF extraction returned wrong metadata (John Doe paper instead of Cusati-Brown paper)
+
+**Root Cause:** PDF metadata extracted from embedded file properties, not user input
+
+**Solution:** Comprehensive logging system to diagnose such issues:
+
+1. **Centralized Logging** - Created `packages/core/src/agentic_kg/logging_config.py`
+   - Single `setup_logging()` for entire system
+   - Support for text (dev) and JSON (production) formats
+   - Environment-based configuration (LOG_LEVEL, LOG_FORMAT)
+   - Google Cloud Logging integration option
+
+2. **PDF Extractor Logging** - Enhanced pdf_extractor.py with:
+   - URL fetch logging with redirects
+   - Downloaded file size, content-type
+   - Extracted metadata from PDF (title, author, etc.)
+
+3. **Pipeline Logging** - Enhanced pipeline.py with:
+   - Log provided vs extracted metadata
+   - Stage-by-stage progress tracking
+   - Failure diagnostics
+
+4. **API Logging** - Enhanced main.py with:
+   - Request ID tracking for end-to-end tracing
+   - HTTP request/response logging with timing
+   - Middleware for automatic logging
+
+**Environment Variables:**
+```bash
+LOG_LEVEL=DEBUG|INFO|WARNING|ERROR  # default: INFO
+LOG_FORMAT=text|json                # default: text
+ENABLE_CLOUD_LOGGING=true|false     # default: false
+```
+
+### Commits Made:
+1. `9703146` - Fix asyncio.Lock event loop issues in tests
+2. `999662e` - Fix Python 3.9 compatibility in data_acquisition
+3. `189b96b` - Fix ranking agent: use top_k instead of limit
+4. `e3b7df6` - Sync Dockerfile.api with pyproject.toml dependencies
+5. `96ac0aa` - Add CI/CD gates and integration smoke tests
+6. `6afa5aa` - Add problem validation and deduplication
+7. `04ef042` - Add comprehensive logging throughout extraction pipeline
+8. `96769e2` - Add centralized logging configuration system
+
 ## References
 
 - [GitHub Pages Documentation](https://docs.github.com/en/pages)
