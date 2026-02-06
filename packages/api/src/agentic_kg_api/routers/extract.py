@@ -1,8 +1,9 @@
 """Extraction trigger endpoints."""
 
 import logging
+import uuid
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
 from agentic_kg.extraction.pipeline import PaperProcessingPipeline, PipelineConfig, get_pipeline
 
@@ -51,8 +52,11 @@ def _result_to_response(result) -> ExtractResponse:
 
 
 @router.post("", response_model=ExtractResponse)
-async def extract(request: ExtractRequest) -> ExtractResponse:
+async def extract(req: Request, request: ExtractRequest) -> ExtractResponse:
     """Extract problems from a paper."""
+    # Generate request ID for tracing
+    request_id = str(uuid.uuid4())[:8]
+
     if not request.url and not request.text:
         raise HTTPException(
             status_code=400,
@@ -62,11 +66,17 @@ async def extract(request: ExtractRequest) -> ExtractResponse:
     pipeline = get_pipeline()
 
     if request.url:
+        logger.info(f"[{request_id}] Extract request: URL={request.url}, title={request.title}")
         result = await pipeline.process_pdf_url(
             url=request.url,
             paper_title=request.title,
             paper_doi=request.doi,
             authors=request.authors,
+        )
+        logger.info(
+            f"[{request_id}] Extract complete: "
+            f"success={result.success}, problems={result.problem_count}, "
+            f"duration={result.total_duration_ms:.0f}ms"
         )
     else:
         result = await pipeline.process_text(

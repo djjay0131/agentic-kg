@@ -146,14 +146,27 @@ class PDFExtractor:
         try:
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
                 response = await client.get(url)
+
+                # Log redirect information
+                if response.history:
+                    final_url = str(response.url)
+                    logger.info(f"URL redirected: {url} -> {final_url}")
+                    for i, redirect in enumerate(response.history):
+                        logger.debug(f"  Redirect {i+1}: {redirect.status_code} -> {redirect.url}")
+
                 response.raise_for_status()
 
                 # Verify content type
                 content_type = response.headers.get("content-type", "")
                 if "pdf" not in content_type.lower() and not url.endswith(".pdf"):
-                    logger.warning(f"Unexpected content type: {content_type}")
+                    logger.warning(f"Unexpected content type: {content_type} for URL: {url}")
 
                 pdf_bytes = response.content
+                logger.info(
+                    f"Downloaded PDF: {len(pdf_bytes)} bytes, "
+                    f"content-type: {content_type}, "
+                    f"final-url: {response.url}"
+                )
 
         except httpx.TimeoutException as e:
             raise PDFExtractionError(f"Timeout downloading PDF: {e}", url) from e
@@ -237,6 +250,13 @@ class PDFExtractor:
                 "creator": doc.metadata.get("creator", ""),
                 "producer": doc.metadata.get("producer", ""),
             }
+
+            # Log extracted metadata
+            logger.info(f"Extracted PDF metadata from {source_path or 'bytes'}:")
+            for key, value in metadata.items():
+                if value:
+                    logger.info(f"  {key}: {value[:100]}{'...' if len(value) > 100 else ''}")
+
             # Remove empty metadata
             metadata = {k: v for k, v in metadata.items() if v}
 

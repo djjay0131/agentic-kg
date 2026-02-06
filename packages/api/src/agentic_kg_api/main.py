@@ -18,10 +18,21 @@ from agentic_kg_api.routers import agents, extract, graph, papers, problems, sea
 from agentic_kg_api.schemas import HealthResponse, StatsResponse
 from agentic_kg_api.tasks import setup_event_bridge, teardown_event_bridge
 
+# Configure comprehensive logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+    ],
 )
+
+# Set specific log levels for key modules
+logging.getLogger("agentic_kg.extraction").setLevel(logging.INFO)
+logging.getLogger("agentic_kg_api").setLevel(logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)  # Reduce httpx noise
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 
@@ -76,6 +87,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log all HTTP requests with timing."""
+    import time
+
+    start_time = time.time()
+    request_id = str(id(request))[-6:]  # Use last 6 digits of object id
+
+    logger.info(f"[{request_id}] {request.method} {request.url.path}")
+
+    response = await call_next(request)
+
+    duration_ms = (time.time() - start_time) * 1000
+    logger.info(
+        f"[{request_id}] {request.method} {request.url.path} - "
+        f"Status: {response.status_code}, Duration: {duration_ms:.0f}ms"
+    )
+
+    return response
 
 
 # Error handling

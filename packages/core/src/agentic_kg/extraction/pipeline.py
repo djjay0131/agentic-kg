@@ -246,12 +246,23 @@ class PaperProcessingPipeline:
             source_url=url,
         )
 
+        logger.info(f"Starting pipeline for PDF URL: {url}")
+        logger.info(f"  Provided title: {paper_title or '(none)'}")
+        logger.info(f"  Provided DOI: {paper_doi or '(none)'}")
+        logger.info(f"  Provided authors: {authors or []}")
+
         try:
             # Stage 1: PDF Extraction
             stage_start = time.time()
+            logger.info("Stage 1: PDF Extraction - Starting")
             try:
                 extracted_text = await self.pdf_extractor.extract_from_url(
                     url, timeout=self.config.pdf_timeout
+                )
+                logger.info(
+                    f"Stage 1: PDF Extraction - Success "
+                    f"({extracted_text.total_pages} pages, "
+                    f"{len(extracted_text.full_text)} chars)"
                 )
                 result.extracted_text = extracted_text
                 result.stages.append(
@@ -266,6 +277,7 @@ class PaperProcessingPipeline:
                     )
                 )
             except PDFExtractionError as e:
+                logger.error(f"Stage 1: PDF Extraction - Failed: {e}")
                 result.stages.append(
                     PipelineStageResult(
                         stage="pdf_extraction",
@@ -343,6 +355,7 @@ class PaperProcessingPipeline:
                     )
                 )
             except PDFExtractionError as e:
+                logger.error(f"Stage 1: PDF Extraction - Failed: {e}")
                 result.stages.append(
                     PipelineStageResult(
                         stage="pdf_extraction",
