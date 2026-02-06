@@ -1,5 +1,47 @@
 # CLAUDE.md - Project Context for Claude Code
 
+## IMPORTANT: Design-First Workflow (2026-02-05)
+
+**⚠️ CRITICAL: No implementation without design!**
+
+For **ANY new feature**, use the construction-agent BEFORE writing code:
+
+```
+@construction-agent design <feature-name>
+```
+
+The agent will guide you through a 9-phase specification workflow:
+1. Analyze repository context
+2. Research best practices
+3. Define problem and verification
+4. Ask clarifying questions (including "definition of done")
+5. Create sample implementation
+6. Draft specification
+7. Generate critical questions
+8. Present final spec
+
+**After design approval:**
+```
+@construction-agent signal-complete <feature-name>
+@construction-agent create-sprint <number> "<goal>"
+```
+
+**During implementation:**
+```
+@construction-agent update-sprint
+```
+
+**Available Commands:**
+- `design <feature>` - Create design document
+- `create-sprint <num> <goal>` - Create sprint from designs
+- `update-sprint` - Update current sprint progress
+- `validate` - Check construction folder consistency
+- `signal-complete <phase>` - Mark design ready
+
+📁 **Location:** Design docs in `construction/design/`, sprints in `construction/sprints/`
+
+---
+
 ## Current Work (2025-12-19)
 
 ### In Progress: Deploy DenarioApp to GCP for Testing
