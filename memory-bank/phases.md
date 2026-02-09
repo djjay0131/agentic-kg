@@ -18,6 +18,7 @@ This file serves as the **coordination hub** between the memory-bank and constru
 | 5: Agent Implementation | Complete (Merged) | - | [sprint-05](../construction/sprints/sprint-05-agent-implementation.md) | - | N/A |
 | 6: Full-Stack Integration | Complete (Merged) | - | [sprint-06](../construction/sprints/sprint-06-integration.md) | ADR-014 | N/A |
 | 7: End-to-End Testing | Complete (Merged) | - | [sprint-07](../construction/sprints/sprint-07-e2e-testing.md) | - | N/A |
+| 8: Canonical Problem Architecture | Design Complete | [canonical-problem-architecture.md](../construction/design/canonical-problem-architecture.md) | [sprint-09](../construction/sprints/sprint-09-canonical-problem-phase-1.md) | ADR-003, ADR-005 | Yes |
 
 ### Administrative Agents (Cross-Cutting)
 
