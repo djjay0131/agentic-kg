@@ -27,8 +27,11 @@ class TestAutoLinker:
 
     @pytest.fixture
     def mock_repo(self):
-        """Mock Neo4j repository."""
-        return Mock()
+        """Mock Neo4j repository with context manager support."""
+        repo = Mock()
+        # Configure session() to return a MagicMock for context manager support
+        repo.session.return_value = MagicMock()
+        return repo
 
     @pytest.fixture
     def mock_matcher(self):
@@ -350,11 +353,11 @@ class TestAutoLinker:
         # Create mention with rich metadata
         mention = ProblemMention(
             id="mention-1",
-            statement="Test problem",
+            statement="How to test problem metadata preservation effectively?",
             paper_doi="10.1234/test",
             section="Methods",
             domain="AI",
-            quoted_text="Test quote",
+            quoted_text="Test quote with sufficient length for validation",
             embedding=[0.1] * 1536,
             assumptions=[Assumption(text="Assumption 1", implicit=False, confidence=0.9)],
             constraints=[Constraint(text="Constraint 1", type=ConstraintType.COMPUTATIONAL, confidence=0.8)],
@@ -388,7 +391,7 @@ class TestAutoLinker:
         mock_repo.session.return_value.__enter__.return_value = mock_session
         mock_concept_data = {
             "id": "concept-1",
-            "canonical_statement": "Test",
+            "canonical_statement": "How to test trace ID propagation in auto-linking?",
             "domain": "AI",
             "status": "open",
             "mention_count": 1,

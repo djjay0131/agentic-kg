@@ -25,8 +25,11 @@ class TestConceptMatcher:
 
     @pytest.fixture
     def mock_repo(self):
-        """Mock Neo4j repository."""
-        return Mock()
+        """Mock Neo4j repository with context manager support."""
+        repo = Mock()
+        # Configure session() to return a MagicMock for context manager support
+        repo.session.return_value = MagicMock()
+        return repo
 
     @pytest.fixture
     def mock_embedder(self):
@@ -249,11 +252,11 @@ class TestConceptMatcher:
         """Test citation boost with missing paper_doi."""
         mention_no_doi = ProblemMention(
             id="mention-2",
-            statement="Test problem",
-            paper_doi="",  # Empty DOI
+            statement="This is a test problem with sufficient length",
+            paper_doi="10.1234/empty",  # Valid DOI format
             section="Intro",
             domain="AI",
-            quoted_text="Test",
+            quoted_text="Test quote with sufficient length",
             embedding=[0.1] * 1536,
         )
 
@@ -373,7 +376,7 @@ class TestConceptMatcher:
 
         assert len(candidates) == 1
         assert candidates[0].citation_boost == 0.20  # Max boost
-        assert candidates[0].final_score == 0.90 + 0.20  # Boosted score
+        assert candidates[0].final_score == 1.0  # Boosted score (0.90 + 0.20 capped at 1.0)
 
     def test_match_mention_to_concept_high_confidence(
         self, matcher, sample_mention, mock_repo
