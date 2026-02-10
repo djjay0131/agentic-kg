@@ -217,8 +217,12 @@ class TestAutoLinkerIntegration:
     def test_auto_link_high_confidence_creates_relationship(
         self, neo4j_repo, embedding_service, test_concept, setup_schema
     ):
-        """Test HIGH confidence auto-linking creates INSTANCE_OF relationship."""
-        # Create mention very similar to test concept
+        """Test HIGH confidence auto-linking creates INSTANCE_OF relationship.
+
+        FIXED (TEST-MAJ-005): Removed conditional assertion anti-pattern.
+        Now uses unconditional assertions with proper test setup.
+        """
+        # Create mention very similar to test concept (exact match for HIGH confidence)
         mention = ProblemMention(
             id="test-mention-link",
             statement="How to improve neural network training efficiency?",  # Exact match
@@ -246,20 +250,25 @@ class TestAutoLinkerIntegration:
             mention, trace_id="test-auto-link"
         )
 
-        # Verify relationship created
-        if linked_concept:  # May be None if not HIGH confidence
-            with neo4j_repo.session() as session:
-                result = session.run(
-                    """
-                    MATCH (m:ProblemMention {id: $mention_id})-[r:INSTANCE_OF]->(c:ProblemConcept)
-                    RETURN c.id as concept_id, r.confidence as confidence
-                    """,
-                    mention_id=mention.id,
-                )
-                record = result.single()
-                assert record is not None
-                assert record["concept_id"] == linked_concept.id
-                assert record["confidence"] > 0.95
+        # FIXED: Unconditional assertions - exact match should always produce HIGH confidence
+        assert linked_concept is not None, "Exact match should produce HIGH confidence link"
+        assert linked_concept.id == test_concept, "Should link to test concept"
+
+        # Verify relationship created in Neo4j
+        with neo4j_repo.session() as session:
+            result = session.run(
+                """
+                MATCH (m:ProblemMention {id: $mention_id})-[r:INSTANCE_OF]->(c:ProblemConcept)
+                RETURN c.id as concept_id, r.confidence as confidence
+                """,
+                mention_id=mention.id,
+            )
+            record = result.single()
+
+            # Unconditional assertions
+            assert record is not None, "INSTANCE_OF relationship should exist"
+            assert record["concept_id"] == linked_concept.id
+            assert record["confidence"] >= 0.95, "HIGH confidence should be >= 0.95"
 
         # Cleanup
         with neo4j_repo.session() as session:
@@ -385,9 +394,10 @@ class TestEndToEndWorkflow:
         # This should link to concept1 (HIGH confidence)
         linked_concept = linker.auto_link_high_confidence(mention2, trace_id="paper2")
 
-        # Verify results
-        if linked_concept:
-            assert linked_concept.id == concept1.id
+        # FIXED: Make assertions unconditional based on expected behavior
+        # Similar statements should link if they exceed HIGH confidence threshold
+        assert linked_concept is not None, "Similar statements should link with HIGH confidence"
+        assert linked_concept.id == concept1.id, "Should link to first concept"
 
         # Count mentions and concepts
         with neo4j_repo.session() as session:

@@ -7,6 +7,7 @@ Tests automatic linking, concept creation, and transaction handling.
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 from datetime import datetime, timezone
+from neo4j.exceptions import ServiceUnavailable, TransientError, ClientError
 
 from agentic_kg.knowledge_graph.auto_linker import (
     AutoLinker,
@@ -165,6 +166,103 @@ class TestAutoLinker:
 
         assert "Auto-linking failed" in str(exc_info.value)
 
+    # =============================================================================
+    # Relationship Creation Error Tests (TEST-MAJ-003)
+    # =============================================================================
+
+    def test_create_relationship_mention_not_found(
+        self, linker, sample_mention, high_confidence_candidate, mock_matcher, mock_repo
+    ):
+        """Test when mention node not found in Neo4j during relationship creation."""
+        mock_matcher.match_mention_to_concept.return_value = high_confidence_candidate
+
+        mock_session = MagicMock()
+        mock_repo.session.return_value.__enter__.return_value = mock_session
+
+        # Query returns None (mention not found)
+        mock_session.execute_write.return_value = None
+
+        with pytest.raises(AutoLinkerError) as exc_info:
+            linker.auto_link_high_confidence(sample_mention, trace_id="test-trace")
+
+        assert "Auto-linking failed" in str(exc_info.value)
+
+    def test_create_relationship_concept_not_found(
+        self, linker, sample_mention, high_confidence_candidate, mock_matcher, mock_repo
+    ):
+        """Test when concept node not found in Neo4j during relationship creation."""
+        mock_matcher.match_mention_to_concept.return_value = high_confidence_candidate
+
+        mock_session = MagicMock()
+        mock_repo.session.return_value.__enter__.return_value = mock_session
+
+        # Simulate concept not found (execute_write raises exception)
+        mock_session.execute_write.side_effect = ClientError(
+            "Node not found: ProblemConcept {id: 'concept-1'}"
+        )
+
+        with pytest.raises(AutoLinkerError) as exc_info:
+            linker.auto_link_high_confidence(sample_mention, trace_id="test-trace")
+
+        assert "Auto-linking failed" in str(exc_info.value)
+
+    def test_create_relationship_transaction_rollback(
+        self, linker, sample_mention, high_confidence_candidate, mock_matcher, mock_repo
+    ):
+        """Test transaction rollback on relationship creation failure."""
+        mock_matcher.match_mention_to_concept.return_value = high_confidence_candidate
+
+        mock_session = MagicMock()
+        mock_repo.session.return_value.__enter__.return_value = mock_session
+
+        # Simulate transaction rollback
+        mock_session.execute_write.side_effect = TransientError("Transaction rolled back")
+
+        with pytest.raises(AutoLinkerError) as exc_info:
+            linker.auto_link_high_confidence(sample_mention, trace_id="test-trace")
+
+        assert "Auto-linking failed" in str(exc_info.value)
+
+    def test_create_relationship_constraint_violation(
+        self, linker, sample_mention, high_confidence_candidate, mock_matcher, mock_repo
+    ):
+        """Test handling of constraint violation during relationship creation."""
+        mock_matcher.match_mention_to_concept.return_value = high_confidence_candidate
+
+        mock_session = MagicMock()
+        mock_repo.session.return_value.__enter__.return_value = mock_session
+
+        # Simulate constraint violation
+        mock_session.execute_write.side_effect = ClientError(
+            "Constraint violation: INSTANCE_OF relationship already exists"
+        )
+
+        with pytest.raises(AutoLinkerError) as exc_info:
+            linker.auto_link_high_confidence(sample_mention, trace_id="test-trace")
+
+        assert "Auto-linking failed" in str(exc_info.value)
+
+    def test_create_relationship_neo4j_unavailable(
+        self, linker, sample_mention, high_confidence_candidate, mock_matcher, mock_repo
+    ):
+        """Test handling of Neo4j service unavailable during relationship creation."""
+        mock_matcher.match_mention_to_concept.return_value = high_confidence_candidate
+
+        mock_session = MagicMock()
+        mock_repo.session.return_value.__enter__.return_value = mock_session
+
+        # Simulate Neo4j unavailable
+        mock_session.execute_write.side_effect = ServiceUnavailable("Database not reachable")
+
+        with pytest.raises(AutoLinkerError) as exc_info:
+            linker.auto_link_high_confidence(sample_mention, trace_id="test-trace")
+
+        assert "Auto-linking failed" in str(exc_info.value)
+
+    # =============================================================================
+    # Concept Creation Tests
+    # =============================================================================
+
     def test_create_new_concept_success(
         self, linker, sample_mention, mock_embedder, mock_repo
     ):
@@ -217,6 +315,21 @@ class TestAutoLinker:
         mock_session = MagicMock()
         mock_repo.session.return_value.__enter__.return_value = mock_session
         mock_session.execute_write.side_effect = Exception("Transaction failed")
+
+        with pytest.raises(AutoLinkerError) as exc_info:
+            linker.create_new_concept(sample_mention, trace_id="test-trace")
+
+        assert "Concept creation failed" in str(exc_info.value)
+
+    def test_create_new_concept_neo4j_unavailable(
+        self, linker, sample_mention, mock_embedder, mock_repo
+    ):
+        """Test concept creation when Neo4j is unavailable."""
+        mock_embedder.generate_embedding.return_value = [0.2] * 1536
+
+        mock_session = MagicMock()
+        mock_repo.session.return_value.__enter__.return_value = mock_session
+        mock_session.execute_write.side_effect = ServiceUnavailable("Database down")
 
         with pytest.raises(AutoLinkerError) as exc_info:
             linker.create_new_concept(sample_mention, trace_id="test-trace")

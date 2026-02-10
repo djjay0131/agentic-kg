@@ -5,7 +5,9 @@ Tests similarity matching, confidence classification, and citation boost logic.
 """
 
 import pytest
+import math
 from unittest.mock import Mock, MagicMock, patch
+from neo4j.exceptions import ServiceUnavailable, TransientError, ClientError
 
 from agentic_kg.knowledge_graph.concept_matcher import (
     ConceptMatcher,
@@ -71,17 +73,39 @@ class TestConceptMatcher:
 
         assert "Failed to generate embedding" in str(exc_info.value)
 
+    # =============================================================================
+    # Confidence Classification Tests - Boundary Values (TEST-MAJ-002)
+    # =============================================================================
+
     def test_classify_confidence_high(self, matcher):
         """Test HIGH confidence classification (>95%)."""
         assert matcher.classify_confidence(0.96) == MatchConfidence.HIGH
         assert matcher.classify_confidence(0.99) == MatchConfidence.HIGH
         assert matcher.classify_confidence(1.0) == MatchConfidence.HIGH
 
+    def test_classify_confidence_exact_threshold_high(self, matcher):
+        """Test exact HIGH confidence threshold (0.95)."""
+        # At exact threshold, should be HIGH (>= check)
+        assert matcher.classify_confidence(0.95) == MatchConfidence.HIGH
+
+    def test_classify_confidence_just_below_high(self, matcher):
+        """Test just below HIGH threshold."""
+        assert matcher.classify_confidence(0.949) == MatchConfidence.MEDIUM
+
     def test_classify_confidence_medium(self, matcher):
         """Test MEDIUM confidence classification (80-95%)."""
-        assert matcher.classify_confidence(0.80) == MatchConfidence.MEDIUM
         assert matcher.classify_confidence(0.85) == MatchConfidence.MEDIUM
+        assert matcher.classify_confidence(0.90) == MatchConfidence.MEDIUM
         assert matcher.classify_confidence(0.94) == MatchConfidence.MEDIUM
+
+    def test_classify_confidence_exact_threshold_medium(self, matcher):
+        """Test exact MEDIUM confidence threshold (0.80)."""
+        # At exact threshold, should be MEDIUM
+        assert matcher.classify_confidence(0.80) == MatchConfidence.MEDIUM
+
+    def test_classify_confidence_just_below_medium(self, matcher):
+        """Test just below MEDIUM threshold."""
+        assert matcher.classify_confidence(0.799) == MatchConfidence.LOW
 
     def test_classify_confidence_low(self, matcher):
         """Test LOW confidence classification (50-80%)."""
@@ -89,11 +113,188 @@ class TestConceptMatcher:
         assert matcher.classify_confidence(0.65) == MatchConfidence.LOW
         assert matcher.classify_confidence(0.79) == MatchConfidence.LOW
 
+    def test_classify_confidence_exact_threshold_low(self, matcher):
+        """Test exact LOW confidence threshold (0.50)."""
+        # At exact threshold, should be LOW
+        assert matcher.classify_confidence(0.50) == MatchConfidence.LOW
+
+    def test_classify_confidence_just_below_low(self, matcher):
+        """Test just below LOW threshold."""
+        assert matcher.classify_confidence(0.499) == MatchConfidence.REJECTED
+
     def test_classify_confidence_rejected(self, matcher):
         """Test REJECTED confidence classification (<50%)."""
         assert matcher.classify_confidence(0.49) == MatchConfidence.REJECTED
         assert matcher.classify_confidence(0.30) == MatchConfidence.REJECTED
         assert matcher.classify_confidence(0.0) == MatchConfidence.REJECTED
+
+    def test_classify_confidence_invalid_negative(self, matcher):
+        """Test classification with negative score (invalid input)."""
+        # Should classify as REJECTED (below threshold)
+        assert matcher.classify_confidence(-0.1) == MatchConfidence.REJECTED
+        assert matcher.classify_confidence(-1.0) == MatchConfidence.REJECTED
+
+    def test_classify_confidence_invalid_above_one(self, matcher):
+        """Test classification with score >1.0 (invalid input)."""
+        # Should classify as HIGH (above all thresholds)
+        assert matcher.classify_confidence(1.5) == MatchConfidence.HIGH
+        assert matcher.classify_confidence(2.0) == MatchConfidence.HIGH
+
+    def test_classify_confidence_nan(self, matcher):
+        """Test classification with NaN value."""
+        # NaN comparisons always return False, so will fall through to REJECTED
+        result = matcher.classify_confidence(float('nan'))
+        # NaN is not >= any threshold, so should be REJECTED
+        assert result == MatchConfidence.REJECTED
+
+    def test_classify_confidence_infinity(self, matcher):
+        """Test classification with infinity values."""
+        assert matcher.classify_confidence(float('inf')) == MatchConfidence.HIGH
+        assert matcher.classify_confidence(float('-inf')) == MatchConfidence.REJECTED
+
+    # =============================================================================
+    # Neo4j Connection Failure Tests (TEST-CRIT-002)
+    # =============================================================================
+
+    def test_find_candidate_concepts_neo4j_connection_failure(
+        self, matcher, sample_mention, mock_repo
+    ):
+        """Test vector search when Neo4j connection fails."""
+        mock_session = MagicMock()
+        mock_repo.session.return_value.__enter__.return_value = mock_session
+
+        # Simulate Neo4j connection failure
+        mock_session.execute_read.side_effect = ServiceUnavailable("Connection lost")
+
+        with pytest.raises(MatcherError) as exc_info:
+            matcher.find_candidate_concepts(sample_mention)
+
+        assert "Vector similarity search failed" in str(exc_info.value)
+
+    def test_find_candidate_concepts_vector_index_missing(
+        self, matcher, sample_mention, mock_repo
+    ):
+        """Test when vector index is unavailable."""
+        mock_session = MagicMock()
+        mock_repo.session.return_value.__enter__.return_value = mock_session
+
+        # Simulate missing index error
+        mock_session.execute_read.side_effect = ClientError(
+            "Unable to find index: concept_embedding_idx"
+        )
+
+        with pytest.raises(MatcherError) as exc_info:
+            matcher.find_candidate_concepts(sample_mention)
+
+        assert "Vector similarity search failed" in str(exc_info.value)
+
+    def test_find_candidate_concepts_query_timeout(
+        self, matcher, sample_mention, mock_repo
+    ):
+        """Test when Neo4j query times out."""
+        mock_session = MagicMock()
+        mock_repo.session.return_value.__enter__.return_value = mock_session
+
+        # Simulate timeout
+        mock_session.execute_read.side_effect = TransientError("Query timeout")
+
+        with pytest.raises(MatcherError) as exc_info:
+            matcher.find_candidate_concepts(sample_mention)
+
+        assert "Vector similarity search failed" in str(exc_info.value)
+
+    def test_find_candidate_concepts_session_creation_failure(
+        self, matcher, sample_mention, mock_repo
+    ):
+        """Test when Neo4j session cannot be created."""
+        # Session creation fails
+        mock_repo.session.side_effect = ServiceUnavailable("Cannot connect to database")
+
+        with pytest.raises(MatcherError) as exc_info:
+            matcher.find_candidate_concepts(sample_mention)
+
+        assert "Vector similarity search failed" in str(exc_info.value)
+
+    # =============================================================================
+    # Citation Boost Error Handling Tests (TEST-MAJ-004)
+    # =============================================================================
+
+    def test_citation_boost_query_failure(self, matcher, sample_mention, mock_repo):
+        """Test when citation query fails."""
+        mock_session = MagicMock()
+        mock_repo.session.return_value.__enter__.return_value = mock_session
+
+        # Citation query fails
+        mock_session.execute_read.side_effect = ServiceUnavailable("Connection lost")
+
+        # Should return 0.0 boost and log warning (not raise exception)
+        boost = matcher._calculate_citation_boost(sample_mention, "concept-1")
+
+        assert boost == 0.0
+
+    def test_citation_boost_query_timeout(self, matcher, sample_mention, mock_repo):
+        """Test when citation query times out."""
+        mock_session = MagicMock()
+        mock_repo.session.return_value.__enter__.return_value = mock_session
+
+        # Query timeout
+        mock_session.execute_read.side_effect = TransientError("Query timeout")
+
+        # Should return 0.0 boost (graceful degradation)
+        boost = matcher._calculate_citation_boost(sample_mention, "concept-1")
+
+        assert boost == 0.0
+
+    def test_citation_boost_missing_paper_doi(self, matcher, mock_repo):
+        """Test citation boost with missing paper_doi."""
+        mention_no_doi = ProblemMention(
+            id="mention-2",
+            statement="Test problem",
+            paper_doi="",  # Empty DOI
+            section="Intro",
+            domain="AI",
+            quoted_text="Test",
+            embedding=[0.1] * 1536,
+        )
+
+        mock_session = MagicMock()
+        mock_repo.session.return_value.__enter__.return_value = mock_session
+        mock_session.execute_read.return_value = False
+
+        # Should handle gracefully
+        boost = matcher._calculate_citation_boost(mention_no_doi, "concept-1")
+
+        assert boost == 0.0
+
+    def test_citation_boost_malformed_response(self, matcher, sample_mention, mock_repo):
+        """Test citation boost with malformed Neo4j response."""
+        mock_session = MagicMock()
+        mock_repo.session.return_value.__enter__.return_value = mock_session
+
+        # Return None instead of expected boolean
+        mock_session.execute_read.return_value = None
+
+        # Should handle gracefully and treat as no citations
+        boost = matcher._calculate_citation_boost(sample_mention, "concept-1")
+
+        assert boost == 0.0
+
+    def test_citation_boost_exception_in_transaction(self, matcher, sample_mention, mock_repo):
+        """Test citation boost when transaction function raises exception."""
+        mock_session = MagicMock()
+        mock_repo.session.return_value.__enter__.return_value = mock_session
+
+        # Transaction function raises exception
+        mock_session.execute_read.side_effect = Exception("Unexpected error in transaction")
+
+        # Should catch exception and return 0.0
+        boost = matcher._calculate_citation_boost(sample_mention, "concept-1")
+
+        assert boost == 0.0
+
+    # =============================================================================
+    # Existing Tests (preserved)
+    # =============================================================================
 
     def test_find_candidate_concepts_success(self, matcher, sample_mention, mock_repo):
         """Test successful candidate concept search."""
