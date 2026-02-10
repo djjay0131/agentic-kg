@@ -19,7 +19,7 @@ from agentic_kg.knowledge_graph.repository import Neo4jRepository, get_repositor
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when making schema changes
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # Added ProblemMention/ProblemConcept schema
 
 # Schema definitions - fmt: off to allow long Cypher strings
 CONSTRAINTS = [
@@ -40,6 +40,18 @@ CONSTRAINTS = [
         "author_id_unique",
         "CREATE CONSTRAINT author_id_unique IF NOT EXISTS "
         "FOR (a:Author) REQUIRE a.id IS UNIQUE",
+    ),
+    # ProblemMention constraints (canonical architecture)
+    (
+        "problem_mention_id_unique",
+        "CREATE CONSTRAINT problem_mention_id_unique IF NOT EXISTS "
+        "FOR (m:ProblemMention) REQUIRE m.id IS UNIQUE",
+    ),
+    # ProblemConcept constraints (canonical architecture)
+    (
+        "problem_concept_id_unique",
+        "CREATE CONSTRAINT problem_concept_id_unique IF NOT EXISTS "
+        "FOR (c:ProblemConcept) REQUIRE c.id IS UNIQUE",
     ),
     # Schema metadata
     (
@@ -86,20 +98,82 @@ INDEXES = [
         "author_name_idx",
         "CREATE INDEX author_name_idx IF NOT EXISTS FOR (a:Author) ON (a.name)",
     ),
+    # ProblemMention indexes (canonical architecture)
+    (
+        "mention_paper_idx",
+        "CREATE INDEX mention_paper_idx IF NOT EXISTS FOR (m:ProblemMention) ON (m.paper_doi)",
+    ),
+    (
+        "mention_review_status_idx",
+        "CREATE INDEX mention_review_status_idx IF NOT EXISTS FOR (m:ProblemMention) ON (m.review_status)",
+    ),
+    (
+        "mention_concept_idx",
+        "CREATE INDEX mention_concept_idx IF NOT EXISTS FOR (m:ProblemMention) ON (m.concept_id)",
+    ),
+    # ProblemConcept indexes (canonical architecture)
+    (
+        "concept_domain_idx",
+        "CREATE INDEX concept_domain_idx IF NOT EXISTS FOR (c:ProblemConcept) ON (c.domain)",
+    ),
+    (
+        "concept_mention_count_idx",
+        "CREATE INDEX concept_mention_count_idx IF NOT EXISTS FOR (c:ProblemConcept) ON (c.mention_count)",
+    ),
+    (
+        "concept_status_idx",
+        "CREATE INDEX concept_status_idx IF NOT EXISTS FOR (c:ProblemConcept) ON (c.status)",
+    ),
 ]
 
-# Vector index for semantic search (Neo4j 5.x)
-VECTOR_INDEX_QUERY = """
-CREATE VECTOR INDEX problem_embedding_idx IF NOT EXISTS
-FOR (p:Problem)
-ON p.embedding
-OPTIONS {
-    indexConfig: {
-        `vector.dimensions`: 1536,
-        `vector.similarity_function`: 'cosine'
-    }
-}
-"""
+# Vector indexes for semantic search (Neo4j 5.x)
+VECTOR_INDEXES = [
+    # Problem embedding index (original)
+    (
+        "problem_embedding_idx",
+        """
+        CREATE VECTOR INDEX problem_embedding_idx IF NOT EXISTS
+        FOR (p:Problem)
+        ON p.embedding
+        OPTIONS {
+            indexConfig: {
+                `vector.dimensions`: 1536,
+                `vector.similarity_function`: 'cosine'
+            }
+        }
+        """
+    ),
+    # ProblemMention embedding index (canonical architecture)
+    (
+        "mention_embedding_idx",
+        """
+        CREATE VECTOR INDEX mention_embedding_idx IF NOT EXISTS
+        FOR (m:ProblemMention)
+        ON m.embedding
+        OPTIONS {
+            indexConfig: {
+                `vector.dimensions`: 1536,
+                `vector.similarity_function`: 'cosine'
+            }
+        }
+        """
+    ),
+    # ProblemConcept embedding index (canonical architecture)
+    (
+        "concept_embedding_idx",
+        """
+        CREATE VECTOR INDEX concept_embedding_idx IF NOT EXISTS
+        FOR (c:ProblemConcept)
+        ON c.embedding
+        OPTIONS {
+            indexConfig: {
+                `vector.dimensions`: 1536,
+                `vector.similarity_function`: 'cosine'
+            }
+        }
+        """
+    ),
+]
 
 
 class SchemaManager:
@@ -149,8 +223,8 @@ class SchemaManager:
         # Create indexes
         self._create_indexes()
 
-        # Create vector index
-        self._create_vector_index()
+        # Create vector indexes
+        self._create_vector_indexes()
 
         # Update schema version
         self._set_version(SCHEMA_VERSION)
@@ -211,15 +285,16 @@ class SchemaManager:
                 except Exception as e:
                     logger.debug(f"Index {name}: {e}")
 
-    def _create_vector_index(self) -> None:
-        """Create vector index for semantic search."""
+    def _create_vector_indexes(self) -> None:
+        """Create vector indexes for semantic search."""
         with self._repo.session() as session:
-            try:
-                session.run(VECTOR_INDEX_QUERY)
-                logger.info("Created vector index: problem_embedding_idx")
-            except Exception as e:
-                # Vector index may not be supported or may already exist
-                logger.warning(f"Vector index creation: {e}")
+            for name, query in VECTOR_INDEXES:
+                try:
+                    session.run(query)
+                    logger.info(f"Created vector index: {name}")
+                except Exception as e:
+                    # Vector index may not be supported or may already exist
+                    logger.warning(f"Vector index {name}: {e}")
 
     def get_schema_info(self) -> dict:
         """

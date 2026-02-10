@@ -66,6 +66,53 @@ class DependencyType(str, Enum):
     METHODOLOGICAL = "methodological"
 
 
+class MatchConfidence(str, Enum):
+    """Confidence level for problem mention to concept matching."""
+
+    HIGH = "high"  # >95% similarity - auto-link
+    MEDIUM = "medium"  # 80-95% similarity - agent review
+    LOW = "low"  # 50-80% similarity - multi-agent consensus
+    REJECTED = "rejected"  # Explicitly rejected match
+
+
+class ReviewStatus(str, Enum):
+    """Status of a problem mention in the review workflow."""
+
+    PENDING = "pending"  # Awaiting review
+    APPROVED = "approved"  # Human approved
+    REJECTED = "rejected"  # Human rejected
+    NEEDS_CONSENSUS = "needs_consensus"  # Requires multi-agent debate
+    BLACKLISTED = "blacklisted"  # Permanently blocked
+
+
+class MatchMethod(str, Enum):
+    """Method used to match mention to concept."""
+
+    AUTO = "auto"  # Automatic high-confidence match
+    AGENT = "agent"  # Single agent review
+    HUMAN = "human"  # Human decision
+    CONSENSUS = "consensus"  # Multi-agent consensus
+
+
+class WorkflowState(str, Enum):
+    """States in the mention matching workflow."""
+
+    EXTRACTED = "extracted"
+    MATCHING = "matching"
+    HIGH_CONFIDENCE = "high_confidence"
+    MEDIUM_CONFIDENCE = "medium_confidence"
+    LOW_CONFIDENCE = "low_confidence"
+    NO_MATCH = "no_match"
+    AGENT_REVIEW = "agent_review"
+    NEEDS_CONSENSUS = "needs_consensus"
+    PENDING_REVIEW = "pending_review"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    BLACKLISTED = "blacklisted"
+    AUTO_LINKED = "auto_linked"
+    CREATE_NEW_CONCEPT = "create_new_concept"
+
+
 # =============================================================================
 # Supporting Models
 # =============================================================================
@@ -218,6 +265,218 @@ class Problem(BaseModel):
         return data
 
 
+class ProblemMention(BaseModel):
+    """
+    A paper-specific mention of a research problem.
+
+    ProblemMentions preserve the original problem statement as it appears
+    in a specific paper, maintaining provenance and paper-specific context.
+    Each mention is matched to a canonical ProblemConcept.
+    """
+
+    # Identity
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique identifier")
+    statement: str = Field(..., min_length=20, description="Problem as stated in this paper")
+    paper_doi: str = Field(..., description="Source paper DOI")
+    section: str = Field(..., description="Section where problem was mentioned")
+
+    # Rich metadata (same structure as original Problem)
+    domain: Optional[str] = Field(default=None, description="Research domain/field")
+    assumptions: list[Assumption] = Field(default_factory=list)
+    constraints: list[Constraint] = Field(default_factory=list)
+    datasets: list[Dataset] = Field(default_factory=list)
+    metrics: list[Metric] = Field(default_factory=list)
+    baselines: list[Baseline] = Field(default_factory=list)
+
+    # Extraction provenance
+    quoted_text: str = Field(..., min_length=1, description="Original text from paper")
+    extraction_metadata: Optional[ExtractionMetadata] = Field(
+        default=None, description="Extraction details"
+    )
+    embedding: Optional[list[float]] = Field(
+        default=None, description="Statement embedding (1536 dims)"
+    )
+
+    # Concept linking
+    concept_id: Optional[str] = Field(default=None, description="Linked ProblemConcept ID")
+    match_confidence: Optional[MatchConfidence] = Field(
+        default=None, description="Match confidence level"
+    )
+    match_score: Optional[float] = Field(
+        default=None, ge=0, le=1, description="Similarity score (0-1)"
+    )
+    match_method: Optional[MatchMethod] = Field(default=None, description="How match was made")
+
+    # Review tracking
+    review_status: ReviewStatus = Field(default=ReviewStatus.PENDING, description="Review status")
+    reviewed_by: Optional[str] = Field(default=None, description="User ID of reviewer")
+    reviewed_at: Optional[datetime] = Field(default=None, description="Review timestamp")
+    agent_consensus: Optional[dict] = Field(
+        default=None, description="Maker/hater debate results"
+    )
+
+    # Timestamps
+    created_at: datetime = Field(default_factory=_utc_now)
+    updated_at: datetime = Field(default_factory=_utc_now)
+
+    @field_validator("paper_doi")
+    @classmethod
+    def validate_doi(cls, v: str) -> str:
+        """Validate DOI format."""
+        if not v.startswith("10."):
+            raise ValueError("DOI must start with '10.'")
+        return v
+
+    def to_neo4j_properties(self) -> dict:
+        """Convert to Neo4j node properties (JSON-serializable)."""
+        data = self.model_dump(exclude={"embedding"})
+        # Convert nested objects to JSON
+        data["assumptions"] = [a.model_dump() for a in self.assumptions]
+        data["constraints"] = [c.model_dump() for c in self.constraints]
+        data["datasets"] = [d.model_dump() for d in self.datasets]
+        data["metrics"] = [m.model_dump() for m in self.metrics]
+        data["baselines"] = [b.model_dump() for b in self.baselines]
+        if self.extraction_metadata:
+            data["extraction_metadata"] = self.extraction_metadata.model_dump()
+            extracted_at = self.extraction_metadata.extracted_at.isoformat()
+            data["extraction_metadata"]["extracted_at"] = extracted_at
+            if self.extraction_metadata.reviewed_at:
+                reviewed_at = self.extraction_metadata.reviewed_at.isoformat()
+                data["extraction_metadata"]["reviewed_at"] = reviewed_at
+        # Convert datetime to ISO strings
+        data["created_at"] = self.created_at.isoformat()
+        data["updated_at"] = self.updated_at.isoformat()
+        if self.reviewed_at:
+            data["reviewed_at"] = self.reviewed_at.isoformat()
+        # Convert enums to strings
+        if self.match_confidence:
+            data["match_confidence"] = self.match_confidence.value
+        if self.match_method:
+            data["match_method"] = self.match_method.value
+        data["review_status"] = self.review_status.value
+        return data
+
+
+class ProblemConcept(BaseModel):
+    """
+    Canonical representation of a research problem.
+
+    ProblemConcepts represent the underlying research problem that may be
+    mentioned across multiple papers. The canonical statement is synthesized
+    from all mentions, and metadata is aggregated with provenance.
+    """
+
+    # Identity
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique identifier")
+    canonical_statement: str = Field(
+        ..., min_length=20, description="AI-synthesized canonical problem statement"
+    )
+    domain: str = Field(..., description="Research domain/field")
+    status: ProblemStatus = Field(default=ProblemStatus.OPEN, description="Problem status")
+
+    # Aggregated metadata
+    assumptions: list[Assumption] = Field(default_factory=list, description="Union of all mentions")
+    constraints: list[Constraint] = Field(default_factory=list)
+    datasets: list[Dataset] = Field(default_factory=list)
+    metrics: list[Metric] = Field(default_factory=list)
+
+    # Baselines with validation
+    verified_baselines: list[Baseline] = Field(
+        default_factory=list, description="Reproducible baselines"
+    )
+    claimed_baselines: list[Baseline] = Field(
+        default_factory=list, description="Unverified baselines"
+    )
+
+    # Synthesis metadata
+    synthesis_method: str = Field(default="llm_synthesis", description="How statement was created")
+    synthesis_model: Optional[str] = Field(default=None, description="Model used (e.g., 'gpt-4')")
+    synthesized_at: Optional[datetime] = Field(default=None, description="When synthesized")
+    synthesized_by: Optional[str] = Field(default=None, description="Agent or human user")
+    human_edited: bool = Field(
+        default=False, description="Whether human has edited canonical statement"
+    )
+
+    # Aggregation stats
+    mention_count: int = Field(default=0, ge=0, description="Number of mentions")
+    paper_count: int = Field(default=0, ge=0, description="Number of unique papers")
+    first_mentioned_year: Optional[int] = Field(
+        default=None, ge=1900, le=2100, description="Earliest mention year"
+    )
+    last_mentioned_year: Optional[int] = Field(
+        default=None, ge=1900, le=2100, description="Most recent mention year"
+    )
+
+    # Semantic search
+    embedding: Optional[list[float]] = Field(
+        default=None, description="Canonical statement embedding (1536 dims)"
+    )
+
+    # Versioning
+    created_at: datetime = Field(default_factory=_utc_now)
+    updated_at: datetime = Field(default_factory=_utc_now)
+    version: int = Field(default=1, ge=1, description="Version number")
+
+    @model_validator(mode="after")
+    def validate_year_order(self) -> "ProblemConcept":
+        """Ensure first_mentioned_year <= last_mentioned_year."""
+        if (
+            self.first_mentioned_year is not None
+            and self.last_mentioned_year is not None
+            and self.first_mentioned_year > self.last_mentioned_year
+        ):
+            raise ValueError("first_mentioned_year must be <= last_mentioned_year")
+        return self
+
+    def to_neo4j_properties(self) -> dict:
+        """Convert to Neo4j node properties (JSON-serializable)."""
+        data = self.model_dump(exclude={"embedding"})
+        # Convert nested objects to JSON
+        data["assumptions"] = [a.model_dump() for a in self.assumptions]
+        data["constraints"] = [c.model_dump() for c in self.constraints]
+        data["datasets"] = [d.model_dump() for d in self.datasets]
+        data["metrics"] = [m.model_dump() for m in self.metrics]
+        data["verified_baselines"] = [b.model_dump() for b in self.verified_baselines]
+        data["claimed_baselines"] = [b.model_dump() for b in self.claimed_baselines]
+        # Convert datetime to ISO strings
+        data["created_at"] = self.created_at.isoformat()
+        data["updated_at"] = self.updated_at.isoformat()
+        if self.synthesized_at:
+            data["synthesized_at"] = self.synthesized_at.isoformat()
+        # Convert enum to string
+        data["status"] = self.status.value
+        return data
+
+
+class MatchCandidate(BaseModel):
+    """
+    A candidate concept match for a problem mention.
+
+    Used during similarity search to represent potential matches
+    with scores and reasoning.
+    """
+
+    concept_id: str = Field(..., description="Candidate ProblemConcept ID")
+    concept_statement: str = Field(..., description="Canonical statement")
+    similarity_score: float = Field(..., ge=0, le=1, description="Cosine similarity (0-1)")
+    confidence: MatchConfidence = Field(..., description="Confidence classification")
+    reasoning: Optional[str] = Field(default=None, description="Why this is a good match")
+
+    # Additional match factors
+    citation_boost: float = Field(
+        default=0.0, ge=0, le=0.2, description="Boost from citation relationship"
+    )
+    domain_match: bool = Field(default=False, description="Whether domains match")
+    metadata_overlap: dict = Field(
+        default_factory=dict, description="Overlapping datasets/metrics/etc"
+    )
+
+    @property
+    def final_score(self) -> float:
+        """Calculate final score with all boosts applied."""
+        return min(1.0, self.similarity_score + self.citation_boost)
+
+
 class Paper(BaseModel):
     """
     A scientific paper in the knowledge graph.
@@ -345,3 +604,14 @@ class AuthoredByRelation(BaseModel):
     paper_doi: str = Field(..., description="Paper DOI")
     author_id: str = Field(..., description="Author ID")
     author_position: int = Field(..., ge=1, description="Author position (1=first)")
+
+
+class InstanceOfRelation(BaseModel):
+    """Links a ProblemMention to its canonical ProblemConcept."""
+
+    mention_id: str = Field(..., description="ProblemMention ID")
+    concept_id: str = Field(..., description="ProblemConcept ID")
+    confidence: float = Field(..., ge=0, le=1, description="Match confidence score")
+    match_method: MatchMethod = Field(..., description="How match was determined")
+    matched_at: datetime = Field(default_factory=_utc_now, description="When matched")
+    matched_by: Optional[str] = Field(default=None, description="Agent or user who matched")
