@@ -51,8 +51,21 @@ from agentic_kg.agents.matching.arbiter import (
     create_arbiter_agent,
     ARBITER_CONFIDENCE_THRESHOLD,
 )
+from agentic_kg.agents.matching.workflow import (
+    build_matching_workflow,
+    get_matching_workflow,
+    reset_matching_workflow,
+    process_medium_low_confidence,
+    MAX_CONSENSUS_ROUNDS,
+)
 
 __all__ = [
+    # Workflow
+    "build_matching_workflow",
+    "get_matching_workflow",
+    "reset_matching_workflow",
+    "process_medium_low_confidence",
+    "MAX_CONSENSUS_ROUNDS",
     # Agents
     "EvaluatorAgent",
     "EvaluatorError",
