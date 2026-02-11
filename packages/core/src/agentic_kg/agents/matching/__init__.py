@@ -35,12 +35,38 @@ from agentic_kg.agents.matching.evaluator import (
     EvaluatorError,
     create_evaluator_agent,
 )
+from agentic_kg.agents.matching.maker import (
+    MakerAgent,
+    MakerError,
+    create_maker_agent,
+)
+from agentic_kg.agents.matching.hater import (
+    HaterAgent,
+    HaterError,
+    create_hater_agent,
+)
+from agentic_kg.agents.matching.arbiter import (
+    ArbiterAgent,
+    ArbiterError,
+    create_arbiter_agent,
+    ARBITER_CONFIDENCE_THRESHOLD,
+)
 
 __all__ = [
     # Agents
     "EvaluatorAgent",
     "EvaluatorError",
     "create_evaluator_agent",
+    "MakerAgent",
+    "MakerError",
+    "create_maker_agent",
+    "HaterAgent",
+    "HaterError",
+    "create_hater_agent",
+    "ArbiterAgent",
+    "ArbiterError",
+    "create_arbiter_agent",
+    "ARBITER_CONFIDENCE_THRESHOLD",
     # Schemas
     "AgentContext",
     "ArbiterDecision",
