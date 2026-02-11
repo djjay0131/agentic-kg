@@ -1,6 +1,6 @@
 # Phase Lifecycle
 
-**Last Updated:** 2026-02-03
+**Last Updated:** 2026-02-10 (Sprint 10 created)
 
 This file serves as the **coordination hub** between the memory-bank and construction folders. It tracks the lifecycle of each project phase and provides handoff signals between agents.
 
@@ -19,6 +19,7 @@ This file serves as the **coordination hub** between the memory-bank and constru
 | 6: Full-Stack Integration | Complete (Merged) | - | [sprint-06](../construction/sprints/sprint-06-integration.md) | ADR-014 | N/A |
 | 7: End-to-End Testing | Complete (Merged) | - | [sprint-07](../construction/sprints/sprint-07-e2e-testing.md) | - | N/A |
 | 8: Canonical Problem Architecture | Design Complete | [canonical-problem-architecture.md](../construction/design/canonical-problem-architecture.md) | [sprint-09](../construction/sprints/sprint-09-canonical-problem-phase-1.md) | ADR-003, ADR-005 | Yes |
+| 9: Agent Workflows (Phase 2) | Not Started | [canonical-problem-architecture-phase-2.md](../construction/design/canonical-problem-architecture-phase-2.md) | [sprint-10](../construction/sprints/sprint-10-canonical-problem-phase-2.md) | ADR-003, ADR-005 | Yes |
 
 ### Administrative Agents (Cross-Cutting)
 
