@@ -95,3 +95,38 @@ class WorkflowState(str, Enum):
     BLACKLISTED = "blacklisted"
     AUTO_LINKED = "auto_linked"
     CREATE_NEW_CONCEPT = "create_new_concept"
+
+
+class EscalationReason(str, Enum):
+    """Reasons for escalating a match decision to human review."""
+
+    EVALUATOR_UNCERTAIN = "evaluator_uncertain"  # Evaluator couldn't decide
+    CONSENSUS_FAILED = "consensus_failed"  # Maker/Hater couldn't agree
+    ARBITER_LOW_CONFIDENCE = "arbiter_low_confidence"  # Arbiter uncertain
+    MAX_ROUNDS_EXCEEDED = "max_rounds_exceeded"  # Hit 3-round limit
+
+
+class ReviewResolution(str, Enum):
+    """How a human reviewer resolved the match decision."""
+
+    LINKED = "linked"  # Linked to existing concept
+    CREATED_NEW = "created_new"  # Created new concept
+    BLACKLISTED = "blacklisted"  # Permanently blocked
+
+
+class ReviewPriority(str, Enum):
+    """Priority levels for human review queue items."""
+
+    HIGH = "high"  # Important paper, urgent
+    MEDIUM = "medium"  # Normal priority
+    LOW = "low"  # Can wait
+
+
+class ReviewQueueStatus(str, Enum):
+    """Status of items in the human review queue."""
+
+    PENDING = "pending"  # Awaiting assignment
+    ASSIGNED = "assigned"  # Assigned to reviewer
+    IN_REVIEW = "in_review"  # Being actively reviewed
+    RESOLVED = "resolved"  # Decision made
+    EXPIRED = "expired"  # SLA breached

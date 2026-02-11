@@ -10,10 +10,14 @@ from .enums import (
     ConstraintType,
     ContradictionType,
     DependencyType,
+    EscalationReason,
     MatchConfidence,
     MatchMethod,
     ProblemStatus,
     RelationType,
+    ReviewPriority,
+    ReviewQueueStatus,
+    ReviewResolution,
     ReviewStatus,
     WorkflowState,
 )
@@ -31,12 +35,15 @@ from .supporting import (
 
 # Entity models
 from .entities import (
+    AgentContextForReview,
     Author,
     MatchCandidate,
     Paper,
+    PendingReview,
     Problem,
     ProblemConcept,
     ProblemMention,
+    SuggestedConceptForReview,
 )
 
 # Relationship models
@@ -56,10 +63,14 @@ __all__ = [
     "ConstraintType",
     "ContradictionType",
     "DependencyType",
+    "EscalationReason",
     "MatchConfidence",
     "MatchMethod",
     "ProblemStatus",
     "RelationType",
+    "ReviewPriority",
+    "ReviewQueueStatus",
+    "ReviewResolution",
     "ReviewStatus",
     "WorkflowState",
     # Supporting models
@@ -71,12 +82,15 @@ __all__ = [
     "ExtractionMetadata",
     "Metric",
     # Entity models
+    "AgentContextForReview",
     "Author",
     "MatchCandidate",
     "Paper",
+    "PendingReview",
     "Problem",
     "ProblemConcept",
     "ProblemMention",
+    "SuggestedConceptForReview",
     # Relationship models
     "AuthoredByRelation",
     "ContradictsRelation",

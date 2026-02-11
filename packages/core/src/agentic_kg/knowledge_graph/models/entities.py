@@ -12,9 +12,13 @@ from typing import Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .enums import (
+    EscalationReason,
     MatchConfidence,
     MatchMethod,
     ProblemStatus,
+    ReviewPriority,
+    ReviewQueueStatus,
+    ReviewResolution,
     ReviewStatus,
 )
 from .supporting import (
@@ -382,3 +386,141 @@ class Author(BaseModel):
     def to_neo4j_properties(self) -> dict:
         """Convert to Neo4j node properties."""
         return self.model_dump()
+
+
+# =============================================================================
+# Human Review Queue Models
+# =============================================================================
+
+
+class SuggestedConceptForReview(BaseModel):
+    """A concept suggested for matching, shown in human review queue."""
+
+    concept_id: str = Field(..., description="ID of the suggested concept")
+    canonical_statement: str = Field(..., description="The concept's canonical statement")
+    similarity_score: float = Field(ge=0.0, le=1.0, description="Vector similarity score")
+    final_score: float = Field(ge=0.0, le=1.0, description="Score after boosts")
+    agent_reasoning: Optional[str] = Field(
+        default=None, description="Why agents suggested this"
+    )
+    domain: Optional[str] = Field(default=None, description="Concept domain")
+    mention_count: int = Field(default=0, description="How many mentions link to this concept")
+
+
+class AgentContextForReview(BaseModel):
+    """Context from agent processing, attached to pending review items."""
+
+    escalation_reason: EscalationReason = Field(
+        ..., description="Why this was escalated"
+    )
+    evaluator_decision: Optional[str] = Field(
+        default=None, description="Evaluator decision if run"
+    )
+    evaluator_confidence: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0, description="Evaluator confidence"
+    )
+    maker_arguments: list[str] = Field(
+        default_factory=list, description="Summary of Maker arguments"
+    )
+    hater_arguments: list[str] = Field(
+        default_factory=list, description="Summary of Hater arguments"
+    )
+    arbiter_decision: Optional[str] = Field(
+        default=None, description="Arbiter decision if run"
+    )
+    rounds_attempted: int = Field(default=0, description="Consensus rounds attempted")
+    final_confidence: float = Field(
+        default=0.0, ge=0.0, le=1.0, description="Final agent confidence"
+    )
+
+
+class PendingReview(BaseModel):
+    """
+    An item in the human review queue.
+
+    Represents a mention-to-concept matching decision that was escalated
+    from agent review and needs human judgment.
+    """
+
+    # Identity
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique identifier")
+    trace_id: str = Field(..., description="Trace ID from matching workflow")
+
+    # The mention being reviewed
+    mention_id: str = Field(..., description="ProblemMention ID")
+    mention_statement: str = Field(..., description="The mention's problem statement")
+    paper_doi: str = Field(..., description="Source paper DOI")
+    paper_title: Optional[str] = Field(default=None, description="Source paper title")
+    domain: Optional[str] = Field(default=None, description="Problem domain")
+
+    # Suggested concepts
+    suggested_concepts: list[SuggestedConceptForReview] = Field(
+        default_factory=list, description="Concepts suggested by agents"
+    )
+
+    # Agent context
+    agent_context: AgentContextForReview = Field(
+        ..., description="Context from agent processing"
+    )
+
+    # Queue management
+    priority: ReviewPriority = Field(
+        default=ReviewPriority.MEDIUM, description="Review priority"
+    )
+    status: ReviewQueueStatus = Field(
+        default=ReviewQueueStatus.PENDING, description="Queue status"
+    )
+    assigned_to: Optional[str] = Field(default=None, description="Assigned reviewer user ID")
+    assigned_at: Optional[datetime] = Field(default=None, description="When assigned")
+
+    # SLA tracking
+    created_at: datetime = Field(default_factory=_utc_now, description="When added to queue")
+    sla_deadline: datetime = Field(..., description="SLA deadline for resolution")
+
+    # Resolution (filled when resolved)
+    resolution: Optional[ReviewResolution] = Field(
+        default=None, description="How the review was resolved"
+    )
+    resolved_concept_id: Optional[str] = Field(
+        default=None, description="Concept ID if linked"
+    )
+    resolved_by: Optional[str] = Field(default=None, description="Reviewer user ID")
+    resolved_at: Optional[datetime] = Field(default=None, description="When resolved")
+    resolution_notes: Optional[str] = Field(
+        default=None, description="Reviewer notes on decision"
+    )
+
+    @model_validator(mode="after")
+    def validate_resolution_fields(self) -> "PendingReview":
+        """Ensure resolution fields are consistent."""
+        if self.status == ReviewQueueStatus.RESOLVED:
+            if self.resolution is None:
+                raise ValueError("Resolved items must have a resolution")
+            if self.resolved_by is None:
+                raise ValueError("Resolved items must have resolved_by")
+            if self.resolved_at is None:
+                raise ValueError("Resolved items must have resolved_at")
+            if self.resolution == ReviewResolution.LINKED and self.resolved_concept_id is None:
+                raise ValueError("Linked resolution requires resolved_concept_id")
+        return self
+
+    def to_neo4j_properties(self) -> dict:
+        """Convert to Neo4j node properties (JSON-serializable)."""
+        data = self.model_dump()
+        # Convert nested objects to JSON
+        data["suggested_concepts"] = [c.model_dump() for c in self.suggested_concepts]
+        data["agent_context"] = self.agent_context.model_dump()
+        # Convert enums to strings
+        data["priority"] = self.priority.value
+        data["status"] = self.status.value
+        data["agent_context"]["escalation_reason"] = self.agent_context.escalation_reason.value
+        if self.resolution:
+            data["resolution"] = self.resolution.value
+        # Convert datetime to ISO strings
+        data["created_at"] = self.created_at.isoformat()
+        data["sla_deadline"] = self.sla_deadline.isoformat()
+        if self.assigned_at:
+            data["assigned_at"] = self.assigned_at.isoformat()
+        if self.resolved_at:
+            data["resolved_at"] = self.resolved_at.isoformat()
+        return data
