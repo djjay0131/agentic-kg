@@ -30,8 +30,17 @@ from agentic_kg.agents.matching.state import (
     create_matching_state,
     escalate_to_human,
 )
+from agentic_kg.agents.matching.evaluator import (
+    EvaluatorAgent,
+    EvaluatorError,
+    create_evaluator_agent,
+)
 
 __all__ = [
+    # Agents
+    "EvaluatorAgent",
+    "EvaluatorError",
+    "create_evaluator_agent",
     # Schemas
     "AgentContext",
     "ArbiterDecision",
