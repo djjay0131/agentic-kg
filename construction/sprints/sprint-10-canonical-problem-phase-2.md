@@ -139,39 +139,50 @@ Phase 2 builds upon Phase 1's auto-linking by implementing agent-based workflows
 ### Task 3: Maker/Hater/Arbiter Agents
 **Owner:** Construction Agent
 **Estimated Effort:** 4 hours
-**Status:** Not Started
+**Status:** COMPLETED (2026-02-11)
 
-- [ ] Create `packages/core/src/agentic_kg/agents/matching/maker.py`
-  - MakerAgent class extending BaseAgent
+- [x] Create `packages/core/src/agentic_kg/agents/matching/maker.py`
+  - MakerAgent class with LLM dependency injection
   - Prompt argues FOR linking with 5 evidence dimensions
-  - Returns MakerResult with 3-5 arguments
+  - Returns MakerResult with 3-5 arguments, claims, evidence, strength
+  - Acknowledges weak points honestly
 
-- [ ] Create `packages/core/src/agentic_kg/agents/matching/hater.py`
-  - HaterAgent class extending BaseAgent
+- [x] Create `packages/core/src/agentic_kg/agents/matching/hater.py`
+  - HaterAgent class with LLM dependency injection
   - Prompt argues AGAINST linking with 5 evidence dimensions
-  - Returns HaterResult with 3-5 arguments
-  - Must be critical but fair
+  - Returns HaterResult with 3-5 arguments, claims, evidence, strength
+  - Fair criticism - acknowledges strong matches honestly
 
-- [ ] Create `packages/core/src/agentic_kg/agents/matching/arbiter.py`
-  - ArbiterAgent class extending BaseAgent
-  - Receives both Maker and Hater arguments
-  - Decision framework weights false negative risk higher
-  - Confidence threshold of 0.7 for final decision
-  - Returns "retry" when confidence < 0.7
+- [x] Create `packages/core/src/agentic_kg/agents/matching/arbiter.py`
+  - ArbiterAgent class with LLM dependency injection
+  - format_arguments() utility for prompt building
+  - Three decisions: LINK, CREATE_NEW, RETRY
+  - Confidence threshold of 0.7 (configurable constant)
+  - Forces RETRY when confidence < 0.7 (non-final round)
+  - Final round: defaults to LINK (conservative, avoids false negatives)
 
-- [ ] Implement shared utilities
-  - Common prompt formatting functions
-  - Argument validation
-  - Round number tracking
+- [x] Implement shared utilities
+  - format_arguments() for Arbiter prompt formatting
+  - Argument Pydantic model (claim, evidence, strength)
+  - Round number tracking in state (current_round, max_rounds)
 
-- [ ] Unit tests for each agent with mocked LLM
+- [x] Unit tests for each agent with mocked LLM (25 tests)
 
 **Acceptance Criteria:**
-- Maker/Hater produce 3-5 relevant arguments each
-- Arbiter returns "retry" when confidence < 0.7
-- All agents handle LLM errors gracefully
-- Round number properly tracked through state
-- Prompts follow design specifications exactly
+
+- [x] Maker/Hater produce 3-5 relevant arguments each
+- [x] Arbiter returns "retry" when confidence < 0.7
+- [x] All agents handle LLM errors gracefully
+- [x] Round number properly tracked through state
+- [x] Prompts follow design specifications exactly
+
+**Completed Files:**
+
+- `packages/core/src/agentic_kg/agents/matching/maker.py` (270 lines)
+- `packages/core/src/agentic_kg/agents/matching/hater.py` (268 lines)
+- `packages/core/src/agentic_kg/agents/matching/arbiter.py` (360 lines)
+- `packages/core/tests/agents/matching/test_consensus_agents.py` (350 lines, 25 tests)
+- `packages/core/src/agentic_kg/agents/matching/__init__.py` (updated exports)
 
 **Related Requirements:** Sections 3.2, 3.3, 3.4 of design, FR-5
 
