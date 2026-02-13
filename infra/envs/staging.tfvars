@@ -15,3 +15,8 @@ api_max_instances  = 5
 github_owner        = "djjay0131"
 github_repo         = "agentic-kg"
 sync_github_secrets = true
+
+# Cloud Build triggers
+# Requires GitHub connection in Cloud Build console first:
+# https://console.cloud.google.com/cloud-build/triggers/connect
+enable_build_triggers = true
