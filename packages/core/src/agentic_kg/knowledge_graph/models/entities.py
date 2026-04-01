@@ -86,24 +86,22 @@ class Problem(BaseModel):
     version: int = Field(default=1, ge=1, description="Version number")
 
     def to_neo4j_properties(self) -> dict:
-        """Convert to Neo4j node properties (JSON-serializable)."""
+        """Convert to Neo4j node properties. Nested objects become JSON strings."""
+        import json
         data = self.model_dump(exclude={"embedding"})
-        # Convert nested objects to JSON strings for Neo4j
-        data["assumptions"] = [a.model_dump() for a in self.assumptions]
-        data["constraints"] = [c.model_dump() for c in self.constraints]
-        data["datasets"] = [d.model_dump() for d in self.datasets]
-        data["metrics"] = [m.model_dump() for m in self.metrics]
-        data["baselines"] = [b.model_dump() for b in self.baselines]
-        data["evidence"] = self.evidence.model_dump()
-        data["extraction_metadata"] = self.extraction_metadata.model_dump()
+        # Neo4j only accepts primitives — serialize nested objects to JSON strings
+        data["assumptions"] = json.dumps([a.model_dump() for a in self.assumptions])
+        data["constraints"] = json.dumps([c.model_dump() for c in self.constraints])
+        data["datasets"] = json.dumps([d.model_dump() for d in self.datasets])
+        data["metrics"] = json.dumps([m.model_dump() for m in self.metrics])
+        data["baselines"] = json.dumps([b.model_dump() for b in self.baselines])
+        data["evidence"] = json.dumps(self.evidence.model_dump(), default=str)
+        data["extraction_metadata"] = json.dumps(
+            self.extraction_metadata.model_dump(), default=str
+        )
         # Convert datetime to ISO strings
         data["created_at"] = self.created_at.isoformat()
         data["updated_at"] = self.updated_at.isoformat()
-        extracted_at = self.extraction_metadata.extracted_at.isoformat()
-        data["extraction_metadata"]["extracted_at"] = extracted_at
-        if self.extraction_metadata.reviewed_at:
-            reviewed_at = self.extraction_metadata.reviewed_at.isoformat()
-            data["extraction_metadata"]["reviewed_at"] = reviewed_at
         return data
 
 
@@ -170,21 +168,21 @@ class ProblemMention(BaseModel):
         return v
 
     def to_neo4j_properties(self) -> dict:
-        """Convert to Neo4j node properties (JSON-serializable)."""
+        """Convert to Neo4j node properties. Nested objects become JSON strings."""
+        import json
         data = self.model_dump(exclude={"embedding"})
-        # Convert nested objects to JSON
-        data["assumptions"] = [a.model_dump() for a in self.assumptions]
-        data["constraints"] = [c.model_dump() for c in self.constraints]
-        data["datasets"] = [d.model_dump() for d in self.datasets]
-        data["metrics"] = [m.model_dump() for m in self.metrics]
-        data["baselines"] = [b.model_dump() for b in self.baselines]
+        # Neo4j only accepts primitives — serialize nested objects to JSON strings
+        data["assumptions"] = json.dumps([a.model_dump() for a in self.assumptions])
+        data["constraints"] = json.dumps([c.model_dump() for c in self.constraints])
+        data["datasets"] = json.dumps([d.model_dump() for d in self.datasets])
+        data["metrics"] = json.dumps([m.model_dump() for m in self.metrics])
+        data["baselines"] = json.dumps([b.model_dump() for b in self.baselines])
         if self.extraction_metadata:
-            data["extraction_metadata"] = self.extraction_metadata.model_dump()
-            extracted_at = self.extraction_metadata.extracted_at.isoformat()
-            data["extraction_metadata"]["extracted_at"] = extracted_at
-            if self.extraction_metadata.reviewed_at:
-                reviewed_at = self.extraction_metadata.reviewed_at.isoformat()
-                data["extraction_metadata"]["reviewed_at"] = reviewed_at
+            data["extraction_metadata"] = json.dumps(
+                self.extraction_metadata.model_dump(), default=str
+            )
+        else:
+            data["extraction_metadata"] = None
         # Convert datetime to ISO strings
         data["created_at"] = self.created_at.isoformat()
         data["updated_at"] = self.updated_at.isoformat()
@@ -259,6 +257,11 @@ class ProblemConcept(BaseModel):
     updated_at: datetime = Field(default_factory=_utc_now)
     version: int = Field(default=1, ge=1, description="Version number")
 
+    # Refinement tracking
+    last_refined_at_count: Optional[int] = Field(
+        default=None, description="Mention count when last refined"
+    )
+
     @model_validator(mode="after")
     def validate_year_order(self) -> "ProblemConcept":
         """Ensure first_mentioned_year <= last_mentioned_year."""
@@ -271,15 +274,20 @@ class ProblemConcept(BaseModel):
         return self
 
     def to_neo4j_properties(self) -> dict:
-        """Convert to Neo4j node properties (JSON-serializable)."""
+        """Convert to Neo4j node properties. Nested objects become JSON strings."""
+        import json
         data = self.model_dump(exclude={"embedding"})
-        # Convert nested objects to JSON
-        data["assumptions"] = [a.model_dump() for a in self.assumptions]
-        data["constraints"] = [c.model_dump() for c in self.constraints]
-        data["datasets"] = [d.model_dump() for d in self.datasets]
-        data["metrics"] = [m.model_dump() for m in self.metrics]
-        data["verified_baselines"] = [b.model_dump() for b in self.verified_baselines]
-        data["claimed_baselines"] = [b.model_dump() for b in self.claimed_baselines]
+        # Neo4j only accepts primitives — serialize nested objects to JSON strings
+        data["assumptions"] = json.dumps([a.model_dump() for a in self.assumptions])
+        data["constraints"] = json.dumps([c.model_dump() for c in self.constraints])
+        data["datasets"] = json.dumps([d.model_dump() for d in self.datasets])
+        data["metrics"] = json.dumps([m.model_dump() for m in self.metrics])
+        data["verified_baselines"] = json.dumps(
+            [b.model_dump() for b in self.verified_baselines]
+        )
+        data["claimed_baselines"] = json.dumps(
+            [b.model_dump() for b in self.claimed_baselines]
+        )
         # Convert datetime to ISO strings
         data["created_at"] = self.created_at.isoformat()
         data["updated_at"] = self.updated_at.isoformat()

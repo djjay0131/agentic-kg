@@ -231,6 +231,27 @@ resource "google_cloud_run_v2_service" "api" {
           }
         }
       }
+
+      # GCP config for Cloud Run Jobs trigger
+      env {
+        name  = "GCP_PROJECT"
+        value = var.project_id
+      }
+
+      env {
+        name  = "GCP_REGION"
+        value = var.region
+      }
+
+      env {
+        name  = "GCP_ENV"
+        value = var.env
+      }
+
+      env {
+        name  = "CORS_ORIGINS"
+        value = "*"
+      }
     }
   }
 
@@ -248,6 +269,88 @@ resource "google_cloud_run_v2_service_iam_member" "api_public" {
   location = var.region
   role     = "roles/run.invoker"
   member   = "allUsers"
+}
+
+# =============================================================================
+# Cloud Run Job — Ingestion (long-running paper ingestion)
+# =============================================================================
+resource "google_cloud_run_v2_job" "ingest" {
+  name     = "agentic-kg-ingest-${var.env}"
+  location = var.region
+
+  template {
+    template {
+      containers {
+        image   = "${var.region}-docker.pkg.dev/${var.project_id}/agentic-kg/job:latest"
+        command = ["python", "-m", "agentic_kg.job_runner"]
+
+        resources {
+          limits = {
+            memory = var.ingest_job_memory
+            cpu    = var.ingest_job_cpu
+          }
+        }
+
+        env {
+          name = "NEO4J_URI"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.neo4j_uri.secret_id
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "NEO4J_PASSWORD"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.neo4j_password.secret_id
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "OPENAI_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = "OPENAI_API_KEY"
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "ANTHROPIC_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = "ANTHROPIC_API_KEY"
+              version = "latest"
+            }
+          }
+        }
+      }
+
+      timeout     = "${var.ingest_job_timeout}s"
+      max_retries = 0
+    }
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_project_iam_member.secret_accessor,
+    google_secret_manager_secret_version.neo4j_uri,
+    google_secret_manager_secret_version.neo4j_password,
+  ]
+}
+
+# IAM — API service account can trigger and poll ingest job (minimum permissions)
+resource "google_cloud_run_v2_job_iam_member" "api_can_run_ingest" {
+  name     = google_cloud_run_v2_job.ingest.name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
 }
 
 # =============================================================================

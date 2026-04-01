@@ -9,6 +9,11 @@ api_cpu            = "1"
 api_min_instances  = 0
 api_max_instances  = 5
 
+# Ingest job
+ingest_job_memory  = "2Gi"
+ingest_job_cpu     = "2"
+ingest_job_timeout = 1800
+
 # GitHub Actions secrets sync
 # Set github_owner and sync_github_secrets=true to auto-sync staging credentials
 # Requires GITHUB_TOKEN env var with repo and secrets permissions

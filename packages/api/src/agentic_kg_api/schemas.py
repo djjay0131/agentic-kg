@@ -248,3 +248,150 @@ class GraphResponse(BaseModel):
 
     nodes: list[GraphNode] = Field(default_factory=list)
     links: list[GraphLink] = Field(default_factory=list)
+
+
+# =============================================================================
+# Review Queue Schemas
+# =============================================================================
+
+
+class SuggestedConceptResponse(BaseModel):
+    """A suggested concept for review."""
+
+    concept_id: str
+    canonical_statement: str
+    similarity_score: float
+    final_score: float
+    agent_reasoning: Optional[str] = None
+    domain: Optional[str] = None
+    mention_count: int = 0
+
+
+class AgentContextResponse(BaseModel):
+    """Agent context from matching workflow."""
+
+    escalation_reason: str
+    evaluator_decision: Optional[str] = None
+    evaluator_confidence: Optional[float] = None
+    maker_arguments: list[str] = Field(default_factory=list)
+    hater_arguments: list[str] = Field(default_factory=list)
+    arbiter_decision: Optional[str] = None
+    rounds_attempted: int = 0
+    final_confidence: float = 0.0
+
+
+class PendingReviewSummary(BaseModel):
+    """Summary of a pending review for list views."""
+
+    id: str
+    trace_id: str
+    mention_id: str
+    mention_statement: str
+    paper_doi: str
+    domain: Optional[str] = None
+    priority: int
+    status: str
+    assigned_to: Optional[str] = None
+    created_at: datetime
+    sla_deadline: datetime
+
+
+class PendingReviewDetail(BaseModel):
+    """Full detail of a pending review including agent context."""
+
+    id: str
+    trace_id: str
+    mention_id: str
+    mention_statement: str
+    paper_doi: str
+    paper_title: Optional[str] = None
+    domain: Optional[str] = None
+    suggested_concepts: list[SuggestedConceptResponse] = Field(default_factory=list)
+    agent_context: AgentContextResponse
+    priority: int
+    status: str
+    assigned_to: Optional[str] = None
+    assigned_at: Optional[datetime] = None
+    created_at: datetime
+    sla_deadline: datetime
+    resolution: Optional[str] = None
+    resolved_concept_id: Optional[str] = None
+    resolved_by: Optional[str] = None
+    resolved_at: Optional[datetime] = None
+    resolution_notes: Optional[str] = None
+
+
+class PendingReviewListResponse(BaseModel):
+    """Paginated list of pending reviews."""
+
+    reviews: list[PendingReviewSummary]
+    total: int
+    limit: int
+
+
+class ReviewResolutionRequest(BaseModel):
+    """Request body for resolving a review."""
+
+    resolution: str = Field(..., description="One of: linked, created_new, blacklisted")
+    concept_id: Optional[str] = Field(
+        default=None, description="Required if resolution is 'linked'"
+    )
+    notes: Optional[str] = Field(default=None, description="Optional resolution notes")
+
+
+# =============================================================================
+# Ingestion Schemas
+# =============================================================================
+
+
+class IngestRequest(BaseModel):
+    """Request body for paper ingestion."""
+
+    query: str = Field(..., description="Search query for paper discovery")
+    limit: int = Field(default=20, ge=1, le=100, description="Max papers to fetch")
+    sources: Optional[list[str]] = Field(
+        default=None, description="API sources (semantic_scholar, arxiv, openalex)"
+    )
+    dry_run: bool = Field(default=False, description="Search only, don't extract or integrate")
+    enable_agent_workflow: bool = Field(
+        default=True, description="Route MEDIUM/LOW matches through agents"
+    )
+    min_extraction_confidence: float = Field(
+        default=0.5, ge=0.0, le=1.0, description="Minimum problem confidence to integrate"
+    )
+
+
+class SanityCheckResponse(BaseModel):
+    """Result of a single graph sanity check."""
+
+    name: str
+    passed: bool
+    count: int
+    description: str
+
+
+class IngestStatusResponse(BaseModel):
+    """Response for ingestion status (both queued and complete)."""
+
+    trace_id: str
+    status: str = Field(description="queued|running|completed|failed|dry_run")
+    query: str = ""
+
+    # Counts (populated as phases complete)
+    papers_found: int = 0
+    papers_imported: int = 0
+    papers_extracted: int = 0
+    papers_skipped_no_pdf: int = 0
+    total_problems: int = 0
+    concepts_created: int = 0
+    concepts_linked: int = 0
+
+    # Dry run
+    dry_run_papers: list[dict] = Field(default_factory=list)
+
+    # Errors
+    extraction_errors: dict[str, str] = Field(default_factory=dict)
+    error: Optional[str] = None
+
+    # Sanity checks
+    sanity_checks: list[SanityCheckResponse] = Field(default_factory=list)

@@ -723,6 +723,35 @@ class Neo4jRepository:
         logger.info(f"Created author: {author.id} ({author.name})")
         return author
 
+    def link_paper_to_author(
+        self, paper_doi: str, author_id: str, position: int = 1
+    ) -> None:
+        """
+        Create an AUTHORED_BY relationship between a Paper and an Author.
+
+        Args:
+            paper_doi: Paper DOI.
+            author_id: Author ID.
+            position: Author position (1-indexed).
+        """
+        def _link(tx: ManagedTransaction, doi: str, aid: str, pos: int) -> None:
+            tx.run(
+                """
+                MATCH (p:Paper {doi: $doi})
+                MATCH (a:Author {id: $aid})
+                MERGE (p)-[r:AUTHORED_BY]->(a)
+                SET r.position = $pos
+                """,
+                doi=doi,
+                aid=aid,
+                pos=pos,
+            )
+
+        with self.session() as session:
+            self._execute_with_retry(session, _link, paper_doi, author_id, position)
+
+        logger.debug(f"Linked paper {paper_doi} to author {author_id} (position {position})")
+
     def get_author(self, author_id: str) -> Author:
         """
         Get an Author by ID.

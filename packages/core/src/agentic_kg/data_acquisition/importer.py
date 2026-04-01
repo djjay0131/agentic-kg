@@ -22,6 +22,7 @@ from agentic_kg.knowledge_graph.models import Author, Paper
 from agentic_kg.knowledge_graph.repository import (
     DuplicateError,
     Neo4jRepository,
+    NotFoundError as RepoNotFoundError,
     get_repository,
 )
 
@@ -197,7 +198,10 @@ class PaperImporter:
                 )
 
             # Check if paper already exists
-            existing = self.repository.get_paper(normalized.doi)
+            try:
+                existing = self.repository.get_paper(normalized.doi)
+            except RepoNotFoundError:
+                existing = None
 
             if existing:
                 if update_existing:

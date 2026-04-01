@@ -6,7 +6,9 @@ This module handles the new mention-to-concept workflow:
 - Generating embeddings for mentions
 - Matching mentions to concepts using ConceptMatcher
 - Auto-linking HIGH confidence matches
-- Creating new concepts when no HIGH match exists
+- Agent workflows for MEDIUM/LOW confidence (Phase 2)
+- Human review queue for escalated matches
+- Concept refinement at mention thresholds
 - Checkpoint saves at each stage for rollback
 """
 
@@ -33,10 +35,25 @@ from agentic_kg.knowledge_graph.models import (
     ProblemConcept,
     ProblemMention,
     ReviewStatus,
+    SuggestedConceptForReview,
+    AgentContextForReview,
+    ReviewPriority,
 )
 from agentic_kg.knowledge_graph.repository import (
     Neo4jRepository,
     get_repository,
+)
+
+# Phase 2 imports: Agent workflow and concept refinement
+from agentic_kg.agents.matching.workflow import process_medium_low_confidence
+from agentic_kg.agents.matching.state import create_matching_state, MatchingWorkflowState
+from agentic_kg.knowledge_graph.concept_refinement import (
+    ConceptRefinementService,
+    get_refinement_service,
+)
+from agentic_kg.knowledge_graph.review_queue import (
+    ReviewQueueService,
+    get_review_queue_service,
 )
 
 logger = logging.getLogger(__name__)
@@ -51,6 +68,10 @@ class MentionIntegrationResult(BaseModel):
     match_confidence: Optional[str] = Field(None, description="Match confidence level")
     match_score: Optional[float] = Field(None, description="Similarity score")
     auto_linked: bool = Field(False, description="True if auto-linked (HIGH confidence)")
+    agent_workflow_used: bool = Field(False, description="True if agent workflow processed")
+    workflow_decision: Optional[str] = Field(None, description="Agent workflow decision")
+    human_review_id: Optional[str] = Field(None, description="Human review queue ID if escalated")
+    concept_refined: bool = Field(False, description="True if concept was refined")
     trace_id: str = Field(..., description="Trace ID for audit trail")
     checkpoint_saved: bool = Field(False, description="True if checkpoint saved")
     error: Optional[str] = Field(None, description="Error message if failed")
@@ -102,6 +123,10 @@ class KGIntegratorV2:
         embedding_service: Optional[EmbeddingService] = None,
         concept_matcher: Optional[ConceptMatcher] = None,
         auto_linker: Optional[AutoLinker] = None,
+        refinement_service: Optional[ConceptRefinementService] = None,
+        review_queue_service: Optional[ReviewQueueService] = None,
+        enable_agent_workflow: bool = True,
+        enable_concept_refinement: bool = True,
     ):
         """
         Initialize KG integrator.
@@ -111,6 +136,10 @@ class KGIntegratorV2:
             embedding_service: Embedding service. Creates new if not provided.
             concept_matcher: ConceptMatcher service. Creates new if not provided.
             auto_linker: AutoLinker service. Creates new if not provided.
+            refinement_service: ConceptRefinementService. Creates new if not provided.
+            review_queue_service: ReviewQueueService. Creates new if not provided.
+            enable_agent_workflow: Whether to use agent workflow for MEDIUM/LOW confidence.
+            enable_concept_refinement: Whether to trigger concept refinement after linking.
         """
         self._repo = repository or get_repository()
         self._embedder = embedding_service or EmbeddingService()
@@ -123,6 +152,10 @@ class KGIntegratorV2:
             concept_matcher=self._matcher,
             embedding_service=self._embedder,
         )
+        self._refinement = refinement_service
+        self._review_queue = review_queue_service
+        self._enable_agent_workflow = enable_agent_workflow
+        self._enable_concept_refinement = enable_concept_refinement
 
     def integrate_extracted_problems(
         self,
@@ -258,49 +291,42 @@ class KGIntegratorV2:
                 error=f"Mention storage failed: {e}",
             )
 
-        # Step 4: Match to concepts (using AUTO_LINKER)
+        # Step 4: Match to concepts with confidence-based routing
         try:
-            # Try auto-linking (returns None if no HIGH confidence match)
-            concept = self._linker.auto_link_high_confidence(
-                mention=mention,
-                trace_id=trace_id,
+            # Get best match candidate with confidence classification
+            best_candidate = self._matcher.match_mention_to_concept(
+                mention, auto_link_high_confidence=False
             )
 
-            if concept:
-                # HIGH confidence match found and linked
-                logger.info(
-                    f"[{trace_id}] AUTO-LINKED: mention {mention.id} -> concept {concept.id}"
-                )
-                return MentionIntegrationResult(
-                    mention_id=mention.id,
-                    concept_id=concept.id,
-                    is_new_concept=False,
-                    match_confidence="high",
-                    match_score=None,  # Score stored in relationship
-                    auto_linked=True,
-                    trace_id=trace_id,
-                    checkpoint_saved=True,
+            # Route based on confidence level
+            if not best_candidate:
+                # NO_MATCH: Create new concept
+                return self._handle_no_match(mention, trace_id, checkpoint_1_saved)
+
+            confidence = best_candidate.confidence
+
+            if confidence == MatchConfidence.HIGH:
+                # HIGH confidence (>95%): Auto-link
+                return self._handle_high_confidence(
+                    mention, best_candidate, trace_id, checkpoint_1_saved
                 )
 
-            # No HIGH confidence match - create new concept
-            concept = self._linker.create_new_concept(
-                mention=mention,
-                trace_id=trace_id,
-            )
+            elif confidence in (MatchConfidence.MEDIUM, MatchConfidence.LOW):
+                # MEDIUM (80-95%) or LOW (50-80%): Agent workflow
+                if self._enable_agent_workflow:
+                    return self._handle_agent_workflow(
+                        mention, best_candidate, trace_id, checkpoint_1_saved
+                    )
+                else:
+                    # Fallback: create new concept if workflow disabled
+                    logger.info(
+                        f"[{trace_id}] Agent workflow disabled, creating new concept"
+                    )
+                    return self._handle_no_match(mention, trace_id, checkpoint_1_saved)
 
-            logger.info(
-                f"[{trace_id}] NEW CONCEPT: created concept {concept.id} from mention {mention.id}"
-            )
-            return MentionIntegrationResult(
-                mention_id=mention.id,
-                concept_id=concept.id,
-                is_new_concept=True,
-                match_confidence="high",  # New concept = perfect match to itself
-                match_score=1.0,
-                auto_linked=True,
-                trace_id=trace_id,
-                checkpoint_saved=True,
-            )
+            else:
+                # REJECTED (<50%): Create new concept
+                return self._handle_no_match(mention, trace_id, checkpoint_1_saved)
 
         except Exception as e:
             logger.error(f"[{trace_id}] Failed to link mention: {e}", exc_info=True)
@@ -310,6 +336,325 @@ class KGIntegratorV2:
                 checkpoint_saved=checkpoint_1_saved,
                 error=f"Linking failed: {e}",
             )
+
+    def _handle_high_confidence(
+        self,
+        mention: ProblemMention,
+        candidate: MatchCandidate,
+        trace_id: str,
+        checkpoint_saved: bool,
+    ) -> MentionIntegrationResult:
+        """Handle HIGH confidence match via auto-linking."""
+        concept = self._linker.auto_link_high_confidence(
+            mention=mention,
+            trace_id=trace_id,
+        )
+
+        if concept:
+            logger.info(
+                f"[{trace_id}] AUTO-LINKED: mention {mention.id} -> concept {concept.id}"
+            )
+
+            # Trigger concept refinement after linking
+            concept_refined = self._maybe_refine_concept(concept.id, trace_id)
+
+            return MentionIntegrationResult(
+                mention_id=mention.id,
+                concept_id=concept.id,
+                is_new_concept=False,
+                match_confidence="high",
+                match_score=candidate.final_score,
+                auto_linked=True,
+                concept_refined=concept_refined,
+                trace_id=trace_id,
+                checkpoint_saved=True,
+            )
+
+        # Fallback to creating new concept if auto-link fails
+        return self._handle_no_match(mention, trace_id, checkpoint_saved)
+
+    def _handle_no_match(
+        self,
+        mention: ProblemMention,
+        trace_id: str,
+        checkpoint_saved: bool,
+    ) -> MentionIntegrationResult:
+        """Handle NO_MATCH case by creating new concept."""
+        concept = self._linker.create_new_concept(
+            mention=mention,
+            trace_id=trace_id,
+        )
+
+        logger.info(
+            f"[{trace_id}] NEW CONCEPT: created concept {concept.id} from mention {mention.id}"
+        )
+
+        return MentionIntegrationResult(
+            mention_id=mention.id,
+            concept_id=concept.id,
+            is_new_concept=True,
+            match_confidence="high",  # New concept = perfect match to itself
+            match_score=1.0,
+            auto_linked=True,
+            trace_id=trace_id,
+            checkpoint_saved=True,
+        )
+
+    def _handle_agent_workflow(
+        self,
+        mention: ProblemMention,
+        candidate: MatchCandidate,
+        trace_id: str,
+        checkpoint_saved: bool,
+    ) -> MentionIntegrationResult:
+        """Handle MEDIUM/LOW confidence via agent workflow."""
+        import asyncio
+
+        logger.info(
+            f"[{trace_id}] AGENT WORKFLOW: confidence={candidate.confidence.value}, "
+            f"score={candidate.final_score:.3f}"
+        )
+
+        # Create workflow state
+        state = create_matching_state(
+            mention_id=mention.id,
+            mention_statement=mention.statement,
+            mention_embedding=mention.embedding or [],
+            candidate_concept_id=candidate.concept_id,
+            candidate_statement=candidate.concept_statement,
+            similarity_score=candidate.similarity_score,
+            paper_doi=mention.paper_doi,
+            mention_domain=mention.domain,
+            trace_id=trace_id,
+        )
+
+        # Set confidence level for routing
+        state["initial_confidence"] = candidate.confidence.value.lower()
+        state["final_score"] = candidate.final_score
+        state["candidate_domain"] = None  # Not available in MatchCandidate
+        state["candidate_mention_count"] = 0  # Not available in MatchCandidate
+
+        # Run workflow (sync wrapper for async)
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        try:
+            result_state = loop.run_until_complete(
+                process_medium_low_confidence(state)
+            )
+        except Exception as e:
+            logger.error(f"[{trace_id}] Agent workflow failed: {e}", exc_info=True)
+            # Fallback: create new concept on workflow failure
+            return self._handle_no_match(mention, trace_id, checkpoint_saved)
+
+        # Process workflow result
+        final_decision = result_state.get("final_decision")
+        final_concept_id = result_state.get("final_concept_id")
+
+        if final_decision == "linked":
+            # Link to existing concept
+            return self._finalize_agent_link(
+                mention, candidate, result_state, trace_id
+            )
+
+        elif final_decision == "created_new":
+            # Create new concept
+            concept = self._linker.create_new_concept(
+                mention=mention,
+                trace_id=trace_id,
+            )
+
+            logger.info(
+                f"[{trace_id}] AGENT DECISION: created new concept {concept.id}"
+            )
+
+            return MentionIntegrationResult(
+                mention_id=mention.id,
+                concept_id=concept.id,
+                is_new_concept=True,
+                match_confidence=candidate.confidence.value.lower(),
+                match_score=candidate.final_score,
+                auto_linked=False,
+                agent_workflow_used=True,
+                workflow_decision="created_new",
+                trace_id=trace_id,
+                checkpoint_saved=True,
+            )
+
+        elif final_decision == "escalated":
+            # Escalate to human review queue
+            return self._escalate_to_human_review(
+                mention, candidate, result_state, trace_id
+            )
+
+        else:
+            # Unknown decision - fallback to create new
+            logger.warning(
+                f"[{trace_id}] Unknown workflow decision: {final_decision}, "
+                f"creating new concept"
+            )
+            return self._handle_no_match(mention, trace_id, checkpoint_saved)
+
+    def _finalize_agent_link(
+        self,
+        mention: ProblemMention,
+        candidate: MatchCandidate,
+        result_state: MatchingWorkflowState,
+        trace_id: str,
+    ) -> MentionIntegrationResult:
+        """Finalize linking after agent workflow approves."""
+        # Create INSTANCE_OF relationship using auto_linker internals
+        try:
+            concept = self._linker._create_instance_of_relationship(
+                mention=mention,
+                candidate=candidate,
+                trace_id=trace_id,
+            )
+
+            logger.info(
+                f"[{trace_id}] AGENT DECISION: linked mention {mention.id} -> concept {concept.id}"
+            )
+
+            # Trigger concept refinement after linking
+            concept_refined = self._maybe_refine_concept(concept.id, trace_id)
+
+            return MentionIntegrationResult(
+                mention_id=mention.id,
+                concept_id=concept.id,
+                is_new_concept=False,
+                match_confidence=candidate.confidence.value.lower(),
+                match_score=candidate.final_score,
+                auto_linked=False,
+                agent_workflow_used=True,
+                workflow_decision="linked",
+                concept_refined=concept_refined,
+                trace_id=trace_id,
+                checkpoint_saved=True,
+            )
+
+        except Exception as e:
+            logger.error(f"[{trace_id}] Failed to finalize link: {e}", exc_info=True)
+            return MentionIntegrationResult(
+                mention_id=mention.id,
+                trace_id=trace_id,
+                agent_workflow_used=True,
+                workflow_decision="linked",
+                error=f"Link finalization failed: {e}",
+            )
+
+    def _escalate_to_human_review(
+        self,
+        mention: ProblemMention,
+        candidate: MatchCandidate,
+        result_state: MatchingWorkflowState,
+        trace_id: str,
+    ) -> MentionIntegrationResult:
+        """Escalate to human review queue."""
+        logger.info(
+            f"[{trace_id}] ESCALATING to human review queue "
+            f"(reason={result_state.get('escalation_reason')})"
+        )
+
+        # Build suggested concepts list
+        suggested_concepts = [
+            SuggestedConceptForReview(
+                concept_id=candidate.concept_id,
+                canonical_statement=candidate.concept_statement,
+                similarity_score=candidate.similarity_score,
+                final_score=candidate.final_score,
+                agent_reasoning=result_state.get("decision_reasoning", ""),
+                domain=None,  # Not available in MatchCandidate
+                mention_count=0,  # Not available in MatchCandidate
+            )
+        ]
+
+        # Build agent context
+        agent_context = AgentContextForReview(
+            escalation_reason=result_state.get("escalation_reason"),
+            evaluator_decision=result_state.get("evaluator_decision"),
+            evaluator_confidence=result_state.get("evaluator_result", {}).get("confidence"),
+            maker_arguments=[r.get("strongest_argument") for r in result_state.get("maker_results", [])],
+            hater_arguments=[r.get("strongest_argument") for r in result_state.get("hater_results", [])],
+            arbiter_decision=result_state.get("arbiter_results", [{}])[-1].get("decision") if result_state.get("arbiter_results") else None,
+            rounds_attempted=result_state.get("current_round", 0),
+            final_confidence=result_state.get("final_confidence", 0.0),
+        )
+
+        # Enqueue to review queue
+        human_review_id = None
+        if self._review_queue:
+            try:
+                import asyncio
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+
+                pending_review = loop.run_until_complete(
+                    self._review_queue.enqueue(
+                        mention=mention,
+                        suggested_concepts=suggested_concepts,
+                        workflow_state=result_state,
+                        priority=None,  # Auto-calculated
+                    )
+                )
+                human_review_id = pending_review.id
+                logger.info(f"[{trace_id}] Created human review: {human_review_id}")
+
+            except Exception as e:
+                logger.error(f"[{trace_id}] Failed to enqueue review: {e}", exc_info=True)
+
+        return MentionIntegrationResult(
+            mention_id=mention.id,
+            match_confidence=candidate.confidence.value.lower(),
+            match_score=candidate.final_score,
+            auto_linked=False,
+            agent_workflow_used=True,
+            workflow_decision="escalated",
+            human_review_id=human_review_id,
+            trace_id=trace_id,
+            checkpoint_saved=True,
+        )
+
+    def _maybe_refine_concept(self, concept_id: str, trace_id: str) -> bool:
+        """Trigger concept refinement if enabled and at threshold."""
+        if not self._enable_concept_refinement:
+            return False
+
+        # Initialize refinement service if not provided
+        if self._refinement is None:
+            try:
+                self._refinement = get_refinement_service(repository=self._repo)
+            except Exception as e:
+                logger.warning(f"[{trace_id}] Could not initialize refinement service: {e}")
+                return False
+
+        try:
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+            result = loop.run_until_complete(
+                self._refinement.check_and_refine(concept_id, trace_id)
+            )
+
+            if result:
+                logger.info(
+                    f"[{trace_id}] Concept {concept_id} refined (version {result.version})"
+                )
+                return True
+
+        except Exception as e:
+            logger.warning(f"[{trace_id}] Concept refinement failed: {e}")
+
+        return False
 
     def _create_problem_mention(
         self,
@@ -334,11 +679,11 @@ class KGIntegratorV2:
             for a in extracted_problem.assumptions
         ]
         constraints = [
-            Constraint(text=c.text, type=c.type, confidence=c.confidence)
+            Constraint(text=c.text, type=c.constraint_type, confidence=c.confidence)
             for c in extracted_problem.constraints
         ]
         datasets = [
-            Dataset(name=d.name, url=d.url, available=d.available, size=d.size)
+            Dataset(name=d.name, url=d.url, available=d.available)
             for d in extracted_problem.datasets
         ]
         metrics = [
@@ -346,15 +691,15 @@ class KGIntegratorV2:
             for m in extracted_problem.metrics
         ]
         baselines = [
-            Baseline(name=b.name, paper_doi=b.paper_doi, performance=b.performance)
+            Baseline(name=b.name, paper_doi=b.paper_reference, performance={})
             for b in extracted_problem.baselines
         ]
 
         extraction_metadata = ExtractionMetadata(
             extracted_at=datetime.now(timezone.utc),
             extractor_version="1.0.0",
-            extraction_model=extracted_problem.metadata.model if extracted_problem.metadata else "unknown",
-            confidence_score=extracted_problem.metadata.confidence if extracted_problem.metadata else 0.8,
+            extraction_model="extraction_pipeline",
+            confidence_score=extracted_problem.confidence,
             human_reviewed=False,
         )
 
@@ -362,7 +707,7 @@ class KGIntegratorV2:
             id=str(uuid.uuid4()),
             statement=extracted_problem.statement,
             paper_doi=paper_doi,
-            section=extracted_problem.section,
+            section="Unknown",  # Default when not in ExtractedProblem schema
             domain=extracted_problem.domain,
             assumptions=assumptions,
             constraints=constraints,
@@ -384,7 +729,10 @@ class KGIntegratorV2:
 
     def _store_mention_node(self, mention: ProblemMention) -> None:
         """
-        Store ProblemMention node in Neo4j.
+        Store ProblemMention node in Neo4j and link to source Paper.
+
+        Creates the ProblemMention node and an EXTRACTED_FROM relationship
+        to the Paper node identified by paper_doi.
 
         Args:
             mention: ProblemMention to store.
@@ -396,9 +744,14 @@ class KGIntegratorV2:
             query = """
             CREATE (m:ProblemMention)
             SET m = $properties
+            WITH m
+            OPTIONAL MATCH (p:Paper {doi: $paper_doi})
+            FOREACH (_ IN CASE WHEN p IS NOT NULL THEN [1] ELSE [] END |
+                CREATE (m)-[:EXTRACTED_FROM]->(p)
+            )
             """
             props = mention.to_neo4j_properties()
-            session.run(query, properties=props)
+            session.run(query, properties=props, paper_doi=mention.paper_doi)
 
     def _save_checkpoint(
         self,

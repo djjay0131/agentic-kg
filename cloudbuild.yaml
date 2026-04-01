@@ -136,29 +136,36 @@ steps:
           *) ENV_VARS="" ;;
         esac
 
-        # Build deploy command
-        DEPLOY_CMD="gcloud run deploy agentic-kg-${_SERVICE}-staging \
-          --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA \
-          --region=${_REGION} \
-          --platform=managed \
-          --port=$$PORT \
-          --memory=$$MEMORY \
-          --min-instances=0 \
-          --max-instances=10 \
-          --allow-unauthenticated"
+        # Deploy based on service type
+        if [ "${_SERVICE}" = "job" ]; then
+          # Cloud Run Job — update job image (managed by Terraform, just update image)
+          gcloud run jobs update agentic-kg-ingest-staging \
+            --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA \
+            --region=${_REGION}
+        else
+          # Cloud Run Service — deploy as before
+          DEPLOY_CMD="gcloud run deploy agentic-kg-${_SERVICE}-staging \
+            --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA \
+            --region=${_REGION} \
+            --platform=managed \
+            --port=$$PORT \
+            --memory=$$MEMORY \
+            --min-instances=0 \
+            --max-instances=10 \
+            --allow-unauthenticated"
 
-        # Add secrets if any
-        if [ -n "$$SECRETS" ]; then
-          DEPLOY_CMD="$$DEPLOY_CMD --set-secrets=$$SECRETS"
+          # Add secrets if any
+          if [ -n "$$SECRETS" ]; then
+            DEPLOY_CMD="$$DEPLOY_CMD --set-secrets=$$SECRETS"
+          fi
+
+          # Add env vars if any
+          if [ -n "$$ENV_VARS" ]; then
+            DEPLOY_CMD="$$DEPLOY_CMD --set-env-vars=$$ENV_VARS"
+          fi
+
+          eval $$DEPLOY_CMD
         fi
-
-        # Add env vars if any
-        if [ -n "$$ENV_VARS" ]; then
-          DEPLOY_CMD="$$DEPLOY_CMD --set-env-vars=$$ENV_VARS"
-        fi
-
-        # Deploy to staging
-        eval $$DEPLOY_CMD
 
 images:
   - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA'

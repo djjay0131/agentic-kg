@@ -363,7 +363,157 @@ def build_parser() -> argparse.ArgumentParser:
         help="Enable verbose logging",
     )
 
+    # Ingest command
+    ingest = subparsers.add_parser(
+        "ingest",
+        help="Search for papers and ingest into knowledge graph",
+    )
+    ingest.add_argument(
+        "--query", help="Search query for paper discovery",
+    )
+    ingest.add_argument(
+        "--limit", type=int, default=20,
+        help="Maximum papers to fetch (default: 20)",
+    )
+    ingest.add_argument(
+        "--sources", nargs="+",
+        help="API sources to search (e.g., semantic_scholar arxiv openalex)",
+    )
+    ingest.add_argument(
+        "--dry-run", action="store_true",
+        help="Search only — don't extract or write to KG",
+    )
+    ingest.add_argument(
+        "--no-agent-workflow", action="store_true",
+        help="Disable agent workflows for MEDIUM/LOW confidence matches",
+    )
+    ingest.add_argument(
+        "--sanity-check-only", action="store_true",
+        help="Run sanity checks against existing graph (no ingestion)",
+    )
+    ingest.add_argument(
+        "--min-confidence", type=float, default=0.5,
+        help="Minimum extraction confidence to integrate (default: 0.5)",
+    )
+    ingest.add_argument(
+        "--json", action="store_true", dest="json_output",
+        help="Output results as JSON",
+    )
+    ingest.add_argument(
+        "-v", "--verbose", action="store_true",
+        help="Enable verbose logging",
+    )
+
     return parser
+
+
+def print_ingestion_result(result, as_json: bool = False) -> None:
+    """Print ingestion result to stdout."""
+    from agentic_kg.ingestion import IngestionResult
+
+    if as_json:
+        output = result.model_dump(exclude={"dry_run_papers"} if not result.dry_run_papers else set())
+        print(json.dumps(output, indent=2, default=str))
+        return
+
+    status = result.status.upper()
+    print(f"\n{'='*60}")
+    print(f"Ingestion Result: {status}")
+    print(f"{'='*60}")
+    print(f"  Query:   {result.query}")
+    print(f"  Trace:   {result.trace_id}")
+
+    if result.status == "dry_run":
+        print(f"\n  Papers found: {result.papers_found}")
+        print(f"\n  Papers that would be ingested:")
+        for p in result.dry_run_papers:
+            pdf = "PDF available" if p.get("pdf_url") else "No PDF"
+            print(f"    - {p.get('doi', 'no-doi')}: {p.get('title', 'Untitled')} ({pdf})")
+    else:
+        print(f"\n  Phase 1 - Search & Import:")
+        print(f"    Papers found:    {result.papers_found}")
+        print(f"    Papers imported: {result.papers_imported}")
+        print(f"\n  Phase 2 - Extraction:")
+        print(f"    Papers extracted:     {result.papers_extracted}")
+        print(f"    Papers skipped (no PDF): {result.papers_skipped_no_pdf}")
+        if result.extraction_errors:
+            print(f"    Extraction errors:    {len(result.extraction_errors)}")
+            for doi, err in result.extraction_errors.items():
+                print(f"      {doi}: {err}")
+        print(f"\n  Phase 3 - Integration:")
+        print(f"    Total problems:    {result.total_problems}")
+        print(f"    Concepts created:  {result.concepts_created}")
+        print(f"    Concepts linked:   {result.concepts_linked}")
+
+    if result.sanity_checks:
+        print(f"\n  Phase 4 - Sanity Checks:")
+        for check in result.sanity_checks:
+            icon = "+" if check.passed else "x"
+            print(f"    [{icon}] {check.name}: {check.description}")
+
+    if result.error:
+        print(f"\n  ERROR: {result.error}")
+
+    print()
+
+
+def print_sanity_checks(checks, as_json: bool = False) -> None:
+    """Print sanity check results to stdout."""
+    if as_json:
+        output = [c.model_dump() for c in checks]
+        print(json.dumps(output, indent=2))
+        return
+
+    print(f"\n{'='*60}")
+    print(f"Sanity Checks")
+    print(f"{'='*60}")
+    all_passed = True
+    for check in checks:
+        icon = "+" if check.passed else "x"
+        print(f"  [{icon}] {check.name}: {check.description}")
+        if not check.passed:
+            all_passed = False
+            print(f"       Violations: {check.count}")
+
+    status = "ALL PASSED" if all_passed else "FAILURES DETECTED"
+    print(f"\n  Result: {status}")
+    print()
+
+
+async def run_ingest(args) -> None:
+    """Run the ingest command."""
+    from agentic_kg.ingestion import ingest_papers, run_sanity_checks
+
+    if args.sanity_check_only:
+        checks = run_sanity_checks()
+        print_sanity_checks(checks, as_json=args.json_output)
+        all_passed = all(c.passed for c in checks)
+        sys.exit(0 if all_passed else 1)
+
+    if not args.query:
+        print("Error: --query is required (unless using --sanity-check-only)", file=sys.stderr)
+        sys.exit(1)
+
+    def on_progress(phase, doi, detail):
+        if not args.json_output:
+            if doi:
+                print(f"  [{phase}] {doi}: {detail}")
+            else:
+                print(f"  [{phase}] {detail}")
+
+    result = await ingest_papers(
+        query=args.query,
+        limit=args.limit,
+        sources=args.sources,
+        dry_run=args.dry_run,
+        enable_agent_workflow=not args.no_agent_workflow,
+        min_extraction_confidence=args.min_confidence,
+        on_progress=on_progress,
+    )
+
+    print_ingestion_result(result, as_json=args.json_output)
+    if result.status == "failed":
+        sys.exit(1)
 
 
 def main(argv: Optional[list[str]] = None) -> None:
@@ -378,13 +528,15 @@ def main(argv: Optional[list[str]] = None) -> None:
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
 
-    # Build pipeline config
-    config = PipelineConfig(
-        min_section_length=args.min_section_length,
-        extract_relations=not args.skip_relations,
-    )
+    if args.command == "ingest":
+        asyncio.run(run_ingest(args))
+    elif args.command == "extract":
+        # Build pipeline config
+        config = PipelineConfig(
+            min_section_length=args.min_section_length,
+            extract_relations=not args.skip_relations,
+        )
 
-    if args.command == "extract":
         if args.file:
             asyncio.run(extract_from_file(
                 args.file, args.title, args.doi, args.authors, config, args.json_output,

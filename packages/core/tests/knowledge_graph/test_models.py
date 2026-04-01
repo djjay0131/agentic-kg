@@ -503,7 +503,8 @@ class TestProblem:
 
     # Serialization tests
     def test_to_neo4j_properties(self, sample_problem_data, sample_assumption_data):
-        """to_neo4j_properties returns correct dictionary."""
+        """to_neo4j_properties returns correct dictionary with JSON-serialized nested objects."""
+        import json
         sample_problem_data["assumptions"] = [sample_assumption_data]
         problem = Problem(**sample_problem_data)
         props = problem.to_neo4j_properties()
@@ -513,18 +514,25 @@ class TestProblem:
         assert "embedding" not in props  # Excluded
         assert isinstance(props["created_at"], str)  # ISO format
         assert isinstance(props["updated_at"], str)
-        assert isinstance(props["assumptions"], list)
-        assert isinstance(props["evidence"], dict)
+        # Nested objects are JSON strings for Neo4j compatibility
+        assert isinstance(props["assumptions"], str)
+        parsed = json.loads(props["assumptions"])
+        assert isinstance(parsed, list)
+        assert isinstance(props["evidence"], str)
+        json.loads(props["evidence"])  # Should parse without error
 
     def test_to_neo4j_properties_converts_datetimes(self, sample_problem_data):
         """to_neo4j_properties converts datetimes to ISO strings."""
+        import json
         problem = Problem(**sample_problem_data)
         props = problem.to_neo4j_properties()
 
         # Check datetime conversion
         assert isinstance(props["created_at"], str)
         assert "T" in props["created_at"]  # ISO format contains T
-        assert isinstance(props["extraction_metadata"]["extracted_at"], str)
+        # extraction_metadata is a JSON string now
+        meta = json.loads(props["extraction_metadata"])
+        assert isinstance(meta["extracted_at"], str)
 
     def test_to_neo4j_properties_excludes_embedding(self, sample_problem_data):
         """to_neo4j_properties excludes embedding field."""
@@ -537,6 +545,7 @@ class TestProblem:
         self, sample_evidence_data, sample_datetime
     ):
         """to_neo4j_properties handles optional reviewed_at datetime."""
+        import json
         metadata = {
             "extraction_model": "gpt-4",
             "confidence_score": 0.9,
@@ -549,7 +558,8 @@ class TestProblem:
             extraction_metadata=metadata,
         )
         props = problem.to_neo4j_properties()
-        assert isinstance(props["extraction_metadata"]["reviewed_at"], str)
+        meta = json.loads(props["extraction_metadata"])
+        assert isinstance(meta["reviewed_at"], str)
 
 
 class TestPaper:

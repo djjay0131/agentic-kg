@@ -58,6 +58,25 @@ variable "api_max_instances" {
   default     = 5
 }
 
+# Ingest Job (Cloud Run Job)
+variable "ingest_job_memory" {
+  description = "Memory for ingest Cloud Run Job"
+  type        = string
+  default     = "2Gi"
+}
+
+variable "ingest_job_cpu" {
+  description = "CPU for ingest Cloud Run Job"
+  type        = string
+  default     = "2"
+}
+
+variable "ingest_job_timeout" {
+  description = "Timeout in seconds for ingest Cloud Run Job"
+  type        = number
+  default     = 1800
+}
+
 # UI (Next.js)
 variable "ui_memory" {
   description = "Memory for UI Cloud Run service"
