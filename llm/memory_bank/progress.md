@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-03-31
+Last updated: 2026-04-15
 
 ## What Is Built and Working
 
@@ -19,14 +19,14 @@ Last updated: 2026-03-31
 - **Feature Planning**: `llm/features/BACKLOG.md` with 28 features, dependency graph, and 5 open design questions
 - **Ingestion Pipeline**: End-to-end `ingest_papers()` orchestration + CLI `ingest` command + async API endpoints
 - **Cloud Run Job**: `job_runner.py` + `Dockerfile.job` + Terraform resource deployed to GCP staging
-- **GCP Staging**: Cloud Run Job + API deployed, Neo4j populated with 280 nodes / 44 edges from live test
+- **GCP Staging**: Cloud Run Job + API deployed, Neo4j with 282 nodes / 151 edges, schema initialized with vector indexes
 
 ## What Remains to Be Built
 
-- **Fix `to_neo4j_properties()` serialization** — BLOCKING: nested objects must be JSON-serialized for Neo4j
-- Re-deploy job + API images with all accumulated fixes
-- Complete live ingestion test (10-20 papers with problems stored in Neo4j)
-- Human review of populated graph (AC-10: ≥90% coherence)
+- Act on KG schema enhancement gap analysis (new design doc, 2026-04-15)
+- Add OpenAI client timeout (60s) to prevent hanging extraction calls
+- Add `instructor` to `pyproject.toml` dependencies
+- Complete 20-paper ingestion + human review (AC-10: ≥90% coherence)
 - GCS ingestion research log (D-1b — follow-on to D-1a)
 - Entity ecosystem expansion: Topics, ResearchConcepts, Models, Methods (BACKLOG.md E-1 through E-8)
 - Community detection and hierarchical summarization (BACKLOG.md C-1 through C-3)
@@ -35,11 +35,11 @@ Last updated: 2026-03-31
 
 ## Known Bugs / Tech Debt
 
-- **`ProblemMention.to_neo4j_properties()`** produces nested maps rejected by Neo4j (BLOCKING for ingestion)
-- `instructor` package not declared in `pyproject.toml` (installed locally, missing from deps)
+- OpenAI API intermittently hangs on extraction calls (no timeout) — blocks larger ingestion runs
+- `instructor` package not declared in `pyproject.toml`
+- `mentions_linked_to_paper` sometimes fails on pre-existing papers (DOI casing in EXTRACTED_FROM)
 - Denario core: `arXiv_pdf` variable scope bug in `literature.py:114` (external)
-- Legacy `memory-bank/` directory is stale; `llm/memory_bank/` is now authoritative
-- 22 modified + 8 new files uncommitted
+- Legacy `memory-bank/` directory is stale; `llm/memory_bank/` is authoritative
 
 ## Key Milestones
 
@@ -54,7 +54,7 @@ Last updated: 2026-03-31
 | M6: E2E Testing | 2026-02-03 | Validated against live staging |
 | M7: Canonical Phase 1 | 2026-02-10 | ProblemMention/ProblemConcept, auto-linking (PR #18) |
 | M8: Canonical Phase 2 | 2026-02-18 | Agent workflows, review queue, concept refinement (286+ tests) |
-| M8.5: Ingestion Pipeline | 2026-03-31 | End-to-end ingestion (D-1 + D-1a), Cloud Run Job, GCP deployment. 13 problems extracted from live paper but Neo4j storage blocked by serialization bug |
+| M8.5: Ingestion Pipeline | 2026-04-01 | End-to-end ingestion (D-1 + D-1a), Cloud Run Job, GCP deployment. Serialization fix, schema init, 18 problems + 18 concepts from 2 real papers. Committed as `01d67f9`. |
 | M9: Production Ready | Not started | All tests passing, real data ingested |
 
 ## Completed Sprints (11 total)

@@ -1,6 +1,6 @@
 # Feature Backlog
 
-Last updated: 2026-03-28
+Last updated: 2026-04-15
 
 Features that need detailed specification and/or implementation. Ordered by priority within each category. Status key:
 
@@ -91,6 +91,8 @@ The "killer feature" — makes the KG useful for researcher queries. Depends on 
 | P-3 | Multi-hop graph traversal | Needs Spec | Medium | FR-2.3.4 deferred from Sprint 01; add `max_depth` to `get_related_problems()`; useful for agent exploration and R-2 |
 | P-4 | Referential integrity on delete | Needs Spec | Low | Check EXTRACTED_FROM relations before paper delete; prefer soft delete (from sprint-01 backlog) |
 | P-5 | Scalability testing | Needs Spec | Medium | Current system untested beyond small datasets; paper's system tested on only 10 papers; need to validate at 100+ papers |
+| P-6 | Auto-publish backlog to Pages site | Has Spec | Low | `docs/backlog.md` published 2026-04-15. Follow-up: extend `.github/scripts/generate_docs.py` to regenerate from `llm/features/BACKLOG.md` on every push instead of manual snapshot |
+| P-7 | Migrate `update-docs.yml` trigger paths from `memory-bank/` to `llm/memory_bank/` | Needs Spec | Low | Workflow still watches the stale legacy path |
 
 ---
 

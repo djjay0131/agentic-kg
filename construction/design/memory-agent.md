@@ -1,9 +1,9 @@
 # Memory Agent Design
 
 **Created:** 2025-01-03
-**Status:** Implementation Started
+**Status:** Superseded (2026-04-15) — replaced by Constellize `knowledge-steward` persona + `constellize:memory:*` skills
 **ADRs:** ADR-007 (Documentation Structure)
-**Implementation:** `.claude/agents/memory-agent.md` (Claude Code Sub-Agent)
+**Implementation:** ~~`.claude/agents/memory-agent.md`~~ (removed 2026-04-15). See `.claude/agents/knowledge-steward.md` and `.claude/skills/constellize:memory:*`.
 
 ---
 

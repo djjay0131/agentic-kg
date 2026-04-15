@@ -1,44 +1,25 @@
 # CLAUDE.md - Project Context for Claude Code
 
-## IMPORTANT: Design-First Workflow (2026-02-05)
+## IMPORTANT: Design-First Workflow (Constellize, 2026-04-15)
 
-**⚠️ CRITICAL: No implementation without design!**
+**⚠️ CRITICAL: No implementation without a spec.**
 
-For **ANY new feature**, use the construction-agent BEFORE writing code:
+The previous `construction-agent` / `memory-agent` sub-agents were superseded on 2026-04-15 by the **Constellize** methodology. Use the Constellize skills and personas instead:
 
-```
-@construction-agent design <feature-name>
-```
+**Feature workflow** (`.claude/skills/constellize:feature:*`):
+- `/constellize:feature:specify` — build a feature spec (repo analysis → problem → interview → draft → review). Stores spec in `llm/features/`. Does NOT implement.
+- `/constellize:feature:implement` — implement from spec (context load → Star-Gap → TDD → adversarial review → integration)
+- `/constellize:feature:verify` — gate a feature against test integrity, health checks, deployment readiness, maintainability
 
-The agent will guide you through a 9-phase specification workflow:
-1. Analyze repository context
-2. Research best practices
-3. Define problem and verification
-4. Ask clarifying questions (including "definition of done")
-5. Create sample implementation
-6. Draft specification
-7. Generate critical questions
-8. Present final spec
+**Memory workflow** (`.claude/skills/constellize:memory:*`):
+- `/constellize:memory:establish` — initialize memory bank for a new project
+- `/constellize:memory:update` — sync memory bank with current state (supports `--full`)
+- `/constellize:memory:revise` — restructure when files grow unwieldy
+- `/constellize:memory:recover` — audit and rewrite a neglected bank
 
-**After design approval:**
-```
-@construction-agent signal-complete <feature-name>
-@construction-agent create-sprint <number> "<goal>"
-```
+**Personas** (`.claude/agents/`): `construction-lead`, `knowledge-steward`, `feature-architect`.
 
-**During implementation:**
-```
-@construction-agent update-sprint
-```
-
-**Available Commands:**
-- `design <feature>` - Create design document
-- `create-sprint <num> <goal>` - Create sprint from designs
-- `update-sprint` - Update current sprint progress
-- `validate` - Check construction folder consistency
-- `signal-complete <phase>` - Mark design ready
-
-📁 **Location:** Design docs in `construction/design/`, sprints in `construction/sprints/`
+📁 **Locations:** Feature specs in `llm/features/`, memory bank in `llm/memory_bank/`. Historical design docs remain in `construction/design/` (read-only archive); `construction/sprints/` preserves completed sprint history.
 
 ---
 

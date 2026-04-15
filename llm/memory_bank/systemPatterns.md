@@ -14,35 +14,49 @@ Three-layer architecture (ADR-002) as described in the Agentic Knowledge Graphs 
 agentic-kg/
 ├── packages/
 │   ├── core/src/agentic_kg/          # Core library
+│   │   ├── cli.py                    # CLI entrypoint (includes `ingest` command)
+│   │   ├── ingestion.py              # ingest_papers() orchestration (search → import → extract → integrate)
+│   │   ├── job_runner.py             # Cloud Run Job wrapper (reads env vars, writes IngestionRun node)
 │   │   ├── agents/                   # Agent implementations
 │   │   │   └── matching/             # Phase 2 matching agents
 │   │   ├── data_acquisition/         # API clients (Semantic Scholar, arXiv, OpenAlex)
+│   │   │   └── importer.py           # PaperImporter: metadata → Neo4j Paper/Author nodes
 │   │   ├── extraction/               # PDF → KG pipeline
 │   │   │   ├── pdf_extractor.py      # PyMuPDF text extraction
 │   │   │   ├── section_segmenter.py  # Section identification
-│   │   │   ├── problem_extractor.py  # LLM extraction logic
-│   │   │   ├── pipeline.py           # End-to-end orchestration
+│   │   │   ├── problem_extractor.py  # LLM extraction via instructor
+│   │   │   ├── pipeline.py           # Per-paper extraction orchestration
 │   │   │   ├── kg_integration.py     # V1 KG integration
-│   │   │   └── kg_integration_v2.py  # V2 with canonical problem routing
+│   │   │   └── kg_integration_v2.py  # V2: store mentions, embed, match to concepts, create EXTRACTED_FROM
 │   │   └── knowledge_graph/          # Graph operations
-│   │       ├── models/entities.py    # Pydantic entity models
-│   │       ├── schema.py             # Neo4j schema definitions
+│   │       ├── models/entities.py    # Pydantic entity models (to_neo4j_properties() with JSON serialization)
+│   │       ├── schema.py             # Neo4j schema definitions (SchemaManager)
+│   │       ├── repository.py         # Neo4j CRUD (includes link_paper_to_author)
 │   │       ├── concept_matcher.py    # Vector similarity matching
 │   │       ├── auto_linker.py        # HIGH confidence auto-linking
 │   │       ├── review_queue.py       # Human review queue service
 │   │       └── concept_refinement.py # Canonical statement synthesis
 │   ├── api/src/agentic_kg_api/       # FastAPI application
-│   │   ├── main.py                   # App entrypoint
+│   │   ├── main.py                   # App entrypoint (includes ingest router)
 │   │   ├── routers/                  # Route handlers
+│   │   │   ├── ingest.py            # POST /api/ingest (triggers Cloud Run Job), GET /api/ingest/{trace_id}
 │   │   │   └── reviews.py           # Review queue endpoints
-│   │   ├── schemas.py               # API response models
+│   │   ├── schemas.py               # API response models (includes IngestionRequest/Response)
 │   │   └── dependencies.py          # FastAPI dependency injection
 │   └── ui/                           # Next.js 14 frontend
-├── infra/                            # Terraform IaC
+├── docker/
+│   └── Dockerfile.job                # Core-only image for Cloud Run Job (no API deps)
+├── infra/                            # Terraform IaC (includes google_cloud_run_v2_job.ingest)
+├── llm/                              # LLM-related project files
+│   ├── features/                     # Feature specs (BACKLOG.md, d1-ingest-real-papers.md, etc.)
+│   └── memory_bank/                  # Authoritative project context (this directory)
 ├── construction/                     # Design docs and sprint tracking
-│   ├── design/                       # Feature specifications
-│   └── sprints/                      # Sprint task lists
-├── memory-bank/                      # Legacy project context
+│   ├── design/                       # Feature specifications (incl. kg-schema-enhancement-gap-analysis.md)
+│   └── sprints/                      # Sprint task lists (11 completed: 00–10)
+├── .claude/                          # Claude Code config
+│   ├── agents/                       # Project agent definitions (construction-lead, feature-architect, knowledge-steward, memory-agent, code-review)
+│   └── skills/                       # Project-local skills
+├── memory-bank/                      # Legacy project context (STALE — use llm/memory_bank/)
 └── scripts/                          # Utilities (smoke_test.py, etc.)
 ```
 
@@ -89,14 +103,30 @@ Agent workflows use LangGraph `StateGraph` with typed state dictionaries:
 - TTL-based response caching (`cachetools`)
 - Multi-source paper aggregation with metadata normalization
 
-## Data Flow: Paper → Knowledge Graph
+## Data Flow: Full Ingestion Pipeline
 
 ```
-PDF → pdf_extractor → section_segmenter → problem_extractor → pipeline
-  → kg_integration_v2 → concept_matcher → [routing by confidence]
-    → auto_linker (HIGH) / agents (MEDIUM/LOW) / review_queue (escalation)
-      → concept_refinement (at 5/10/25/50 mention thresholds)
+CLI `ingest` / API POST /api/ingest → ingestion.ingest_papers()
+  Phase 1: Search & Import
+    → data_acquisition clients (OpenAlex, arXiv, Semantic Scholar)
+    → PaperImporter → Neo4j Paper + Author nodes + AUTHORED_BY edges
+  Phase 2: Extraction (per paper with PDF)
+    → pdf_extractor → section_segmenter → problem_extractor (instructor + OpenAI)
+  Phase 3: Integration
+    → kg_integration_v2 → store ProblemMention → embed → concept_matcher
+      → [routing by confidence]
+        → auto_linker (HIGH) / agents (MEDIUM/LOW) / review_queue (escalation)
+          → concept_refinement (at 5/10/25/50 mention thresholds)
+  Phase 4: Sanity Checks
+    → 5 automated checks against Neo4j graph integrity
 ```
+
+### Cloud Run Job Pattern
+
+For async/long-running ingestion:
+- API triggers `google_cloud_run_v2_job.ingest` via REST
+- `job_runner.py` reads config from env vars, calls `ingest_papers()`, writes `IngestionRun` node
+- API polls Neo4j for `IngestionRun` status via `GET /api/ingest/{trace_id}`
 
 ## Naming Conventions
 

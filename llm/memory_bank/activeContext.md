@@ -1,19 +1,19 @@
 # Active Context
 
-Last updated: 2026-04-01
+Last updated: 2026-04-15
 
 ## Current Work Focus
 
-**End-to-end ingestion pipeline working on GCP staging.** 30 problems extracted from 2 real papers, stored as ProblemMentions with INSTANCE_OF links to ProblemConcepts. 355 nodes, 115 edges. 4/5 sanity checks passing. Remaining: `papers_have_authors` (deployed fix awaiting re-test).
+**Ingestion pipeline working on GCP staging (last commit `01d67f9`, 2026-04-01).** Graph has 282 nodes, 151 edges from live papers. 18 ProblemMentions with INSTANCE_OF links to ProblemConcepts. 5/5 sanity checks passing. New KG schema enhancement gap analysis drafted (`construction/design/kg-schema-enhancement-gap-analysis.md`) — next feature planning input. No source changes committed in last 2 weeks.
 
 ## Recent Significant Changes
 
+- Committed `01d67f9`: full ingestion pipeline (Cloud Run Jobs, CLI, API, serialization fixes)
 - Fixed `to_neo4j_properties()` serialization — nested objects now JSON-serialized for Neo4j
 - Initialized Neo4j schema on staging (constraints, indexes, 3 vector indexes ONLINE)
-- Live test SUCCESS: 30 problems, 30 concepts, all INSTANCE_OF and EXTRACTED_FROM edges present
+- Live test: 18 problems extracted from 2 papers, 18 concepts created, all linked
 - All Cloud Build images rebuilt and deployed with all fixes
-- Fixed `PaperImporter` NotFoundError mismatch (two different error classes)
-- Fixed missing `link_paper_to_author` method in repository
+- `papers_have_authors` sanity check now passes (link_paper_to_author fix deployed)
 - Test suite: 1059 core + 158 API = 1217 passing, 0 failures
 
 ## Open Decisions / Unresolved Questions
@@ -25,16 +25,17 @@ Last updated: 2026-04-01
 
 ## Known Issues
 
-- `papers_have_authors` sanity check failing (26 papers) — `link_paper_to_author` fix deployed but needs re-test with fresh data
+- OpenAI API intermittently hangs on longer extraction calls (no timeout configured) — larger ingestion runs get stuck
 - `instructor` package not in `pyproject.toml` — installed locally but missing from dependency declarations
+- `mentions_linked_to_paper` sanity check sometimes fails when papers pre-exist from earlier imports (DOI casing mismatch in EXTRACTED_FROM edge creation)
 - arXiv_pdf variable scope bug in Denario core (`denario/langgraph_agents/literature.py:114`) — external dependency
 - Legacy `memory-bank/` directory is stale; `llm/memory_bank/` is authoritative
-- Large uncommitted changeset — needs commit and PR
 
 ## Immediate Next Steps
 
-1. Run full 20-paper ingestion to complete AC-10 (human review of graph quality ≥90%)
-2. Review graph in Neo4j Browser at `http://34.173.74.125:7474`
-3. Commit all changes and create PR
-4. Add `instructor` to `pyproject.toml` dependencies
-5. Plan next feature from BACKLOG.md (D-1b GCS research log, or entity expansion E-1)
+1. Review KG schema enhancement gap analysis → decide on scope of entity expansion
+2. Add OpenAI client timeout (60s) to prevent hanging extraction calls
+3. Add `instructor` to `pyproject.toml` dependencies
+4. Run full 20-paper ingestion to complete AC-10 (human review of graph quality ≥90%)
+5. Review graph in Neo4j Browser at `http://34.173.74.125:7474`
+6. Commit new `.claude/agents/` scaffolding (construction-lead, feature-architect, knowledge-steward) or discard if experimental

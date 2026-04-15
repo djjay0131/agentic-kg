@@ -1,9 +1,9 @@
 # Code Review System Design
 
 **Created:** 2025-01-04
-**Status:** Draft
+**Status:** Superseded (2026-04-15) — replaced by plugin `code-review:code-review` skill
 **ADRs:** ADR-007 (Documentation Structure)
-**Implementation:** `.claude/agents/code-review/*.md` (Claude Code Sub-Agents)
+**Implementation:** ~~`.claude/agents/code-review/*.md`~~ (removed 2026-04-15).
 
 ---
 

@@ -1,9 +1,9 @@
 # Construction Agent Design
 
 **Created:** 2025-01-04
-**Status:** Implementation Started
+**Status:** Superseded (2026-04-15) — replaced by Constellize `construction-lead` persona + `constellize:feature:*` skills
 **ADRs:** ADR-007 (Documentation Structure)
-**Implementation:** `.claude/agents/construction-agent.md` (Claude Code Sub-Agent)
+**Implementation:** ~~`.claude/agents/construction-agent.md`~~ (removed 2026-04-15). See `.claude/agents/construction-lead.md` and `.claude/skills/constellize:feature:*`.
 
 ---
 
