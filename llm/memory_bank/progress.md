@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-04-15
+Last updated: 2026-04-16
 
 ## What Is Built and Working
 
@@ -23,7 +23,8 @@ Last updated: 2026-04-15
 
 ## What Remains to Be Built
 
-- Act on KG schema enhancement gap analysis (new design doc, 2026-04-15)
+- **enhance-github-pages** (SPECIFIED 2026-04-16, Phase A ready to implement) — Jekyll `just-the-docs` migration, data-driven dashboards, PR previews, Lighthouse CI. See `llm/features/enhance-github-pages.md`
+- Act on KG schema enhancement gap analysis (design doc 2026-04-15)
 - Add OpenAI client timeout (60s) to prevent hanging extraction calls
 - Add `instructor` to `pyproject.toml` dependencies
 - Complete 20-paper ingestion + human review (AC-10: ≥90% coherence)
