@@ -1,6 +1,6 @@
 # Service Inventory
 
-**Last Updated:** 2026-04-15
+**Last Updated:** 2026-04-16
 
 This document provides a comprehensive inventory of all deployed services across the agentic-kg and Denario projects.
 
