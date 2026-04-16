@@ -1,22 +1,41 @@
 # Progress Tracking
 
-**Last Updated:** 2026-02-10
+**Last Updated:** 2026-02-18
 
-## Project Status: 9 Sprints Complete ✅
+## Project Status: Sprint 10 COMPLETE (10/10 Tasks)
 
-All sprints (0-9) have been merged to master. Sprint 09 Phase 1 added canonical problem architecture with ProblemMention/ProblemConcept dual-entity model, vector similarity matching, and auto-linking for HIGH confidence matches.
+Sprints 0-10 merged to master. Canonical Problem Architecture Phase 2 is complete with full agent workflows for MEDIUM/LOW confidence matches.
 
 ---
 
 ## Current State
 
+### Sprint 10 Progress (10/10 Tasks Complete)
+
+| Task | Description | Status | Tests |
+|------|-------------|--------|-------|
+| 1 | Agent Models and Schemas | Complete | 31 |
+| 2 | EvaluatorAgent Implementation | Complete | 22 |
+| 3 | Maker/Hater/Arbiter Agents | Complete | 25 |
+| 4 | LangGraph Workflow | Complete | 20 |
+| 5 | Human Review Queue Service | Complete | 20 |
+| 6 | Review Queue API Endpoints | Complete | 27 |
+| 7 | Concept Refinement Service | Complete | 23 |
+| 8 | Integration with KGIntegratorV2 | Complete | 16 |
+| 9 | Unit Tests for All Agents | Complete | 145+ |
+| 10 | Integration Tests with Live Neo4j | Complete | 13 |
+
 ### Test Status
-- **Unit Tests**: 754 passed, 33 failed, 50 skipped
+
+- **Sprint 10 Tests**: 286+ new tests (all passing)
+- **Unit Tests**: 770+ passed, 33 failed, 50 skipped
 - **E2E Tests**: Infrastructure ready, require staging credentials
 - **Smoke Test**: 7/7 checks passing against staging API
 
 ### Failing Tests (33)
+
 Located in `packages/core/tests/extraction/`:
+
 - `test_kg_integration.py` (11 failures) - KG integrator mock issues
 - `test_pipeline.py` (11 failures) - Pipeline mock issues
 - `test_llm_client.py` (2 failures) - LLM client error handling
@@ -30,6 +49,105 @@ Plus 3 E2E test collection errors (import issues for HybridSearchService).
 ---
 
 ## Completed Work
+
+### Sprint 10: Canonical Problem Architecture Phase 2 (2026-02-10 - 2026-02-18) - COMPLETE
+
+**What:**
+
+- Implemented agent workflows for MEDIUM/LOW confidence matches
+- Built human review queue for disputed matches
+- Created concept refinement for canonical statement synthesis
+- Comprehensive unit and integration testing
+
+**All Tasks Complete (10/10):**
+
+- **Task 1**: Agent Models and Schemas (31 tests)
+  - EvaluatorResult, MakerResult, HaterResult, ArbiterResult models
+  - MatchingWorkflowState TypedDict for LangGraph
+  - PendingReview model for human review queue
+  - New enums: EscalationReason, ReviewResolution
+
+- **Task 2**: EvaluatorAgent Implementation (22 tests)
+  - Single-agent review for MEDIUM confidence (80-95%)
+  - APPROVE/REJECT/ESCALATE decisions
+  - Structured JSON output via instructor library
+
+- **Task 3**: Maker/Hater/Arbiter Agents (25 tests)
+  - MakerAgent argues FOR linking
+  - HaterAgent argues AGAINST linking
+  - ArbiterAgent weighs arguments and decides
+  - 3-round retry with confidence threshold 0.7
+
+- **Task 4**: LangGraph Workflow (20 tests)
+  - 7 node functions for workflow steps
+  - 3 routing functions for decision paths
+  - MemorySaver checkpointing with trace_id
+
+- **Task 5**: Human Review Queue Service (20 tests)
+  - Neo4j storage for PendingReview nodes
+  - Priority calculation and SLA deadlines
+  - Queue operations: enqueue, get_pending, assign, resolve
+
+- **Task 6**: Review Queue API Endpoints (27 tests)
+  - Created `routers/reviews.py` with 5 endpoints
+  - GET /reviews/pending - List pending reviews with filters
+  - GET /reviews/{review_id} - Get review details with agent context
+  - POST /reviews/{review_id}/resolve - Resolve with decision
+  - POST /reviews/{review_id}/assign - Assign to user
+  - DELETE /reviews/{review_id}/assign - Unassign review
+  - Added 6 response models to schemas.py
+  - Added get_review_queue dependency
+  - X-User-ID header authentication for mutations
+
+- **Task 7**: Concept Refinement Service (23 tests)
+  - Created `concept_refinement.py` with ConceptRefinementService
+  - Refinement thresholds: 5, 10, 25, 50 mentions
+  - Human-edited concept protection (never auto-refined)
+  - LLM synthesis for canonical statements
+  - Version tracking and synthesis metadata
+  - Integration hook: check_and_refine(concept_id, trace_id)
+
+- **Task 8**: Integration with KGIntegratorV2 (16 tests)
+  - Updated `kg_integration_v2.py` with confidence-based routing
+  - HIGH confidence: auto-linker (Phase 1)
+  - MEDIUM/LOW confidence: agent workflow
+  - Escalation: human review queue
+  - Concept refinement after linking
+  - 16 integration tests passing
+
+- **Task 9**: Unit Tests for All Agents (145+ core tests, 141 API tests)
+  - Comprehensive unit test coverage for all agent components
+  - Test workflow paths and routing
+  - Test review queue operations
+  - Test concept refinement logic
+  - >90% coverage for new code
+
+- **Task 10**: Integration Tests with Live Neo4j (13 integration tests)
+  - Golden dataset for accuracy testing (5 MEDIUM + 5 LOW cases)
+  - Performance benchmarks: Evaluator <5s, Consensus round <15s, Full workflow <30s
+  - End-to-end workflow verification
+
+**Key Accomplishments:**
+
+- Confidence-based routing: HIGH -> auto-link, MEDIUM -> EvaluatorAgent, LOW -> Maker/Hater/Arbiter consensus
+- Human review queue with priority-based SLA (24h/7d/30d)
+- Concept refinement at thresholds (5/10/25/50 mentions)
+- ReviewPriority enum fix (int to enum conversion)
+
+**Key Files Created/Modified:**
+
+- `packages/core/src/agentic_kg/agents/matching/` - All agent modules
+- `packages/core/src/agentic_kg/knowledge_graph/review_queue.py` - Queue service
+- `packages/core/src/agentic_kg/knowledge_graph/concept_refinement.py` - Refinement service
+- `packages/api/src/agentic_kg_api/routers/reviews.py` - Review API endpoints
+- `packages/core/tests/agents/matching/` - 118 unit tests
+- `packages/api/tests/test_reviews.py` - 27 API tests
+- `packages/core/tests/knowledge_graph/test_concept_refinement.py` - 23 tests
+- `packages/core/src/agentic_kg/extraction/kg_integration_v2.py` - Updated with Phase 2 routing
+- `packages/core/tests/extraction/test_kg_integration_v2.py` - 16 integration tests
+- `packages/core/tests/integration/test_phase2_workflow.py` - 13 integration tests
+
+---
 
 ### Sprint 09: Canonical Problem Architecture Phase 1 (2026-02-10 - Complete)
 
@@ -256,9 +374,13 @@ Plus 3 E2E test collection errors (import issues for HybridSearchService).
    - Use data acquisition to fetch papers
    - Run extraction pipeline to populate KG
 
-3. **Address Backlog Items** (Low-Medium Priority)
+3. **Address Backlog Items** (Medium Priority)
    - Multi-hop traversal for agents
    - Production documentation
+
+4. **Plan Sprint 11** (Low Priority)
+   - Production deployment preparation
+   - Additional features from backlog
 
 ---
 
@@ -298,6 +420,15 @@ Plus 3 E2E test collection errors (import issues for HybridSearchService).
 - Vector similarity matching with auto-linking
 - PR #18 merged to master
 
-### M8: Production Ready
+### M8: Canonical Problem Architecture Phase 2 ✅
+- **Completed:** 2026-02-18
+- Agent workflows for MEDIUM/LOW confidence matches
+- EvaluatorAgent for single-agent review
+- Maker/Hater/Arbiter consensus for disputed matches
+- Human review queue with priority-based SLA
+- Concept refinement at mention thresholds
+- 286+ tests (unit + API + integration)
+
+### M9: Production Ready
 - **Status:** Not Started
 - Target: All tests passing, real data ingested
