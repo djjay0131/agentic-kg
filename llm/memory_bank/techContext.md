@@ -58,20 +58,23 @@ docker compose up
 | `openai>=1.0.0` | LLM API client |
 | `denario>=1.0.0` | Core framework |
 | `langgraph` | Agent workflow graphs |
-| `instructor` | Structured LLM output |
+| `instructor` | Structured LLM output (NOTE: not yet in pyproject.toml — install manually) |
 | `fitz` (PyMuPDF) | PDF text extraction |
 | `cachetools` | TTL response caching |
+| `httpx` | HTTP client for data acquisition |
 
 ## Infrastructure and Deployment
 
 - **GCP Project**: `vt-gcp-00042`
 - **Region**: `us-central1`
-- **API (staging)**: Cloud Run at `https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app`
-- **Neo4j (staging)**: Compute Engine at `bolt://34.173.74.125:7687`
-- **Terraform IaC**: `infra/` directory
-- **CI/CD**: Cloud Build (`cloudbuild.yaml`), GitHub Actions for docs
-- **Secrets**: GCP Secret Manager for API keys
-- **Docker**: Python 3.12-slim base image
+- **API (staging)**: Cloud Run Service at `https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app`
+- **Ingestion Job (staging)**: Cloud Run Job `agentic-kg-ingest-staging` (Terraform-managed)
+- **Neo4j (staging)**: Compute Engine at `bolt://34.173.74.125:7687` (Browser: `http://34.173.74.125:7474`)
+- **Neo4j Schema**: Initialized via `SchemaManager` — 6 constraints, 25 indexes (3 vector), version 2
+- **Terraform IaC**: `infra/` directory — API service, ingest job, IAM, env vars
+- **CI/CD**: Cloud Build (`cloudbuild.yaml`) with `_SERVICE=api|job` substitution, GitHub Actions for docs
+- **Secrets**: GCP Secret Manager (`OPENAI_API_KEY`, `NEO4J_PASSWORD`)
+- **Docker**: `Dockerfile` (API, full image), `docker/Dockerfile.job` (core-only, job image)
 
 ## Build and Test
 
