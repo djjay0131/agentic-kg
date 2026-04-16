@@ -1,10 +1,28 @@
 # Active Context
 
-Last updated: 2026-04-15
+Last updated: 2026-04-16
 
 ## Current Work Focus
 
-**Ingestion pipeline working on GCP staging (last commit `01d67f9`, 2026-04-01).** Graph has 282 nodes, 151 edges from live papers. 18 ProblemMentions with INSTANCE_OF links to ProblemConcepts. 5/5 sanity checks passing. New KG schema enhancement gap analysis drafted (`construction/design/kg-schema-enhancement-gap-analysis.md`) — next feature planning input. No source changes committed in last 2 weeks.
+**Tooling/docs consolidation phase.** Ingestion pipeline working on GCP staging (commit `01d67f9`, 2026-04-01) — graph has 282 nodes, 151 edges, 18 ProblemMentions linked to ProblemConcepts, 5/5 sanity checks passing. Since then, two tooling initiatives committed or specified:
+
+- **Constellize migration (committed `caf013d`, 2026-04-15):** retired `construction-agent`, `memory-agent`, and `code-review/` sub-agents in favor of `constellize:feature:*` + `constellize:memory:*` skills and new personas (`construction-lead`, `knowledge-steward`, `feature-architect`). `CLAUDE.md` rewritten to reflect the new workflow. Backlog published to Pages as `docs/backlog.md`.
+- **Enhance-github-pages spec (2026-04-16, uncommitted):** `llm/features/enhance-github-pages.md` fully specified. Phased delivery (A: infra migration, B: content). Replaces fragile regex HTML generator with Jekyll `just-the-docs` + YAML data pipeline; adds PR preview deploys, HTMLProofer, Lighthouse CI, and structured `# docs-stats` block in `activeContext.md` to prevent content drift.
+
+No source code changes committed since 01d67f9.
+
+<!-- docs-stats: authoritative source for the Pages status dashboard. Keep in sync with prose. -->
+```yaml
+# docs-stats
+last_updated: 2026-04-16
+graph_nodes: 282
+graph_edges: 151
+problem_mentions: 18
+problem_concepts: 18
+sanity_checks: "5/5 passing"
+completed_sprints: 11
+tests_passing: 1217
+```
 
 ## Recent Significant Changes
 
@@ -33,9 +51,8 @@ Last updated: 2026-04-15
 
 ## Immediate Next Steps
 
-1. Review KG schema enhancement gap analysis → decide on scope of entity expansion
-2. Add OpenAI client timeout (60s) to prevent hanging extraction calls
-3. Add `instructor` to `pyproject.toml` dependencies
-4. Run full 20-paper ingestion to complete AC-10 (human review of graph quality ≥90%)
-5. Review graph in Neo4j Browser at `http://34.173.74.125:7474`
-6. Commit new `.claude/agents/` scaffolding (construction-lead, feature-architect, knowledge-steward) or discard if experimental
+1. Decide order of attack: implement `enhance-github-pages` Phase A vs. advance on KG schema enhancement gap analysis (Sprint 11 planning)
+2. If pages work: run `/constellize:feature:implement enhance-github-pages` — Phase A is scoped to one sprint
+3. Add OpenAI client timeout (60s) to prevent hanging extraction calls
+4. Add `instructor` to `pyproject.toml` dependencies
+5. Run full 20-paper ingestion to complete AC-10 (human review of graph quality ≥90%)
