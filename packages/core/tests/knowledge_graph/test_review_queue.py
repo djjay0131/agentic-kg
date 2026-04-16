@@ -62,6 +62,8 @@ def sample_mention() -> ProblemMention:
         id="mention-123",
         statement="How to prevent gradient vanishing in deep networks?",
         paper_doi="10.1234/paper.123",
+        section="Introduction",
+        quoted_text="The gradient vanishing problem is a major challenge in training deep networks.",
         domain="deep_learning",
     )
 
@@ -153,13 +155,16 @@ class TestPriorityCalculation:
         # NLP domain
         mention_nlp = ProblemMention(
             id="m1",
-            statement="NLP problem",
+            statement="How to improve NLP model performance on long text sequences?",
+            paper_doi="10.1234/nlp.2024",
+            section="Methods",
+            quoted_text="NLP models struggle with long sequences.",
             domain="NLP",
         )
         candidates = [
             SuggestedConcept(
                 concept_id="c1",
-                canonical_statement="Test",
+                canonical_statement="Test canonical statement for matching.",
                 similarity_score=0.70,
                 final_score=0.70,
             )
@@ -169,7 +174,10 @@ class TestPriorityCalculation:
         # Non-high-impact domain
         mention_other = ProblemMention(
             id="m2",
-            statement="Other problem",
+            statement="How to improve chemical reaction prediction accuracy?",
+            paper_doi="10.1234/chem.2024",
+            section="Methods",
+            quoted_text="Chemical prediction remains challenging.",
             domain="chemistry",
         )
         priority_other = queue_service._calculate_priority(mention_other, candidates)
@@ -311,7 +319,7 @@ class TestEnqueue:
             sample_workflow_state,
         )
 
-        assert 1 <= review.priority.value <= 10
+        assert review.priority in [ReviewPriority.HIGH, ReviewPriority.MEDIUM, ReviewPriority.LOW]
 
     @pytest.mark.asyncio
     async def test_enqueue_accepts_priority_override(
@@ -325,7 +333,7 @@ class TestEnqueue:
             priority=2,
         )
 
-        assert review.priority == ReviewPriority(2)
+        assert review.priority == ReviewPriority.HIGH  # priority 2 maps to HIGH
 
     @pytest.mark.asyncio
     async def test_enqueue_sets_sla_deadline(

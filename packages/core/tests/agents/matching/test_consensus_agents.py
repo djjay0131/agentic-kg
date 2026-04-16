@@ -383,11 +383,11 @@ async def test_arbiter_no_retry_on_final_round(sample_state, maker_response, hat
     retry_response = ArbiterLLMResponse(
         decision="retry",
         confidence=0.55,
-        reasoning="Still uncertain",
+        reasoning="Still uncertain about this match after reviewing all evidence.",
         maker_weight=0.55,
         hater_weight=0.50,
-        decisive_factor="Cannot decide",
-        false_negative_risk="Unknown",
+        decisive_factor="Cannot decide with current evidence available.",
+        false_negative_risk="Unknown risk level",
     )
 
     llm = MockLLMClient(retry_response)

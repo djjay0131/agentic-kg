@@ -158,7 +158,7 @@ class ReviewQueueService:
             domain=mention.domain,
             suggested_concepts=suggested,
             agent_context=agent_context,
-            priority=ReviewPriority(priority),
+            priority=self._priority_to_enum(priority),
             status=ReviewQueueStatus.PENDING,
             created_at=datetime.now(timezone.utc),
             sla_deadline=sla_deadline,
@@ -482,6 +482,15 @@ class ReviewQueueService:
             return SLA_HOURS["medium"]  # 7 days
         else:
             return SLA_HOURS["low"]  # 30 days
+
+    def _priority_to_enum(self, priority: int) -> ReviewPriority:
+        """Convert integer priority (1-10) to ReviewPriority enum."""
+        if priority <= 3:
+            return ReviewPriority.HIGH
+        elif priority <= 6:
+            return ReviewPriority.MEDIUM
+        else:
+            return ReviewPriority.LOW
 
     def _determine_escalation_reason(
         self, workflow_state: MatchingWorkflowState

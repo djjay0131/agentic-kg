@@ -176,6 +176,9 @@ async def test_evaluate_approve(approve_response, sample_state):
 @pytest.mark.asyncio
 async def test_evaluate_approve_logs_trace_id(approve_response, sample_state, caplog):
     """Test that trace ID is included in logs."""
+    import logging
+    caplog.set_level(logging.INFO, logger="agentic_kg.agents.matching.evaluator")
+
     llm = MockLLMClient(approve_response)
     agent = EvaluatorAgent(llm_client=llm)
 
