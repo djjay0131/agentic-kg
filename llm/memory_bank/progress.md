@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-04-16
+Last updated: 2026-04-17
 
 ## What Is Built and Working
 
@@ -24,6 +24,9 @@ Last updated: 2026-04-16
 ## What Remains to Be Built
 
 - **enhance-github-pages** (SPECIFIED 2026-04-16, Phase A ready to implement) — Jekyll `just-the-docs` migration, data-driven dashboards, PR previews, Lighthouse CI. See `llm/features/enhance-github-pages.md`
+- **E-1 Topic entities** (SPECIFIED 2026-04-16, ready to implement) — first-class Topic nodes, 3-level hierarchy, seeded taxonomy, domain migration. See `llm/features/topic-research-area-entities.md`
+- **E-2 ResearchConcept entities** (SPECIFIED 2026-04-17, ready to implement) — generic research concepts, embedding-based dedup, shared BaseGraphEntity/EntityService abstraction. See `llm/features/research-concept-entities.md`
+- **T-1 Taxonomy management at scale** (flagged by E-1 spec, needs spec)
 - Act on KG schema enhancement gap analysis (design doc 2026-04-15)
 - Add OpenAI client timeout (60s) to prevent hanging extraction calls
 - Add `instructor` to `pyproject.toml` dependencies

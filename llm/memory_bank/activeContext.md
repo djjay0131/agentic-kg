@@ -1,13 +1,15 @@
 # Active Context
 
-Last updated: 2026-04-16
+Last updated: 2026-04-17
 
 ## Current Work Focus
 
 **Tooling/docs consolidation phase.** Ingestion pipeline working on GCP staging (commit `01d67f9`, 2026-04-01) — graph has 282 nodes, 151 edges, 18 ProblemMentions linked to ProblemConcepts, 5/5 sanity checks passing. Since then, two tooling initiatives committed or specified:
 
 - **Constellize migration (committed `caf013d`, 2026-04-15):** retired `construction-agent`, `memory-agent`, and `code-review/` sub-agents in favor of `constellize:feature:*` + `constellize:memory:*` skills and new personas (`construction-lead`, `knowledge-steward`, `feature-architect`). `CLAUDE.md` rewritten to reflect the new workflow. Backlog published to Pages as `docs/backlog.md`.
-- **Enhance-github-pages spec (2026-04-16, uncommitted):** `llm/features/enhance-github-pages.md` fully specified. Phased delivery (A: infra migration, B: content). Replaces fragile regex HTML generator with Jekyll `just-the-docs` + YAML data pipeline; adds PR preview deploys, HTMLProofer, Lighthouse CI, and structured `# docs-stats` block in `activeContext.md` to prevent content drift.
+- **Enhance-github-pages spec (committed `fb7176c`, PR #19, 2026-04-16):** `llm/features/enhance-github-pages.md` fully specified. Phased delivery (A: infra migration, B: content). Replaces fragile regex HTML generator with Jekyll `just-the-docs` + YAML data pipeline; adds PR preview deploys, HTMLProofer, Lighthouse CI, and structured `# docs-stats` block in `activeContext.md`.
+- **E-1 Topic entity spec (committed `6a2ccde`, PR #20, 2026-04-16):** `llm/features/topic-research-area-entities.md` fully specified. First-class Topic nodes with 3-level hierarchy, seeded taxonomy, domain migration, manual assignment. Decoupled from E-8. Flags T-1 (taxonomy at scale).
+- **E-2 ResearchConcept entity spec (2026-04-17):** `llm/features/research-concept-entities.md` fully specified. Generic research concepts as first-class nodes, embedding-based dedup, manual population. Introduces shared `BaseGraphEntity`/`EntityService` abstraction. Drops `RELATED_TO` in favor of typed edges in E-8/C-1. Decoupled from E-8.
 
 No source code changes committed since 01d67f9.
 
@@ -51,8 +53,8 @@ tests_passing: 1217
 
 ## Immediate Next Steps
 
-1. Decide order of attack: implement `enhance-github-pages` Phase A vs. advance on KG schema enhancement gap analysis (Sprint 11 planning)
-2. If pages work: run `/constellize:feature:implement enhance-github-pages` — Phase A is scoped to one sprint
+1. **Three specs ready to implement:** enhance-github-pages (Phase A), E-1 (Topic entities), E-2 (ResearchConcept entities). All decoupled — can be implemented in any order or parallel.
+2. Spec remaining high-priority features: E-8 (extraction prompt expansion), then E-3/E-4/E-5
 3. Add OpenAI client timeout (60s) to prevent hanging extraction calls
 4. Add `instructor` to `pyproject.toml` dependencies
 5. Run full 20-paper ingestion to complete AC-10 (human review of graph quality ≥90%)

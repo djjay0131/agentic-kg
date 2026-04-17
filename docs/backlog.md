@@ -5,7 +5,7 @@ title: Feature Backlog
 
 # Feature Backlog
 
-_Last updated: 2026-04-15_
+_Last updated: 2026-04-17_
 
 Canonical source: [`llm/features/BACKLOG.md`](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/BACKLOG.md). This page is a published snapshot.
 
@@ -48,8 +48,8 @@ Source: `construction/design/kg-schema-enhancement-gap-analysis.md`.
 
 | # | Feature | Status | Priority | Sprint |
 |---|---------|--------|----------|--------|
-| E-1 | Topic / Research Area entities | Partial Spec | **High** | 11 |
-| E-2 | ResearchConcept entities | Partial Spec | **High** | 11 |
+| E-1 | Topic / Research Area entities | **Specified** | **High** | 11 |
+| E-2 | ResearchConcept entities | **Specified** | **High** | 11 |
 | E-3 | Model / Architecture entities | Partial Spec | Medium | 12 |
 | E-4 | Method / Methodology entities | Partial Spec | Medium | 12 |
 | E-5 | Citation graph (Paper → Paper) | Partial Spec | **High** | 12 |
@@ -84,6 +84,7 @@ Source: `construction/design/kg-schema-enhancement-gap-analysis.md`.
 | P-3 | Multi-hop graph traversal | Needs Spec | Medium |
 | P-4 | Referential integrity on delete | Needs Spec | Low |
 | P-5 | Scalability testing (100+ papers) | Needs Spec | Medium |
+| T-1 | Taxonomy management at scale | Needs Spec | Medium |
 
 ## Category 7 — Unvalidated Success Criteria
 
@@ -100,8 +101,9 @@ Source: `construction/design/kg-schema-enhancement-gap-analysis.md`.
 ## Summary Counts
 
 - **Verified / Resolved:** 4 (D-1, D-1a, S-1, S-2)
-- **Specifying / Partial Spec:** 14
-- **Needs Spec:** 12
+- **Specified (ready to implement):** 3 (enhance-github-pages, E-1, E-2)
+- **Specifying / Partial Spec:** 12
+- **Needs Spec:** 13 (incl. T-1)
 - **Unmeasured success criteria:** 5
 
 ## Open Design Questions (pre-Sprint 11)

@@ -1,6 +1,6 @@
 # Feature Backlog
 
-Last updated: 2026-04-15
+Last updated: 2026-04-17
 
 Features that need detailed specification and/or implementation. Ordered by priority within each category. Status key:
 
@@ -45,8 +45,8 @@ From `construction/design/kg-schema-enhancement-gap-analysis.md`. Currently we h
 
 | # | Feature | Status | Priority | Proposed Sprint | Notes |
 |---|---------|--------|----------|-----------------|-------|
-| E-1 | Topic / Research Area entities | Partial Spec | **High** | Sprint 11 | First-class Topic nodes with hierarchy (domain → area → subtopic); replace `domain` string field; BELONGS_TO relationships. Gap analysis §4.1 Gap 1 |
-| E-2 | ResearchConcept entities | Partial Spec | **High** | Sprint 11 | Generic concepts ("attention mechanism", "transfer learning") as nodes; INVOLVES_CONCEPT and DISCUSSES relationships; extend mention-to-concept canonicalization. Gap analysis §4.1 Gap 2 |
+| E-1 | Topic / Research Area entities | **Specified** | **High** | Sprint 11 | First-class Topic nodes with hierarchy (domain → area → subtopic); replace `domain` string field; BELONGS_TO relationships. See `llm/features/topic-research-area-entities.md` |
+| E-2 | ResearchConcept entities | **Specified** | **High** | Sprint 11 | Generic concepts as nodes; INVOLVES_CONCEPT and DISCUSSES relationships; shared BaseGraphEntity abstraction; embedding-based dedup. See `llm/features/research-concept-entities.md` |
 | E-3 | Model / Architecture entities | Partial Spec | Medium | Sprint 12 | ML models as first-class nodes (currently embedded in Baseline strings); USES_MODEL, VARIANT_OF relationships; model lineage chains. Gap analysis §4.1 Gap 3 |
 | E-4 | Method / Methodology entities | Partial Spec | Medium | Sprint 12 | Research methods as nodes; APPLIES_METHOD, ADDRESSED_BY relationships. Gap analysis §4.1 Gap 4 |
 | E-5 | Citation graph (Paper → Paper) | Partial Spec | **High** | Sprint 12 | CITES relationships from Semantic Scholar API data; enables influence chain analysis. Gap analysis §4.2 |
@@ -93,6 +93,7 @@ The "killer feature" — makes the KG useful for researcher queries. Depends on 
 | P-5 | Scalability testing | Needs Spec | Medium | Current system untested beyond small datasets; paper's system tested on only 10 papers; need to validate at 100+ papers |
 | P-6 | Auto-publish backlog to Pages site | Has Spec | Low | `docs/backlog.md` published 2026-04-15. Follow-up: extend `.github/scripts/generate_docs.py` to regenerate from `llm/features/BACKLOG.md` on every push instead of manual snapshot |
 | P-7 | Migrate `update-docs.yml` trigger paths from `memory-bank/` to `llm/memory_bank/` | Needs Spec | Low | Workflow still watches the stale legacy path |
+| T-1 | Taxonomy management at scale | Needs Spec | Medium | Versioned taxonomy with branching/merge, import/export, conflict resolution for LLM proposals. Flagged by E-1 spec — needed if taxonomy grows beyond ~200 nodes |
 
 ---
 
