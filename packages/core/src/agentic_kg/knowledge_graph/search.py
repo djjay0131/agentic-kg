@@ -135,7 +135,7 @@ class SearchService:
 
     def structured_search(
         self,
-        domain: Optional[str] = None,
+        topic_id: Optional[str] = None,
         status: Optional[ProblemStatus] = None,
         has_datasets: Optional[bool] = None,
         year_from: Optional[int] = None,
@@ -146,7 +146,7 @@ class SearchService:
         Search problems using structured filters.
 
         Args:
-            domain: Filter by domain.
+            topic_id: Filter by Topic id (BELONGS_TO edge).
             status: Filter by status.
             has_datasets: Filter by dataset availability.
             year_from: Minimum year (via source paper).
@@ -163,13 +163,16 @@ class SearchService:
             filters: dict[str, Any],
             limit: int,
         ) -> list[dict]:
-            query = "MATCH (p:Problem)"
+            if filters.get("topic_id"):
+                query = (
+                    "MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic {id: $topic_id})"
+                )
+            else:
+                query = "MATCH (p:Problem)"
             conditions = []
             params: dict[str, Any] = {"limit": limit}
-
-            if filters.get("domain"):
-                conditions.append("p.domain = $domain")
-                params["domain"] = filters["domain"]
+            if filters.get("topic_id"):
+                params["topic_id"] = filters["topic_id"]
 
             if filters.get("status"):
                 conditions.append("p.status = $status")
@@ -183,9 +186,7 @@ class SearchService:
 
             # Year filtering requires joining with source paper
             if filters.get("year_from") or filters.get("year_to"):
-                query = """
-                    MATCH (p:Problem)-[:EXTRACTED_FROM]->(paper:Paper)
-                """
+                query += " MATCH (p)-[:EXTRACTED_FROM]->(paper:Paper)"
                 if filters.get("year_from"):
                     conditions.append("paper.year >= $year_from")
                     params["year_from"] = filters["year_from"]
@@ -202,7 +203,7 @@ class SearchService:
             return [{"node": dict(record["p"]), "score": 1.0} for record in result]
 
         filters = {
-            "domain": domain,
+            "topic_id": topic_id,
             "status": status.value if status else None,
             "has_datasets": has_datasets,
             "year_from": year_from,
@@ -231,7 +232,7 @@ class SearchService:
     def hybrid_search(
         self,
         query: str,
-        domain: Optional[str] = None,
+        topic_id: Optional[str] = None,
         status: Optional[ProblemStatus] = None,
         top_k: Optional[int] = None,
         semantic_weight: Optional[float] = None,
@@ -239,12 +240,12 @@ class SearchService:
         """
         Combined semantic and structured search.
 
-        Uses semantic similarity for ranking and structured filters
-        for filtering. Final score combines both signals.
+        Uses semantic similarity for ranking and a Topic / status filter
+        pass. Final score blends both signals.
 
         Args:
             query: Search query text.
-            domain: Filter by domain.
+            topic_id: Filter to problems BELONGS_TO this Topic.
             status: Filter by status.
             top_k: Maximum results.
             semantic_weight: Weight for semantic score (0-1).
@@ -256,41 +257,55 @@ class SearchService:
         semantic_weight = semantic_weight or self._config.semantic_weight
         structured_weight = 1.0 - semantic_weight
 
-        # Get semantic results (more than top_k for filtering)
         semantic_results = self.semantic_search(
             query, top_k=top_k * 3
         )
 
-        # Apply structured filters
+        # If filtering by topic, resolve the set of problem ids that
+        # belong to it so we don't have to hit Neo4j per candidate.
+        topic_problem_ids: Optional[set[str]] = None
+        if topic_id:
+            with self._repo.session() as session:
+                records = session.execute_read(
+                    lambda tx: [
+                        r["id"] for r in tx.run(
+                            """
+                            MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic {id: $tid})
+                            RETURN p.id AS id
+                            """,
+                            tid=topic_id,
+                        )
+                    ]
+                )
+            topic_problem_ids = set(records)
+
         filtered_results = []
         for result in semantic_results:
-            if domain and result.problem.domain != domain:
+            if topic_problem_ids is not None and result.problem.id not in topic_problem_ids:
                 continue
             if status and result.problem.status != status:
                 continue
             filtered_results.append(result)
 
-        # Calculate hybrid scores
         for result in filtered_results:
-            # Semantic score is already in result.score
-            # Add structural match bonus
             structural_bonus = 0.0
-            if domain and result.problem.domain == domain:
+            if topic_problem_ids is not None:
                 structural_bonus += 0.5
             if status and result.problem.status == status:
                 structural_bonus += 0.5
 
-            # Normalize structural bonus
-            structural_score = structural_bonus / 1.0 if domain or status else 1.0
+            structural_score = (
+                structural_bonus / 1.0
+                if topic_problem_ids is not None or status
+                else 1.0
+            )
 
-            # Combined score
             result.score = (
                 semantic_weight * result.score
                 + structured_weight * structural_score
             )
             result.match_type = "hybrid"
 
-        # Sort and limit
         filtered_results.sort()
         return filtered_results[:top_k]
 
@@ -390,13 +405,13 @@ def semantic_search(query: str, top_k: int = 10) -> list[SearchResult]:
 
 def hybrid_search(
     query: str,
-    domain: Optional[str] = None,
+    topic_id: Optional[str] = None,
     status: Optional[ProblemStatus] = None,
     top_k: int = 10,
 ) -> list[SearchResult]:
     """Combined semantic and structured search."""
     return get_search_service().hybrid_search(
-        query, domain=domain, status=status, top_k=top_k
+        query, topic_id=topic_id, status=status, top_k=top_k
     )
 
 

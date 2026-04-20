@@ -121,7 +121,7 @@ class SynthesisAgent(BaseAgent):
 
         user_prompt = SYNTHESIS_USER_PROMPT.format(
             statement=problem.statement,
-            domain=problem.domain or "unspecified",
+            topic="unspecified",
             proposal_summary=proposal_summary,
             feasibility_score=eval_result.feasibility_score,
             verdict=eval_result.verdict,
@@ -153,7 +153,6 @@ class SynthesisAgent(BaseAgent):
                 self.repo.create_problem(
                     id=new_id,
                     statement=statement,
-                    domain=source_problem.domain,
                     status="open",
                 )
                 updates.append(

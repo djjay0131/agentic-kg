@@ -347,7 +347,6 @@ Return ONLY the refined statement, no explanation or quotes."""
         return ProblemConcept(
             id=node["id"],
             canonical_statement=node["canonical_statement"],
-            domain=node.get("domain", "unknown"),
             status=node.get("status", "open"),
             assumptions=assumptions,
             constraints=constraints,
@@ -398,7 +397,6 @@ Return ONLY the refined statement, no explanation or quotes."""
             paper_title=node.get("paper_title"),
             section=node.get("section"),
             quoted_text=node.get("quoted_text"),
-            domain=node.get("domain"),
             assumptions=assumptions,
             constraints=constraints,
             datasets=datasets,

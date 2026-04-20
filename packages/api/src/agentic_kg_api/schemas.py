@@ -34,7 +34,6 @@ class ProblemSummary(BaseModel):
 
     id: str
     statement: str
-    domain: Optional[str] = None
     status: str
     confidence: Optional[float] = None
     created_at: Optional[datetime] = None
@@ -45,7 +44,6 @@ class ProblemDetail(BaseModel):
 
     id: str
     statement: str
-    domain: Optional[str] = None
     status: str
     assumptions: list[dict] = Field(default_factory=list)
     constraints: list[dict] = Field(default_factory=list)
@@ -62,7 +60,6 @@ class ProblemUpdate(BaseModel):
     """Fields that can be updated on a problem."""
 
     status: Optional[str] = None
-    domain: Optional[str] = None
     statement: Optional[str] = None
 
 
@@ -122,7 +119,6 @@ class SearchRequest(BaseModel):
     """Search request body."""
 
     query: str = Field(..., min_length=1, description="Search query text")
-    domain: Optional[str] = Field(default=None, description="Filter by domain")
     status: Optional[str] = Field(default=None, description="Filter by status")
     top_k: int = Field(default=10, ge=1, le=100, description="Max results")
     semantic_weight: Optional[float] = Field(
@@ -165,7 +161,6 @@ class ExtractedProblemResponse(BaseModel):
     """Extracted problem in API response."""
 
     statement: str
-    domain: Optional[str] = None
     confidence: float
     quoted_text: str
 
@@ -216,8 +211,9 @@ class StatsResponse(BaseModel):
 
     total_problems: int = 0
     total_papers: int = 0
+    total_topics: int = 0
     problems_by_status: dict[str, int] = Field(default_factory=dict)
-    problems_by_domain: dict[str, int] = Field(default_factory=dict)
+    problems_by_topic: dict[str, int] = Field(default_factory=dict)
 
 
 # =============================================================================
@@ -230,7 +226,7 @@ class GraphNode(BaseModel):
 
     id: str
     label: str
-    type: str  # "problem", "paper", "domain"
+    type: str  # "problem", "paper", "topic"
     properties: dict = Field(default_factory=dict)
 
 
@@ -263,7 +259,6 @@ class SuggestedConceptResponse(BaseModel):
     similarity_score: float
     final_score: float
     agent_reasoning: Optional[str] = None
-    domain: Optional[str] = None
     mention_count: int = 0
 
 
@@ -288,7 +283,6 @@ class PendingReviewSummary(BaseModel):
     mention_id: str
     mention_statement: str
     paper_doi: str
-    domain: Optional[str] = None
     priority: int
     status: str
     assigned_to: Optional[str] = None
@@ -305,7 +299,6 @@ class PendingReviewDetail(BaseModel):
     mention_statement: str
     paper_doi: str
     paper_title: Optional[str] = None
-    domain: Optional[str] = None
     suggested_concepts: list[SuggestedConceptResponse] = Field(default_factory=list)
     agent_context: AgentContextResponse
     priority: int
@@ -395,3 +388,108 @@ class IngestStatusResponse(BaseModel):
 
     # Sanity checks
     sanity_checks: list[SanityCheckResponse] = Field(default_factory=list)
+
+
+# =============================================================================
+# Topic Schemas (E-1)
+# =============================================================================
+
+
+class TopicSummary(BaseModel):
+    """Flat topic summary for list views."""
+
+    id: str
+    name: str
+    level: str
+    parent_id: Optional[str] = None
+    source: str
+    description: Optional[str] = None
+    problem_count: int = 0
+    paper_count: int = 0
+
+
+class TopicTreeNode(BaseModel):
+    """Topic with nested children for hierarchical responses."""
+
+    id: str
+    name: str
+    level: str
+    parent_id: Optional[str] = None
+    source: str
+    description: Optional[str] = None
+    problem_count: int = 0
+    paper_count: int = 0
+    children: list["TopicTreeNode"] = Field(default_factory=list)
+
+
+TopicTreeNode.model_rebuild()
+
+
+class TopicListResponse(BaseModel):
+    """Response for GET /api/topics."""
+
+    topics: list[TopicSummary] = Field(default_factory=list)
+    total: int = 0
+
+
+class TopicTreeResponse(BaseModel):
+    """Response for GET /api/topics?tree=true."""
+
+    roots: list[TopicTreeNode] = Field(default_factory=list)
+
+
+class TopicDetail(TopicSummary):
+    """Topic detail including immediate parent and children."""
+
+    parent: Optional[TopicSummary] = None
+    children: list[TopicSummary] = Field(default_factory=list)
+
+
+class TopicProblemsResponse(BaseModel):
+    """Response for GET /api/topics/{id}/problems."""
+
+    topic_id: str
+    problems: list[ProblemSummary] = Field(default_factory=list)
+    total: int = 0
+    include_subtopics: bool = True
+
+
+class TopicSearchResultItem(BaseModel):
+    """A single similarity-search hit."""
+
+    topic: TopicSummary
+    score: float
+
+
+class TopicSearchResponse(BaseModel):
+    """Response for GET /api/topics/search."""
+
+    query: str
+    results: list[TopicSearchResultItem] = Field(default_factory=list)
+
+
+class TopicAssignRequest(BaseModel):
+    """Request body for POST /api/topics/{id}/assign."""
+
+    entity_id: str = Field(
+        ..., description="Problem id, ProblemMention/Concept id, or Paper DOI"
+    )
+    entity_label: str = Field(
+        ...,
+        description=(
+            "Source label: one of Problem, ProblemMention, "
+            "ProblemConcept, Paper"
+        ),
+    )
+
+
+class TopicAssignResponse(BaseModel):
+    """Response for POST /api/topics/{id}/assign."""
+
+    topic_id: str
+    entity_id: str
+    entity_label: str
+    created: bool = Field(
+        description="True if the edge was created, False if it already existed"
+    )
+

@@ -53,7 +53,7 @@ class RankingAgent(BaseAgent):
 
             # Ask LLM to rank
             result = await self._rank_with_llm(
-                problems_text, len(candidates), state.get("domain_filter")
+                problems_text, len(candidates), state.get("topic_filter")
             )
 
             ranked = [rp.model_dump() for rp in result.ranked_problems]
@@ -74,15 +74,14 @@ class RankingAgent(BaseAgent):
 
     def _query_candidates(self, state: ResearchState) -> list[dict]:
         """Query KG for candidate problems matching filters."""
-        domain = state.get("domain_filter")
+        topic_id = state.get("topic_filter")
         status_filter = state.get("status_filter", "open")
         max_problems = state.get("max_problems", 20)
 
         if self.search:
-            # Use hybrid search if a domain is specified
-            if domain:
+            if topic_id:
                 results = self.search.structured_search(
-                    domain=domain,
+                    topic_id=topic_id,
                     status=status_filter,
                     top_k=max_problems,
                 )
@@ -95,7 +94,6 @@ class RankingAgent(BaseAgent):
                 {
                     "id": r.problem.id,
                     "statement": r.problem.statement,
-                    "domain": r.problem.domain,
                     "status": r.problem.status.value if r.problem.status else "open",
                     "confidence": getattr(
                         r.problem, "extraction_metadata", None
@@ -105,17 +103,14 @@ class RankingAgent(BaseAgent):
                 for r in results
             ]
         else:
-            # Fallback: list problems directly from repo
             problems = self.repo.list_problems(
                 status=status_filter,
-                domain=domain,
                 limit=max_problems,
             )
             return [
                 {
                     "id": p.id,
                     "statement": p.statement,
-                    "domain": p.domain,
                     "status": p.status.value if p.status else "open",
                     "confidence": getattr(p, "extraction_metadata", None)
                     and p.extraction_metadata.confidence_score,
@@ -127,21 +122,20 @@ class RankingAgent(BaseAgent):
         """Format problems as numbered text for the LLM."""
         lines = []
         for i, c in enumerate(candidates, 1):
-            domain_str = f" [{c.get('domain', 'unknown')}]" if c.get("domain") else ""
             lines.append(
-                f"{i}. (ID: {c['id']}){domain_str}\n"
+                f"{i}. (ID: {c['id']})\n"
                 f"   Statement: {c['statement']}\n"
                 f"   Status: {c.get('status', 'open')}"
             )
         return "\n\n".join(lines)
 
     async def _rank_with_llm(
-        self, problems_text: str, count: int, domain: str | None
+        self, problems_text: str, count: int, topic: str | None
     ) -> RankingResult:
         """Use LLM to score and rank problems."""
         user_prompt = RANKING_USER_PROMPT.format(
             count=count,
-            domain=domain or "all domains",
+            topic=topic or "all topics",
             problems_text=problems_text,
         )
 

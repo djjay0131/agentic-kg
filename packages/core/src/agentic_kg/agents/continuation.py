@@ -69,6 +69,23 @@ class ContinuationAgent(BaseAgent):
             state = add_message(state, self.name, f"Error: {e}")
             return {**state, "errors": state.get("errors", []) + [str(e)]}
 
+    def _lookup_topic_name(self, problem_id: str) -> str:
+        """Return the Topic name for a Problem, or 'unspecified' if none."""
+        try:
+            with self.repo.session() as session:
+                result = session.run(
+                    """
+                    MATCH (p:Problem {id: $id})-[:BELONGS_TO]->(t:Topic)
+                    RETURN t.name AS name
+                    LIMIT 1
+                    """,
+                    id=problem_id,
+                )
+                record = result.single()
+                return record["name"] if record else "unspecified"
+        except Exception:
+            return "unspecified"
+
     def _load_problem_context(self, problem_id: str) -> dict:
         """Load full problem context from the KG."""
         problem = self.repo.get_problem(problem_id)
@@ -76,7 +93,7 @@ class ContinuationAgent(BaseAgent):
         context = {
             "id": problem.id,
             "statement": problem.statement,
-            "domain": problem.domain or "unspecified",
+            "topic": self._lookup_topic_name(problem.id),
             "status": problem.status.value if problem.status else "open",
             "constraints": [],
             "datasets": [],
@@ -125,7 +142,7 @@ class ContinuationAgent(BaseAgent):
         """Generate a structured proposal via LLM."""
         user_prompt = CONTINUATION_USER_PROMPT.format(
             statement=context["statement"],
-            domain=context["domain"],
+            topic=context["topic"],
             status=context["status"],
             constraints="\n".join(context["constraints"]) or "None specified",
             datasets="\n".join(context["datasets"]) or "None specified",

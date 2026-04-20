@@ -16,13 +16,17 @@ router = APIRouter(prefix="/api/graph", tags=["graph"])
 @router.get("", response_model=GraphResponse)
 def get_graph(
     limit: int = Query(default=100, ge=1, le=500, description="Max nodes to return"),
-    domain: Optional[str] = Query(default=None, description="Filter by domain"),
+    topic_id: Optional[str] = Query(
+        default=None, description="Filter problems by Topic id (BELONGS_TO)"
+    ),
     include_papers: bool = Query(default=True, description="Include paper nodes"),
+    include_topics: bool = Query(default=True, description="Include Topic nodes"),
 ) -> GraphResponse:
     """
     Get graph data for visualization.
 
-    Returns nodes (problems, papers, domains) and links (relations) between them.
+    Returns nodes (problems, papers, topics) and links (relations) between them.
+    When ``topic_id`` is provided, only problems BELONGS_TO that Topic are returned.
     """
     nodes: list[GraphNode] = []
     links: list[GraphLink] = []
@@ -31,29 +35,28 @@ def get_graph(
     try:
         repo = get_repo()
         with repo.session() as session:
-            # Build domain filter
-            domain_filter = ""
-            if domain:
-                domain_filter = "WHERE p.domain = $domain"
-
-            # Get problem nodes
-            result = session.run(
-                f"""
-                MATCH (p:Problem)
-                {domain_filter}
+            if topic_id:
+                problem_query = """
+                MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic {id: $topic_id})
                 RETURN p
                 LIMIT $limit
-                """,
-                limit=limit,
-                domain=domain,
-            )
+                """
+                params = {"limit": limit, "topic_id": topic_id}
+            else:
+                problem_query = """
+                MATCH (p:Problem)
+                RETURN p
+                LIMIT $limit
+                """
+                params = {"limit": limit}
+
+            result = session.run(problem_query, **params)
 
             for record in result:
                 node = record["p"]
                 node_id = f"problem:{node.element_id}"
                 if node_id not in seen_nodes:
                     seen_nodes.add(node_id)
-                    # Truncate statement for label
                     statement = node.get("statement", "")
                     label = statement[:50] + "..." if len(statement) > 50 else statement
                     nodes.append(
@@ -63,30 +66,35 @@ def get_graph(
                             type="problem",
                             properties={
                                 "statement": statement,
-                                "domain": node.get("domain"),
                                 "status": node.get("status", "open"),
                                 "confidence": node.get("confidence"),
                             },
                         )
                     )
 
-            # Get relations between problems
-            result = session.run(
-                f"""
-                MATCH (p1:Problem)-[r]->(p2:Problem)
-                {domain_filter.replace('p.', 'p1.')}
+            # Relations between problems
+            if topic_id:
+                rel_query = """
+                MATCH (p1:Problem)-[:BELONGS_TO]->(:Topic {id: $topic_id})
+                MATCH (p1)-[r]->(p2:Problem)
                 RETURN p1, type(r) as rel_type, r, p2
                 LIMIT $limit
-                """,
-                limit=limit * 2,
-                domain=domain,
-            )
+                """
+                rel_params = {"limit": limit * 2, "topic_id": topic_id}
+            else:
+                rel_query = """
+                MATCH (p1:Problem)-[r]->(p2:Problem)
+                RETURN p1, type(r) as rel_type, r, p2
+                LIMIT $limit
+                """
+                rel_params = {"limit": limit * 2}
+
+            result = session.run(rel_query, **rel_params)
 
             for record in result:
                 source_id = f"problem:{record['p1'].element_id}"
                 target_id = f"problem:{record['p2'].element_id}"
 
-                # Ensure both nodes exist
                 if source_id in seen_nodes and target_id not in seen_nodes:
                     p2 = record["p2"]
                     statement = p2.get("statement", "")
@@ -99,7 +107,6 @@ def get_graph(
                             type="problem",
                             properties={
                                 "statement": statement,
-                                "domain": p2.get("domain"),
                                 "status": p2.get("status", "open"),
                             },
                         )
@@ -115,17 +122,14 @@ def get_graph(
                         )
                     )
 
-            # Include paper nodes and EXTRACTED_FROM relations
             if include_papers:
                 result = session.run(
-                    f"""
+                    """
                     MATCH (p:Problem)-[r:EXTRACTED_FROM]->(paper:Paper)
-                    {domain_filter}
                     RETURN p, paper
                     LIMIT $limit
                     """,
                     limit=limit,
-                    domain=domain,
                 )
 
                 for record in result:
@@ -160,33 +164,44 @@ def get_graph(
                             )
                         )
 
-            # Add domain nodes (aggregate by domain)
-            domains_seen: set[str] = set()
-            for node in nodes:
-                if node.type == "problem" and node.properties.get("domain"):
-                    domain_name = node.properties["domain"]
-                    if domain_name not in domains_seen:
-                        domains_seen.add(domain_name)
-                        domain_node_id = f"domain:{domain_name}"
-                        if domain_node_id not in seen_nodes:
-                            seen_nodes.add(domain_node_id)
+            # Topic nodes (BELONGS_TO edges)
+            if include_topics:
+                problem_ids = [n.id for n in nodes if n.type == "problem"]
+                if problem_ids:
+                    element_ids = [pid.replace("problem:", "") for pid in problem_ids]
+                    result = session.run(
+                        """
+                        MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic)
+                        WHERE elementId(p) IN $ids
+                        RETURN p, t
+                        """,
+                        ids=element_ids,
+                    )
+                    for record in result:
+                        problem_id = f"problem:{record['p'].element_id}"
+                        topic = record["t"]
+                        topic_node_id = f"topic:{topic.get('id')}"
+                        if topic_node_id not in seen_nodes:
+                            seen_nodes.add(topic_node_id)
                             nodes.append(
                                 GraphNode(
-                                    id=domain_node_id,
-                                    label=domain_name,
-                                    type="domain",
-                                    properties={"name": domain_name},
+                                    id=topic_node_id,
+                                    label=topic.get("name", "Unknown Topic"),
+                                    type="topic",
+                                    properties={
+                                        "name": topic.get("name"),
+                                        "level": topic.get("level"),
+                                        "problem_count": topic.get("problem_count", 0),
+                                    },
                                 )
                             )
-
-                    # Link problem to domain
-                    links.append(
-                        GraphLink(
-                            source=node.id,
-                            target=f"domain:{domain_name}",
-                            type="IN_DOMAIN",
+                        links.append(
+                            GraphLink(
+                                source=problem_id,
+                                target=topic_node_id,
+                                type="BELONGS_TO",
+                            )
                         )
-                    )
 
     except Exception as e:
         logger.error(f"Failed to get graph data: {e}")
@@ -237,7 +252,6 @@ def get_neighbors(
                             type="problem",
                             properties={
                                 "statement": statement,
-                                "domain": node.get("domain"),
                                 "status": node.get("status", "open"),
                             },
                         )
@@ -257,7 +271,6 @@ def get_neighbors(
                                 )
                                 props = {
                                     "statement": stmt,
-                                    "domain": neighbor.get("domain"),
                                     "status": neighbor.get("status", "open"),
                                 }
                             elif "Paper" in labels:

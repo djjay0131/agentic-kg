@@ -207,7 +207,6 @@ def create_human_review_node() -> Callable:
                     similarity_score=state.get("similarity_score", 0.0),
                     final_score=state.get("final_score", 0.0),
                     reasoning="Top candidate from ConceptMatcher",
-                    domain=state.get("candidate_domain"),
                     mention_count=state.get("candidate_mention_count", 0),
                 )
             )

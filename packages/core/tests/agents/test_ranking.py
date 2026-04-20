@@ -108,25 +108,24 @@ class TestRankingAgent:
         assert "LLM down" in result["errors"][-1]
 
     @pytest.mark.asyncio
-    async def test_run_with_domain_filter(self, agent, mock_search, mock_llm, ranking_result):
-        """Domain filter is passed to search service."""
+    async def test_run_with_topic_filter(self, agent, mock_search, mock_llm, ranking_result):
+        """Topic filter is passed to search service as topic_id."""
         mock_llm.structured_extract.return_value = SimpleNamespace(content=ranking_result)
-        state = create_initial_state(domain_filter="physics")
+        state = create_initial_state(topic_filter="topic-uuid-123")
 
         await agent.run(state)
 
         call_kwargs = mock_search.structured_search.call_args
-        assert call_kwargs.kwargs.get("domain") == "physics" or \
-               (call_kwargs.args and "physics" in str(call_kwargs))
+        assert call_kwargs.kwargs.get("topic_id") == "topic-uuid-123"
 
     def test_format_problems(self, agent):
         """_format_problems produces numbered text."""
         candidates = [
-            {"id": "p1", "statement": "Problem 1", "domain": "ml", "status": "open"},
+            {"id": "p1", "statement": "Problem 1", "status": "open"},
             {"id": "p2", "statement": "Problem 2", "status": "open"},
         ]
         text = agent._format_problems(candidates)
         assert "1." in text
         assert "2." in text
         assert "Problem 1" in text
-        assert "[ml]" in text
+        assert "Problem 2" in text

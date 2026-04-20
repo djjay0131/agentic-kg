@@ -60,14 +60,6 @@ class TestListProblems:
         assert response.status_code == 400
         assert "Invalid status" in response.json()["detail"]
 
-    def test_list_problems_with_domain_filter(self, client, mock_repo):
-        """Filters problems by domain."""
-        mock_repo.list_problems.return_value = []
-        response = client.get("/api/problems?domain=NLP")
-        assert response.status_code == 200
-        call_kwargs = mock_repo.list_problems.call_args[1]
-        assert call_kwargs["domain"] == "NLP"
-
     def test_list_problems_with_pagination(self, client, mock_repo):
         """Supports limit and offset pagination."""
         mock_repo.list_problems.return_value = []
@@ -179,14 +171,6 @@ class TestUpdateProblem:
         mock_repo.get_problem.return_value = problem
         mock_repo.update_problem.return_value = problem
         response = client.put("/api/problems/p1", json={"status": "open"})
-        assert response.status_code == 200
-
-    def test_update_domain(self, client, mock_repo):
-        """Updates problem domain."""
-        problem = make_problem(id="p1")
-        mock_repo.get_problem.return_value = problem
-        mock_repo.update_problem.return_value = problem
-        response = client.put("/api/problems/p1", json={"domain": "CV"})
         assert response.status_code == 200
 
     def test_update_statement(self, client, mock_repo):

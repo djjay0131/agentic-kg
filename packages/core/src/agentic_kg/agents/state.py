@@ -37,7 +37,7 @@ class ResearchState(TypedDict, total=False):
     updated_at: str
 
     # --- Input / filters ---
-    domain_filter: Optional[str]
+    topic_filter: Optional[str]
     status_filter: Optional[str]
     max_problems: int
     min_confidence: float
@@ -68,7 +68,7 @@ class ResearchState(TypedDict, total=False):
 
 
 def create_initial_state(
-    domain_filter: Optional[str] = None,
+    topic_filter: Optional[str] = None,
     status_filter: Optional[str] = None,
     max_problems: int = 20,
     min_confidence: float = 0.3,
@@ -81,7 +81,7 @@ def create_initial_state(
         current_step="",
         created_at=now,
         updated_at=now,
-        domain_filter=domain_filter,
+        topic_filter=topic_filter,
         status_filter=status_filter,
         max_problems=max_problems,
         min_confidence=min_confidence,

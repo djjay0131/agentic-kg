@@ -30,7 +30,7 @@ The overall score should be a weighted combination: 0.4*tractability + 0.3*data_
 
 RANKING_USER_PROMPT = """Rank the following {count} research problems.
 
-Domain filter: {domain}
+Topic filter: {topic}
 Problems:
 
 {problems_text}
@@ -61,7 +61,7 @@ Guidelines:
 CONTINUATION_USER_PROMPT = """Propose a research continuation for the following problem:
 
 **Problem:** {statement}
-**Domain:** {domain}
+**Topic:** {topic}
 **Status:** {status}
 
 **Constraints:**
@@ -142,7 +142,7 @@ Guidelines:
 SYNTHESIS_USER_PROMPT = """Synthesize the results of this research workflow:
 
 **Original Problem:** {statement}
-**Domain:** {domain}
+**Topic:** {topic}
 
 **Continuation Proposal:**
 {proposal_summary}

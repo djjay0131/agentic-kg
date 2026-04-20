@@ -73,7 +73,6 @@ class TestRankedProblem:
         )
         assert rp.problem_id == "p1"
         assert rp.score == 0.8
-        assert rp.domain is None
         assert rp.related_problem_count == 0
 
     @pytest.mark.parametrize("field_name,bad_value", [
