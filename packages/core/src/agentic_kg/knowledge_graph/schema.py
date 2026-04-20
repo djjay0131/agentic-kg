@@ -19,7 +19,7 @@ from agentic_kg.knowledge_graph.repository import Neo4jRepository, get_repositor
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when making schema changes
-SCHEMA_VERSION = 2  # Added ProblemMention/ProblemConcept schema
+SCHEMA_VERSION = 3  # Added Topic hierarchy (E-1)
 
 # Schema definitions - fmt: off to allow long Cypher strings
 CONSTRAINTS = [
@@ -52,6 +52,12 @@ CONSTRAINTS = [
         "problem_concept_id_unique",
         "CREATE CONSTRAINT problem_concept_id_unique IF NOT EXISTS "
         "FOR (c:ProblemConcept) REQUIRE c.id IS UNIQUE",
+    ),
+    # Topic constraints (E-1)
+    (
+        "topic_id_unique",
+        "CREATE CONSTRAINT topic_id_unique IF NOT EXISTS "
+        "FOR (t:Topic) REQUIRE t.id IS UNIQUE",
     ),
     # Schema metadata
     (
@@ -124,6 +130,19 @@ INDEXES = [
         "concept_status_idx",
         "CREATE INDEX concept_status_idx IF NOT EXISTS FOR (c:ProblemConcept) ON (c.status)",
     ),
+    # Topic indexes (E-1)
+    (
+        "topic_name_idx",
+        "CREATE INDEX topic_name_idx IF NOT EXISTS FOR (t:Topic) ON (t.name)",
+    ),
+    (
+        "topic_level_idx",
+        "CREATE INDEX topic_level_idx IF NOT EXISTS FOR (t:Topic) ON (t.level)",
+    ),
+    (
+        "topic_source_idx",
+        "CREATE INDEX topic_source_idx IF NOT EXISTS FOR (t:Topic) ON (t.source)",
+    ),
 ]
 
 # Vector indexes for semantic search (Neo4j 5.x)
@@ -165,6 +184,21 @@ VECTOR_INDEXES = [
         CREATE VECTOR INDEX concept_embedding_idx IF NOT EXISTS
         FOR (c:ProblemConcept)
         ON c.embedding
+        OPTIONS {
+            indexConfig: {
+                `vector.dimensions`: 1536,
+                `vector.similarity_function`: 'cosine'
+            }
+        }
+        """
+    ),
+    # Topic embedding index (E-1)
+    (
+        "topic_embedding_idx",
+        """
+        CREATE VECTOR INDEX topic_embedding_idx IF NOT EXISTS
+        FOR (t:Topic)
+        ON t.embedding
         OPTIONS {
             indexConfig: {
                 `vector.dimensions`: 1536,
