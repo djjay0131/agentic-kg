@@ -184,7 +184,6 @@ class AutoLinker:
         concept = ProblemConcept(
             id=str(uuid.uuid4()),
             canonical_statement=mention.statement,  # Initially same as mention
-            domain=mention.domain or "unknown",
             status=ProblemStatus.OPEN,
             assumptions=mention.assumptions,
             constraints=mention.constraints,
@@ -317,7 +316,6 @@ class AutoLinker:
             concept = ProblemConcept(
                 id=concept_data["id"],
                 canonical_statement=concept_data["canonical_statement"],
-                domain=concept_data["domain"],
                 status=ProblemStatus(concept_data["status"]),
                 mention_count=concept_data["mention_count"],
                 paper_count=concept_data.get("paper_count", 1),

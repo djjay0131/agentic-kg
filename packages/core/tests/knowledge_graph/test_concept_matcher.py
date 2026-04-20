@@ -54,7 +54,6 @@ class TestConceptMatcher:
             statement="How can we improve neural network training efficiency?",
             paper_doi="10.1234/test",
             section="Introduction",
-            domain="Machine Learning",
             quoted_text="Training large neural networks is computationally expensive.",
             embedding=[0.1] * 1536,
         )
@@ -255,7 +254,6 @@ class TestConceptMatcher:
             statement="This is a test problem with sufficient length",
             paper_doi="10.1234/empty",  # Valid DOI format
             section="Intro",
-            domain="AI",
             quoted_text="Test quote with sufficient length",
             embedding=[0.1] * 1536,
         )
@@ -309,14 +307,12 @@ class TestConceptMatcher:
             {
                 "concept_id": "concept-1",
                 "statement": "Improving neural network training",
-                "domain": "Machine Learning",
                 "mention_count": 5,
                 "similarity_score": 0.97,
             },
             {
                 "concept_id": "concept-2",
                 "statement": "Efficient deep learning",
-                "domain": "Machine Learning",
                 "mention_count": 3,
                 "similarity_score": 0.85,
             },
@@ -330,7 +326,6 @@ class TestConceptMatcher:
         assert candidates[0].confidence == MatchConfidence.HIGH  # 0.97 > 0.95
         assert candidates[0].similarity_score == 0.97
         assert candidates[1].confidence == MatchConfidence.MEDIUM  # 0.85 in 0.80-0.95
-        assert candidates[0].domain_match is True  # Both "Machine Learning"
 
     def test_find_candidate_concepts_no_embedding(self, matcher, sample_mention):
         """Test error when mention has no embedding."""
@@ -354,7 +349,6 @@ class TestConceptMatcher:
             {
                 "concept_id": "concept-1",
                 "statement": "Neural network training",
-                "domain": "Machine Learning",
                 "mention_count": 5,
                 "similarity_score": 0.90,
             }
@@ -389,7 +383,6 @@ class TestConceptMatcher:
             {
                 "concept_id": "concept-1",
                 "statement": "Neural network training efficiency",
-                "domain": "Machine Learning",
                 "mention_count": 5,
                 "similarity_score": 0.97,
             }
@@ -413,7 +406,6 @@ class TestConceptMatcher:
             {
                 "concept_id": "concept-1",
                 "statement": "Completely unrelated topic",
-                "domain": "Physics",
                 "mention_count": 1,
                 "similarity_score": 0.30,  # Below threshold
             }
@@ -459,27 +451,6 @@ class TestConceptMatcher:
         boost = matcher._calculate_citation_boost(sample_mention, "concept-1")
 
         assert boost == 0.0  # No boost
-
-    def test_domain_matching_detection(self, matcher, sample_mention, mock_repo):
-        """Test domain matching is correctly detected."""
-        mock_session = MagicMock()
-        mock_repo.session.return_value.__enter__.return_value = mock_session
-
-        # Same domain
-        mock_result = [
-            {
-                "concept_id": "concept-1",
-                "statement": "Test",
-                "domain": "Machine Learning",  # Matches sample_mention.domain
-                "mention_count": 1,
-                "similarity_score": 0.85,
-            }
-        ]
-        mock_session.execute_read.return_value = mock_result
-
-        candidates = matcher.find_candidate_concepts(sample_mention)
-
-        assert candidates[0].domain_match is True
 
     def test_final_score_calculation(self):
         """Test MatchCandidate final_score property."""

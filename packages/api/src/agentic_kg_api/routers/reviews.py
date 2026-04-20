@@ -41,7 +41,6 @@ def _review_to_summary(review: PendingReview) -> PendingReviewSummary:
         mention_id=review.mention_id,
         mention_statement=review.mention_statement,
         paper_doi=review.paper_doi,
-        domain=review.domain,
         priority=review.priority.value if hasattr(review.priority, "value") else int(review.priority),
         status=review.status.value if hasattr(review.status, "value") else str(review.status),
         assigned_to=review.assigned_to,
@@ -59,7 +58,6 @@ def _review_to_detail(review: PendingReview) -> PendingReviewDetail:
             similarity_score=c.similarity_score,
             final_score=c.final_score,
             agent_reasoning=c.agent_reasoning,
-            domain=c.domain,
             mention_count=c.mention_count,
         )
         for c in review.suggested_concepts
@@ -87,7 +85,6 @@ def _review_to_detail(review: PendingReview) -> PendingReviewDetail:
         mention_statement=review.mention_statement,
         paper_doi=review.paper_doi,
         paper_title=review.paper_title,
-        domain=review.domain,
         suggested_concepts=suggested,
         agent_context=agent_context,
         priority=review.priority.value if hasattr(review.priority, "value") else int(review.priority),
@@ -127,7 +124,6 @@ async def list_pending_reviews(
     priority: Optional[int] = Query(
         default=None, ge=1, le=10, description="Max priority (1=highest)"
     ),
-    domain: Optional[str] = Query(default=None, description="Filter by domain"),
     queue_service: ReviewQueueService = Depends(get_review_queue),
 ) -> PendingReviewListResponse:
     """
@@ -139,11 +135,9 @@ async def list_pending_reviews(
         reviews = await queue_service.get_pending(
             limit=limit,
             priority_filter=priority,
-            domain_filter=domain,
         )
         total = await queue_service.count_pending(
             priority_filter=priority,
-            domain_filter=domain,
         )
 
         return PendingReviewListResponse(

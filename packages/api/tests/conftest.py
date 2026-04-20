@@ -77,7 +77,6 @@ def make_problem(**kwargs):
     p = MagicMock()
     p.id = kwargs.get("id", "prob-001")
     p.statement = kwargs.get("statement", "How to improve transformer efficiency?")
-    p.domain = kwargs.get("domain", "NLP")
     p.status = kwargs.get("status", MagicMock(value="open"))
     p.created_at = kwargs.get("created_at", None)
     p.updated_at = kwargs.get("updated_at", None)

@@ -288,7 +288,6 @@ def extracted_to_kg_problem(
     return Problem(
         id=str(uuid.uuid4()),
         statement=extracted.statement,
-        domain=extracted.domain,
         status=ProblemStatus.OPEN,
         assumptions=assumptions,
         constraints=constraints,

@@ -93,7 +93,7 @@ class WorkflowRunner:
 
     async def start_workflow(
         self,
-        domain_filter: str | None = None,
+        topic_filter: str | None = None,
         status_filter: str | None = None,
         max_problems: int = 20,
         min_confidence: float = 0.3,
@@ -105,7 +105,7 @@ class WorkflowRunner:
             run_id for tracking the workflow session.
         """
         state = create_initial_state(
-            domain_filter=domain_filter,
+            topic_filter=topic_filter,
             status_filter=status_filter,
             max_problems=max_problems,
             min_confidence=min_confidence,

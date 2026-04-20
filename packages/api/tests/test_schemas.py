@@ -63,7 +63,6 @@ class TestSearchRequest:
     def test_optional_filters_default_none(self):
         """Optional filters default to None."""
         req = SearchRequest(query="test")
-        assert req.domain is None
         assert req.status is None
         assert req.semantic_weight is None
 
@@ -101,8 +100,9 @@ class TestStatsResponse:
         s = StatsResponse()
         assert s.total_problems == 0
         assert s.total_papers == 0
+        assert s.total_topics == 0
         assert s.problems_by_status == {}
-        assert s.problems_by_domain == {}
+        assert s.problems_by_topic == {}
 
 
 class TestProblemSummary:
@@ -112,7 +112,6 @@ class TestProblemSummary:
         """Requires id, statement, and status."""
         ps = ProblemSummary(id="p1", statement="test", status="open")
         assert ps.id == "p1"
-        assert ps.domain is None
         assert ps.confidence is None
 
     def test_missing_required_fields(self):

@@ -76,7 +76,7 @@ class TestStartWorkflow:
     def test_start_workflow_success(self, client_with_runner, mock_runner):
         resp = client_with_runner.post(
             "/api/agents/workflows",
-            json={"domain_filter": "NLP"},
+            json={"topic_filter": "topic-uuid-nlp"},
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -89,7 +89,7 @@ class TestStartWorkflow:
         resp = client_with_runner.post("/api/agents/workflows", json={})
         assert resp.status_code == 200
         mock_runner.start_workflow.assert_awaited_once_with(
-            domain_filter=None,
+            topic_filter=None,
             status_filter=None,
             max_problems=20,
             min_confidence=0.3,

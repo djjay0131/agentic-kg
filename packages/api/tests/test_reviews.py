@@ -70,7 +70,6 @@ def make_suggested_concept(**kwargs):
     c.similarity_score = kwargs.get("similarity_score", 0.85)
     c.final_score = kwargs.get("final_score", 0.87)
     c.agent_reasoning = kwargs.get("agent_reasoning", "High semantic overlap")
-    c.domain = kwargs.get("domain", "NLP")
     c.mention_count = kwargs.get("mention_count", 3)
     return c
 
@@ -84,7 +83,6 @@ def make_pending_review(**kwargs):
     r.mention_statement = kwargs.get("mention_statement", "How to improve transformer efficiency?")
     r.paper_doi = kwargs.get("paper_doi", "10.1234/test.2024")
     r.paper_title = kwargs.get("paper_title", "Test Paper Title")
-    r.domain = kwargs.get("domain", "NLP")
     r.priority = kwargs.get("priority", MagicMock(value=5))
     r.status = kwargs.get("status", MagicMock(value="pending"))
     r.assigned_to = kwargs.get("assigned_to", None)
@@ -149,19 +147,7 @@ class TestListPendingReviews:
 
         assert response.status_code == 200
         mock_review_queue_service.get_pending.assert_called_with(
-            limit=20, priority_filter=3, domain_filter=None
-        )
-
-    def test_filters_by_domain(self, client_with_reviews, mock_review_queue_service):
-        """Passes domain filter to service."""
-        mock_review_queue_service.get_pending.return_value = []
-        mock_review_queue_service.count_pending.return_value = 0
-
-        response = client_with_reviews.get("/api/reviews/pending?domain=NLP")
-
-        assert response.status_code == 200
-        mock_review_queue_service.get_pending.assert_called_with(
-            limit=20, priority_filter=None, domain_filter="NLP"
+            limit=20, priority_filter=3
         )
 
     def test_respects_limit(self, client_with_reviews, mock_review_queue_service):

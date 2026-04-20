@@ -404,6 +404,56 @@ def build_parser() -> argparse.ArgumentParser:
         help="Enable verbose logging",
     )
 
+    # load-taxonomy command (E-1)
+    load_taxonomy_cmd = subparsers.add_parser(
+        "load-taxonomy",
+        help="Load seed taxonomy YAML into the knowledge graph",
+    )
+    load_taxonomy_cmd.add_argument(
+        "--file",
+        help="Path to a taxonomy YAML file (defaults to bundled seed_taxonomy.yml)",
+    )
+    load_taxonomy_cmd.add_argument(
+        "--skip-embeddings", action="store_true",
+        help="Skip embedding generation (faster, useful for tests)",
+    )
+    load_taxonomy_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
+    # export-taxonomy command (E-1)
+    export_taxonomy_cmd = subparsers.add_parser(
+        "export-taxonomy",
+        help="Export current taxonomy from the KG to YAML",
+    )
+    export_taxonomy_cmd.add_argument(
+        "--file", required=True, help="Output YAML file path",
+    )
+    export_taxonomy_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
+    # assign-topic command (E-1)
+    assign_topic_cmd = subparsers.add_parser(
+        "assign-topic",
+        help="Assign a Problem/ProblemMention/ProblemConcept/Paper to a Topic",
+    )
+    assign_topic_cmd.add_argument(
+        "--entity-id", required=True,
+        help="Entity identifier (Paper uses its DOI)",
+    )
+    assign_topic_cmd.add_argument(
+        "--topic-id", required=True, help="Target Topic id",
+    )
+    assign_topic_cmd.add_argument(
+        "--entity-label", default="Problem",
+        choices=["Problem", "ProblemMention", "ProblemConcept", "Paper"],
+        help="Source node label (default: Problem)",
+    )
+    assign_topic_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
     return parser
 
 
@@ -516,6 +566,72 @@ async def run_ingest(args) -> None:
         sys.exit(1)
 
 
+def run_load_taxonomy(args) -> None:
+    """Load a taxonomy YAML into Neo4j via the repository."""
+    from agentic_kg.knowledge_graph.repository import get_repository
+    from agentic_kg.knowledge_graph.taxonomy import (
+        DEFAULT_TAXONOMY_PATH,
+        load_taxonomy,
+    )
+
+    source = args.file or DEFAULT_TAXONOMY_PATH
+    repo = get_repository()
+    stats = load_taxonomy(
+        repo=repo,
+        source=source,
+        generate_embeddings=not args.skip_embeddings,
+    )
+    print(
+        f"Loaded taxonomy from {source}: "
+        f"{stats['created']} created, {stats['matched']} matched"
+    )
+
+
+def run_export_taxonomy(args) -> None:
+    """Export the KG taxonomy to a YAML file."""
+    from agentic_kg.knowledge_graph.repository import get_repository
+    from agentic_kg.knowledge_graph.taxonomy import (
+        dump_taxonomy_to_yaml,
+        export_taxonomy,
+    )
+
+    repo = get_repository()
+    taxonomy = export_taxonomy(repo)
+    dump_taxonomy_to_yaml(taxonomy, args.file)
+    print(f"Exported {_count_nodes(taxonomy)} topic(s) to {args.file}")
+
+
+def _count_nodes(nodes: list) -> int:
+    return sum(1 + _count_nodes(n.get("children", []) or []) for n in nodes)
+
+
+def run_assign_topic(args) -> None:
+    """Assign a single entity to a Topic."""
+    from agentic_kg.knowledge_graph.repository import (
+        NotFoundError,
+        get_repository,
+    )
+
+    repo = get_repository()
+    try:
+        created = repo.assign_entity_to_topic(
+            entity_id=args.entity_id,
+            topic_id=args.topic_id,
+            entity_label=args.entity_label,
+        )
+    except NotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(2)
+
+    verb = "Created" if created else "Already present"
+    print(
+        f"{verb} edge: {args.entity_label} {args.entity_id} → Topic {args.topic_id}"
+    )
+
+
 def main(argv: Optional[list[str]] = None) -> None:
     """CLI entry point."""
     parser = build_parser()
@@ -525,11 +641,17 @@ def main(argv: Optional[list[str]] = None) -> None:
         parser.print_help()
         sys.exit(0)
 
-    if args.verbose:
+    if getattr(args, "verbose", False):
         logging.getLogger().setLevel(logging.DEBUG)
 
     if args.command == "ingest":
         asyncio.run(run_ingest(args))
+    elif args.command == "load-taxonomy":
+        run_load_taxonomy(args)
+    elif args.command == "export-taxonomy":
+        run_export_taxonomy(args)
+    elif args.command == "assign-topic":
+        run_assign_topic(args)
     elif args.command == "extract":
         # Build pipeline config
         config = PipelineConfig(

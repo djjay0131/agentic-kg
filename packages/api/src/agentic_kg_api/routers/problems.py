@@ -28,7 +28,6 @@ def _problem_to_summary(p: Problem) -> ProblemSummary:
     return ProblemSummary(
         id=p.id,
         statement=p.statement,
-        domain=p.domain,
         status=p.status.value if isinstance(p.status, ProblemStatus) else str(p.status),
         confidence=confidence,
         created_at=p.created_at,
@@ -58,7 +57,6 @@ def _problem_to_detail(p: Problem) -> ProblemDetail:
     return ProblemDetail(
         id=p.id,
         statement=p.statement,
-        domain=p.domain,
         status=p.status.value if isinstance(p.status, ProblemStatus) else str(p.status),
         assumptions=[{"text": a.text, "implicit": a.implicit, "confidence": a.confidence} for a in p.assumptions],
         constraints=[{"text": c.text, "type": c.type.value if hasattr(c.type, "value") else str(c.type), "confidence": c.confidence} for c in p.constraints],
@@ -75,7 +73,6 @@ def _problem_to_detail(p: Problem) -> ProblemDetail:
 @router.get("", response_model=ProblemListResponse)
 def list_problems(
     status: Optional[str] = Query(default=None, description="Filter by status"),
-    domain: Optional[str] = Query(default=None, description="Filter by domain"),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     repo: Neo4jRepository = Depends(get_repo),
@@ -90,7 +87,6 @@ def list_problems(
 
     problems = repo.list_problems(
         status=problem_status,
-        domain=domain,
         limit=limit,
         offset=offset,
     )
@@ -132,8 +128,6 @@ def update_problem(
             problem.status = ProblemStatus(update.status)
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid status: {update.status}")
-    if update.domain is not None:
-        problem.domain = update.domain
     if update.statement is not None:
         problem.statement = update.statement
 
