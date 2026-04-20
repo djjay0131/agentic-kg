@@ -191,6 +191,28 @@ def generate_problem_embedding(problem: Problem) -> list[float]:
     return service.generate_embedding(text)
 
 
+def generate_topic_embedding(name: str, description: Optional[str] = None) -> list[float]:
+    """
+    Generate embedding for a Topic.
+
+    Embeds "{name}: {description}" when a description is available, else
+    just the name. Same text-embedding-3-small model as the rest of the KG.
+
+    Args:
+        name: Topic name.
+        description: Optional description for richer semantic context.
+
+    Returns:
+        Embedding vector.
+
+    Raises:
+        EmbeddingError: If generation fails.
+    """
+    text = f"{name}: {description}" if description else name
+    service = EmbeddingService()
+    return service.generate_embedding(text)
+
+
 def generate_problem_embeddings_batch(
     problems: list[Problem],
 ) -> list[Optional[list[float]]]:
