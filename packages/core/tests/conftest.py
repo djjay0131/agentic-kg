@@ -314,7 +314,6 @@ def sample_problem_data(sample_evidence_data, sample_extraction_metadata_data) -
             "How can we improve the efficiency of transformer models "
             "for long-context understanding?"
         ),
-        "domain": "Natural Language Processing",
         "status": "open",
         "evidence": sample_evidence_data,
         "extraction_metadata": sample_extraction_metadata_data,

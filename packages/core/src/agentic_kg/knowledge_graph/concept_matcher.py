@@ -112,7 +112,6 @@ class ConceptMatcher:
             RETURN
                 node.id AS concept_id,
                 node.canonical_statement AS statement,
-                node.domain AS domain,
                 node.mention_count AS mention_count,
                 score AS similarity_score
             """
@@ -144,20 +143,12 @@ class ConceptMatcher:
             # Classify confidence based on similarity score
             confidence = self.classify_confidence(similarity_score)
 
-            # Check domain match
-            domain_match = (
-                mention.domain == result["domain"]
-                if mention.domain and result["domain"]
-                else False
-            )
-
             candidate = MatchCandidate(
                 concept_id=result["concept_id"],
                 concept_statement=result["statement"],
                 similarity_score=similarity_score,
                 confidence=confidence,
                 citation_boost=citation_boost,
-                domain_match=domain_match,
                 metadata_overlap={},  # TODO: Calculate in future iteration
             )
 

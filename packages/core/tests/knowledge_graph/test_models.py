@@ -425,7 +425,6 @@ class TestProblem:
             extraction_metadata=sample_extraction_metadata_data,
         )
         assert "interpretability" in problem.statement
-        assert problem.domain is None
         assert problem.status == ProblemStatus.OPEN
         assert problem.version == 1
 
@@ -433,7 +432,6 @@ class TestProblem:
         """Problem can be created with all fields."""
         sample_problem_data["assumptions"] = [sample_assumption_data]
         problem = Problem(**sample_problem_data)
-        assert problem.domain == "Natural Language Processing"
         assert len(problem.assumptions) == 1
 
     def test_id_auto_generated(self, sample_problem_data):
@@ -510,7 +508,7 @@ class TestProblem:
         props = problem.to_neo4j_properties()
 
         assert props["statement"] == problem.statement
-        assert props["domain"] == problem.domain
+        assert "domain" not in props  # Removed in Unit 6
         assert "embedding" not in props  # Excluded
         assert isinstance(props["created_at"], str)  # ISO format
         assert isinstance(props["updated_at"], str)

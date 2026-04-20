@@ -100,8 +100,9 @@ class TestExistingSchemaPreserved:
 
     def test_problem_indexes_preserved(self):
         names = {name for name, _ in INDEXES}
-        # problem_domain_idx stays until Unit 6 (domain field removal)
-        assert "problem_domain_idx" in names
+        # problem_domain_idx was dropped in Unit 6 (domain field removal).
+        assert "problem_domain_idx" not in names
+        assert "concept_domain_idx" not in names
         assert "problem_status_idx" in names
         assert "paper_year_idx" in names
 

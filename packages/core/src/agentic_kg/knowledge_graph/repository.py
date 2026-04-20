@@ -171,41 +171,24 @@ class Neo4jRepository:
     def _find_duplicate_problem(
         self,
         statement: str,
-        domain: Optional[str] = None,
     ) -> Optional[dict]:
         """
         Check if a problem with similar statement already exists.
 
-        Uses exact match on normalized statement within the same domain.
-
-        Args:
-            statement: Problem statement to check
-            domain: Optional domain to narrow search
-
-        Returns:
-            Dict with existing problem info if found, None otherwise
+        Uses exact match on normalized statement across the graph.
         """
-        # Normalize statement for comparison (lowercase, strip whitespace)
         normalized = statement.lower().strip()
 
         def _check(tx: ManagedTransaction) -> Optional[dict]:
-            query = """
-            MATCH (p:Problem)
-            WHERE toLower(trim(p.statement)) = $statement
-            """
-            params = {"statement": normalized}
-
-            # Narrow by domain if provided
-            if domain:
-                query += " AND p.domain = $domain"
-                params["domain"] = domain
-
-            query += """
-            RETURN p.id as id, p.statement as statement, p.status as status
-            LIMIT 1
-            """
-
-            result = tx.run(query, **params)
+            result = tx.run(
+                """
+                MATCH (p:Problem)
+                WHERE toLower(trim(p.statement)) = $statement
+                RETURN p.id as id, p.statement as statement, p.status as status
+                LIMIT 1
+                """,
+                statement=normalized,
+            )
             record = result.single()
             return dict(record) if record else None
 
@@ -237,7 +220,7 @@ class Neo4jRepository:
         """
         # Check for duplicate problem statement (before generating embedding)
         if not skip_duplicate_check:
-            existing = self._find_duplicate_problem(problem.statement, problem.domain)
+            existing = self._find_duplicate_problem(problem.statement)
             if existing:
                 raise DuplicateError(
                     f"Problem with similar statement already exists (ID: {existing['id']}). "
@@ -446,7 +429,6 @@ class Neo4jRepository:
     def list_problems(
         self,
         status: Optional[ProblemStatus] = None,
-        domain: Optional[str] = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[Problem]:
@@ -455,7 +437,6 @@ class Neo4jRepository:
 
         Args:
             status: Filter by status.
-            domain: Filter by domain.
             limit: Maximum results.
             offset: Skip first N results.
 
@@ -465,23 +446,15 @@ class Neo4jRepository:
         def _list(
             tx: ManagedTransaction,
             status_val: Optional[str],
-            domain_val: Optional[str],
             lim: int,
             off: int,
         ) -> list[dict]:
             query = "MATCH (p:Problem)"
-            conditions = []
             params: dict[str, Any] = {"limit": lim, "offset": off}
 
             if status_val:
-                conditions.append("p.status = $status")
+                query += " WHERE p.status = $status"
                 params["status"] = status_val
-            if domain_val:
-                conditions.append("p.domain = $domain")
-                params["domain"] = domain_val
-
-            if conditions:
-                query += " WHERE " + " AND ".join(conditions)
 
             query += " RETURN p ORDER BY p.created_at DESC SKIP $offset LIMIT $limit"
 
@@ -492,7 +465,7 @@ class Neo4jRepository:
 
         with self.session() as session:
             records = session.execute_read(
-                lambda tx: _list(tx, status_str, domain, limit, offset)
+                lambda tx: _list(tx, status_str, limit, offset)
             )
 
         return [self._problem_from_neo4j(r) for r in records]

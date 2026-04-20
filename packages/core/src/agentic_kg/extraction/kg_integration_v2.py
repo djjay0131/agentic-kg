@@ -424,14 +424,12 @@ class KGIntegratorV2:
             candidate_statement=candidate.concept_statement,
             similarity_score=candidate.similarity_score,
             paper_doi=mention.paper_doi,
-            mention_domain=mention.domain,
             trace_id=trace_id,
         )
 
         # Set confidence level for routing
         state["initial_confidence"] = candidate.confidence.value.lower()
         state["final_score"] = candidate.final_score
-        state["candidate_domain"] = None  # Not available in MatchCandidate
         state["candidate_mention_count"] = 0  # Not available in MatchCandidate
 
         # Run workflow (sync wrapper for async)
@@ -566,7 +564,6 @@ class KGIntegratorV2:
                 similarity_score=candidate.similarity_score,
                 final_score=candidate.final_score,
                 agent_reasoning=result_state.get("decision_reasoning", ""),
-                domain=None,  # Not available in MatchCandidate
                 mention_count=0,  # Not available in MatchCandidate
             )
         ]
@@ -708,7 +705,6 @@ class KGIntegratorV2:
             statement=extracted_problem.statement,
             paper_doi=paper_doi,
             section="Unknown",  # Default when not in ExtractedProblem schema
-            domain=extracted_problem.domain,
             assumptions=assumptions,
             constraints=constraints,
             datasets=datasets,

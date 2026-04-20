@@ -74,10 +74,6 @@ INDEXES = [
         "CREATE INDEX problem_status_idx IF NOT EXISTS FOR (p:Problem) ON (p.status)",
     ),
     (
-        "problem_domain_idx",
-        "CREATE INDEX problem_domain_idx IF NOT EXISTS FOR (p:Problem) ON (p.domain)",
-    ),
-    (
         "problem_created_idx",
         "CREATE INDEX problem_created_idx IF NOT EXISTS "
         "FOR (p:Problem) ON (p.created_at)",
@@ -118,10 +114,6 @@ INDEXES = [
         "CREATE INDEX mention_concept_idx IF NOT EXISTS FOR (m:ProblemMention) ON (m.concept_id)",
     ),
     # ProblemConcept indexes (canonical architecture)
-    (
-        "concept_domain_idx",
-        "CREATE INDEX concept_domain_idx IF NOT EXISTS FOR (c:ProblemConcept) ON (c.domain)",
-    ),
     (
         "concept_mention_count_idx",
         "CREATE INDEX concept_mention_count_idx IF NOT EXISTS FOR (c:ProblemConcept) ON (c.mention_count)",

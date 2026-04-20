@@ -48,7 +48,6 @@ class Problem(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique identifier")
     statement: str = Field(..., min_length=20, description="The research problem statement")
-    domain: Optional[str] = Field(default=None, description="Research domain/field")
     status: ProblemStatus = Field(default=ProblemStatus.OPEN, description="Problem status")
 
     # Structured attributes
@@ -122,7 +121,6 @@ class ProblemMention(BaseModel):
     section: str = Field(..., description="Section where problem was mentioned")
 
     # Rich metadata (same structure as original Problem)
-    domain: Optional[str] = Field(default=None, description="Research domain/field")
     assumptions: list[Assumption] = Field(default_factory=list)
     constraints: list[Constraint] = Field(default_factory=list)
     datasets: list[Dataset] = Field(default_factory=list)
@@ -212,7 +210,6 @@ class ProblemConcept(BaseModel):
     canonical_statement: str = Field(
         ..., min_length=20, description="AI-synthesized canonical problem statement"
     )
-    domain: str = Field(..., description="Research domain/field")
     status: ProblemStatus = Field(default=ProblemStatus.OPEN, description="Problem status")
 
     # Aggregated metadata
@@ -317,7 +314,6 @@ class MatchCandidate(BaseModel):
     citation_boost: float = Field(
         default=0.0, ge=0, le=0.2, description="Boost from citation relationship"
     )
-    domain_match: bool = Field(default=False, description="Whether domains match")
     metadata_overlap: dict = Field(
         default_factory=dict, description="Overlapping datasets/metrics/etc"
     )
@@ -466,7 +462,6 @@ class SuggestedConceptForReview(BaseModel):
     agent_reasoning: Optional[str] = Field(
         default=None, description="Why agents suggested this"
     )
-    domain: Optional[str] = Field(default=None, description="Concept domain")
     mention_count: int = Field(default=0, description="How many mentions link to this concept")
 
 
@@ -514,7 +509,6 @@ class PendingReview(BaseModel):
     mention_statement: str = Field(..., description="The mention's problem statement")
     paper_doi: str = Field(..., description="Source paper DOI")
     paper_title: Optional[str] = Field(default=None, description="Source paper title")
-    domain: Optional[str] = Field(default=None, description="Problem domain")
 
     # Suggested concepts
     suggested_concepts: list[SuggestedConceptForReview] = Field(

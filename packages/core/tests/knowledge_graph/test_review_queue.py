@@ -25,7 +25,6 @@ from agentic_kg.knowledge_graph.models import (
     ReviewResolution,
 )
 from agentic_kg.knowledge_graph.review_queue import (
-    HIGH_IMPACT_DOMAINS,
     SLA_HOURS,
     ReviewNotFoundError,
     ReviewQueueError,
@@ -64,7 +63,6 @@ def sample_mention() -> ProblemMention:
         paper_doi="10.1234/paper.123",
         section="Introduction",
         quoted_text="The gradient vanishing problem is a major challenge in training deep networks.",
-        domain="deep_learning",
     )
 
 
@@ -78,7 +76,6 @@ def sample_candidates() -> list[SuggestedConcept]:
             similarity_score=0.72,
             final_score=0.75,
             reasoning="High semantic overlap",
-            domain="deep_learning",
             mention_count=5,
         ),
         SuggestedConcept(
@@ -87,7 +84,6 @@ def sample_candidates() -> list[SuggestedConcept]:
             similarity_score=0.65,
             final_score=0.65,
             reasoning="Related but broader",
-            domain="deep_learning",
             mention_count=10,
         ),
     ]
@@ -147,48 +143,13 @@ class TestPriorityCalculation:
             )
         ]
         priority = queue_service._calculate_priority(sample_mention, candidates)
-        # Base 5 + (1-0.55)*5 = 5 + 2.25 = ~7, but high impact domain -1
+        # Base 5 + (1-0.55)*5 = 5 + 2.25 = ~7
         assert priority >= 5
-
-    def test_high_impact_domain_gets_priority_boost(self, queue_service):
-        """High-impact domains (NLP, ML, CV) get priority boost."""
-        # NLP domain
-        mention_nlp = ProblemMention(
-            id="m1",
-            statement="How to improve NLP model performance on long text sequences?",
-            paper_doi="10.1234/nlp.2024",
-            section="Methods",
-            quoted_text="NLP models struggle with long sequences.",
-            domain="NLP",
-        )
-        candidates = [
-            SuggestedConcept(
-                concept_id="c1",
-                canonical_statement="Test canonical statement for matching.",
-                similarity_score=0.70,
-                final_score=0.70,
-            )
-        ]
-        priority_nlp = queue_service._calculate_priority(mention_nlp, candidates)
-
-        # Non-high-impact domain
-        mention_other = ProblemMention(
-            id="m2",
-            statement="How to improve chemical reaction prediction accuracy?",
-            paper_doi="10.1234/chem.2024",
-            section="Methods",
-            quoted_text="Chemical prediction remains challenging.",
-            domain="chemistry",
-        )
-        priority_other = queue_service._calculate_priority(mention_other, candidates)
-
-        # NLP should have lower priority number (higher priority)
-        assert priority_nlp < priority_other
 
     def test_empty_candidates_gets_high_priority(self, queue_service, sample_mention):
         """No candidates results in high priority."""
         priority = queue_service._calculate_priority(sample_mention, [])
-        # Base 5 + (1-0)*5 = 10, minus domain boost
+        # Base 5 + (1-0)*5 = 10
         assert priority >= 8
 
     def test_priority_clamped_to_range(self, queue_service, sample_mention):
@@ -400,9 +361,3 @@ def test_sla_hours_constants():
     assert SLA_HOURS["low"] == 720  # 30 days
 
 
-def test_high_impact_domains():
-    """High impact domains are defined."""
-    assert "NLP" in HIGH_IMPACT_DOMAINS
-    assert "ML" in HIGH_IMPACT_DOMAINS
-    assert "CV" in HIGH_IMPACT_DOMAINS
-    assert "deep_learning" in HIGH_IMPACT_DOMAINS
