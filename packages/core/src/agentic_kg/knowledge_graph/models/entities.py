@@ -2,7 +2,7 @@
 Entity models for the Knowledge Graph.
 
 Defines the main node types: Problem, ProblemMention, ProblemConcept,
-MatchCandidate, Paper, and Author.
+MatchCandidate, Paper, Author, and Topic.
 """
 
 import uuid
@@ -20,6 +20,7 @@ from .enums import (
     ReviewQueueStatus,
     ReviewResolution,
     ReviewStatus,
+    TopicLevel,
 )
 from .supporting import (
     Assumption,
@@ -394,6 +395,60 @@ class Author(BaseModel):
     def to_neo4j_properties(self) -> dict:
         """Convert to Neo4j node properties."""
         return self.model_dump()
+
+
+# =============================================================================
+# Topic / Research Area Models
+# =============================================================================
+
+
+class Topic(BaseModel):
+    """
+    A research topic or area in the knowledge graph.
+
+    Topics form a three-level hierarchy (domain → area → subtopic) via
+    SUBTOPIC_OF relationships. Problems and papers link to topics via
+    BELONGS_TO and RESEARCHES edges respectively.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique identifier")
+    name: str = Field(..., min_length=2, description="Topic name")
+    description: Optional[str] = Field(
+        default=None, description="Longer description for richer embeddings"
+    )
+    level: TopicLevel = Field(..., description="Hierarchy level")
+    parent_id: Optional[str] = Field(
+        default=None, description="Parent topic ID (None for root domains)"
+    )
+    source: str = Field(
+        default="manual", description="Origin: 'manual', 'openalex', 'migrated', 'llm_proposed'"
+    )
+    openalex_id: Optional[str] = Field(default=None, description="OpenAlex concept ID if seeded")
+
+    embedding: Optional[list[float]] = Field(
+        default=None, description="Topic embedding (1536 dims)"
+    )
+
+    problem_count: int = Field(default=0, ge=0, description="Number of linked problems")
+    paper_count: int = Field(default=0, ge=0, description="Number of linked papers")
+
+    created_at: datetime = Field(default_factory=_utc_now)
+    updated_at: datetime = Field(default_factory=_utc_now)
+
+    @model_validator(mode="after")
+    def validate_domain_has_no_parent(self) -> "Topic":
+        """Root domain topics must not have a parent."""
+        if self.level == TopicLevel.DOMAIN and self.parent_id is not None:
+            raise ValueError("Domain-level topics must not have a parent_id")
+        return self
+
+    def to_neo4j_properties(self) -> dict:
+        """Convert to Neo4j node properties."""
+        data = self.model_dump(exclude={"embedding"})
+        data["level"] = self.level.value
+        data["created_at"] = self.created_at.isoformat()
+        data["updated_at"] = self.updated_at.isoformat()
+        return data
 
 
 # =============================================================================
