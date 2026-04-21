@@ -1,6 +1,6 @@
 # Feature: Enhance GitHub Pages Site
 
-**Status:** IMPLEMENTED (Phase A — 2026-04-21)
+**Status:** VERIFIED (Phase A — 2026-04-21)
 **Date:** 2026-04-16
 **Author:** Feature Architect (AI-assisted)
 **Depends On:** None (existing Pages site + CI workflow in place)
@@ -511,4 +511,24 @@ nav_order: 2
 - Should the changelog be manually edited or auto-generated from `git log --oneline`? (Recommend manual for now — auto-changelogs are noisy)
 - Should `SERVICE_INVENTORY.md` be converted to a proper page or kept as raw markdown in `status/`? (Recommend converting to `.md` with frontmatter)
 - Should `constellize:memory:update` skill be updated to maintain the `# docs-stats` block automatically? (Recommend yes — file as follow-on feature, not a blocker for Phase A)
-- Should the snapshot test fixtures live under `packages/core/tests/docs/` or a new top-level `tests/docs/` directory? (Defer to implementation — depends on CI test-collection config)
+- Should the snapshot test fixtures live under `packages/core/tests/docs/` or a new top-level `tests/docs/` directory? (Defer to implementation — depends on CI test-collection config) — **Answered 2026-04-21: `packages/core/tests/docs/` so `pyproject.toml`'s existing `testpaths` picks it up.**
+
+## Verification Record (Phase A, 2026-04-21)
+
+Ran `/constellize:feature:verify` scoped to enhance-github-pages files.
+
+| Gate | Result | Detail |
+|------|--------|--------|
+| 1. Test Integrity | PASS | 87 tests (31 generator units + 56 static site/workflow assertions); 100% line coverage on `.github/scripts/generate_site_data.py`. Test names read as behavior narratives (`test_ignores_prose_mention_of_marker`, `test_fails_when_parse_ratio_below_threshold`, etc.). |
+| 2. Health Check | PASS | 8 explicit raises, 0 bare excepts. `DocsStats` Pydantic model validates every field (`min_length`, `ge=0`). `main()` maps `DocsStatsError`→exit 2, `ValueError` (parse-ratio)→exit 3. Missing BACKLOG/sprints dir degrades to empty list + WARNING log. Workflows use only `${{ secrets.GITHUB_TOKEN }}`; HTMLProofer gates deploy; `concurrency` blocks races; `--strict_front_matter` fails on bad frontmatter. Liquid includes handle nil/empty gracefully. |
+| 3. Deployment Readiness | PASS | Clean-slate generator run emits 3 YAML files (360 lines total) with exit 0. Both workflow YAMLs parse cleanly. No hardcoded secrets or environment-specific values; runtime deps declared in workflow `pip install`. |
+| 4. Maintainability | PASS | Ruff clean on generator + all 56 test cases. Patterns follow `packages/core/tests/knowledge_graph/test_calibration.py` (class-per-behavior pytest). |
+
+Not locally asserted, delegated to CI / theme:
+- **AC-1** — real Jekyll build (`jekyll build --strict_front_matter`) runs on every PR preview and production push. Local Ruby (2.6.10) is older than just-the-docs' minimum 3.0.
+- **AC-8** — mobile responsiveness delegated to the upstream just-the-docs theme; no CSS overrides added that could break its 375px behavior.
+
+Deferred to Phase B:
+- **AC-3** — real prose per page (placeholders with `<!-- TODO(phase-b): -->` markers in every `about/*.md` and `status/*.md`).
+- **AC-13** — Lighthouse CI thresholds (gated by real content).
+- **AC-14** — optional Playwright smoke test.
