@@ -19,7 +19,7 @@ from agentic_kg.knowledge_graph.repository import Neo4jRepository, get_repositor
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when making schema changes
-SCHEMA_VERSION = 3  # Added Topic hierarchy (E-1)
+SCHEMA_VERSION = 4  # Added ResearchConcept (E-2)
 
 # Schema definitions - fmt: off to allow long Cypher strings
 CONSTRAINTS = [
@@ -58,6 +58,12 @@ CONSTRAINTS = [
         "topic_id_unique",
         "CREATE CONSTRAINT topic_id_unique IF NOT EXISTS "
         "FOR (t:Topic) REQUIRE t.id IS UNIQUE",
+    ),
+    # ResearchConcept constraints (E-2)
+    (
+        "research_concept_id_unique",
+        "CREATE CONSTRAINT research_concept_id_unique IF NOT EXISTS "
+        "FOR (rc:ResearchConcept) REQUIRE rc.id IS UNIQUE",
     ),
     # Schema metadata
     (
@@ -135,6 +141,12 @@ INDEXES = [
         "topic_source_idx",
         "CREATE INDEX topic_source_idx IF NOT EXISTS FOR (t:Topic) ON (t.source)",
     ),
+    # ResearchConcept indexes (E-2)
+    (
+        "research_concept_name_idx",
+        "CREATE INDEX research_concept_name_idx IF NOT EXISTS "
+        "FOR (rc:ResearchConcept) ON (rc.name)",
+    ),
 ]
 
 # Vector indexes for semantic search (Neo4j 5.x)
@@ -191,6 +203,21 @@ VECTOR_INDEXES = [
         CREATE VECTOR INDEX topic_embedding_idx IF NOT EXISTS
         FOR (t:Topic)
         ON t.embedding
+        OPTIONS {
+            indexConfig: {
+                `vector.dimensions`: 1536,
+                `vector.similarity_function`: 'cosine'
+            }
+        }
+        """
+    ),
+    # ResearchConcept embedding index (E-2)
+    (
+        "research_concept_embedding_idx",
+        """
+        CREATE VECTOR INDEX research_concept_embedding_idx IF NOT EXISTS
+        FOR (rc:ResearchConcept)
+        ON rc.embedding
         OPTIONS {
             indexConfig: {
                 `vector.dimensions`: 1536,

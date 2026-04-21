@@ -448,6 +448,55 @@ class Topic(BaseModel):
 
 
 # =============================================================================
+# Research Concept Models (E-2)
+# =============================================================================
+
+
+class ResearchConcept(BaseModel):
+    """
+    A research concept — a named intellectual building block such as
+    "attention mechanism", "transfer learning", or "graph neural networks".
+
+    ResearchConcepts are linked to ProblemConcepts via INVOLVES_CONCEPT,
+    to Papers via DISCUSSES, and (optionally, once E-1 Topic nodes are in
+    place) to Topics via BELONGS_TO.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique identifier")
+    name: str = Field(..., min_length=2, description="Canonical concept name")
+    description: Optional[str] = Field(
+        default=None, description="Longer description for richer embeddings"
+    )
+    aliases: list[str] = Field(
+        default_factory=list,
+        description="Alternative names / surface forms that refer to this concept",
+    )
+
+    embedding: Optional[list[float]] = Field(
+        default=None, description="Concept embedding (1536 dims)"
+    )
+
+    mention_count: int = Field(
+        default=0, ge=0, description="Denormalized: count of INVOLVES_CONCEPT edges"
+    )
+    paper_count: int = Field(
+        default=0, ge=0, description="Denormalized: count of DISCUSSES edges"
+    )
+
+    created_at: datetime = Field(default_factory=_utc_now)
+    updated_at: datetime = Field(default_factory=_utc_now)
+
+    def to_neo4j_properties(self) -> dict:
+        """Convert to Neo4j node properties. Aliases become a JSON string."""
+        import json
+        data = self.model_dump(exclude={"embedding"})
+        data["aliases"] = json.dumps(self.aliases)
+        data["created_at"] = self.created_at.isoformat()
+        data["updated_at"] = self.updated_at.isoformat()
+        return data
+
+
+# =============================================================================
 # Human Review Queue Models
 # =============================================================================
 

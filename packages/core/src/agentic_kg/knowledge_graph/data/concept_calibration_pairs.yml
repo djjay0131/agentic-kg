@@ -1,0 +1,131 @@
+# Hand-labeled ResearchConcept pairs for threshold calibration (E-2 AC-12).
+#
+# Each entry is a pair of concept names (optionally with descriptions)
+# labeled "same" if they should dedup or "different" if they should not.
+# Names roughly mirror the scale of concept names we expect to extract
+# from the corpus.
+#
+# Mix it up: close synonyms, near-synonyms, capitalization variants,
+# parent/child concepts that should NOT merge, and entirely unrelated
+# concepts. Aim for a balanced mix of same/different so F1 is meaningful.
+
+- a: "attention mechanism"
+  b: "self-attention"
+  label: same
+
+- a: "attention mechanism"
+  b: "scaled dot-product attention"
+  label: same
+
+- a: "attention mechanism"
+  b: "multi-head attention"
+  label: same
+
+- a: "transformer"
+  b: "transformer architecture"
+  label: same
+
+- a: "retrieval augmented generation"
+  b: "RAG"
+  label: same
+
+- a: "retrieval augmented generation"
+  b: "retrieval-augmented generation"
+  label: same
+
+- a: "knowledge distillation"
+  b: "teacher-student training"
+  label: same
+
+- a: "transfer learning"
+  b: "domain adaptation"
+  # Related but not the same technique.
+  label: different
+
+- a: "graph neural networks"
+  b: "GNN"
+  label: same
+
+- a: "graph neural networks"
+  b: "graph convolutional networks"
+  # GCN is a specific GNN variant — treat as different for dedup.
+  label: different
+
+- a: "contrastive learning"
+  b: "self-supervised learning"
+  # Contrastive is one flavor of self-supervised — different.
+  label: different
+
+- a: "contrastive learning"
+  b: "contrastive representation learning"
+  label: same
+
+- a: "fine-tuning"
+  b: "instruction tuning"
+  label: different
+
+- a: "fine-tuning"
+  b: "supervised fine-tuning"
+  label: same
+
+- a: "reinforcement learning from human feedback"
+  b: "RLHF"
+  label: same
+
+- a: "prompt engineering"
+  b: "prompt tuning"
+  # Distinct techniques (free-form prompts vs learned soft prompts).
+  label: different
+
+- a: "chain of thought"
+  b: "chain-of-thought reasoning"
+  label: same
+
+- a: "chain of thought"
+  b: "tree of thoughts"
+  label: different
+
+- a: "entity linking"
+  b: "named entity recognition"
+  label: different
+
+- a: "entity linking"
+  b: "entity disambiguation"
+  label: same
+
+- a: "vector database"
+  b: "graph database"
+  label: different
+
+- a: "vector database"
+  b: "vector store"
+  label: same
+
+- a: "image classification"
+  b: "object detection"
+  label: different
+
+- a: "large language model"
+  b: "LLM"
+  label: same
+
+- a: "large language model"
+  b: "small language model"
+  label: different
+
+- a: "machine translation"
+  b: "neural machine translation"
+  label: same
+
+- a: "machine translation"
+  b: "text summarization"
+  label: different
+
+- a: "BERT"
+  b: "RoBERTa"
+  # Same family but distinct models.
+  label: different
+
+- a: "word2vec"
+  b: "word embeddings"
+  label: same

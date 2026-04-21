@@ -454,6 +454,76 @@ def build_parser() -> argparse.ArgumentParser:
         "-v", "--verbose", action="store_true", help="Enable verbose logging",
     )
 
+    # create-concept command (E-2)
+    create_concept_cmd = subparsers.add_parser(
+        "create-concept",
+        help="Create a ResearchConcept (with embedding-based dedup)",
+    )
+    create_concept_cmd.add_argument(
+        "--name", required=True, help="Concept name (>=2 chars)",
+    )
+    create_concept_cmd.add_argument(
+        "--description", default=None,
+        help="Optional description for richer embeddings",
+    )
+    create_concept_cmd.add_argument(
+        "--aliases", default=None,
+        help="Comma-separated list of alternative names",
+    )
+    create_concept_cmd.add_argument(
+        "--threshold", type=float, default=None,
+        help="Override the cosine dedup threshold (default 0.90)",
+    )
+    create_concept_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
+    # calibrate-concepts command (E-2 AC-12)
+    calibrate_concepts_cmd = subparsers.add_parser(
+        "calibrate-concepts",
+        help=(
+            "Run the ResearchConcept dedup threshold calibration study "
+            "against a labeled pair fixture"
+        ),
+    )
+    calibrate_concepts_cmd.add_argument(
+        "--pairs",
+        default=None,
+        help="Path to a YAML pair fixture (defaults to bundled fixture)",
+    )
+    calibrate_concepts_cmd.add_argument(
+        "--thresholds",
+        default=None,
+        help=(
+            "Comma-separated list of thresholds to sweep (defaults to a "
+            "reasonable 0.70-0.96 sweep)"
+        ),
+    )
+    calibrate_concepts_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
+    # link-concept command (E-2)
+    link_concept_cmd = subparsers.add_parser(
+        "link-concept",
+        help="Link a ProblemConcept or Paper to a ResearchConcept",
+    )
+    link_concept_cmd.add_argument(
+        "--concept-id", required=True, help="Target ResearchConcept id",
+    )
+    link_concept_cmd.add_argument(
+        "--entity-id", required=True,
+        help="ProblemConcept id for INVOLVES_CONCEPT, Paper DOI for DISCUSSES",
+    )
+    link_concept_cmd.add_argument(
+        "--rel-type", default="INVOLVES_CONCEPT",
+        choices=["INVOLVES_CONCEPT", "DISCUSSES"],
+        help="Relationship type (default: INVOLVES_CONCEPT)",
+    )
+    link_concept_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
     return parser
 
 
@@ -632,6 +702,88 @@ def run_assign_topic(args) -> None:
     )
 
 
+def run_create_concept(args) -> None:
+    """Create or dedup-merge a ResearchConcept."""
+    from agentic_kg.knowledge_graph.repository import get_repository
+
+    aliases: list[str] = []
+    if args.aliases:
+        aliases = [a.strip() for a in args.aliases.split(",") if a.strip()]
+
+    repo = get_repository()
+    concept, created = repo.create_or_merge_research_concept(
+        name=args.name,
+        description=args.description,
+        aliases=aliases,
+        threshold=args.threshold,
+    )
+    verb = "Created" if created else "Merged into existing concept"
+    print(f"{verb}: {concept.name} (id={concept.id})")
+    if concept.aliases:
+        print(f"  Aliases: {', '.join(concept.aliases)}")
+
+
+def run_calibrate_concepts(args) -> None:
+    """Run the dedup threshold calibration study (E-2 AC-12)."""
+    from agentic_kg.knowledge_graph.calibration import (
+        DEFAULT_PAIR_FIXTURE,
+        format_report,
+        run_calibration,
+    )
+
+    thresholds: Optional[list[float]] = None
+    if args.thresholds:
+        try:
+            thresholds = [
+                float(t.strip()) for t in args.thresholds.split(",") if t.strip()
+            ]
+        except ValueError as e:
+            print(f"Error: invalid --thresholds list: {e}", file=sys.stderr)
+            sys.exit(2)
+
+    pairs_source = args.pairs or DEFAULT_PAIR_FIXTURE
+    try:
+        report = run_calibration(pairs_source=pairs_source, thresholds=thresholds)
+    except Exception as e:
+        print(f"Error: calibration failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(format_report(report))
+
+
+def run_link_concept(args) -> None:
+    """Link a ProblemConcept or Paper to a ResearchConcept."""
+    from agentic_kg.knowledge_graph.repository import (
+        NotFoundError,
+        get_repository,
+    )
+
+    repo = get_repository()
+    try:
+        if args.rel_type == "INVOLVES_CONCEPT":
+            created = repo.link_problem_to_concept(
+                problem_concept_id=args.entity_id,
+                research_concept_id=args.concept_id,
+            )
+        else:  # DISCUSSES
+            created = repo.link_paper_to_concept(
+                paper_doi=args.entity_id,
+                research_concept_id=args.concept_id,
+            )
+    except NotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(2)
+
+    verb = "Created" if created else "Already present"
+    print(
+        f"{verb} edge: {args.entity_id} -{args.rel_type}-> "
+        f"Concept {args.concept_id}"
+    )
+
+
 def main(argv: Optional[list[str]] = None) -> None:
     """CLI entry point."""
     parser = build_parser()
@@ -652,6 +804,12 @@ def main(argv: Optional[list[str]] = None) -> None:
         run_export_taxonomy(args)
     elif args.command == "assign-topic":
         run_assign_topic(args)
+    elif args.command == "create-concept":
+        run_create_concept(args)
+    elif args.command == "link-concept":
+        run_link_concept(args)
+    elif args.command == "calibrate-concepts":
+        run_calibrate_concepts(args)
     elif args.command == "extract":
         # Build pipeline config
         config = PipelineConfig(

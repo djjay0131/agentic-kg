@@ -25,6 +25,7 @@ from agentic_kg.knowledge_graph.models import (
     Paper,
     Problem,
     ProblemStatus,
+    ResearchConcept,
     Topic,
     TopicLevel,
 )
@@ -1399,6 +1400,529 @@ class Neo4jRepository:
             logger.info(f"Reconciled {len(drift)} Topic count drifts")
         else:
             logger.debug("Topic counts were already consistent")
+        return drift
+
+    # =========================================================================
+    # ResearchConcept Operations (E-2)
+    # =========================================================================
+
+    DEFAULT_CONCEPT_DEDUP_THRESHOLD = 0.90
+
+    def _research_concept_props(self, concept: ResearchConcept) -> dict:
+        """Serialize a ResearchConcept for Neo4j (embedding included when set)."""
+        props = concept.to_neo4j_properties()
+        if concept.embedding is not None:
+            props["embedding"] = concept.embedding
+        return props
+
+    def _research_concept_from_neo4j(self, data: dict) -> ResearchConcept:
+        """Convert a Neo4j node record back into a ResearchConcept model."""
+        aliases = data.get("aliases", [])
+        if isinstance(aliases, str):
+            aliases = json.loads(aliases)
+        data["aliases"] = aliases
+        if isinstance(data.get("created_at"), str):
+            data["created_at"] = datetime.fromisoformat(data["created_at"])
+        if isinstance(data.get("updated_at"), str):
+            data["updated_at"] = datetime.fromisoformat(data["updated_at"])
+        # Drop any stray embedding — we never round-trip it through the model.
+        data.pop("embedding", None)
+        return ResearchConcept(**data)
+
+    def create_research_concept(
+        self,
+        concept: ResearchConcept,
+        generate_embedding: bool = True,
+    ) -> ResearchConcept:
+        """
+        Create a new ResearchConcept node.
+
+        Generates an embedding for ``{name}: {description}`` if
+        ``generate_embedding`` is True and ``concept.embedding`` is None.
+        Raises ``DuplicateError`` if a ResearchConcept with the same id
+        already exists.
+        """
+        if generate_embedding and concept.embedding is None:
+            try:
+                from agentic_kg.knowledge_graph.embeddings import (
+                    generate_research_concept_embedding,
+                )
+                concept.embedding = generate_research_concept_embedding(
+                    concept.name, concept.description
+                )
+                logger.debug(f"Generated embedding for concept {concept.id}")
+            except Exception as e:
+                logger.warning(
+                    f"Failed to generate embedding for concept {concept.id}: {e}. "
+                    "Concept will be created without embedding."
+                )
+
+        def _create(tx: ManagedTransaction, props: dict) -> None:
+            check = tx.run(
+                "MATCH (rc:ResearchConcept {id: $id}) RETURN rc.id",
+                id=props["id"],
+            )
+            if check.single():
+                raise DuplicateError(
+                    f"ResearchConcept with ID {props['id']} already exists"
+                )
+            tx.run(
+                """
+                CREATE (rc:ResearchConcept)
+                SET rc = $props
+                """,
+                props=props,
+            )
+
+        props = self._research_concept_props(concept)
+
+        with self.session() as session:
+            self._execute_with_retry(session, _create, props)
+
+        logger.info(f"Created research concept: {concept.id} ({concept.name})")
+        return concept
+
+    def get_research_concept(self, concept_id: str) -> ResearchConcept:
+        """Fetch a ResearchConcept by ID. Raises NotFoundError when missing."""
+        def _get(tx: ManagedTransaction, cid: str) -> Optional[dict]:
+            result = tx.run(
+                "MATCH (rc:ResearchConcept {id: $id}) RETURN rc",
+                id=cid,
+            )
+            record = result.single()
+            return dict(record["rc"]) if record else None
+
+        with self.session() as session:
+            data = session.execute_read(lambda tx: _get(tx, concept_id))
+
+        if data is None:
+            raise NotFoundError(f"ResearchConcept not found: {concept_id}")
+
+        return self._research_concept_from_neo4j(data)
+
+    def update_research_concept(
+        self,
+        concept_id: str,
+        *,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        aliases: Optional[list[str]] = None,
+        embedding: Optional[list[float]] = None,
+        regenerate_embedding: bool = False,
+    ) -> ResearchConcept:
+        """
+        Partial update of a ResearchConcept.
+
+        Any field left as ``None`` is left untouched. When
+        ``regenerate_embedding`` is True (and no explicit embedding was
+        passed) the embedding is recomputed from the *current* persisted
+        name + description (after any updates in this call).
+        """
+        existing = self.get_research_concept(concept_id)
+
+        next_name = name if name is not None else existing.name
+        next_description = (
+            description if description is not None else existing.description
+        )
+        next_aliases = aliases if aliases is not None else existing.aliases
+
+        if embedding is None and regenerate_embedding:
+            try:
+                from agentic_kg.knowledge_graph.embeddings import (
+                    generate_research_concept_embedding,
+                )
+                embedding = generate_research_concept_embedding(
+                    next_name, next_description
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to regenerate embedding for concept {concept_id}: {e}"
+                )
+
+        now = datetime.now(timezone.utc).isoformat()
+        aliases_json = json.dumps(next_aliases)
+
+        def _update(tx: ManagedTransaction) -> bool:
+            query = """
+            MATCH (rc:ResearchConcept {id: $id})
+            SET rc.name = $name,
+                rc.description = $description,
+                rc.aliases = $aliases,
+                rc.updated_at = $now
+            """
+            params = {
+                "id": concept_id,
+                "name": next_name,
+                "description": next_description,
+                "aliases": aliases_json,
+                "now": now,
+            }
+            if embedding is not None:
+                query += ", rc.embedding = $embedding"
+                params["embedding"] = embedding
+            query += " RETURN rc.id"
+            result = tx.run(query, **params)
+            return result.single() is not None
+
+        with self.session() as session:
+            found = self._execute_with_retry(session, lambda tx: _update(tx))
+
+        if not found:
+            raise NotFoundError(f"ResearchConcept not found: {concept_id}")
+
+        logger.info(f"Updated research concept: {concept_id}")
+        return self.get_research_concept(concept_id)
+
+    def delete_research_concept(self, concept_id: str) -> bool:
+        """Detach-delete a ResearchConcept. Raises NotFoundError when missing."""
+        def _delete(tx: ManagedTransaction, cid: str) -> bool:
+            result = tx.run(
+                """
+                MATCH (rc:ResearchConcept {id: $id})
+                DETACH DELETE rc
+                RETURN count(*) as deleted
+                """,
+                id=cid,
+            )
+            record = result.single()
+            return record["deleted"] > 0 if record else False
+
+        with self.session() as session:
+            deleted = self._execute_with_retry(session, _delete, concept_id)
+
+        if not deleted:
+            raise NotFoundError(f"ResearchConcept not found: {concept_id}")
+
+        logger.info(f"Deleted research concept: {concept_id}")
+        return True
+
+    def search_research_concepts_by_embedding(
+        self,
+        embedding: list[float],
+        top_k: int = 10,
+        min_score: Optional[float] = None,
+    ) -> list[tuple[ResearchConcept, float]]:
+        """
+        Vector similarity search over the research_concept_embedding_idx.
+
+        Returns (concept, score) pairs ordered by descending cosine
+        similarity. If ``min_score`` is provided, results below the
+        threshold are filtered out.
+        """
+        def _search(
+            tx: ManagedTransaction,
+            emb: list[float],
+            lim: int,
+            floor: Optional[float],
+        ) -> list[dict]:
+            query = """
+            CALL db.index.vector.queryNodes(
+                'research_concept_embedding_idx', $top_k, $embedding
+            ) YIELD node, score
+            """
+            params: dict[str, Any] = {"embedding": emb, "top_k": lim}
+            if floor is not None:
+                query += "WHERE score >= $min_score\n"
+                params["min_score"] = floor
+            query += "RETURN node as rc, score ORDER BY score DESC"
+            result = tx.run(query, **params)
+            return [
+                {"concept": dict(r["rc"]), "score": r["score"]}
+                for r in result
+            ]
+
+        with self.session() as session:
+            records = session.execute_read(
+                lambda tx: _search(tx, embedding, top_k, min_score)
+            )
+
+        return [
+            (self._research_concept_from_neo4j(r["concept"]), r["score"])
+            for r in records
+        ]
+
+    def create_or_merge_research_concept(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        aliases: Optional[list[str]] = None,
+        threshold: Optional[float] = None,
+        embedding: Optional[list[float]] = None,
+    ) -> tuple[ResearchConcept, bool]:
+        """
+        Embedding-based create-or-merge for ResearchConcepts.
+
+        Embeds ``{name}: {description}``, searches the vector index, and
+        if a candidate scores at or above ``threshold`` the incoming name
+        and aliases are merged into the existing concept's alias list
+        (existing concept returned). Otherwise a new concept is created.
+
+        Returns (concept, created) — ``created`` is True when a new node
+        was inserted, False when an existing node was reused.
+        """
+        threshold = (
+            threshold if threshold is not None else self.DEFAULT_CONCEPT_DEDUP_THRESHOLD
+        )
+
+        if embedding is None:
+            try:
+                from agentic_kg.knowledge_graph.embeddings import (
+                    generate_research_concept_embedding,
+                )
+                embedding = generate_research_concept_embedding(name, description)
+            except Exception as e:
+                logger.warning(
+                    f"Embedding failed for '{name}': {e}. "
+                    "Falling back to create-without-embedding."
+                )
+
+        if embedding is not None:
+            candidates = self.search_research_concepts_by_embedding(
+                embedding=embedding,
+                top_k=5,
+                min_score=threshold,
+            )
+            if candidates:
+                best, score = candidates[0]
+                logger.info(
+                    f"Dedup merge: '{name}' -> '{best.name}' (score={score:.3f})"
+                )
+                merged_aliases = set(best.aliases)
+                merged_aliases.update(aliases or [])
+                if name and name != best.name:
+                    merged_aliases.add(name)
+                # Prefer a richer description if the incoming call has one
+                # and the existing concept does not.
+                next_description = best.description or description
+                self.update_research_concept(
+                    best.id,
+                    description=next_description,
+                    aliases=sorted(merged_aliases),
+                )
+                return self.get_research_concept(best.id), False
+
+        concept = ResearchConcept(
+            name=name,
+            description=description,
+            aliases=list(aliases or []),
+            embedding=embedding,
+        )
+        self.create_research_concept(concept, generate_embedding=False)
+        return concept, True
+
+    _CONCEPT_RELATIONSHIPS = {
+        "INVOLVES_CONCEPT": ("ProblemConcept", "id", "mention_count"),
+        "DISCUSSES": ("Paper", "doi", "paper_count"),
+    }
+
+    def _link_entity_to_concept(
+        self,
+        entity_id: str,
+        concept_id: str,
+        relationship: str,
+    ) -> bool:
+        """
+        Shared helper: MERGE an edge (relationship) from a source entity to
+        the given ResearchConcept, incrementing the matching denormalized
+        count only when a new edge is created.
+        """
+        if relationship not in self._CONCEPT_RELATIONSHIPS:
+            raise ValueError(
+                f"Unsupported relationship {relationship!r}; "
+                f"expected one of {sorted(self._CONCEPT_RELATIONSHIPS)}"
+            )
+        src_label, src_field, count_field = self._CONCEPT_RELATIONSHIPS[relationship]
+
+        def _link(tx: ManagedTransaction, eid: str, cid: str) -> bool:
+            query = f"""
+            MATCH (src:{src_label} {{{src_field}: $eid}})
+            MATCH (rc:ResearchConcept {{id: $cid}})
+            OPTIONAL MATCH (src)-[existing:{relationship}]->(rc)
+            WITH src, rc, existing
+            FOREACH (_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |
+                CREATE (src)-[:{relationship}]->(rc)
+                SET rc.{count_field} = rc.{count_field} + 1,
+                    rc.updated_at = $now
+            )
+            RETURN existing IS NULL as created
+            """
+            result = tx.run(
+                query,
+                eid=eid,
+                cid=cid,
+                now=datetime.now(timezone.utc).isoformat(),
+            )
+            record = result.single()
+            if record is None:
+                raise NotFoundError(
+                    f"Cannot link: {src_label} {eid!r} or "
+                    f"ResearchConcept {cid!r} not found"
+                )
+            return bool(record["created"])
+
+        with self.session() as session:
+            return self._execute_with_retry(session, _link, entity_id, concept_id)
+
+    def _unlink_entity_from_concept(
+        self,
+        entity_id: str,
+        concept_id: str,
+        relationship: str,
+    ) -> bool:
+        if relationship not in self._CONCEPT_RELATIONSHIPS:
+            raise ValueError(
+                f"Unsupported relationship {relationship!r}; "
+                f"expected one of {sorted(self._CONCEPT_RELATIONSHIPS)}"
+            )
+        src_label, src_field, count_field = self._CONCEPT_RELATIONSHIPS[relationship]
+
+        def _unlink(tx: ManagedTransaction, eid: str, cid: str) -> bool:
+            query = f"""
+            MATCH (src:{src_label} {{{src_field}: $eid}})
+                  -[r:{relationship}]->(rc:ResearchConcept {{id: $cid}})
+            DELETE r
+            SET rc.{count_field} = CASE
+                WHEN rc.{count_field} > 0 THEN rc.{count_field} - 1
+                ELSE 0
+            END,
+            rc.updated_at = $now
+            RETURN count(r) as removed
+            """
+            result = tx.run(
+                query,
+                eid=eid,
+                cid=cid,
+                now=datetime.now(timezone.utc).isoformat(),
+            )
+            record = result.single()
+            return (record["removed"] if record else 0) > 0
+
+        with self.session() as session:
+            return self._execute_with_retry(session, _unlink, entity_id, concept_id)
+
+    def link_problem_to_concept(
+        self, problem_concept_id: str, research_concept_id: str
+    ) -> bool:
+        """Link a ProblemConcept → ResearchConcept via INVOLVES_CONCEPT."""
+        return self._link_entity_to_concept(
+            entity_id=problem_concept_id,
+            concept_id=research_concept_id,
+            relationship="INVOLVES_CONCEPT",
+        )
+
+    def unlink_problem_from_concept(
+        self, problem_concept_id: str, research_concept_id: str
+    ) -> bool:
+        """Remove a ProblemConcept → ResearchConcept INVOLVES_CONCEPT edge."""
+        return self._unlink_entity_from_concept(
+            entity_id=problem_concept_id,
+            concept_id=research_concept_id,
+            relationship="INVOLVES_CONCEPT",
+        )
+
+    def link_paper_to_concept(
+        self, paper_doi: str, research_concept_id: str
+    ) -> bool:
+        """Link a Paper → ResearchConcept via DISCUSSES."""
+        return self._link_entity_to_concept(
+            entity_id=paper_doi,
+            concept_id=research_concept_id,
+            relationship="DISCUSSES",
+        )
+
+    def unlink_paper_from_concept(
+        self, paper_doi: str, research_concept_id: str
+    ) -> bool:
+        """Remove a Paper → ResearchConcept DISCUSSES edge."""
+        return self._unlink_entity_from_concept(
+            entity_id=paper_doi,
+            concept_id=research_concept_id,
+            relationship="DISCUSSES",
+        )
+
+    def get_problems_for_concept(
+        self, concept_id: str, limit: int = 50
+    ) -> list[dict]:
+        """
+        Return ProblemConcept nodes linked to ``concept_id`` via
+        INVOLVES_CONCEPT, ordered by mention_count descending.
+        """
+        def _fetch(tx: ManagedTransaction, cid: str, lim: int) -> list[dict]:
+            result = tx.run(
+                """
+                MATCH (pc:ProblemConcept)-[:INVOLVES_CONCEPT]
+                      ->(rc:ResearchConcept {id: $cid})
+                RETURN pc
+                ORDER BY pc.mention_count DESC
+                LIMIT $limit
+                """,
+                cid=cid,
+                limit=lim,
+            )
+            return [dict(r["pc"]) for r in result]
+
+        with self.session() as session:
+            return session.execute_read(
+                lambda tx: _fetch(tx, concept_id, limit)
+            )
+
+    def get_papers_for_concept(
+        self, concept_id: str, limit: int = 50
+    ) -> list[dict]:
+        """
+        Return Paper nodes linked to ``concept_id`` via DISCUSSES, ordered
+        by year descending (most recent first).
+        """
+        def _fetch(tx: ManagedTransaction, cid: str, lim: int) -> list[dict]:
+            result = tx.run(
+                """
+                MATCH (p:Paper)-[:DISCUSSES]->(rc:ResearchConcept {id: $cid})
+                RETURN p
+                ORDER BY coalesce(p.year, 0) DESC
+                LIMIT $limit
+                """,
+                cid=cid,
+                limit=lim,
+            )
+            return [dict(r["p"]) for r in result]
+
+        with self.session() as session:
+            return session.execute_read(
+                lambda tx: _fetch(tx, concept_id, limit)
+            )
+
+    def reconcile_research_concept_counts(self) -> list[dict]:
+        """
+        Recompute denormalized counts on every ResearchConcept from actual
+        edges. Returns a list of {id, name, mention_count, paper_count}
+        for concepts whose stored counts drifted from the recomputed ones.
+        """
+        def _reconcile(tx: ManagedTransaction) -> list[dict]:
+            result = tx.run(
+                """
+                MATCH (rc:ResearchConcept)
+                OPTIONAL MATCH (rc)<-[:INVOLVES_CONCEPT]-(pc:ProblemConcept)
+                WITH rc, count(DISTINCT pc) AS mc
+                OPTIONAL MATCH (rc)<-[:DISCUSSES]-(paper:Paper)
+                WITH rc, mc, count(DISTINCT paper) AS pac
+                WHERE rc.mention_count <> mc OR rc.paper_count <> pac
+                SET rc.mention_count = mc,
+                    rc.paper_count = pac,
+                    rc.updated_at = $now
+                RETURN rc.id as id, rc.name as name,
+                       mc as mention_count, pac as paper_count
+                """,
+                now=datetime.now(timezone.utc).isoformat(),
+            )
+            return [dict(r) for r in result]
+
+        with self.session() as session:
+            drift = session.execute_write(_reconcile)
+
+        if drift:
+            logger.info(f"Reconciled {len(drift)} ResearchConcept count drifts")
+        else:
+            logger.debug("ResearchConcept counts were already consistent")
         return drift
 
 
