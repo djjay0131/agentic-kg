@@ -1,6 +1,6 @@
 # Feature: Enhance GitHub Pages Site
 
-**Status:** SPECIFIED
+**Status:** IMPLEMENTED (Phase A — 2026-04-21)
 **Date:** 2026-04-16
 **Author:** Feature Architect (AI-assisted)
 **Depends On:** None (existing Pages site + CI workflow in place)

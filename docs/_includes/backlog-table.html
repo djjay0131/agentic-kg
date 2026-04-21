@@ -1,0 +1,30 @@
+{%- comment -%}
+Render a table of backlog items. Usage:
+
+  {% include backlog-table.html items=some_array %}
+
+`items` is expected to be an array of records from _data/backlog.yml.
+Variable-schema rows (e.g. Category 7's Criterion/Source/Status) render
+via the generic "notes" cell so the table layout stays stable.
+{%- endcomment -%}
+
+{% assign rows = include.items %}
+{% if rows == nil or rows.size == 0 %}
+
+_No items._
+
+{% else %}
+
+| ID | Category | Title | Status | Priority | Notes |
+|---|---|---|---|---|---|
+{% for item in rows -%}
+| {% if item.resolved %}~~{{ item.id }}~~{% else %}{{ item.id }}{% endif %}
+| {{ item.category | default: "—" }}
+| {{ item.feature | default: item.criterion | default: "—" }}
+| {% include status-badge.html status=item.status %}
+| {{ item.priority | default: "—" }}
+| {{ item.notes | default: item.source | default: "" }}
+|
+{% endfor %}
+
+{% endif %}

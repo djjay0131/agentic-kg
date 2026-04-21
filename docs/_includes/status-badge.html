@@ -1,0 +1,18 @@
+{%- comment -%}
+Render a status value with a matching just-the-docs label color.
+Usage: {% include status-badge.html status=item.status %}
+{%- endcomment -%}
+
+{%- assign s = include.status | default: "" | strip -%}
+{%- assign s_lower = s | downcase -%}
+
+{%- if s_lower contains "verified" or s_lower contains "complete" or s_lower contains "resolved" -%}
+{: .label .label-green }
+{%- elsif s_lower contains "in progress" or s_lower contains "implementing" or s_lower contains "specifying" -%}
+{: .label .label-yellow }
+{%- elsif s_lower contains "blocked" or s_lower contains "failing" -%}
+{: .label .label-red }
+{%- elsif s_lower contains "specified" -%}
+{: .label .label-blue }
+{%- endif -%}
+`{{ s }}`

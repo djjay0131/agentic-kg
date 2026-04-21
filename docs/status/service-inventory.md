@@ -1,3 +1,9 @@
+---
+title: Service inventory
+parent: Status
+nav_order: 4
+---
+
 # Service Inventory
 
 **Last Updated:** 2026-04-17

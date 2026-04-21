@@ -1,34 +1,27 @@
-name: Update Documentation Pages
+name: Preview Documentation Pages
 
 on:
-  push:
-    branches:
-      - master
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
     paths:
       - 'llm/memory_bank/**'
       - 'llm/features/**'
       - 'construction/sprints/**'
       - 'docs/**'
       - '.github/scripts/generate_site_data.py'
-      - '.github/workflows/update-docs.yml'
-  workflow_dispatch:
-    inputs:
-      force_update:
-        description: 'Force documentation update'
-        required: false
-        default: 'false'
+      - '.github/workflows/preview-docs.yml'
 
 concurrency:
-  group: pages-production
+  group: pages-preview-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
+  pull-requests: write
 
 jobs:
-  build-and-deploy:
+  build-preview:
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -54,11 +47,16 @@ jobs:
           bundler-cache: true
           working-directory: docs
 
-      - name: Build Jekyll site
+      - name: Build Jekyll site for preview
         working-directory: docs
         env:
           JEKYLL_ENV: production
-        run: bundle exec jekyll build --strict_front_matter --trace
+          PAGES_REPO_NWO: ${{ github.repository }}
+        run: |
+          bundle exec jekyll build \
+            --baseurl "/agentic-kg/previews/pr-${{ github.event.pull_request.number }}" \
+            --strict_front_matter \
+            --trace
 
       - name: Validate HTML and links
         uses: chabad360/htmlproofer@master
@@ -71,12 +69,24 @@ jobs:
             --allow-hash-href
             --ignore-empty-alt
 
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+      - name: Publish preview
+        uses: rossjrw/pr-preview-action@v1
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: docs/_site
-          user_name: 'github-actions[bot]'
-          user_email: 'github-actions[bot]@users.noreply.github.com'
-          commit_message: 'docs: deploy ${{ github.sha }}'
-          keep_files: true  # preserve previews/ subtree from PR workflow
+          source-dir: docs/_site
+          preview-branch: gh-pages
+          umbrella-dir: previews
+          action: deploy
+
+  cleanup-preview:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Remove preview
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          preview-branch: gh-pages
+          umbrella-dir: previews
+          action: remove

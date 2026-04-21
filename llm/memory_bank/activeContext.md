@@ -1,10 +1,12 @@
 # Active Context
 
-Last updated: 2026-04-17
+Last updated: 2026-04-21
 
 ## Current Work Focus
 
-**Tooling/docs consolidation phase.** Ingestion pipeline working on GCP staging (commit `01d67f9`, 2026-04-01) — graph has 282 nodes, 151 edges, 18 ProblemMentions linked to ProblemConcepts, 5/5 sanity checks passing. Since then, two tooling initiatives committed or specified:
+**enhance-github-pages Phase A IMPLEMENTED (2026-04-21).** Ran `/constellize:feature:implement` on `feat/enhance-github-pages` (branched off master). 4 units shipped: (1) `generate_site_data.py` emitter with Pydantic `DocsStats` validation + 31 unit tests at 100% coverage; (2) Jekyll `just-the-docs` site skeleton with `about/` + `status/` sections, 3 Liquid includes, and placeholder page content; (3) rewrote `update-docs.yml` with new watched paths + concurrency + HTMLProofer, added `preview-docs.yml` for PR previews via `rossjrw/pr-preview-action`; (4) 56-test static structure/workflow suite. 87 tests total, ruff clean. Phase A acceptance criteria (AC-1,2,4,5,6,7,8,9,10,11,12,15,16) satisfied statically; AC-1's real Jekyll build is CI-only because local Ruby is 2.6.10 (< 3.0). Phase B (AC-3, 13, 14) deferred — placeholder content + TODO markers in every `about/*.md` and `status/*.md` page.
+
+**Tooling/docs consolidation phase.** Ingestion pipeline working on GCP staging (commit `01d67f9`, 2026-04-01) — graph has 282 nodes, 151 edges, 18 ProblemMentions linked to ProblemConcepts, 5/5 sanity checks passing. Since then, tooling initiatives committed or specified:
 
 - **Constellize migration (committed `caf013d`, 2026-04-15):** retired `construction-agent`, `memory-agent`, and `code-review/` sub-agents in favor of `constellize:feature:*` + `constellize:memory:*` skills and new personas (`construction-lead`, `knowledge-steward`, `feature-architect`). `CLAUDE.md` rewritten to reflect the new workflow. Backlog published to Pages as `docs/backlog.md`.
 - **Enhance-github-pages spec (committed `fb7176c`, PR #19, 2026-04-16):** `llm/features/enhance-github-pages.md` fully specified. Phased delivery (A: infra migration, B: content). Replaces fragile regex HTML generator with Jekyll `just-the-docs` + YAML data pipeline; adds PR preview deploys, HTMLProofer, Lighthouse CI, and structured `# docs-stats` block in `activeContext.md`.

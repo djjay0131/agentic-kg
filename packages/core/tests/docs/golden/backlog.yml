@@ -1,0 +1,41 @@
+items:
+- id: S-1
+  resolved: true
+  category: Stabilization & Test Fixes
+  feature: Fix 33 failing extraction tests
+  status: Resolved
+  priority: Critical
+  notes: All 264 extraction tests passing
+- id: S-3
+  resolved: false
+  category: Stabilization & Test Fixes
+  feature: Sprint 10 integration tests (golden dataset)
+  status: Partial Spec
+  priority: High
+  notes: Task 10 in sprint-10 doc
+- id: D-1
+  resolved: true
+  category: Real Data Ingestion & Validation
+  feature: Ingest real papers into KG
+  status: Verified
+  priority: High
+  notes: Implemented and verified 2026-03-28
+- id: D-2
+  resolved: false
+  category: Real Data Ingestion & Validation
+  feature: Extraction reliability metrics
+  status: Needs Spec
+  priority: High
+  notes: Measure F1 vs. inter-annotator agreement
+- id: V-1
+  resolved: false
+  category: Unvalidated Success Criteria
+  criterion: Extraction F1 within 10% of inter-annotator agreement
+  source: productContext.md
+  status: Not measured
+- id: V-2
+  resolved: false
+  category: Unvalidated Success Criteria
+  criterion: MRR/nDCG improvement over keyword/citation baselines
+  source: productContext.md
+  status: Not measured

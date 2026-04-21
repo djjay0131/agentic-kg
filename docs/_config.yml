@@ -1,3 +1,59 @@
-theme: jekyll-theme-minimal
-title: Agentic KG Services
+title: Agentic KG
 description: Research Knowledge Graph & AI Paper Generation Platform
+url: https://djjay0131.github.io
+baseurl: /agentic-kg
+
+# Theme
+remote_theme: just-the-docs/just-the-docs
+color_scheme: light
+
+# Search
+search_enabled: true
+search:
+  heading_level: 2
+  previews: 2
+  preview_words_before: 3
+  preview_words_after: 3
+  tokenizer_separator: /[\s\-/]+/
+  rel_url: true
+  button: false
+
+# Navigation
+nav_enabled: true
+back_to_top: true
+back_to_top_text: "Back to top"
+
+# Breadcrumbs
+enable_copy_code_button: true
+
+# GitHub integration
+gh_edit_link: true
+gh_edit_link_text: "Edit this page on GitHub"
+gh_edit_repository: https://github.com/djjay0131/agentic-kg
+gh_edit_branch: master
+gh_edit_view_mode: tree
+gh_edit_source: docs
+
+# Exclusions
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - vendor/
+  - node_modules/
+  - .sass-cache/
+  - .jekyll-cache/
+
+# Plugins
+plugins:
+  - jekyll-remote-theme
+  - jekyll-seo-tag
+
+# Build
+markdown: kramdown
+kramdown:
+  syntax_highlighter: rouge
+
+footer_content: >-
+  &copy; 2026 — Agentic KG.
+  Built with
+  <a href="https://just-the-docs.github.io/just-the-docs/" target="_blank">just-the-docs</a>.
