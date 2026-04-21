@@ -478,6 +478,31 @@ def build_parser() -> argparse.ArgumentParser:
         "-v", "--verbose", action="store_true", help="Enable verbose logging",
     )
 
+    # calibrate-concepts command (E-2 AC-12)
+    calibrate_concepts_cmd = subparsers.add_parser(
+        "calibrate-concepts",
+        help=(
+            "Run the ResearchConcept dedup threshold calibration study "
+            "against a labeled pair fixture"
+        ),
+    )
+    calibrate_concepts_cmd.add_argument(
+        "--pairs",
+        default=None,
+        help="Path to a YAML pair fixture (defaults to bundled fixture)",
+    )
+    calibrate_concepts_cmd.add_argument(
+        "--thresholds",
+        default=None,
+        help=(
+            "Comma-separated list of thresholds to sweep (defaults to a "
+            "reasonable 0.70-0.96 sweep)"
+        ),
+    )
+    calibrate_concepts_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
     # link-concept command (E-2)
     link_concept_cmd = subparsers.add_parser(
         "link-concept",
@@ -698,6 +723,34 @@ def run_create_concept(args) -> None:
         print(f"  Aliases: {', '.join(concept.aliases)}")
 
 
+def run_calibrate_concepts(args) -> None:
+    """Run the dedup threshold calibration study (E-2 AC-12)."""
+    from agentic_kg.knowledge_graph.calibration import (
+        DEFAULT_PAIR_FIXTURE,
+        format_report,
+        run_calibration,
+    )
+
+    thresholds: Optional[list[float]] = None
+    if args.thresholds:
+        try:
+            thresholds = [
+                float(t.strip()) for t in args.thresholds.split(",") if t.strip()
+            ]
+        except ValueError as e:
+            print(f"Error: invalid --thresholds list: {e}", file=sys.stderr)
+            sys.exit(2)
+
+    pairs_source = args.pairs or DEFAULT_PAIR_FIXTURE
+    try:
+        report = run_calibration(pairs_source=pairs_source, thresholds=thresholds)
+    except Exception as e:
+        print(f"Error: calibration failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(format_report(report))
+
+
 def run_link_concept(args) -> None:
     """Link a ProblemConcept or Paper to a ResearchConcept."""
     from agentic_kg.knowledge_graph.repository import (
@@ -755,6 +808,8 @@ def main(argv: Optional[list[str]] = None) -> None:
         run_create_concept(args)
     elif args.command == "link-concept":
         run_link_concept(args)
+    elif args.command == "calibrate-concepts":
+        run_calibrate_concepts(args)
     elif args.command == "extract":
         # Build pipeline config
         config = PipelineConfig(
