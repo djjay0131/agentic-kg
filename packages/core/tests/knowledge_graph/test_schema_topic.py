@@ -16,13 +16,12 @@ from agentic_kg.knowledge_graph.schema import (
 
 
 class TestSchemaVersion:
-    """Schema version must advance to 3 for the Topic hierarchy."""
+    """Schema version must advance to at least 3 for the Topic hierarchy."""
 
-    def test_version_is_three(self):
-        assert SCHEMA_VERSION == 3
-
-    def test_module_attribute_matches(self):
-        assert schema_module.SCHEMA_VERSION == 3
+    def test_version_is_at_least_three(self):
+        # Unit 2 of E-1 bumped the version to 3; later features may advance it.
+        assert SCHEMA_VERSION >= 3
+        assert schema_module.SCHEMA_VERSION >= 3
 
 
 class TestTopicConstraints:
