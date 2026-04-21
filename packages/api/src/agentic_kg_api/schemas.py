@@ -493,3 +493,115 @@ class TopicAssignResponse(BaseModel):
         description="True if the edge was created, False if it already existed"
     )
 
+
+# =============================================================================
+# ResearchConcept Schemas (E-2)
+# =============================================================================
+
+
+class ConceptSummary(BaseModel):
+    """Flat ResearchConcept summary for list views."""
+
+    id: str
+    name: str
+    description: Optional[str] = None
+    aliases: list[str] = Field(default_factory=list)
+    mention_count: int = 0
+    paper_count: int = 0
+
+
+class ConceptDetail(ConceptSummary):
+    """ResearchConcept detail — same shape for now, room to extend."""
+
+    pass
+
+
+class ConceptListResponse(BaseModel):
+    """Response for GET /api/concepts."""
+
+    concepts: list[ConceptSummary] = Field(default_factory=list)
+    total: int = 0
+
+
+class ConceptCreateRequest(BaseModel):
+    """Request body for POST /api/concepts."""
+
+    name: str = Field(..., min_length=2)
+    description: Optional[str] = None
+    aliases: list[str] = Field(default_factory=list)
+    threshold: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Override the cosine similarity threshold for dedup "
+            "(defaults to repository default, 0.90 as of v4)"
+        ),
+    )
+
+
+class ConceptCreateResponse(BaseModel):
+    """Response for POST /api/concepts — returns the concept and dedup flag."""
+
+    concept: ConceptSummary
+    created: bool = Field(
+        description=(
+            "True if a new concept was inserted; False if the request "
+            "matched an existing concept and only extended its aliases."
+        )
+    )
+
+
+class ConceptSearchResultItem(BaseModel):
+    """A single concept similarity-search hit."""
+
+    concept: ConceptSummary
+    score: float
+
+
+class ConceptSearchResponse(BaseModel):
+    """Response for GET /api/concepts/search."""
+
+    query: str
+    results: list[ConceptSearchResultItem] = Field(default_factory=list)
+
+
+class ConceptProblemsResponse(BaseModel):
+    """Response for GET /api/concepts/{id}/problems."""
+
+    concept_id: str
+    problems: list[dict] = Field(default_factory=list)
+    total: int = 0
+
+
+class ConceptPapersResponse(BaseModel):
+    """Response for GET /api/concepts/{id}/papers."""
+
+    concept_id: str
+    papers: list[dict] = Field(default_factory=list)
+    total: int = 0
+
+
+class ConceptLinkRequest(BaseModel):
+    """Request body for link-problem / link-paper endpoints."""
+
+    entity_id: str = Field(
+        ...,
+        description=(
+            "ProblemConcept id for link-problem, Paper DOI for link-paper"
+        ),
+    )
+
+
+class ConceptLinkResponse(BaseModel):
+    """Response for link-problem / link-paper endpoints."""
+
+    concept_id: str
+    entity_id: str
+    relationship: str = Field(
+        description="INVOLVES_CONCEPT or DISCUSSES"
+    )
+    created: bool = Field(
+        description="True if the edge was created, False if it already existed"
+    )
+
