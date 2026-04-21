@@ -209,6 +209,21 @@ def generate_topic_embedding(name: str, description: Optional[str] = None) -> li
     return service.generate_embedding(text)
 
 
+def generate_research_concept_embedding(
+    name: str, description: Optional[str] = None
+) -> list[float]:
+    """
+    Generate embedding for a ResearchConcept.
+
+    Embeds "{name}: {description}" when a description is provided, else
+    just the name. Used for embedding-based dedup on create and for
+    vector similarity search.
+    """
+    text = f"{name}: {description}" if description else name
+    service = EmbeddingService()
+    return service.generate_embedding(text)
+
+
 def generate_problem_embeddings_batch(
     problems: list[Problem],
 ) -> list[Optional[list[float]]]:
