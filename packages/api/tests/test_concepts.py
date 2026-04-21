@@ -5,7 +5,6 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from agentic_kg.knowledge_graph.models import ResearchConcept
 from agentic_kg.knowledge_graph.repository import NotFoundError
 
@@ -55,6 +54,39 @@ class TestListConcepts:
         # Can't introspect the closure directly, but the response was 200 so
         # the branch with the name filter ran.
         assert session.execute_read.called
+
+    def test_inner_txn_fn_runs_cypher_with_name_param(self, client, mock_repo):
+        """Execute the closure passed to session.execute_read against a mock tx."""
+        tx = MagicMock()
+        tx.run.return_value = [{"rc": {"id": "c1", "name": "attention", "aliases": "[]"}}]
+        session = MagicMock()
+        session.execute_read.side_effect = lambda fn: fn(tx)
+        mock_repo.session.return_value.__enter__ = MagicMock(return_value=session)
+        mock_repo.session.return_value.__exit__ = MagicMock(return_value=False)
+        mock_repo._research_concept_from_neo4j.return_value = _make_concept(
+            id="c1", name="attention"
+        )
+
+        response = client.get("/api/concepts?name=attention")
+        assert response.status_code == 200
+        tx.run.assert_called_once()
+        params = tx.run.call_args.kwargs
+        assert params["name"] == "attention"
+        assert params["limit"] == 50
+        assert params["offset"] == 0
+
+    def test_inner_txn_fn_runs_cypher_without_name_param(self, client, mock_repo):
+        tx = MagicMock()
+        tx.run.return_value = []
+        session = MagicMock()
+        session.execute_read.side_effect = lambda fn: fn(tx)
+        mock_repo.session.return_value.__enter__ = MagicMock(return_value=session)
+        mock_repo.session.return_value.__exit__ = MagicMock(return_value=False)
+
+        response = client.get("/api/concepts")
+        assert response.status_code == 200
+        params = tx.run.call_args.kwargs
+        assert "name" not in params
 
 
 class TestGetConcept:

@@ -3,7 +3,6 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from agentic_kg.cli import build_parser, main
 from agentic_kg.knowledge_graph.models import ResearchConcept
 from agentic_kg.knowledge_graph.repository import NotFoundError
@@ -284,3 +283,81 @@ class TestLinkConceptDispatch:
                 ]
             )
         assert exc_info.value.code == 2
+
+
+# =============================================================================
+# calibrate-concepts
+# =============================================================================
+
+
+class TestCalibrateConceptsDispatch:
+    def _fake_report(self):
+        from agentic_kg.knowledge_graph.calibration import (
+            CalibrationReport,
+            ThresholdResult,
+        )
+
+        return CalibrationReport(
+            pairs_evaluated=2,
+            positives=1,
+            negatives=1,
+            rows=[
+                ThresholdResult(
+                    threshold=0.90,
+                    precision=1.0,
+                    recall=1.0,
+                    f1=1.0,
+                    true_positive=1,
+                    false_positive=0,
+                    true_negative=1,
+                    false_negative=0,
+                ),
+            ],
+            recommended_threshold=0.90,
+            recommended_f1=1.0,
+        )
+
+    def test_default_invocation_prints_report(self, capsys):
+        with patch(
+            "agentic_kg.knowledge_graph.calibration.run_calibration",
+            return_value=self._fake_report(),
+        ) as mock_run:
+            main(["calibrate-concepts"])
+
+        mock_run.assert_called_once()
+        captured = capsys.readouterr().out
+        assert "Pairs evaluated: 2" in captured
+        assert "Recommended threshold: 0.90" in captured
+
+    def test_forwards_pairs_and_thresholds(self):
+        with patch(
+            "agentic_kg.knowledge_graph.calibration.run_calibration",
+            return_value=self._fake_report(),
+        ) as mock_run:
+            main(
+                [
+                    "calibrate-concepts",
+                    "--pairs",
+                    "/tmp/pairs.yml",
+                    "--thresholds",
+                    "0.80, 0.90 , 0.95",
+                ]
+            )
+        call = mock_run.call_args
+        assert call.kwargs["pairs_source"] == "/tmp/pairs.yml"
+        assert call.kwargs["thresholds"] == [0.80, 0.90, 0.95]
+
+    def test_invalid_thresholds_exit_code_2(self, capsys):
+        with pytest.raises(SystemExit) as exc_info:
+            main(["calibrate-concepts", "--thresholds", "not-a-float"])
+        assert exc_info.value.code == 2
+        assert "invalid --thresholds" in capsys.readouterr().err
+
+    def test_calibration_error_exit_code_1(self, capsys):
+        with patch(
+            "agentic_kg.knowledge_graph.calibration.run_calibration",
+            side_effect=RuntimeError("boom"),
+        ), pytest.raises(SystemExit) as exc_info:
+            main(["calibrate-concepts"])
+        assert exc_info.value.code == 1
+        assert "calibration failed" in capsys.readouterr().err

@@ -6,9 +6,9 @@ synthetic ``ScoredPair`` values so we don't hit OpenAI.
 """
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
-
 from agentic_kg.knowledge_graph.calibration import (
     DEFAULT_PAIR_FIXTURE,
     DEFAULT_THRESHOLDS,
@@ -16,12 +16,13 @@ from agentic_kg.knowledge_graph.calibration import (
     ConceptPair,
     ScoredPair,
     analyze_thresholds,
+    compute_pair_similarities,
     cosine_similarity,
     format_report,
     load_concept_pairs,
     recommend_threshold,
+    run_calibration,
 )
-
 
 # =============================================================================
 # Pair loading
@@ -90,6 +91,10 @@ class TestLoadConceptPairs:
             load_concept_pairs([{"b": "y", "label": "same"}])
         with pytest.raises(CalibrationError, match="'b' is required"):
             load_concept_pairs([{"a": "x", "label": "same"}])
+
+    def test_non_mapping_entry_raises(self):
+        with pytest.raises(CalibrationError, match="must be a mapping"):
+            load_concept_pairs(["not-a-dict"])
 
 
 # =============================================================================
@@ -275,3 +280,124 @@ class TestFormatReport:
         )
         text = format_report(report)
         assert "No threshold produced any positive predictions." in text
+
+
+# =============================================================================
+# End-to-end with patched embeddings
+# =============================================================================
+
+
+class TestComputePairSimilarities:
+    def test_scores_each_pair_with_patched_embedding(self):
+        pairs = [
+            ConceptPair(a="attention", b="self-attention", label="same"),
+            ConceptPair(a="GNN", b="CNN", label="different"),
+        ]
+
+        def fake_embed(name, description=None):
+            # Deterministic, label-driven: "same" pairs align, "different" don't.
+            if name in {"attention", "self-attention"}:
+                return [1.0, 0.0, 0.0]
+            if name == "GNN":
+                return [1.0, 0.0, 0.0]
+            return [0.0, 1.0, 0.0]
+
+        with patch(
+            "agentic_kg.knowledge_graph.embeddings.generate_research_concept_embedding",
+            side_effect=fake_embed,
+        ):
+            scored = compute_pair_similarities(pairs)
+
+        assert len(scored) == 2
+        assert scored[0].score == pytest.approx(1.0)
+        assert scored[1].score == pytest.approx(0.0)
+
+
+class TestRunCalibration:
+    def test_end_to_end_with_patched_embeddings(self):
+        pairs = [
+            {"a": "attention", "b": "self-attention", "label": "same"},
+            {"a": "GNN", "b": "CNN", "label": "different"},
+        ]
+
+        def fake_embed(name, description=None):
+            if name in {"attention", "self-attention"}:
+                return [1.0, 0.0, 0.0]
+            if name == "GNN":
+                return [1.0, 0.0, 0.0]
+            return [0.0, 1.0, 0.0]
+
+        with patch(
+            "agentic_kg.knowledge_graph.embeddings.generate_research_concept_embedding",
+            side_effect=fake_embed,
+        ):
+            report = run_calibration(pairs_source=pairs, thresholds=[0.5, 0.9])
+
+        assert report.pairs_evaluated == 2
+        assert report.positives == 1
+        assert report.negatives == 1
+        assert len(report.rows) == 2
+        # At both thresholds the positive pair (score 1.0) predicts same,
+        # the negative pair (score 0.0) predicts different: perfect sep.
+        for row in report.rows:
+            assert row.precision == pytest.approx(1.0)
+            assert row.recall == pytest.approx(1.0)
+        assert report.recommended_threshold in {0.5, 0.9}
+
+    def test_defaults_to_bundled_fixture_with_patched_embeddings(self):
+        calls = {"n": 0}
+
+        def fake_embed(name, description=None):
+            calls["n"] += 1
+            # Deterministic non-zero vector keyed on first char.
+            return [float(ord(name[0]) % 13), 1.0, 0.5]
+
+        with patch(
+            "agentic_kg.knowledge_graph.embeddings.generate_research_concept_embedding",
+            side_effect=fake_embed,
+        ):
+            report = run_calibration(thresholds=[0.9])
+
+        assert report.pairs_evaluated >= 20
+        assert calls["n"] == report.pairs_evaluated * 2
+
+
+# =============================================================================
+# Embedding helper (unit-tested via patched EmbeddingService)
+# =============================================================================
+
+
+class TestGenerateResearchConceptEmbedding:
+    def test_embeds_name_only_when_no_description(self):
+        from agentic_kg.knowledge_graph.embeddings import (
+            generate_research_concept_embedding,
+        )
+
+        fake_vec = [0.1, 0.2, 0.3]
+        with patch(
+            "agentic_kg.knowledge_graph.embeddings.EmbeddingService"
+        ) as mock_svc_cls:
+            mock_svc_cls.return_value.generate_embedding.return_value = fake_vec
+            result = generate_research_concept_embedding("attention")
+
+        assert result == fake_vec
+        mock_svc_cls.return_value.generate_embedding.assert_called_once_with("attention")
+
+    def test_embeds_name_and_description_when_present(self):
+        from agentic_kg.knowledge_graph.embeddings import (
+            generate_research_concept_embedding,
+        )
+
+        fake_vec = [0.4, 0.5, 0.6]
+        with patch(
+            "agentic_kg.knowledge_graph.embeddings.EmbeddingService"
+        ) as mock_svc_cls:
+            mock_svc_cls.return_value.generate_embedding.return_value = fake_vec
+            result = generate_research_concept_embedding(
+                "attention", "a transformer core building block"
+            )
+
+        assert result == fake_vec
+        mock_svc_cls.return_value.generate_embedding.assert_called_once_with(
+            "attention: a transformer core building block"
+        )

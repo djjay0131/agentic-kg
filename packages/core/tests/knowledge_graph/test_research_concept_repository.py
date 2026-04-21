@@ -10,7 +10,6 @@ or disabled so tests do not depend on the OpenAI API.
 import uuid
 
 import pytest
-
 from agentic_kg.knowledge_graph.models import (
     Paper,
     ProblemConcept,

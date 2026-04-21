@@ -8,10 +8,8 @@ import json
 from datetime import datetime, timezone
 
 import pytest
-from pydantic import ValidationError
-
 from agentic_kg.knowledge_graph.models import ResearchConcept
-
+from pydantic import ValidationError
 
 # =============================================================================
 # Creation & defaults

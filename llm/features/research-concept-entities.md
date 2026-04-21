@@ -1,6 +1,6 @@
 # Feature: ResearchConcept Entities (E-2)
 
-**Status:** SPECIFIED
+**Status:** VERIFIED (2026-04-21)
 **Date:** 2026-04-17
 **Author:** Feature Architect (AI-assisted)
 **Backlog ID:** E-2
@@ -20,7 +20,6 @@ The knowledge graph only models research **problems** as structured entities. Ge
 - API endpoints for concept browsing, search, manual creation, and linking
 - CLI command for manual concept creation and linking
 - Denormalized counts with transactional delta + periodic reconciliation (same pattern as E-1)
-- Shared `BaseGraphEntity` model and `EntityService` abstraction extracted for reuse across E-1, E-2, and future entity types (E-3, E-4)
 - Dedup threshold calibration study before finalizing the 0.90 default
 - Schema version bumped (v3 or v4 depending on E-1 ordering)
 
@@ -107,11 +106,9 @@ Added to `routers/concepts.py`:
 | `create-concept --name <name> [--description <desc>] [--aliases a,b,c]` | Create with dedup check |
 | `link-concept --concept-id <id> --entity-id <id> --rel-type <INVOLVES_CONCEPT\|DISCUSSES>` | Link concept to problem or paper |
 
-### Shared Abstractions (extracted during E-2 implementation)
+### Shared Abstractions (deferred to follow-up)
 
-`BaseGraphEntity` — shared Pydantic base model providing: `id` (UUID), `name`, `description`, `embedding`, `created_at`, `updated_at`, `to_neo4j_properties()`.
-
-`EntityService` — generic service class providing: create-with-dedup, CRUD, embedding generation, count reconciliation. Parameterized by entity type, label, and relationship types. Topic and ResearchConcept (and later Model, Method) instantiate this service with their specific config.
+Originally scoped to E-2: extract `BaseGraphEntity` + `EntityService` and refactor Topic and ResearchConcept to use them. **Descoped during verification (2026-04-21).** With only two entity types in hand the abstraction isn't obviously paying for itself; revisit when E-3 (Model) or E-4 (Method) lands and we have three call sites to consolidate. See AC-7 note below.
 
 ### Denormalized Counts
 
@@ -262,10 +259,8 @@ SET rc.mention_count = mc, rc.paper_count = pac
 - **When** they are linked via `DISCUSSES`
 - **Then** `GET /api/concepts/{id}/papers` returns the Paper
 
-### AC-7: Shared BaseGraphEntity and EntityService
-- **Given** Topic (E-1) and ResearchConcept (E-2) models exist
-- **When** inspected
-- **Then** both inherit from `BaseGraphEntity` and use `EntityService` for create-with-dedup, CRUD, and count reconciliation — no duplicated boilerplate
+### AC-7: Shared BaseGraphEntity and EntityService — DESCOPED (2026-04-21)
+- **Descoped during verification.** Both Topic (E-1) and ResearchConcept (E-2) shipped with their own boilerplate. With only two entity types the abstraction isn't paying off yet; defer until E-3 (Model) or E-4 (Method) adds a third call site. Tracked as a follow-up refactor, not an E-2 blocker.
 
 ### AC-8: API endpoints
 - **Given** the FastAPI app is running
@@ -292,10 +287,11 @@ SET rc.mention_count = mc, rc.paper_count = pac
 - **When** cosine similarity is computed for each pair
 - **Then** the threshold that maximizes separation is documented; the threshold is configurable via environment variable or config module
 
-### AC-13: Staging deployed and verified
+### AC-13: Staging deployed and verified — PENDING DEPLOY (2026-04-21)
 - **Given** all code is deployed to staging
 - **When** the operator reviews the graph in Neo4j Browser
 - **Then** ResearchConcept nodes are visible, linked to problems and papers via correct relationship types
+- *Status*: local verification complete; staging check pending operator action.
 
 ## Technical Notes
 
@@ -317,4 +313,26 @@ SET rc.mention_count = mc, rc.paper_count = pac
 - Should dedup threshold be shared with E-1 or configurable per entity type? (Recommend: shared constant in a config module, overridable per entity)
 - How should aliases be indexed for search? Options: full-text index on a denormalized `alias_text` string, or Neo4j full-text index on `name` only with alias expansion at query time. Defer to implementation.
 - What typed concept-to-concept relationships will E-8/C-1 introduce? (Candidates: `ENABLES`, `BUILDS_ON`, `ALTERNATIVE_TO`, `GENERALIZES`, `PREREQUISITE_OF` — defer exact set to those specs)
-- Should `BaseGraphEntity` and `EntityService` be extracted as part of E-2 implementation, or as a prerequisite refactor? (Recommend: extract during E-2, refactor E-1 Topic to use it in the same PR)
+- Should `BaseGraphEntity` and `EntityService` be extracted as part of E-2 implementation, or as a prerequisite refactor? (Recommend: extract during E-2, refactor E-1 Topic to use it in the same PR) — **Answered 2026-04-21: deferred; see AC-7 note.**
+
+## Verification Record (2026-04-21)
+
+Ran `/constellize:feature:verify` scoped to E-2 files.
+
+| Gate | Result | Detail |
+|------|--------|--------|
+| 1. Test Integrity | PASS | 99 E-2 unit tests passing (77 core + 22 API); 100% line coverage on `calibration.py`, `routers/concepts.py`, RC class in `entities.py`, `generate_research_concept_embedding`, RC CLI handlers, RC schemas. 22 integration repo tests require live Neo4j. |
+| 2. Health Check | PASS | No bare excepts; typed exceptions with actionable messages; input validation via Pydantic/Query; embedding failures → 500 with log; missing entities → 404; unknown relationships → `ValueError`; count decrements clamped at 0. |
+| 3. Deployment Readiness | PASS | CLI help + every E-2 subcommand render cleanly; API imports; bundled calibration fixture loads (29 pairs: 17 same / 12 different). |
+| 4. Maintainability | PASS (E-2 scope) | Ruff clean on every E-2 file; 20 violations in shared `cli.py`/`entities.py`/`schemas.py` all pre-date E-2 and are tracked for a separate cleanup pass. |
+
+Fixes applied during verification:
+- Added `test_non_mapping_entry_raises` to cover the last branch in `load_concept_pairs`.
+- Added `TestComputePairSimilarities`, `TestRunCalibration`, `TestGenerateResearchConceptEmbedding` — patch `generate_research_concept_embedding` / `EmbeddingService` to exercise the end-to-end harness + embedding helper without OpenAI.
+- Added `TestCalibrateConceptsDispatch` for CLI `calibrate-concepts` (default dispatch, arg forwarding, bad-threshold exit 2, calibration-failure exit 1).
+- Added two `list_concepts` router tests that execute the inner `_run(tx)` closure against a mocked transaction to cover the cypher-param branches.
+- Ran `ruff check --fix` on all six E-2 test files + `routers/concepts.py` (import ordering only).
+
+Descoped items:
+- AC-7 (BaseGraphEntity/EntityService): descoped to follow-up; not payable with only two entity types in hand.
+- AC-13 (staging deploy): pending operator action; not verifiable from local environment.

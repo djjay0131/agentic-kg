@@ -5,14 +5,13 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-
 from agentic_kg.knowledge_graph.embeddings import generate_research_concept_embedding
 from agentic_kg.knowledge_graph.models import ResearchConcept
 from agentic_kg.knowledge_graph.repository import (
     Neo4jRepository,
     NotFoundError,
 )
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from agentic_kg_api.dependencies import get_repo
 from agentic_kg_api.schemas import (

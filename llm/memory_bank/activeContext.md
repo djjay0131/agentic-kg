@@ -1,17 +1,20 @@
 # Active Context
 
-Last updated: 2026-04-17
+Last updated: 2026-04-21
 
 ## Current Work Focus
 
-**Tooling/docs consolidation phase.** Ingestion pipeline working on GCP staging (commit `01d67f9`, 2026-04-01) — graph has 282 nodes, 151 edges, 18 ProblemMentions linked to ProblemConcepts, 5/5 sanity checks passing. Since then, two tooling initiatives committed or specified:
+**Entity expansion phase — E-1 shipped, E-2 VERIFIED.** E-1 (Topic/Research Area entities) implemented on branch `feat/e-1-topic-model-unit-1` across 8 units, PR #22. E-2 (ResearchConcept entities) implemented on branch `feat/e-2-research-concept` across 6 units, PR #23 stacked on E-1. Both branches stacked; E-2 targets E-1's branch.
 
+**E-2 verification (2026-04-21):** ran `/constellize:feature:verify` scoped to E-2 files. All four gates PASS: 99 E-2 unit tests (77 core + 22 API), 100% coverage on every E-2 source file's unit-testable code, ruff clean on every E-2 file, CLI + API smoke checks green. 22 integration repo tests (`test_research_concept_repository.py`) require live Neo4j and ran to plan in CI but not locally. Fixes applied during verification: added `test_non_mapping_entry_raises` and tests for `compute_pair_similarities` / `run_calibration` / `generate_research_concept_embedding` / `calibrate-concepts` CLI dispatch / inner `list_concepts` tx closure to reach 100% scoped coverage; ruff autofixed import ordering across six E-2 test files and `routers/concepts.py`. Feature status flipped SPECIFIED → IMPLEMENTED → VERIFIED.
+
+**Descoped during verification:**
+- **AC-7** (shared `BaseGraphEntity` + `EntityService` abstraction): not payable with only two entity types in hand. Deferred as a follow-up refactor; revisit when E-3 (Model) or E-4 (Method) adds a third call site. Spec updated accordingly.
+- **AC-13** (staging deploy + operator review): pending operator action; not verifiable from local environment.
+
+**Pre-dating tooling context:**
 - **Constellize migration (committed `caf013d`, 2026-04-15):** retired `construction-agent`, `memory-agent`, and `code-review/` sub-agents in favor of `constellize:feature:*` + `constellize:memory:*` skills and new personas (`construction-lead`, `knowledge-steward`, `feature-architect`). `CLAUDE.md` rewritten to reflect the new workflow. Backlog published to Pages as `docs/backlog.md`.
-- **Enhance-github-pages spec (committed `fb7176c`, PR #19, 2026-04-16):** `llm/features/enhance-github-pages.md` fully specified. Phased delivery (A: infra migration, B: content). Replaces fragile regex HTML generator with Jekyll `just-the-docs` + YAML data pipeline; adds PR preview deploys, HTMLProofer, Lighthouse CI, and structured `# docs-stats` block in `activeContext.md`.
-- **E-1 Topic entity spec (committed `6a2ccde`, PR #20, 2026-04-16):** `llm/features/topic-research-area-entities.md` fully specified. First-class Topic nodes with 3-level hierarchy, seeded taxonomy, domain migration, manual assignment. Decoupled from E-8. Flags T-1 (taxonomy at scale).
-- **E-2 ResearchConcept entity spec (2026-04-17):** `llm/features/research-concept-entities.md` fully specified. Generic research concepts as first-class nodes, embedding-based dedup, manual population. Introduces shared `BaseGraphEntity`/`EntityService` abstraction. Drops `RELATED_TO` in favor of typed edges in E-8/C-1. Decoupled from E-8.
-
-No source code changes committed since 01d67f9.
+- **Enhance-github-pages spec (committed `fb7176c`, PR #19, 2026-04-16):** `llm/features/enhance-github-pages.md` fully specified. Phased delivery (A: infra migration, B: content).
 
 <!-- docs-stats: authoritative source for the Pages status dashboard. Keep in sync with prose. -->
 ```yaml
