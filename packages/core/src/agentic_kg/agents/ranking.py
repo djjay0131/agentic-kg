@@ -8,11 +8,10 @@ data availability, and cross-domain impact.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from agentic_kg.agents.base import BaseAgent
 from agentic_kg.agents.prompts import RANKING_SYSTEM_PROMPT, RANKING_USER_PROMPT
-from agentic_kg.agents.schemas import RankedProblem, RankingResult, WorkflowStatus
+from agentic_kg.agents.schemas import RankingResult, WorkflowStatus
 from agentic_kg.agents.state import ResearchState, add_message
 
 logger = logging.getLogger(__name__)

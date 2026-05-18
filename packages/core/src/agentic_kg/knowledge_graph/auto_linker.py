@@ -15,7 +15,6 @@ from neo4j import ManagedTransaction
 from agentic_kg.knowledge_graph.concept_matcher import ConceptMatcher, get_concept_matcher
 from agentic_kg.knowledge_graph.embeddings import EmbeddingService
 from agentic_kg.knowledge_graph.models import (
-    InstanceOfRelation,
     MatchCandidate,
     MatchConfidence,
     MatchMethod,
@@ -303,7 +302,7 @@ class AutoLinker:
             record = result.single()
             if not record:
                 raise AutoLinkerError(
-                    f"Failed to create INSTANCE_OF relationship: mention or concept not found"
+                    "Failed to create INSTANCE_OF relationship: mention or concept not found"
                 )
 
             return record["c"]

@@ -6,7 +6,6 @@ paper metadata, citations, and author information.
 """
 from __future__ import annotations
 
-
 import logging
 from typing import Any
 
@@ -21,7 +20,7 @@ from agentic_kg.data_acquisition.config import (
     SemanticScholarConfig,
     get_data_acquisition_config,
 )
-from agentic_kg.data_acquisition.exceptions import NotFoundError, RateLimitError
+from agentic_kg.data_acquisition.exceptions import RateLimitError
 from agentic_kg.data_acquisition.rate_limiter import (
     TokenBucketRateLimiter,
     get_rate_limiter_registry,
@@ -167,7 +166,7 @@ class SemanticScholarClient(BaseAPIClient):
 
             return result
 
-        except Exception as e:
+        except Exception:
             await self._circuit_breaker.record_failure()
             raise
 
@@ -541,7 +540,7 @@ class SemanticScholarClient(BaseAPIClient):
 
             return result
 
-        except Exception as e:
+        except Exception:
             await self._circuit_breaker.record_failure()
             raise
 

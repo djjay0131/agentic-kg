@@ -105,7 +105,8 @@ INDEXES = [
     ),
     (
         "mention_review_status_idx",
-        "CREATE INDEX mention_review_status_idx IF NOT EXISTS FOR (m:ProblemMention) ON (m.review_status)",
+        "CREATE INDEX mention_review_status_idx IF NOT EXISTS "
+        "FOR (m:ProblemMention) ON (m.review_status)",
     ),
     (
         "mention_concept_idx",
@@ -118,7 +119,8 @@ INDEXES = [
     ),
     (
         "concept_mention_count_idx",
-        "CREATE INDEX concept_mention_count_idx IF NOT EXISTS FOR (c:ProblemConcept) ON (c.mention_count)",
+        "CREATE INDEX concept_mention_count_idx IF NOT EXISTS "
+        "FOR (c:ProblemConcept) ON (c.mention_count)",
     ),
     (
         "concept_status_idx",

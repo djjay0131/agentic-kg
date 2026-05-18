@@ -9,15 +9,13 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
 from agentic_kg.agents.matching.schemas import (
     ArbiterDecision,
     ArbiterResult,
-    MakerResult,
-    HaterResult,
 )
 from agentic_kg.agents.matching.state import (
     MatchingWorkflowState,
@@ -45,7 +43,8 @@ class ArbiterError(Exception):
 # Prompt Template
 # =============================================================================
 
-ARBITER_SYSTEM_PROMPT = """You are the ARBITER agent. You've heard arguments from MAKER (pro-link) and
+ARBITER_SYSTEM_PROMPT = """You are the ARBITER agent. You've heard arguments from MAKER \
+(pro-link) and
 HATER (anti-link). Make a final decision.
 
 Decision Framework:
@@ -243,7 +242,10 @@ class ArbiterAgent:
 
         # Round context
         if round_num < max_rounds:
-            round_context = f"You may request a retry if uncertain (rounds remaining: {max_rounds - round_num})"
+            round_context = (
+                "You may request a retry if uncertain "
+                f"(rounds remaining: {max_rounds - round_num})"
+            )
         else:
             round_context = "FINAL ROUND: You must make a decision (no more retries allowed)"
 
@@ -369,7 +371,8 @@ class ArbiterAgent:
         if confidence < self.confidence_threshold and raw_decision != ArbiterDecision.RETRY:
             if round_num < max_rounds:
                 logger.info(
-                    f"[{self.name}] Confidence {confidence:.2f} < {self.confidence_threshold}, forcing RETRY"
+                    f"[{self.name}] Confidence {confidence:.2f} < "
+                    f"{self.confidence_threshold}, forcing RETRY"
                 )
                 return ArbiterDecision.RETRY
             else:

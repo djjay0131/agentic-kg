@@ -38,7 +38,9 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          pytest packages/core/tests -v --cov=agentic_kg --cov-report=term-missing --cov-report=xml
+          pytest packages/core/tests \
+            --ignore=packages/core/tests/e2e \
+            -v --cov=agentic_kg --cov-report=term-missing --cov-report=xml
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v4
