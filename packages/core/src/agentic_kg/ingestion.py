@@ -14,8 +14,8 @@ from pydantic import BaseModel, Field
 
 from agentic_kg.data_acquisition.aggregator import get_paper_aggregator
 from agentic_kg.data_acquisition.importer import get_paper_importer
-from agentic_kg.extraction.pipeline import get_pipeline
 from agentic_kg.extraction.kg_integration_v2 import KGIntegratorV2
+from agentic_kg.extraction.pipeline import get_pipeline
 from agentic_kg.knowledge_graph.repository import get_repository
 
 logger = logging.getLogger(__name__)

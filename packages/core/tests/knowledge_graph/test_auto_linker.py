@@ -62,7 +62,6 @@ class TestAutoLinker:
             statement="How can we improve neural network training?",
             paper_doi="10.1234/test",
             section="Introduction",
-            domain="Machine Learning",
             quoted_text="Training is expensive.",
             embedding=[0.1] * 1536,
         )
@@ -101,7 +100,6 @@ class TestAutoLinker:
         mock_concept_data = {
             "id": "concept-1",
             "canonical_statement": "Improving neural network training",
-            "domain": "Machine Learning",
             "status": "open",
             "mention_count": 6,
             "paper_count": 3,
@@ -282,7 +280,6 @@ class TestAutoLinker:
 
         # Verify concept properties
         assert concept.canonical_statement == sample_mention.statement
-        assert concept.domain == sample_mention.domain
         assert concept.status == ProblemStatus.OPEN
         assert concept.mention_count == 1
         assert concept.paper_count == 1
@@ -356,7 +353,6 @@ class TestAutoLinker:
             statement="How to test problem metadata preservation effectively?",
             paper_doi="10.1234/test",
             section="Methods",
-            domain="AI",
             quoted_text="Test quote with sufficient length for validation",
             embedding=[0.1] * 1536,
             assumptions=[Assumption(text="Assumption 1", implicit=False, confidence=0.9)],
@@ -392,7 +388,6 @@ class TestAutoLinker:
         mock_concept_data = {
             "id": "concept-1",
             "canonical_statement": "How to test trace ID propagation in auto-linking?",
-            "domain": "AI",
             "status": "open",
             "mention_count": 1,
             "paper_count": 1,

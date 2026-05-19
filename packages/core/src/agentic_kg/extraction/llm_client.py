@@ -372,7 +372,11 @@ class AnthropicClient(BaseLLMClient[T]):
                 raw_response=completion,
                 usage=usage,
                 model=self.config.model,
-                finish_reason=completion.stop_reason if hasattr(completion, "stop_reason") else None,
+                finish_reason=(
+                    completion.stop_reason
+                    if hasattr(completion, "stop_reason")
+                    else None
+                ),
             )
 
         except Exception as e:

@@ -286,7 +286,8 @@ class ConceptRefinementService:
             [f"- Paper {m.paper_doi}: \"{m.statement}\"" for m in mentions]
         )
 
-        prompt = f"""You are synthesizing a canonical problem statement from multiple paper mentions.
+        prompt = f"""You are synthesizing a canonical problem statement from multiple \
+paper mentions.
 
 Current Canonical Statement:
 "{concept.canonical_statement}"
@@ -303,7 +304,10 @@ Create a refined canonical statement that:
 
 Return ONLY the refined statement, no explanation or quotes."""
 
-        system_prompt = "You are a research problem synthesis expert. Your task is to create clear, canonical problem statements."
+        system_prompt = (
+            "You are a research problem synthesis expert. Your task is to create "
+            "clear, canonical problem statements."
+        )
 
         try:
             response = await self._llm.extract(
@@ -347,7 +351,6 @@ Return ONLY the refined statement, no explanation or quotes."""
         return ProblemConcept(
             id=node["id"],
             canonical_statement=node["canonical_statement"],
-            domain=node.get("domain", "unknown"),
             status=node.get("status", "open"),
             assumptions=assumptions,
             constraints=constraints,
@@ -398,7 +401,6 @@ Return ONLY the refined statement, no explanation or quotes."""
             paper_title=node.get("paper_title"),
             section=node.get("section"),
             quoted_text=node.get("quoted_text"),
-            domain=node.get("domain"),
             assumptions=assumptions,
             constraints=constraints,
             datasets=datasets,

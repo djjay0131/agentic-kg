@@ -6,6 +6,20 @@ compatibility with existing imports.
 """
 
 # Enums
+# Entity models
+from .entities import (
+    AgentContextForReview,
+    Author,
+    MatchCandidate,
+    Paper,
+    PendingReview,
+    Problem,
+    ProblemConcept,
+    ProblemMention,
+    ResearchConcept,
+    SuggestedConceptForReview,
+    Topic,
+)
 from .enums import (
     ConstraintType,
     ContradictionType,
@@ -19,7 +33,20 @@ from .enums import (
     ReviewQueueStatus,
     ReviewResolution,
     ReviewStatus,
+    TopicLevel,
     WorkflowState,
+)
+
+# Relationship models
+from .relationships import (
+    AuthoredByRelation,
+    ContradictsRelation,
+    DependsOnRelation,
+    ExtendsRelation,
+    ExtractedFromRelation,
+    InstanceOfRelation,
+    ProblemRelation,
+    ReframesRelation,
 )
 
 # Supporting models
@@ -31,31 +58,6 @@ from .supporting import (
     Evidence,
     ExtractionMetadata,
     Metric,
-)
-
-# Entity models
-from .entities import (
-    AgentContextForReview,
-    Author,
-    MatchCandidate,
-    Paper,
-    PendingReview,
-    Problem,
-    ProblemConcept,
-    ProblemMention,
-    SuggestedConceptForReview,
-)
-
-# Relationship models
-from .relationships import (
-    AuthoredByRelation,
-    ContradictsRelation,
-    DependsOnRelation,
-    ExtractedFromRelation,
-    ExtendsRelation,
-    InstanceOfRelation,
-    ProblemRelation,
-    ReframesRelation,
 )
 
 __all__ = [
@@ -72,6 +74,7 @@ __all__ = [
     "ReviewQueueStatus",
     "ReviewResolution",
     "ReviewStatus",
+    "TopicLevel",
     "WorkflowState",
     # Supporting models
     "Assumption",
@@ -90,7 +93,9 @@ __all__ = [
     "Problem",
     "ProblemConcept",
     "ProblemMention",
+    "ResearchConcept",
     "SuggestedConceptForReview",
+    "Topic",
     # Relationship models
     "AuthoredByRelation",
     "ContradictsRelation",

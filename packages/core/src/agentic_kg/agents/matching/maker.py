@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
@@ -36,7 +36,8 @@ class MakerError(Exception):
 # Prompt Template
 # =============================================================================
 
-MAKER_SYSTEM_PROMPT = """You are the MAKER agent in a research problem matching debate. Your role is to
+MAKER_SYSTEM_PROMPT = """You are the MAKER agent in a research problem matching debate. \
+Your role is to
 argue FOR linking this mention to the candidate concept.
 
 Your goal is to build the strongest possible case for why these problems should be linked.
@@ -238,7 +239,8 @@ class MakerAgent:
                 state,
                 self.name,
                 f"Generated {len(arguments)} arguments FOR linking "
-                f"(confidence={result.confidence:.2f}, round={round_num}, duration={duration_ms}ms)",
+                f"(confidence={result.confidence:.2f}, round={round_num}, "
+                f"duration={duration_ms}ms)",
             )
             updated_state = {
                 **updated_state,

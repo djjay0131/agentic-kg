@@ -27,9 +27,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from agentic_kg.extraction.batch import BatchConfig, BatchJob, get_batch_processor
+from agentic_kg.extraction.batch import BatchConfig
 from agentic_kg.extraction.pipeline import (
-    PaperProcessingPipeline,
     PaperProcessingResult,
     PipelineConfig,
     get_pipeline,
@@ -92,7 +91,7 @@ def print_result(result: PaperProcessingResult, as_json: bool = False) -> None:
     print(f"  Total time:          {result.total_duration_ms:.0f}ms")
 
     # Stage details
-    print(f"\n  Pipeline Stages:")
+    print("\n  Pipeline Stages:")
     for stage in result.stages:
         icon = "+" if stage.success else "x"
         print(f"    [{icon}] {stage.stage} ({stage.duration_ms:.0f}ms)")
@@ -102,7 +101,7 @@ def print_result(result: PaperProcessingResult, as_json: bool = False) -> None:
     # Problems
     problems = result.get_problems()
     if problems:
-        print(f"\n  Extracted Problems:")
+        print("\n  Extracted Problems:")
         for i, p in enumerate(problems, 1):
             conf_bar = "#" * int(p.confidence * 10)
             print(f"\n    {i}. [{p.confidence:.2f}] {conf_bar}")
@@ -215,7 +214,11 @@ async def extract_batch(
                     if len(parts) >= 1:
                         entry = parts[0].strip().strip('"')
                         if entry.lower() not in ("url", "path", "doi", "file"):
-                            papers.append({"url": entry} if entry.startswith("http") else {"path": entry})
+                            papers.append(
+                                {"url": entry}
+                                if entry.startswith("http")
+                                else {"path": entry}
+                            )
     elif path.suffix == ".txt":
         with open(path) as f:
             for line in f:
@@ -263,7 +266,7 @@ async def extract_batch(
             )
         else:
             if not as_json:
-                print(f"  Skipped: no url or path")
+                print("  Skipped: no url or path")
             continue
 
         results.append(result)
@@ -295,7 +298,7 @@ async def extract_batch(
         print(json.dumps(output, indent=2))
     else:
         print(f"\n{'='*60}")
-        print(f"Batch Complete")
+        print("Batch Complete")
         print(f"{'='*60}")
         print(f"  Total:    {total}")
         print(f"  Succeeded: {succeeded}")
@@ -404,15 +407,136 @@ def build_parser() -> argparse.ArgumentParser:
         help="Enable verbose logging",
     )
 
+    # load-taxonomy command (E-1)
+    load_taxonomy_cmd = subparsers.add_parser(
+        "load-taxonomy",
+        help="Load seed taxonomy YAML into the knowledge graph",
+    )
+    load_taxonomy_cmd.add_argument(
+        "--file",
+        help="Path to a taxonomy YAML file (defaults to bundled seed_taxonomy.yml)",
+    )
+    load_taxonomy_cmd.add_argument(
+        "--skip-embeddings", action="store_true",
+        help="Skip embedding generation (faster, useful for tests)",
+    )
+    load_taxonomy_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
+    # export-taxonomy command (E-1)
+    export_taxonomy_cmd = subparsers.add_parser(
+        "export-taxonomy",
+        help="Export current taxonomy from the KG to YAML",
+    )
+    export_taxonomy_cmd.add_argument(
+        "--file", required=True, help="Output YAML file path",
+    )
+    export_taxonomy_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
+    # assign-topic command (E-1)
+    assign_topic_cmd = subparsers.add_parser(
+        "assign-topic",
+        help="Assign a Problem/ProblemMention/ProblemConcept/Paper to a Topic",
+    )
+    assign_topic_cmd.add_argument(
+        "--entity-id", required=True,
+        help="Entity identifier (Paper uses its DOI)",
+    )
+    assign_topic_cmd.add_argument(
+        "--topic-id", required=True, help="Target Topic id",
+    )
+    assign_topic_cmd.add_argument(
+        "--entity-label", default="Problem",
+        choices=["Problem", "ProblemMention", "ProblemConcept", "Paper"],
+        help="Source node label (default: Problem)",
+    )
+    assign_topic_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
+    # create-concept command (E-2)
+    create_concept_cmd = subparsers.add_parser(
+        "create-concept",
+        help="Create a ResearchConcept (with embedding-based dedup)",
+    )
+    create_concept_cmd.add_argument(
+        "--name", required=True, help="Concept name (>=2 chars)",
+    )
+    create_concept_cmd.add_argument(
+        "--description", default=None,
+        help="Optional description for richer embeddings",
+    )
+    create_concept_cmd.add_argument(
+        "--aliases", default=None,
+        help="Comma-separated list of alternative names",
+    )
+    create_concept_cmd.add_argument(
+        "--threshold", type=float, default=None,
+        help="Override the cosine dedup threshold (default 0.90)",
+    )
+    create_concept_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
+    # calibrate-concepts command (E-2 AC-12)
+    calibrate_concepts_cmd = subparsers.add_parser(
+        "calibrate-concepts",
+        help=(
+            "Run the ResearchConcept dedup threshold calibration study "
+            "against a labeled pair fixture"
+        ),
+    )
+    calibrate_concepts_cmd.add_argument(
+        "--pairs",
+        default=None,
+        help="Path to a YAML pair fixture (defaults to bundled fixture)",
+    )
+    calibrate_concepts_cmd.add_argument(
+        "--thresholds",
+        default=None,
+        help=(
+            "Comma-separated list of thresholds to sweep (defaults to a "
+            "reasonable 0.70-0.96 sweep)"
+        ),
+    )
+    calibrate_concepts_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
+    # link-concept command (E-2)
+    link_concept_cmd = subparsers.add_parser(
+        "link-concept",
+        help="Link a ProblemConcept or Paper to a ResearchConcept",
+    )
+    link_concept_cmd.add_argument(
+        "--concept-id", required=True, help="Target ResearchConcept id",
+    )
+    link_concept_cmd.add_argument(
+        "--entity-id", required=True,
+        help="ProblemConcept id for INVOLVES_CONCEPT, Paper DOI for DISCUSSES",
+    )
+    link_concept_cmd.add_argument(
+        "--rel-type", default="INVOLVES_CONCEPT",
+        choices=["INVOLVES_CONCEPT", "DISCUSSES"],
+        help="Relationship type (default: INVOLVES_CONCEPT)",
+    )
+    link_concept_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
     return parser
 
 
 def print_ingestion_result(result, as_json: bool = False) -> None:
     """Print ingestion result to stdout."""
-    from agentic_kg.ingestion import IngestionResult
 
     if as_json:
-        output = result.model_dump(exclude={"dry_run_papers"} if not result.dry_run_papers else set())
+        output = result.model_dump(
+            exclude={"dry_run_papers"} if not result.dry_run_papers else set()
+        )
         print(json.dumps(output, indent=2, default=str))
         return
 
@@ -425,28 +549,28 @@ def print_ingestion_result(result, as_json: bool = False) -> None:
 
     if result.status == "dry_run":
         print(f"\n  Papers found: {result.papers_found}")
-        print(f"\n  Papers that would be ingested:")
+        print("\n  Papers that would be ingested:")
         for p in result.dry_run_papers:
             pdf = "PDF available" if p.get("pdf_url") else "No PDF"
             print(f"    - {p.get('doi', 'no-doi')}: {p.get('title', 'Untitled')} ({pdf})")
     else:
-        print(f"\n  Phase 1 - Search & Import:")
+        print("\n  Phase 1 - Search & Import:")
         print(f"    Papers found:    {result.papers_found}")
         print(f"    Papers imported: {result.papers_imported}")
-        print(f"\n  Phase 2 - Extraction:")
+        print("\n  Phase 2 - Extraction:")
         print(f"    Papers extracted:     {result.papers_extracted}")
         print(f"    Papers skipped (no PDF): {result.papers_skipped_no_pdf}")
         if result.extraction_errors:
             print(f"    Extraction errors:    {len(result.extraction_errors)}")
             for doi, err in result.extraction_errors.items():
                 print(f"      {doi}: {err}")
-        print(f"\n  Phase 3 - Integration:")
+        print("\n  Phase 3 - Integration:")
         print(f"    Total problems:    {result.total_problems}")
         print(f"    Concepts created:  {result.concepts_created}")
         print(f"    Concepts linked:   {result.concepts_linked}")
 
     if result.sanity_checks:
-        print(f"\n  Phase 4 - Sanity Checks:")
+        print("\n  Phase 4 - Sanity Checks:")
         for check in result.sanity_checks:
             icon = "+" if check.passed else "x"
             print(f"    [{icon}] {check.name}: {check.description}")
@@ -465,7 +589,7 @@ def print_sanity_checks(checks, as_json: bool = False) -> None:
         return
 
     print(f"\n{'='*60}")
-    print(f"Sanity Checks")
+    print("Sanity Checks")
     print(f"{'='*60}")
     all_passed = True
     for check in checks:
@@ -516,6 +640,154 @@ async def run_ingest(args) -> None:
         sys.exit(1)
 
 
+def run_load_taxonomy(args) -> None:
+    """Load a taxonomy YAML into Neo4j via the repository."""
+    from agentic_kg.knowledge_graph.repository import get_repository
+    from agentic_kg.knowledge_graph.taxonomy import (
+        DEFAULT_TAXONOMY_PATH,
+        load_taxonomy,
+    )
+
+    source = args.file or DEFAULT_TAXONOMY_PATH
+    repo = get_repository()
+    stats = load_taxonomy(
+        repo=repo,
+        source=source,
+        generate_embeddings=not args.skip_embeddings,
+    )
+    print(
+        f"Loaded taxonomy from {source}: "
+        f"{stats['created']} created, {stats['matched']} matched"
+    )
+
+
+def run_export_taxonomy(args) -> None:
+    """Export the KG taxonomy to a YAML file."""
+    from agentic_kg.knowledge_graph.repository import get_repository
+    from agentic_kg.knowledge_graph.taxonomy import (
+        dump_taxonomy_to_yaml,
+        export_taxonomy,
+    )
+
+    repo = get_repository()
+    taxonomy = export_taxonomy(repo)
+    dump_taxonomy_to_yaml(taxonomy, args.file)
+    print(f"Exported {_count_nodes(taxonomy)} topic(s) to {args.file}")
+
+
+def _count_nodes(nodes: list) -> int:
+    return sum(1 + _count_nodes(n.get("children", []) or []) for n in nodes)
+
+
+def run_assign_topic(args) -> None:
+    """Assign a single entity to a Topic."""
+    from agentic_kg.knowledge_graph.repository import (
+        NotFoundError,
+        get_repository,
+    )
+
+    repo = get_repository()
+    try:
+        created = repo.assign_entity_to_topic(
+            entity_id=args.entity_id,
+            topic_id=args.topic_id,
+            entity_label=args.entity_label,
+        )
+    except NotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(2)
+
+    verb = "Created" if created else "Already present"
+    print(
+        f"{verb} edge: {args.entity_label} {args.entity_id} → Topic {args.topic_id}"
+    )
+
+
+def run_create_concept(args) -> None:
+    """Create or dedup-merge a ResearchConcept."""
+    from agentic_kg.knowledge_graph.repository import get_repository
+
+    aliases: list[str] = []
+    if args.aliases:
+        aliases = [a.strip() for a in args.aliases.split(",") if a.strip()]
+
+    repo = get_repository()
+    concept, created = repo.create_or_merge_research_concept(
+        name=args.name,
+        description=args.description,
+        aliases=aliases,
+        threshold=args.threshold,
+    )
+    verb = "Created" if created else "Merged into existing concept"
+    print(f"{verb}: {concept.name} (id={concept.id})")
+    if concept.aliases:
+        print(f"  Aliases: {', '.join(concept.aliases)}")
+
+
+def run_calibrate_concepts(args) -> None:
+    """Run the dedup threshold calibration study (E-2 AC-12)."""
+    from agentic_kg.knowledge_graph.calibration import (
+        DEFAULT_PAIR_FIXTURE,
+        format_report,
+        run_calibration,
+    )
+
+    thresholds: Optional[list[float]] = None
+    if args.thresholds:
+        try:
+            thresholds = [
+                float(t.strip()) for t in args.thresholds.split(",") if t.strip()
+            ]
+        except ValueError as e:
+            print(f"Error: invalid --thresholds list: {e}", file=sys.stderr)
+            sys.exit(2)
+
+    pairs_source = args.pairs or DEFAULT_PAIR_FIXTURE
+    try:
+        report = run_calibration(pairs_source=pairs_source, thresholds=thresholds)
+    except Exception as e:
+        print(f"Error: calibration failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(format_report(report))
+
+
+def run_link_concept(args) -> None:
+    """Link a ProblemConcept or Paper to a ResearchConcept."""
+    from agentic_kg.knowledge_graph.repository import (
+        NotFoundError,
+        get_repository,
+    )
+
+    repo = get_repository()
+    try:
+        if args.rel_type == "INVOLVES_CONCEPT":
+            created = repo.link_problem_to_concept(
+                problem_concept_id=args.entity_id,
+                research_concept_id=args.concept_id,
+            )
+        else:  # DISCUSSES
+            created = repo.link_paper_to_concept(
+                paper_doi=args.entity_id,
+                research_concept_id=args.concept_id,
+            )
+    except NotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(2)
+
+    verb = "Created" if created else "Already present"
+    print(
+        f"{verb} edge: {args.entity_id} -{args.rel_type}-> "
+        f"Concept {args.concept_id}"
+    )
+
+
 def main(argv: Optional[list[str]] = None) -> None:
     """CLI entry point."""
     parser = build_parser()
@@ -525,11 +797,23 @@ def main(argv: Optional[list[str]] = None) -> None:
         parser.print_help()
         sys.exit(0)
 
-    if args.verbose:
+    if getattr(args, "verbose", False):
         logging.getLogger().setLevel(logging.DEBUG)
 
     if args.command == "ingest":
         asyncio.run(run_ingest(args))
+    elif args.command == "load-taxonomy":
+        run_load_taxonomy(args)
+    elif args.command == "export-taxonomy":
+        run_export_taxonomy(args)
+    elif args.command == "assign-topic":
+        run_assign_topic(args)
+    elif args.command == "create-concept":
+        run_create_concept(args)
+    elif args.command == "link-concept":
+        run_link_concept(args)
+    elif args.command == "calibrate-concepts":
+        run_calibrate_concepts(args)
     elif args.command == "extract":
         # Build pipeline config
         config = PipelineConfig(

@@ -268,7 +268,8 @@ class RelationExtractor:
             f"Problem {i+1}: {p.statement}" for i, p in enumerate(problems)
         )
 
-        prompt = f"""Analyze the following research problems and identify any relationships between them.
+        prompt = f"""Analyze the following research problems and identify any \
+relationships between them.
 
 Paper: {paper_title or 'Unknown'}
 
@@ -280,13 +281,15 @@ Source text excerpt:
 
 For each relationship you identify:
 1. Specify which problems are related (by number)
-2. Choose the relationship type: extends, contradicts, depends_on, reframes, related_to, supersedes, specializes, generalizes
+2. Choose the relationship type: extends, contradicts, depends_on, reframes, \
+related_to, supersedes, specializes, generalizes
 3. Provide the text evidence supporting this relationship
 4. Assign a confidence score (0.0-1.0)
 
 Only report relationships with clear evidence. Focus on explicit connections stated in the text."""
 
-        system_prompt = """You are an expert at analyzing research literature and identifying relationships between research problems.
+        system_prompt = """You are an expert at analyzing research literature and \
+identifying relationships between research problems.
 You identify relationships such as:
 - extends: Problem A builds upon or advances Problem B
 - contradicts: Problem A challenges or conflicts with Problem B
@@ -389,7 +392,10 @@ Be precise and only report relationships with clear textual evidence."""
                             target_problem_id=p2.statement[:100],
                             relation_type=RelationType.RELATED_TO,
                             confidence=similarity,
-                            evidence=f"High semantic similarity ({similarity:.2f}) between problem statements",
+                            evidence=(
+                                f"High semantic similarity ({similarity:.2f}) "
+                                "between problem statements"
+                            ),
                             extraction_method="semantic_similarity",
                         )
                     )

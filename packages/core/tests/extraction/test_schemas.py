@@ -362,7 +362,6 @@ class TestExtractedToKGProblem:
         )
 
         assert "quadratic memory complexity" in problem.statement
-        assert problem.domain == "Natural Language Processing"
 
     def test_conversion_creates_evidence(self, extracted_problem):
         """Test that evidence is created correctly."""

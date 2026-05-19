@@ -6,9 +6,9 @@ expected structure for research problem extraction and can be directly
 used with the instructor library for structured LLM output.
 """
 
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
-import uuid
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -288,7 +288,6 @@ def extracted_to_kg_problem(
     return Problem(
         id=str(uuid.uuid4()),
         statement=extracted.statement,
-        domain=extracted.domain,
         status=ProblemStatus.OPEN,
         assumptions=assumptions,
         constraints=constraints,

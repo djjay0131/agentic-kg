@@ -135,6 +135,18 @@ def neo4j_repository(neo4j_config):
 
     repo = Neo4jRepository(config=neo4j_config)
 
+    # Cleans up any node whose identifying property is TEST_-marked:
+    # Problem.id / statement, Paper.doi, Author.name, or domain.
+    cleanup_query = """
+        MATCH (n)
+        WHERE n.id STARTS WITH 'TEST_'
+           OR n.doi STARTS WITH '10.TEST_'
+           OR n.name STARTS WITH 'TEST_'
+           OR n.domain STARTS WITH 'TEST_'
+           OR n.statement STARTS WITH 'TEST_'
+        DETACH DELETE n
+    """
+
     try:
         # Verify connection
         repo.verify_connectivity()
@@ -143,23 +155,15 @@ def neo4j_repository(neo4j_config):
         schema_manager = SchemaManager(repository=repo)
         schema_manager.initialize(force=False)
 
+        # Sweep leftovers from any prior crashed run before starting
+        with repo.session() as session:
+            session.run(cleanup_query)
+
         yield repo
 
-        # Clean up only test data (safe for shared instances)
-        # Cleans up:
-        # - Problem.id starting with 'TEST_'
-        # - Paper.doi starting with '10.TEST_'
-        # - Author.name starting with 'TEST_'
-        # - Any node with domain starting with 'TEST_'
+        # Clean up test data (safe for shared instances)
         with repo.session() as session:
-            session.run("""
-                MATCH (n)
-                WHERE n.id STARTS WITH 'TEST_'
-                   OR n.doi STARTS WITH '10.TEST_'
-                   OR n.name STARTS WITH 'TEST_'
-                   OR n.domain STARTS WITH 'TEST_'
-                DETACH DELETE n
-            """)
+            session.run(cleanup_query)
 
     finally:
         repo.close()
@@ -308,13 +312,19 @@ def sample_baseline_data(sample_doi) -> dict:
 
 @pytest.fixture
 def sample_problem_data(sample_evidence_data, sample_extraction_metadata_data) -> dict:
-    """Return valid Problem model data."""
+    """Return valid Problem model data with a unique, TEST_-marked statement.
+
+    The statement carries a per-test unique TEST_ marker so the node is
+    caught by cleanup (which matches `statement STARTS WITH 'TEST_'`) and
+    never collides with statement-based dedup across runs. The id is left
+    to auto-generate so model-level tests can exercise that behavior.
+    """
+    unique = uuid.uuid4().hex[:12]
     return {
         "statement": (
-            "How can we improve the efficiency of transformer models "
-            "for long-context understanding?"
+            f"TEST_{unique} How can we improve the efficiency of transformer "
+            "models for long-context understanding?"
         ),
-        "domain": "Natural Language Processing",
         "status": "open",
         "evidence": sample_evidence_data,
         "extraction_metadata": sample_extraction_metadata_data,
@@ -337,8 +347,13 @@ def sample_paper_data(sample_doi) -> dict:
 
 @pytest.fixture
 def sample_author_data(sample_orcid) -> dict:
-    """Return valid Author model data."""
+    """Return valid Author model data with a unique, TEST_-marked id.
+
+    The id carries a TEST_ marker so the node is caught by cleanup; the
+    name is left as a plain value so model-level tests can assert on it.
+    """
     return {
+        "id": f"TEST_{uuid.uuid4().hex[:12]}",
         "name": "John Doe",
         "affiliations": ["MIT", "Google Research"],
         "orcid": sample_orcid,

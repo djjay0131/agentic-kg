@@ -130,3 +130,11 @@ class ReviewQueueStatus(str, Enum):
     IN_REVIEW = "in_review"  # Being actively reviewed
     RESOLVED = "resolved"  # Decision made
     EXPIRED = "expired"  # SLA breached
+
+
+class TopicLevel(str, Enum):
+    """Hierarchy level for Topic nodes."""
+
+    DOMAIN = "domain"  # e.g., "Computer Science"
+    AREA = "area"  # e.g., "Natural Language Processing"
+    SUBTOPIC = "subtopic"  # e.g., "Machine Translation"

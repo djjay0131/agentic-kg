@@ -47,14 +47,12 @@ def mock_llm():
 def _make_problem(
     id: str = "prob-1",
     statement: str = "How to improve GNN scalability?",
-    domain: str = "graph_ml",
     status_value: str = "open",
 ):
     """Create a mock problem object."""
     problem = MagicMock()
     problem.id = id
     problem.statement = statement
-    problem.domain = domain
     problem.status = SimpleNamespace(value=status_value)
     problem.constraints = []
     problem.datasets = []
@@ -114,7 +112,7 @@ def mock_relations():
 @pytest.fixture
 def initial_state() -> ResearchState:
     """Fresh initial state."""
-    return create_initial_state(domain_filter="graph_ml")
+    return create_initial_state(topic_filter="topic-graph-ml")
 
 
 @pytest.fixture
@@ -131,7 +129,6 @@ def state_with_ranked_problems(initial_state) -> ResearchState:
                 data_availability=0.9,
                 cross_domain_impact=0.7,
                 rationale="High tractability with good data availability.",
-                domain="graph_ml",
             ).model_dump(),
         ],
         "total_candidates": 5,

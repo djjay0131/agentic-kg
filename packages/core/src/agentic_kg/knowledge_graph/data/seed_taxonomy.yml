@@ -1,0 +1,162 @@
+# Seed taxonomy for E-1 Topic entities.
+#
+# Three-level hierarchy (domain → area → subtopic) hand-curated from
+# the project's paper corpus and OpenAlex top-level CS concepts.
+# Focused on graph retrieval, knowledge graphs, NLP, ML, and IR.
+#
+# Each node carries an optional `description` used by the embedding
+# model to produce richer vectors. Loading is idempotent via
+# repository.merge_topic on (name, level, parent_id).
+
+- name: Computer Science
+  level: domain
+  description: >-
+    The study of computation, algorithms, data structures, and
+    information systems.
+  source: manual
+  children:
+
+    - name: Natural Language Processing
+      level: area
+      description: >-
+        Computational methods for understanding and generating human
+        language.
+      children:
+        - name: Information Extraction
+          level: subtopic
+          description: >-
+            Identifying entities, relationships, and events in
+            unstructured text.
+        - name: Question Answering
+          level: subtopic
+          description: >-
+            Systems that answer natural-language questions over
+            structured or unstructured sources.
+        - name: Machine Translation
+          level: subtopic
+          description: >-
+            Automatic translation between human languages.
+        - name: Text Summarization
+          level: subtopic
+          description: >-
+            Producing concise summaries of longer documents.
+        - name: Large Language Models
+          level: subtopic
+          description: >-
+            Transformer-based models with billions of parameters for
+            general-purpose language tasks.
+
+    - name: Information Retrieval
+      level: area
+      description: >-
+        Finding relevant documents, passages, or data in response to
+        a query.
+      children:
+        - name: Graph-Based Retrieval
+          level: subtopic
+          description: >-
+            Retrieval augmented by structure from knowledge graphs
+            and entity links.
+        - name: Dense Retrieval
+          level: subtopic
+          description: >-
+            Retrieval using learned vector embeddings and approximate
+            nearest-neighbor search.
+        - name: Retrieval-Augmented Generation
+          level: subtopic
+          description: >-
+            LLM generation conditioned on retrieved evidence.
+        - name: Hybrid Retrieval
+          level: subtopic
+          description: >-
+            Combining sparse (lexical) and dense (embedding) signals
+            for retrieval.
+
+    - name: Knowledge Representation
+      level: area
+      description: >-
+        Formalisms and systems for representing facts, concepts, and
+        relationships in machine-interpretable form.
+      children:
+        - name: Knowledge Graphs
+          level: subtopic
+          description: >-
+            Graph-structured knowledge bases with typed entities and
+            relations.
+        - name: Ontology Engineering
+          level: subtopic
+          description: >-
+            Designing formal schemas that describe the concepts and
+            relationships of a domain.
+        - name: Entity Linking
+          level: subtopic
+          description: >-
+            Connecting textual mentions to canonical entities in a
+            knowledge base.
+
+    - name: Machine Learning
+      level: area
+      description: >-
+        Algorithms that improve their performance with data.
+      children:
+        - name: Deep Learning
+          level: subtopic
+          description: >-
+            Multi-layer neural network methods.
+        - name: Transfer Learning
+          level: subtopic
+          description: >-
+            Reusing models trained on one task to accelerate learning
+            on a new task.
+        - name: Graph Neural Networks
+          level: subtopic
+          description: >-
+            Neural architectures that operate over graph-structured
+            inputs.
+        - name: Self-Supervised Learning
+          level: subtopic
+          description: >-
+            Learning representations from unlabeled data via
+            pretext tasks.
+        - name: Reinforcement Learning
+          level: subtopic
+          description: >-
+            Learning by interacting with an environment and
+            maximizing reward.
+
+    - name: Data Management
+      level: area
+      description: >-
+        Storage, indexing, querying, and governance of large
+        structured datasets.
+      children:
+        - name: Graph Databases
+          level: subtopic
+          description: >-
+            Database systems organized around nodes and edges.
+        - name: Vector Databases
+          level: subtopic
+          description: >-
+            Storage and indexing for high-dimensional embedding
+            vectors.
+
+    - name: AI Agents and Reasoning
+      level: area
+      description: >-
+        Systems that plan, reason, and act autonomously, often by
+        combining LLMs with external tools.
+      children:
+        - name: Multi-Agent Systems
+          level: subtopic
+          description: >-
+            Coordination, competition, and communication among
+            multiple autonomous agents.
+        - name: Tool Use
+          level: subtopic
+          description: >-
+            LLM-driven selection and invocation of external tools
+            and APIs.
+        - name: Chain-of-Thought Reasoning
+          level: subtopic
+          description: >-
+            Step-by-step reasoning elicited from language models.

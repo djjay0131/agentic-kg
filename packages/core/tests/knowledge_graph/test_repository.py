@@ -39,7 +39,7 @@ class TestProblemCRUD:
 
         assert created.id == problem.id
         assert created.statement == problem.statement
-        assert created.domain == problem.domain
+        assert created.status == problem.status
 
     def test_create_duplicate_problem_raises_error(
         self, neo4j_repository, sample_problem_data
@@ -73,11 +73,9 @@ class TestProblemCRUD:
         neo4j_repository.create_problem(problem)
 
         problem.status = ProblemStatus.IN_PROGRESS
-        problem.domain = "Updated Domain"
         updated = neo4j_repository.update_problem(problem)
 
         assert updated.status == ProblemStatus.IN_PROGRESS
-        assert updated.domain == "Updated Domain"
         assert updated.version == 2
 
     def test_update_nonexistent_problem_raises_error(
@@ -113,19 +111,20 @@ class TestProblemCRUD:
 
     def test_list_problems(self, neo4j_repository, sample_evidence_data):
         """Test listing problems with filters."""
-        # Use a unique domain prefix to avoid interference from other tests
+        # Use a unique run id to keep TEST_ statements distinct across runs.
         test_run_id = uuid.uuid4().hex[:8]
-        nlp_domain = f"TEST_NLP_{test_run_id}"
-        cv_domain = f"TEST_CV_{test_run_id}"
 
-        # Create multiple problems with TEST_ prefixed IDs
+        # Create multiple problems with TEST_ prefixed IDs. After the
+        # domain→Topic rename (E-1) Problem no longer carries a domain
+        # string, so we exercise the only remaining list filter (status).
         created_ids = []
-        for i, domain in enumerate([nlp_domain, nlp_domain, cv_domain]):
+        for i, status in enumerate(
+            [ProblemStatus.OPEN, ProblemStatus.OPEN, ProblemStatus.IN_PROGRESS]
+        ):
             problem = Problem(
                 id=_test_id(),
-                statement=f"Problem {i} - " + "x" * 20,
-                domain=domain,
-                status=ProblemStatus.OPEN,
+                statement=f"TEST_{test_run_id} Problem {i} - " + "x" * 20,
+                status=status,
                 evidence=Evidence(**sample_evidence_data),
                 extraction_metadata=ExtractionMetadata(
                     extraction_model="gpt-4",
@@ -135,14 +134,25 @@ class TestProblemCRUD:
             neo4j_repository.create_problem(problem)
             created_ids.append(problem.id)
 
-        # Filter by domain (unique to this test run)
-        nlp_problems = neo4j_repository.list_problems(domain=nlp_domain)
-        assert len(nlp_problems) == 2
+        # Filter by status — restrict to our created set so other test
+        # data on a shared instance does not throw off the count.
+        open_problems = [
+            p
+            for p in neo4j_repository.list_problems(status=ProblemStatus.OPEN)
+            if p.id in created_ids
+        ]
+        assert len(open_problems) == 2
 
-        cv_problems = neo4j_repository.list_problems(domain=cv_domain)
-        assert len(cv_problems) == 1
+        in_progress = [
+            p
+            for p in neo4j_repository.list_problems(
+                status=ProblemStatus.IN_PROGRESS
+            )
+            if p.id in created_ids
+        ]
+        assert len(in_progress) == 1
 
-        # Verify the created problems are returned
+        # Verify all created problems are returned when no filter is given
         all_problems = neo4j_repository.list_problems()
         found_ids = [p.id for p in all_problems if p.id in created_ids]
         assert len(found_ids) == 3

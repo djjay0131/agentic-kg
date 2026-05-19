@@ -31,14 +31,17 @@ class PromptTemplate:
 
 
 # System prompt for research problem extraction
-SYSTEM_PROMPT_V1 = """You are an expert research scientist specialized in extracting structured information from academic papers.
+SYSTEM_PROMPT_V1 = """You are an expert research scientist specialized in extracting \
+structured information from academic papers.
 
-Your task is to identify and extract research problems, limitations, and open questions from paper text. For each problem you identify, you should extract:
+Your task is to identify and extract research problems, limitations, and open questions \
+from paper text. For each problem you identify, you should extract:
 
 1. **Problem Statement**: A clear, concise statement of the research problem or limitation
 2. **Domain**: The research domain or field (e.g., "Natural Language Processing", "Computer Vision")
 3. **Assumptions**: Any assumptions underlying the problem (explicit or implicit)
-4. **Constraints**: Practical constraints affecting the problem (computational, data, methodological)
+4. **Constraints**: Practical constraints affecting the problem (computational, data, \
+methodological)
 5. **Datasets**: Any datasets mentioned as relevant to the problem
 6. **Metrics**: Evaluation metrics mentioned for measuring progress
 7. **Baselines**: Baseline methods or current state-of-the-art mentioned
@@ -56,7 +59,8 @@ Return a structured list of problems following the provided schema exactly."""
 
 
 # User prompt templates for different section types
-USER_PROMPT_TEMPLATE_V1 = """Extract research problems from the following {section_type} section of an academic paper.
+USER_PROMPT_TEMPLATE_V1 = """Extract research problems from the following {section_type} \
+section of an academic paper.
 
 Paper Title: {paper_title}
 {author_info}
@@ -99,7 +103,8 @@ LIMITATIONS SECTION TEXT:
 {section_text}
 ---
 
-Extract all limitations as structured research problems. Each limitation should be framed as an open problem that future research could tackle.""",
+Extract all limitations as structured research problems. Each limitation should be \
+framed as an open problem that future research could tackle.""",
     SectionType.FUTURE_WORK: """Extract research problems from the FUTURE WORK section below.
 
 This section typically contains explicit statements about:
@@ -116,7 +121,8 @@ FUTURE WORK SECTION TEXT:
 {section_text}
 ---
 
-Extract all future work items as structured research problems. These are typically high-quality problem statements since authors explicitly identify them as open.""",
+Extract all future work items as structured research problems. These are typically \
+high-quality problem statements since authors explicitly identify them as open.""",
     SectionType.DISCUSSION: """Extract research problems from the DISCUSSION section below.
 
 Discussion sections may contain:
@@ -133,7 +139,8 @@ DISCUSSION SECTION TEXT:
 {section_text}
 ---
 
-Look for implicit and explicit problems mentioned during the analysis. Focus on actionable research directions.""",
+Look for implicit and explicit problems mentioned during the analysis. Focus on \
+actionable research directions.""",
     SectionType.CONCLUSION: """Extract research problems from the CONCLUSION section below.
 
 Conclusions often briefly mention:
@@ -149,7 +156,8 @@ CONCLUSION SECTION TEXT:
 {section_text}
 ---
 
-Extract problems mentioned, but note that conclusions are typically summaries, so problems may be stated briefly.""",
+Extract problems mentioned, but note that conclusions are typically summaries, so \
+problems may be stated briefly.""",
     SectionType.INTRODUCTION: """Extract research problems from the INTRODUCTION section below.
 
 Introductions typically frame:
@@ -166,7 +174,8 @@ INTRODUCTION SECTION TEXT:
 {section_text}
 ---
 
-Focus on problems that remain open after this paper's contribution. The paper may solve some problems but leave others open.""",
+Focus on problems that remain open after this paper's contribution. The paper may solve \
+some problems but leave others open.""",
 }
 
 
@@ -258,7 +267,12 @@ the model struggles with very long documents exceeding 10,000 tokens.""",
         "output": {
             "problems": [
                 {
-                    "statement": "Current deep learning models require significant computational resources, making them impractical for deployment on edge devices or resource-constrained environments.",
+                    "statement": (
+                        "Current deep learning models require significant "
+                        "computational resources, making them impractical for "
+                        "deployment on edge devices or resource-constrained "
+                        "environments."
+                    ),
                     "domain": "Machine Learning / Edge Computing",
                     "constraints": [
                         {
@@ -266,25 +280,43 @@ the model struggles with very long documents exceeding 10,000 tokens.""",
                             "type": "computational",
                         }
                     ],
-                    "quoted_text": "the model requires significant computational resources, making it impractical for deployment on edge devices",
+                    "quoted_text": (
+                        "the model requires significant computational resources, "
+                        "making it impractical for deployment on edge devices"
+                    ),
                     "confidence": 0.95,
                 },
                 {
-                    "statement": "Model performance on non-English languages is unknown and likely degraded compared to English.",
+                    "statement": (
+                        "Model performance on non-English languages is unknown "
+                        "and likely degraded compared to English."
+                    ),
                     "domain": "Multilingual NLP",
                     "constraints": [
                         {"text": "Only evaluated on English datasets", "type": "data"}
                     ],
-                    "quoted_text": "we only evaluated on English datasets, and performance on other languages is unknown",
+                    "quoted_text": (
+                        "we only evaluated on English datasets, and performance "
+                        "on other languages is unknown"
+                    ),
                     "confidence": 0.90,
                 },
                 {
-                    "statement": "Current approach struggles with processing very long documents, with performance degrading beyond 10,000 tokens.",
+                    "statement": (
+                        "Current approach struggles with processing very long "
+                        "documents, with performance degrading beyond 10,000 tokens."
+                    ),
                     "domain": "Long Document Processing",
                     "constraints": [
-                        {"text": "Document length limited to ~10,000 tokens", "type": "methodological"}
+                        {
+                            "text": "Document length limited to ~10,000 tokens",
+                            "type": "methodological",
+                        }
                     ],
-                    "quoted_text": "the model struggles with very long documents exceeding 10,000 tokens",
+                    "quoted_text": (
+                        "the model struggles with very long documents exceeding "
+                        "10,000 tokens"
+                    ),
                     "confidence": 0.85,
                 },
             ]

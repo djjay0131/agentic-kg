@@ -232,7 +232,6 @@ class SuggestedConcept(BaseModel):
     reasoning: str = Field(
         default="", description="Agent reasoning for this suggestion"
     )
-    domain: Optional[str] = Field(default=None, description="Concept domain")
     mention_count: int = Field(
         default=0, description="Number of mentions linked to this concept"
     )

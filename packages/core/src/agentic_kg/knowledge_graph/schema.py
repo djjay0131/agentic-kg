@@ -19,7 +19,7 @@ from agentic_kg.knowledge_graph.repository import Neo4jRepository, get_repositor
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when making schema changes
-SCHEMA_VERSION = 2  # Added ProblemMention/ProblemConcept schema
+SCHEMA_VERSION = 4  # Added ResearchConcept (E-2)
 
 # Schema definitions - fmt: off to allow long Cypher strings
 CONSTRAINTS = [
@@ -53,6 +53,18 @@ CONSTRAINTS = [
         "CREATE CONSTRAINT problem_concept_id_unique IF NOT EXISTS "
         "FOR (c:ProblemConcept) REQUIRE c.id IS UNIQUE",
     ),
+    # Topic constraints (E-1)
+    (
+        "topic_id_unique",
+        "CREATE CONSTRAINT topic_id_unique IF NOT EXISTS "
+        "FOR (t:Topic) REQUIRE t.id IS UNIQUE",
+    ),
+    # ResearchConcept constraints (E-2)
+    (
+        "research_concept_id_unique",
+        "CREATE CONSTRAINT research_concept_id_unique IF NOT EXISTS "
+        "FOR (rc:ResearchConcept) REQUIRE rc.id IS UNIQUE",
+    ),
     # Schema metadata
     (
         "schema_version_unique",
@@ -66,10 +78,6 @@ INDEXES = [
     (
         "problem_status_idx",
         "CREATE INDEX problem_status_idx IF NOT EXISTS FOR (p:Problem) ON (p.status)",
-    ),
-    (
-        "problem_domain_idx",
-        "CREATE INDEX problem_domain_idx IF NOT EXISTS FOR (p:Problem) ON (p.domain)",
     ),
     (
         "problem_created_idx",
@@ -105,7 +113,8 @@ INDEXES = [
     ),
     (
         "mention_review_status_idx",
-        "CREATE INDEX mention_review_status_idx IF NOT EXISTS FOR (m:ProblemMention) ON (m.review_status)",
+        "CREATE INDEX mention_review_status_idx IF NOT EXISTS "
+        "FOR (m:ProblemMention) ON (m.review_status)",
     ),
     (
         "mention_concept_idx",
@@ -113,16 +122,32 @@ INDEXES = [
     ),
     # ProblemConcept indexes (canonical architecture)
     (
-        "concept_domain_idx",
-        "CREATE INDEX concept_domain_idx IF NOT EXISTS FOR (c:ProblemConcept) ON (c.domain)",
-    ),
-    (
         "concept_mention_count_idx",
-        "CREATE INDEX concept_mention_count_idx IF NOT EXISTS FOR (c:ProblemConcept) ON (c.mention_count)",
+        "CREATE INDEX concept_mention_count_idx IF NOT EXISTS "
+        "FOR (c:ProblemConcept) ON (c.mention_count)",
     ),
     (
         "concept_status_idx",
         "CREATE INDEX concept_status_idx IF NOT EXISTS FOR (c:ProblemConcept) ON (c.status)",
+    ),
+    # Topic indexes (E-1)
+    (
+        "topic_name_idx",
+        "CREATE INDEX topic_name_idx IF NOT EXISTS FOR (t:Topic) ON (t.name)",
+    ),
+    (
+        "topic_level_idx",
+        "CREATE INDEX topic_level_idx IF NOT EXISTS FOR (t:Topic) ON (t.level)",
+    ),
+    (
+        "topic_source_idx",
+        "CREATE INDEX topic_source_idx IF NOT EXISTS FOR (t:Topic) ON (t.source)",
+    ),
+    # ResearchConcept indexes (E-2)
+    (
+        "research_concept_name_idx",
+        "CREATE INDEX research_concept_name_idx IF NOT EXISTS "
+        "FOR (rc:ResearchConcept) ON (rc.name)",
     ),
 ]
 
@@ -165,6 +190,36 @@ VECTOR_INDEXES = [
         CREATE VECTOR INDEX concept_embedding_idx IF NOT EXISTS
         FOR (c:ProblemConcept)
         ON c.embedding
+        OPTIONS {
+            indexConfig: {
+                `vector.dimensions`: 1536,
+                `vector.similarity_function`: 'cosine'
+            }
+        }
+        """
+    ),
+    # Topic embedding index (E-1)
+    (
+        "topic_embedding_idx",
+        """
+        CREATE VECTOR INDEX topic_embedding_idx IF NOT EXISTS
+        FOR (t:Topic)
+        ON t.embedding
+        OPTIONS {
+            indexConfig: {
+                `vector.dimensions`: 1536,
+                `vector.similarity_function`: 'cosine'
+            }
+        }
+        """
+    ),
+    # ResearchConcept embedding index (E-2)
+    (
+        "research_concept_embedding_idx",
+        """
+        CREATE VECTOR INDEX research_concept_embedding_idx IF NOT EXISTS
+        FOR (rc:ResearchConcept)
+        ON rc.embedding
         OPTIONS {
             indexConfig: {
                 `vector.dimensions`: 1536,

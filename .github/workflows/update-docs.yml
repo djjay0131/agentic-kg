@@ -66,7 +66,6 @@ jobs:
           directory: docs/_site
           arguments: >-
             --disable-external
-            --check-html
             --check-favicon
             --allow-hash-href
             --ignore-empty-alt

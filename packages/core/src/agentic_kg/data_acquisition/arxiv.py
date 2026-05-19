@@ -5,11 +5,9 @@ Provides access to the arXiv API for preprint metadata and PDF URLs.
 """
 from __future__ import annotations
 
-
 import logging
 import re
 from typing import Any
-from xml.etree import ElementTree
 
 import feedparser
 import httpx
@@ -229,7 +227,7 @@ class ArxivClient:
 
             return result
 
-        except Exception as e:
+        except Exception:
             await self._circuit_breaker.record_failure()
             raise
 

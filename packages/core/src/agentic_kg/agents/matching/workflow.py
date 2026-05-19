@@ -9,30 +9,26 @@ Orchestrates the matching agents:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Callable, Literal, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
-from langgraph.graph import END, StateGraph
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, StateGraph
 
 from agentic_kg.agents.matching.schemas import (
-    ArbiterDecision,
     EscalationReason,
-    EvaluatorDecision,
     SuggestedConcept,
 )
 from agentic_kg.agents.matching.state import (
     MatchingWorkflowState,
-    add_matching_message,
     complete_matching_workflow,
     escalate_to_human,
 )
 
 if TYPE_CHECKING:
-    from agentic_kg.agents.matching.evaluator import EvaluatorAgent
-    from agentic_kg.agents.matching.maker import MakerAgent
-    from agentic_kg.agents.matching.hater import HaterAgent
     from agentic_kg.agents.matching.arbiter import ArbiterAgent
+    from agentic_kg.agents.matching.evaluator import EvaluatorAgent
+    from agentic_kg.agents.matching.hater import HaterAgent
+    from agentic_kg.agents.matching.maker import MakerAgent
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +203,6 @@ def create_human_review_node() -> Callable:
                     similarity_score=state.get("similarity_score", 0.0),
                     final_score=state.get("final_score", 0.0),
                     reasoning="Top candidate from ConceptMatcher",
-                    domain=state.get("candidate_domain"),
                     mention_count=state.get("candidate_mention_count", 0),
                 )
             )
@@ -260,7 +255,6 @@ def route_arbiter_decision(state: MatchingWorkflowState) -> str:
 
     latest_result = arbiter_results[-1]
     decision = latest_result.get("decision", "retry")
-    confidence = latest_result.get("confidence", 0.0)
 
     # Check for final decision
     if decision == "link":

@@ -13,6 +13,8 @@ from agentic_kg.knowledge_graph.models import (
     ExtractionMetadata,
     Problem,
     ProblemStatus,
+    Topic,
+    TopicLevel,
 )
 from agentic_kg.knowledge_graph.search import SearchService
 
@@ -32,33 +34,50 @@ def search_service(neo4j_repository):
 
 
 @pytest.fixture
-def test_domains():
-    """Generate unique test domains to avoid interference from other tests."""
+def test_topics(neo4j_repository):
+    """Create three Topic nodes (NLP, CV, ML) for search filtering.
+
+    After the E-1 domain→Topic rename, Problems no longer carry a domain
+    string; they BELONG_TO a Topic node instead. Each topic name is
+    TEST_-prefixed so the per-test cleanup catches it.
+    """
     run_id = uuid.uuid4().hex[:8]
-    return {
+    names = {
         "NLP": f"TEST_NLP_{run_id}",
         "CV": f"TEST_CV_{run_id}",
         "ML": f"TEST_ML_{run_id}",
     }
+    topics: dict[str, Topic] = {}
+    for key, name in names.items():
+        topic = Topic(name=name, level=TopicLevel.AREA)
+        neo4j_repository.create_topic(topic, generate_embedding=False)
+        topics[key] = topic
+    return topics
 
 
 @pytest.fixture
-def sample_problems(neo4j_repository, sample_evidence_data, test_domains):
-    """Create sample problems for search testing."""
+def sample_problems(neo4j_repository, sample_evidence_data, test_topics):
+    """Create sample problems for search testing.
+
+    Each problem is linked to one of the three test topics via BELONGS_TO
+    so the structured-search topic_id filter has data to find.
+    """
     problems = []
     test_data = [
-        (test_domains["NLP"], ProblemStatus.OPEN, "Transformer attention scaling"),
-        (test_domains["NLP"], ProblemStatus.IN_PROGRESS, "Language model pretraining"),
-        (test_domains["CV"], ProblemStatus.OPEN, "Image classification efficiency"),
-        (test_domains["CV"], ProblemStatus.RESOLVED, "Object detection accuracy"),
-        (test_domains["ML"], ProblemStatus.OPEN, "Reinforcement learning exploration"),
+        ("NLP", ProblemStatus.OPEN, "Transformer attention scaling"),
+        ("NLP", ProblemStatus.IN_PROGRESS, "Language model pretraining"),
+        ("CV", ProblemStatus.OPEN, "Image classification efficiency"),
+        ("CV", ProblemStatus.RESOLVED, "Object detection accuracy"),
+        ("ML", ProblemStatus.OPEN, "Reinforcement learning exploration"),
     ]
 
-    for domain, status, topic in test_data:
+    for topic_key, status, topic_label in test_data:
         problem = Problem(
             id=_test_id(),
-            statement=f"Research problem about {topic} in {domain} domain - " + "x" * 20,
-            domain=domain,
+            statement=(
+                f"TEST_{uuid.uuid4().hex[:8]} Research problem about {topic_label} "
+                f"in {topic_key} area - " + "x" * 20
+            ),
             status=status,
             evidence=Evidence(**sample_evidence_data),
             extraction_metadata=ExtractionMetadata(
@@ -66,7 +85,10 @@ def sample_problems(neo4j_repository, sample_evidence_data, test_domains):
                 confidence_score=0.9,
             ),
         )
-        neo4j_repository.create_problem(problem)
+        neo4j_repository.create_problem(problem, generate_embedding=False)
+        neo4j_repository.assign_entity_to_topic(
+            problem.id, test_topics[topic_key].id, entity_label="Problem"
+        )
         problems.append(problem)
 
     return problems
@@ -75,57 +97,59 @@ def sample_problems(neo4j_repository, sample_evidence_data, test_domains):
 class TestStructuredSearch:
     """Test structured search operations."""
 
-    def test_search_by_domain(self, search_service, sample_problems, test_domains):
-        """Test searching problems by domain."""
-        results = search_service.structured_search(domain=test_domains["NLP"])
+    def test_search_by_topic(self, search_service, sample_problems, test_topics):
+        """Searching problems by Topic id returns BELONGS_TO neighbors."""
+        results = search_service.structured_search(topic_id=test_topics["NLP"].id)
 
         assert len(results) == 2
-        assert all(r.problem.domain == test_domains["NLP"] for r in results)
         assert all(r.match_type == "structured" for r in results)
 
-    def test_search_by_status(self, search_service, sample_problems, test_domains):
-        """Test searching problems by status."""
-        # Search with specific domain to only get our test data
+    def test_search_by_status(self, search_service, sample_problems, test_topics):
+        """Combine a topic filter with a status filter."""
         results = search_service.structured_search(
-            domain=test_domains["NLP"],
+            topic_id=test_topics["NLP"].id,
             status=ProblemStatus.OPEN,
         )
         assert len(results) == 1  # Only 1 NLP problem is OPEN
 
         results = search_service.structured_search(
-            domain=test_domains["ML"],
+            topic_id=test_topics["ML"].id,
             status=ProblemStatus.OPEN,
         )
         assert len(results) == 1  # Only 1 ML problem exists and is OPEN
         assert all(r.problem.status == ProblemStatus.OPEN for r in results)
 
-    def test_search_by_domain_and_status(self, search_service, sample_problems, test_domains):
+    def test_search_by_topic_and_status(
+        self, search_service, sample_problems, test_topics
+    ):
         """Test searching with multiple filters."""
         results = search_service.structured_search(
-            domain=test_domains["CV"],
+            topic_id=test_topics["CV"].id,
             status=ProblemStatus.OPEN,
         )
 
         assert len(results) == 1
-        assert results[0].problem.domain == test_domains["CV"]
         assert results[0].problem.status == ProblemStatus.OPEN
 
-    def test_search_with_limit(self, search_service, sample_problems, test_domains):
+    def test_search_with_limit(self, search_service, sample_problems, test_topics):
         """Test limiting search results."""
-        # Use specific domain to get predictable count
-        results = search_service.structured_search(domain=test_domains["NLP"], top_k=1)
+        results = search_service.structured_search(
+            topic_id=test_topics["NLP"].id, top_k=1
+        )
 
         assert len(results) == 1
 
     def test_search_no_results(self, search_service, sample_problems):
         """Test search with no matching results."""
-        results = search_service.structured_search(domain="Nonexistent_Domain_12345")
+        results = search_service.structured_search(
+            topic_id="TEST_nonexistent_topic_12345"
+        )
 
         assert len(results) == 0
 
-    def test_search_result_score(self, search_service, sample_problems, test_domains):
+    def test_search_result_score(self, search_service, sample_problems, test_topics):
         """Test that structured search results have score of 1.0."""
-        results = search_service.structured_search(domain=test_domains["NLP"])
+        results = search_service.structured_search(topic_id=test_topics["NLP"].id)
 
         assert all(r.score == 1.0 for r in results)
 
@@ -195,11 +219,13 @@ class TestSearchResultSorting:
 class TestHybridSearch:
     """Test hybrid search (combined semantic + structured)."""
 
-    def test_hybrid_search_with_filters(self, search_service, sample_problems):
-        """Test hybrid search with domain filter."""
+    def test_hybrid_search_with_filters(
+        self, search_service, sample_problems, test_topics
+    ):
+        """Test hybrid search with a topic filter."""
         results = search_service.hybrid_search(
             query="machine learning",
-            domain="NLP",
+            topic_id=test_topics["NLP"].id,
             top_k=10,
         )
 

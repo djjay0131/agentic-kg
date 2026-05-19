@@ -2,7 +2,7 @@
 Entity models for the Knowledge Graph.
 
 Defines the main node types: Problem, ProblemMention, ProblemConcept,
-MatchCandidate, Paper, and Author.
+MatchCandidate, Paper, Author, and Topic.
 """
 
 import uuid
@@ -20,6 +20,7 @@ from .enums import (
     ReviewQueueStatus,
     ReviewResolution,
     ReviewStatus,
+    TopicLevel,
 )
 from .supporting import (
     Assumption,
@@ -47,7 +48,6 @@ class Problem(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique identifier")
     statement: str = Field(..., min_length=20, description="The research problem statement")
-    domain: Optional[str] = Field(default=None, description="Research domain/field")
     status: ProblemStatus = Field(default=ProblemStatus.OPEN, description="Problem status")
 
     # Structured attributes
@@ -58,8 +58,12 @@ class Problem(BaseModel):
     baselines: list[Baseline] = Field(default_factory=list)
 
     # Provenance
-    evidence: Optional[Evidence] = Field(default=None, description="Source evidence from paper")
-    extraction_metadata: Optional[ExtractionMetadata] = Field(default=None, description="Extraction details")
+    evidence: Optional[Evidence] = Field(
+        default=None, description="Source evidence from paper"
+    )
+    extraction_metadata: Optional[ExtractionMetadata] = Field(
+        default=None, description="Extraction details"
+    )
 
     @model_validator(mode='after')
     def validate_resolved_status(self) -> 'Problem':
@@ -67,11 +71,13 @@ class Problem(BaseModel):
         if self.status in [ProblemStatus.RESOLVED, ProblemStatus.DEPRECATED]:
             if not self.evidence:
                 raise ValueError(
-                    f"Status '{self.status.value}' requires evidence field with reference to supporting paper"
+                    f"Status '{self.status.value}' requires evidence field with "
+                    "reference to supporting paper"
                 )
             if not self.evidence.source_doi:
                 raise ValueError(
-                    f"Status '{self.status.value}' requires evidence.source_doi pointing to the paper that resolves/deprecates this problem"
+                    f"Status '{self.status.value}' requires evidence.source_doi "
+                    "pointing to the paper that resolves/deprecates this problem"
                 )
         return self
 
@@ -121,7 +127,6 @@ class ProblemMention(BaseModel):
     section: str = Field(..., description="Section where problem was mentioned")
 
     # Rich metadata (same structure as original Problem)
-    domain: Optional[str] = Field(default=None, description="Research domain/field")
     assumptions: list[Assumption] = Field(default_factory=list)
     constraints: list[Constraint] = Field(default_factory=list)
     datasets: list[Dataset] = Field(default_factory=list)
@@ -211,7 +216,6 @@ class ProblemConcept(BaseModel):
     canonical_statement: str = Field(
         ..., min_length=20, description="AI-synthesized canonical problem statement"
     )
-    domain: str = Field(..., description="Research domain/field")
     status: ProblemStatus = Field(default=ProblemStatus.OPEN, description="Problem status")
 
     # Aggregated metadata
@@ -316,7 +320,6 @@ class MatchCandidate(BaseModel):
     citation_boost: float = Field(
         default=0.0, ge=0, le=0.2, description="Boost from citation relationship"
     )
-    domain_match: bool = Field(default=False, description="Whether domains match")
     metadata_overlap: dict = Field(
         default_factory=dict, description="Overlapping datasets/metrics/etc"
     )
@@ -397,6 +400,109 @@ class Author(BaseModel):
 
 
 # =============================================================================
+# Topic / Research Area Models
+# =============================================================================
+
+
+class Topic(BaseModel):
+    """
+    A research topic or area in the knowledge graph.
+
+    Topics form a three-level hierarchy (domain → area → subtopic) via
+    SUBTOPIC_OF relationships. Problems and papers link to topics via
+    BELONGS_TO and RESEARCHES edges respectively.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique identifier")
+    name: str = Field(..., min_length=2, description="Topic name")
+    description: Optional[str] = Field(
+        default=None, description="Longer description for richer embeddings"
+    )
+    level: TopicLevel = Field(..., description="Hierarchy level")
+    parent_id: Optional[str] = Field(
+        default=None, description="Parent topic ID (None for root domains)"
+    )
+    source: str = Field(
+        default="manual", description="Origin: 'manual', 'openalex', 'migrated', 'llm_proposed'"
+    )
+    openalex_id: Optional[str] = Field(default=None, description="OpenAlex concept ID if seeded")
+
+    embedding: Optional[list[float]] = Field(
+        default=None, description="Topic embedding (1536 dims)"
+    )
+
+    problem_count: int = Field(default=0, ge=0, description="Number of linked problems")
+    paper_count: int = Field(default=0, ge=0, description="Number of linked papers")
+
+    created_at: datetime = Field(default_factory=_utc_now)
+    updated_at: datetime = Field(default_factory=_utc_now)
+
+    @model_validator(mode="after")
+    def validate_domain_has_no_parent(self) -> "Topic":
+        """Root domain topics must not have a parent."""
+        if self.level == TopicLevel.DOMAIN and self.parent_id is not None:
+            raise ValueError("Domain-level topics must not have a parent_id")
+        return self
+
+    def to_neo4j_properties(self) -> dict:
+        """Convert to Neo4j node properties."""
+        data = self.model_dump(exclude={"embedding"})
+        data["level"] = self.level.value
+        data["created_at"] = self.created_at.isoformat()
+        data["updated_at"] = self.updated_at.isoformat()
+        return data
+
+
+# =============================================================================
+# Research Concept Models (E-2)
+# =============================================================================
+
+
+class ResearchConcept(BaseModel):
+    """
+    A research concept — a named intellectual building block such as
+    "attention mechanism", "transfer learning", or "graph neural networks".
+
+    ResearchConcepts are linked to ProblemConcepts via INVOLVES_CONCEPT,
+    to Papers via DISCUSSES, and (optionally, once E-1 Topic nodes are in
+    place) to Topics via BELONGS_TO.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique identifier")
+    name: str = Field(..., min_length=2, description="Canonical concept name")
+    description: Optional[str] = Field(
+        default=None, description="Longer description for richer embeddings"
+    )
+    aliases: list[str] = Field(
+        default_factory=list,
+        description="Alternative names / surface forms that refer to this concept",
+    )
+
+    embedding: Optional[list[float]] = Field(
+        default=None, description="Concept embedding (1536 dims)"
+    )
+
+    mention_count: int = Field(
+        default=0, ge=0, description="Denormalized: count of INVOLVES_CONCEPT edges"
+    )
+    paper_count: int = Field(
+        default=0, ge=0, description="Denormalized: count of DISCUSSES edges"
+    )
+
+    created_at: datetime = Field(default_factory=_utc_now)
+    updated_at: datetime = Field(default_factory=_utc_now)
+
+    def to_neo4j_properties(self) -> dict:
+        """Convert to Neo4j node properties. Aliases become a JSON string."""
+        import json
+        data = self.model_dump(exclude={"embedding"})
+        data["aliases"] = json.dumps(self.aliases)
+        data["created_at"] = self.created_at.isoformat()
+        data["updated_at"] = self.updated_at.isoformat()
+        return data
+
+
+# =============================================================================
 # Human Review Queue Models
 # =============================================================================
 
@@ -411,7 +517,6 @@ class SuggestedConceptForReview(BaseModel):
     agent_reasoning: Optional[str] = Field(
         default=None, description="Why agents suggested this"
     )
-    domain: Optional[str] = Field(default=None, description="Concept domain")
     mention_count: int = Field(default=0, description="How many mentions link to this concept")
 
 
@@ -459,7 +564,6 @@ class PendingReview(BaseModel):
     mention_statement: str = Field(..., description="The mention's problem statement")
     paper_doi: str = Field(..., description="Source paper DOI")
     paper_title: Optional[str] = Field(default=None, description="Source paper title")
-    domain: Optional[str] = Field(default=None, description="Problem domain")
 
     # Suggested concepts
     suggested_concepts: list[SuggestedConceptForReview] = Field(
