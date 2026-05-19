@@ -46,7 +46,7 @@ def _get_runner():
 class StartWorkflowRequest(BaseModel):
     """Request to start a new workflow."""
 
-    domain_filter: Optional[str] = None
+    topic_filter: Optional[str] = None
     status_filter: Optional[str] = None
     max_problems: int = Field(default=20, ge=1, le=100)
     min_confidence: float = Field(default=0.3, ge=0.0, le=1.0)
@@ -104,7 +104,7 @@ async def start_workflow(request: StartWorkflowRequest) -> StartWorkflowResponse
     runner = _get_runner()
     try:
         run_id = await runner.start_workflow(
-            domain_filter=request.domain_filter,
+            topic_filter=request.topic_filter,
             status_filter=request.status_filter,
             max_problems=request.max_problems,
             min_confidence=request.min_confidence,

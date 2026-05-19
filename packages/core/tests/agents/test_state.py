@@ -56,12 +56,12 @@ class TestCreateInitialState:
     def test_with_filters(self):
         """Filters are stored in state."""
         state = create_initial_state(
-            domain_filter="physics",
+            topic_filter="physics",
             status_filter="open",
             max_problems=10,
             min_confidence=0.5,
         )
-        assert state["domain_filter"] == "physics"
+        assert state["topic_filter"] == "physics"
         assert state["status_filter"] == "open"
         assert state["max_problems"] == 10
         assert state["min_confidence"] == 0.5

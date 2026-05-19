@@ -162,8 +162,9 @@ def generate_problem_embedding(problem: Problem) -> list[float]:
     """
     Generate embedding for a Problem's statement.
 
-    Combines the problem statement with domain context for better
-    semantic representation.
+    Combines the problem statement with key assumptions for richer
+    semantic context. Topic context is now represented by BELONGS_TO
+    edges to Topic nodes rather than embedded in the vector text.
 
     Args:
         problem: Problem to embed.
@@ -174,19 +175,36 @@ def generate_problem_embedding(problem: Problem) -> list[float]:
     Raises:
         EmbeddingError: If generation fails.
     """
-    # Construct embedding text with context
     parts = [problem.statement]
 
-    if problem.domain:
-        parts.insert(0, f"[Domain: {problem.domain}]")
-
-    # Add key assumptions for context
     if problem.assumptions:
         assumption_texts = [a.text for a in problem.assumptions[:3]]
         parts.append(f"Assumptions: {'; '.join(assumption_texts)}")
 
     text = " ".join(parts)
 
+    service = EmbeddingService()
+    return service.generate_embedding(text)
+
+
+def generate_topic_embedding(name: str, description: Optional[str] = None) -> list[float]:
+    """
+    Generate embedding for a Topic.
+
+    Embeds "{name}: {description}" when a description is available, else
+    just the name. Same text-embedding-3-small model as the rest of the KG.
+
+    Args:
+        name: Topic name.
+        description: Optional description for richer semantic context.
+
+    Returns:
+        Embedding vector.
+
+    Raises:
+        EmbeddingError: If generation fails.
+    """
+    text = f"{name}: {description}" if description else name
     service = EmbeddingService()
     return service.generate_embedding(text)
 
@@ -206,8 +224,6 @@ def generate_problem_embeddings_batch(
     texts = []
     for problem in problems:
         parts = [problem.statement]
-        if problem.domain:
-            parts.insert(0, f"[Domain: {problem.domain}]")
         if problem.assumptions:
             assumption_texts = [a.text for a in problem.assumptions[:3]]
             parts.append(f"Assumptions: {'; '.join(assumption_texts)}")

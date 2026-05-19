@@ -40,7 +40,6 @@ def two_problems(neo4j_repository, sample_evidence_data):
         problem = Problem(
             id=f"TEST_{uuid.uuid4().hex[:16]}",
             statement=f"TEST_{run} Research problem {i} - " + "x" * 20,
-            domain="NLP",
             status=ProblemStatus.OPEN,
             evidence=Evidence(**sample_evidence_data),
             extraction_metadata=ExtractionMetadata(
@@ -192,7 +191,6 @@ class TestProblemRelations:
             id=f"TEST_{uuid.uuid4().hex[:16]}",
             statement=f"TEST_{uuid.uuid4().hex[:12]} Third research problem - "
             + "x" * 20,
-            domain="NLP",
             status=ProblemStatus.OPEN,
             evidence=Evidence(**sample_evidence_data),
             extraction_metadata=ExtractionMetadata(

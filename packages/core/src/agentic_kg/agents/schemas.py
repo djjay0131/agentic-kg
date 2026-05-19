@@ -73,7 +73,6 @@ class RankedProblem(BaseModel):
     rationale: str = Field(
         ..., min_length=10, description="Explanation of the ranking"
     )
-    domain: Optional[str] = None
     related_problem_count: int = Field(
         default=0, description="Number of related problems in the graph"
     )
@@ -291,4 +290,4 @@ class WorkflowSummary(BaseModel):
     selected_problem: Optional[str] = Field(
         default=None, description="Selected problem statement"
     )
-    domain_filter: Optional[str] = None
+    topic_filter: Optional[str] = None

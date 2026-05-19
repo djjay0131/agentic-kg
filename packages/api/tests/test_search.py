@@ -43,18 +43,16 @@ class TestSearchProblems:
         assert data["results"] == []
 
     def test_search_with_filters(self, client, mock_search_service):
-        """Search passes domain and status filters."""
+        """Search passes status filter and search tuning parameters."""
         mock_search_service.hybrid_search.return_value = []
         response = client.post("/api/search", json={
             "query": "test",
-            "domain": "NLP",
             "status": "open",
             "top_k": 5,
             "semantic_weight": 0.7,
         })
         assert response.status_code == 200
         call_kwargs = mock_search_service.hybrid_search.call_args[1]
-        assert call_kwargs["domain"] == "NLP"
         assert call_kwargs["top_k"] == 5
         assert call_kwargs["semantic_weight"] == 0.7
 

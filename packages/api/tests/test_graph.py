@@ -52,7 +52,6 @@ class TestGetGraph:
 
         problem_node = _make_neo4j_node("elem1", {
             "statement": "How to scale transformers?",
-            "domain": "NLP",
             "status": "open",
             "confidence": 0.9,
         })
@@ -65,7 +64,13 @@ class TestGetGraph:
         empty_result = MagicMock()
         empty_result.__iter__ = MagicMock(return_value=iter([]))
 
-        mock_session.run.side_effect = [problems_result, empty_result, empty_result]
+        # Routes: problem scan, relations scan, paper scan, topic scan (all empty after first).
+        mock_session.run.side_effect = [
+            problems_result,
+            empty_result,
+            empty_result,
+            empty_result,
+        ]
         mock_repo.session.return_value.__enter__ = MagicMock(return_value=mock_session)
         mock_repo.session.return_value.__exit__ = MagicMock(return_value=False)
         mock_get_repo.return_value = mock_repo
@@ -73,10 +78,9 @@ class TestGetGraph:
         response = client.get("/api/graph")
         assert response.status_code == 200
         data = response.json()
-        # Should have problem node + domain node
         problem_nodes = [n for n in data["nodes"] if n["type"] == "problem"]
         assert len(problem_nodes) >= 1
-        assert problem_nodes[0]["properties"]["domain"] == "NLP"
+        assert problem_nodes[0]["properties"]["status"] == "open"
 
     @patch("agentic_kg_api.routers.graph.get_repo")
     def test_get_graph_handles_error(self, mock_get_repo, client):
@@ -88,10 +92,10 @@ class TestGetGraph:
         assert data["nodes"] == []
         assert data["links"] == []
 
-    def test_get_graph_with_domain_filter(self, client):
-        """Accepts domain query parameter."""
+    def test_get_graph_with_topic_filter(self, client):
+        """Accepts topic_id query parameter."""
         with patch("agentic_kg_api.routers.graph.get_repo", side_effect=Exception("skip")):
-            response = client.get("/api/graph?domain=NLP")
+            response = client.get("/api/graph?topic_id=topic-uuid-1")
         assert response.status_code == 200
 
     @pytest.mark.parametrize("limit", [0, -1, 501])

@@ -59,10 +59,6 @@ SLA_HOURS = {
     "low": 720,  # Priority 7-10: 30 days
 }
 
-# High-impact domains get priority boost
-HIGH_IMPACT_DOMAINS = {"NLP", "CV", "ML", "deep_learning", "nlp", "cv", "ml"}
-
-
 # =============================================================================
 # Review Queue Service
 # =============================================================================
@@ -129,7 +125,6 @@ class ReviewQueueService:
                 similarity_score=c.similarity_score,
                 final_score=c.final_score,
                 reasoning=c.reasoning,
-                domain=c.domain,
                 mention_count=c.mention_count,
             )
             for c in suggested_concepts[:5]  # Top 5 only
@@ -154,7 +149,6 @@ class ReviewQueueService:
             mention_statement=mention.statement,
             paper_doi=mention.paper_doi or "",
             paper_title=None,  # Could be enriched later
-            domain=mention.domain,
             suggested_concepts=suggested,
             agent_context=agent_context,
             priority=self._priority_to_enum(priority),
@@ -197,7 +191,6 @@ class ReviewQueueService:
         self,
         limit: int = 20,
         priority_filter: Optional[int] = None,
-        domain_filter: Optional[str] = None,
     ) -> list[PendingReview]:
         """
         Get pending reviews sorted by priority and SLA.
@@ -205,7 +198,6 @@ class ReviewQueueService:
         Args:
             limit: Max reviews to return.
             priority_filter: Only reviews with priority <= this value.
-            domain_filter: Only reviews from this domain.
 
         Returns:
             List of PendingReview ordered by priority ASC, sla_deadline ASC.
@@ -214,7 +206,6 @@ class ReviewQueueService:
         MATCH (r:PendingReview)
         WHERE r.status = 'pending'
           AND ($priority IS NULL OR r.priority <= $priority)
-          AND ($domain IS NULL OR r.domain = $domain)
         RETURN r
         ORDER BY r.priority ASC, r.sla_deadline ASC
         LIMIT $limit
@@ -224,7 +215,6 @@ class ReviewQueueService:
             result = await tx.run(
                 query,
                 priority=priority_filter,
-                domain=domain_filter,
                 limit=limit,
             )
             records = await result.data()
@@ -286,14 +276,12 @@ class ReviewQueueService:
     async def count_pending(
         self,
         priority_filter: Optional[int] = None,
-        domain_filter: Optional[str] = None,
     ) -> int:
         """Count pending reviews matching filters."""
         query = """
         MATCH (r:PendingReview)
         WHERE r.status = 'pending'
           AND ($priority IS NULL OR r.priority <= $priority)
-          AND ($domain IS NULL OR r.domain = $domain)
         RETURN count(r) AS count
         """
 
@@ -301,7 +289,6 @@ class ReviewQueueService:
             result = await tx.run(
                 query,
                 priority=priority_filter,
-                domain=domain_filter,
             )
             record = await result.single()
             return record["count"] if record else 0
@@ -456,10 +443,9 @@ class ReviewQueueService:
         """
         Calculate priority (1=highest, 10=lowest).
 
-        Formula: base + confidence_factor + domain_factor
+        Formula: base + confidence_factor
 
         - Lower confidence = higher priority (needs review sooner)
-        - High-impact domains get priority boost (-1)
         """
         base = 5
 
@@ -467,10 +453,7 @@ class ReviewQueueService:
         top_score = candidates[0].similarity_score if candidates else 0
         confidence_factor = int((1 - top_score) * 5)
 
-        # High-impact domains get priority
-        domain_factor = -1 if mention.domain in HIGH_IMPACT_DOMAINS else 0
-
-        priority = base + confidence_factor + domain_factor
+        priority = base + confidence_factor
         return max(1, min(10, priority))
 
     def _get_sla_hours(self, priority: int) -> int:
@@ -546,7 +529,6 @@ class ReviewQueueService:
             mention_statement=record.get("mention_statement", ""),
             paper_doi=record.get("paper_doi", ""),
             paper_title=record.get("paper_title"),
-            domain=record.get("domain"),
             suggested_concepts=[
                 SuggestedConceptForReview(**c) if isinstance(c, dict) else c
                 for c in suggested_concepts

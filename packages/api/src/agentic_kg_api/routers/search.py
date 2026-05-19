@@ -34,7 +34,6 @@ def search_problems(
 
     results = search_service.hybrid_search(
         query=request.query,
-        domain=request.domain,
         status=status,
         top_k=request.top_k,
         semantic_weight=request.semantic_weight,
@@ -50,7 +49,6 @@ def search_problems(
             problem=ProblemSummary(
                 id=r.problem.id,
                 statement=r.problem.statement,
-                domain=r.problem.domain,
                 status=r.problem.status.value if isinstance(r.problem.status, ProblemStatus) else str(r.problem.status),
                 confidence=confidence,
                 created_at=r.problem.created_at,

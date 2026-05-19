@@ -25,7 +25,6 @@ def _result_to_response(result) -> ExtractResponse:
     for p in result.get_problems():
         problems.append(ExtractedProblemResponse(
             statement=p.statement,
-            domain=p.domain,
             confidence=p.confidence,
             quoted_text=p.quoted_text[:500],
         ))

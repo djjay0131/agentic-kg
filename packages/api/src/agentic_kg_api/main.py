@@ -15,7 +15,7 @@ from agentic_kg.logging_config import setup_logging, get_logger
 from agentic_kg_api import __version__
 from agentic_kg_api.config import get_api_config
 from agentic_kg_api.dependencies import get_repo, get_search, get_relations, reset_dependencies
-from agentic_kg_api.routers import agents, extract, graph, ingest, papers, problems, reviews, search
+from agentic_kg_api.routers import agents, extract, graph, ingest, papers, problems, reviews, search, topics
 from agentic_kg_api.schemas import HealthResponse, StatsResponse
 from agentic_kg_api.tasks import setup_event_bridge, teardown_event_bridge
 
@@ -124,6 +124,7 @@ app.include_router(graph.router)
 app.include_router(agents.router)
 app.include_router(reviews.router)
 app.include_router(ingest.router)
+app.include_router(topics.router)
 
 
 # Health and stats endpoints
@@ -158,24 +159,31 @@ def get_stats() -> StatsResponse:
             result = session.run("MATCH (p:Paper) RETURN count(p) as count")
             total_papers = result.single()["count"]
 
+            # Count topics
+            result = session.run("MATCH (t:Topic) RETURN count(t) as count")
+            total_topics = result.single()["count"]
+
             # Problems by status
             result = session.run(
                 "MATCH (p:Problem) RETURN p.status as status, count(p) as count"
             )
             problems_by_status = {r["status"]: r["count"] for r in result}
 
-            # Problems by domain
+            # Problems by Topic
             result = session.run(
-                "MATCH (p:Problem) WHERE p.domain IS NOT NULL "
-                "RETURN p.domain as domain, count(p) as count"
+                """
+                MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic)
+                RETURN t.name as name, count(p) as count
+                """
             )
-            problems_by_domain = {r["domain"]: r["count"] for r in result}
+            problems_by_topic = {r["name"]: r["count"] for r in result}
 
         return StatsResponse(
             total_problems=total_problems,
             total_papers=total_papers,
+            total_topics=total_topics,
             problems_by_status=problems_by_status,
-            problems_by_domain=problems_by_domain,
+            problems_by_topic=problems_by_topic,
         )
     except Exception as e:
         logger.error(f"Failed to get stats: {e}")

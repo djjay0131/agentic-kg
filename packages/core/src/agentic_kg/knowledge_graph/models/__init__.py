@@ -17,6 +17,7 @@ from .entities import (
     ProblemConcept,
     ProblemMention,
     SuggestedConceptForReview,
+    Topic,
 )
 from .enums import (
     ConstraintType,
@@ -31,6 +32,7 @@ from .enums import (
     ReviewQueueStatus,
     ReviewResolution,
     ReviewStatus,
+    TopicLevel,
     WorkflowState,
 )
 
@@ -71,6 +73,7 @@ __all__ = [
     "ReviewQueueStatus",
     "ReviewResolution",
     "ReviewStatus",
+    "TopicLevel",
     "WorkflowState",
     # Supporting models
     "Assumption",
@@ -90,6 +93,7 @@ __all__ = [
     "ProblemConcept",
     "ProblemMention",
     "SuggestedConceptForReview",
+    "Topic",
     # Relationship models
     "AuthoredByRelation",
     "ContradictsRelation",
