@@ -126,12 +126,20 @@ def _seed_problem(repo, sample_problem_data, domain_value: str):
     After E-1 the Problem model no longer exposes ``domain``; the migration
     tests still need v2-shaped data to migrate, so we set the property via
     Cypher after the model-level create.
+
+    The statement is overridden with a freshly-unique value on every call —
+    several migration tests call this helper twice within one test and rely
+    on the dedup check (which matches by normalized statement) NOT firing.
     """
     problem_data = {
-        k: v for k, v in sample_problem_data.items() if k != "domain"
+        k: v
+        for k, v in sample_problem_data.items()
+        if k not in ("domain", "statement")
     }
+    unique = uuid.uuid4().hex[:12]
     problem = Problem(
         id=f"TEST_{uuid.uuid4().hex[:16]}",
+        statement=f"TEST_{unique} migration seed problem - " + "x" * 20,
         **problem_data,
     )
     repo.create_problem(problem, generate_embedding=False)
