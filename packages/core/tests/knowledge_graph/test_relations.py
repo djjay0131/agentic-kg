@@ -4,6 +4,8 @@ Integration tests for relation operations.
 These tests require Docker and will be skipped if Docker is not available.
 """
 
+import uuid
+
 import pytest
 from agentic_kg.knowledge_graph.models import (
     Author,
@@ -32,12 +34,12 @@ def relation_service(neo4j_repository):
 @pytest.fixture
 def two_problems(neo4j_repository, sample_evidence_data):
     """Create two problems for relation testing."""
-    import uuid as uuid_mod
+    run = uuid.uuid4().hex[:12]
     problems = []
     for i in range(2):
         problem = Problem(
-            id=f"TEST_{uuid_mod.uuid4().hex[:16]}",
-            statement=f"Research problem {i} - " + "x" * 20,
+            id=f"TEST_{uuid.uuid4().hex[:16]}",
+            statement=f"TEST_{run} Research problem {i} - " + "x" * 20,
             domain="NLP",
             status=ProblemStatus.OPEN,
             evidence=Evidence(**sample_evidence_data),
@@ -187,7 +189,9 @@ class TestProblemRelations:
 
         # Create a third problem
         p3 = Problem(
-            statement="Third research problem - " + "x" * 20,
+            id=f"TEST_{uuid.uuid4().hex[:16]}",
+            statement=f"TEST_{uuid.uuid4().hex[:12]} Third research problem - "
+            + "x" * 20,
             domain="NLP",
             status=ProblemStatus.OPEN,
             evidence=Evidence(**sample_evidence_data),
@@ -314,8 +318,9 @@ class TestPaperAuthorRelations:
 
         # Create multiple authors
         authors = []
+        run = uuid.uuid4().hex[:12]
         for i, name in enumerate(["First Author", "Second Author"]):
-            author = Author(name=name)
+            author = Author(name=f"TEST_{run}_{i} {name}")
             neo4j_repository.create_author(author)
             authors.append(author)
             relation_service.link_paper_to_author(

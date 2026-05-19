@@ -14,7 +14,6 @@ from agentic_kg.knowledge_graph.embeddings import EmbeddingService
 from agentic_kg.knowledge_graph.models import (
     MatchCandidate,
     MatchConfidence,
-    ProblemConcept,
     ProblemMention,
 )
 from agentic_kg.knowledge_graph.repository import Neo4jRepository, get_repository

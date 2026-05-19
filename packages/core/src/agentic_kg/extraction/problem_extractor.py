@@ -12,7 +12,6 @@ from typing import Optional
 from agentic_kg.extraction.llm_client import (
     BaseLLMClient,
     LLMError,
-    OpenAIClient,
     get_openai_client,
 )
 from agentic_kg.extraction.prompts import get_extraction_prompt

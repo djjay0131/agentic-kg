@@ -5,9 +5,7 @@ Provides in-memory caching with TTL support for API responses.
 """
 from __future__ import annotations
 
-
 import hashlib
-import json
 import logging
 import time
 from dataclasses import dataclass, field

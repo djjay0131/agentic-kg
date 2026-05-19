@@ -8,6 +8,27 @@ Provides agents for problem mention-to-concept matching decisions:
 - ArbiterAgent: Decides after Maker/Hater debate
 """
 
+from agentic_kg.agents.matching.arbiter import (
+    ARBITER_CONFIDENCE_THRESHOLD,
+    ArbiterAgent,
+    ArbiterError,
+    create_arbiter_agent,
+)
+from agentic_kg.agents.matching.evaluator import (
+    EvaluatorAgent,
+    EvaluatorError,
+    create_evaluator_agent,
+)
+from agentic_kg.agents.matching.hater import (
+    HaterAgent,
+    HaterError,
+    create_hater_agent,
+)
+from agentic_kg.agents.matching.maker import (
+    MakerAgent,
+    MakerError,
+    create_maker_agent,
+)
 from agentic_kg.agents.matching.schemas import (
     AgentContext,
     ArbiterDecision,
@@ -30,33 +51,12 @@ from agentic_kg.agents.matching.state import (
     create_matching_state,
     escalate_to_human,
 )
-from agentic_kg.agents.matching.evaluator import (
-    EvaluatorAgent,
-    EvaluatorError,
-    create_evaluator_agent,
-)
-from agentic_kg.agents.matching.maker import (
-    MakerAgent,
-    MakerError,
-    create_maker_agent,
-)
-from agentic_kg.agents.matching.hater import (
-    HaterAgent,
-    HaterError,
-    create_hater_agent,
-)
-from agentic_kg.agents.matching.arbiter import (
-    ArbiterAgent,
-    ArbiterError,
-    create_arbiter_agent,
-    ARBITER_CONFIDENCE_THRESHOLD,
-)
 from agentic_kg.agents.matching.workflow import (
+    MAX_CONSENSUS_ROUNDS,
     build_matching_workflow,
     get_matching_workflow,
-    reset_matching_workflow,
     process_medium_low_confidence,
-    MAX_CONSENSUS_ROUNDS,
+    reset_matching_workflow,
 )
 
 __all__ = [

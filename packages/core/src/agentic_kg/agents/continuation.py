@@ -8,7 +8,6 @@ proofs, or algorithmic extensions.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from agentic_kg.agents.base import BaseAgent
 from agentic_kg.agents.prompts import (

@@ -19,9 +19,17 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from agentic_kg.agents.matching.state import MatchingWorkflowState, create_matching_state
+
+# Phase 2 imports: Agent workflow and concept refinement
+from agentic_kg.agents.matching.workflow import process_medium_low_confidence
 from agentic_kg.extraction.schemas import ExtractedProblem
 from agentic_kg.knowledge_graph.auto_linker import AutoLinker, get_auto_linker
 from agentic_kg.knowledge_graph.concept_matcher import ConceptMatcher, get_concept_matcher
+from agentic_kg.knowledge_graph.concept_refinement import (
+    ConceptRefinementService,
+    get_refinement_service,
+)
 from agentic_kg.knowledge_graph.embeddings import EmbeddingService
 from agentic_kg.knowledge_graph.models import (
     Assumption,
@@ -32,28 +40,16 @@ from agentic_kg.knowledge_graph.models import (
     MatchCandidate,
     MatchConfidence,
     Metric,
-    ProblemConcept,
     ProblemMention,
     ReviewStatus,
     SuggestedConceptForReview,
-    AgentContextForReview,
-    ReviewPriority,
 )
 from agentic_kg.knowledge_graph.repository import (
     Neo4jRepository,
     get_repository,
 )
-
-# Phase 2 imports: Agent workflow and concept refinement
-from agentic_kg.agents.matching.workflow import process_medium_low_confidence
-from agentic_kg.agents.matching.state import create_matching_state, MatchingWorkflowState
-from agentic_kg.knowledge_graph.concept_refinement import (
-    ConceptRefinementService,
-    get_refinement_service,
-)
 from agentic_kg.knowledge_graph.review_queue import (
     ReviewQueueService,
-    get_review_queue_service,
 )
 
 logger = logging.getLogger(__name__)
@@ -452,7 +448,6 @@ class KGIntegratorV2:
 
         # Process workflow result
         final_decision = result_state.get("final_decision")
-        final_concept_id = result_state.get("final_concept_id")
 
         if final_decision == "linked":
             # Link to existing concept
@@ -570,18 +565,6 @@ class KGIntegratorV2:
                 mention_count=0,  # Not available in MatchCandidate
             )
         ]
-
-        # Build agent context
-        agent_context = AgentContextForReview(
-            escalation_reason=result_state.get("escalation_reason"),
-            evaluator_decision=result_state.get("evaluator_decision"),
-            evaluator_confidence=result_state.get("evaluator_result", {}).get("confidence"),
-            maker_arguments=[r.get("strongest_argument") for r in result_state.get("maker_results", [])],
-            hater_arguments=[r.get("strongest_argument") for r in result_state.get("hater_results", [])],
-            arbiter_decision=result_state.get("arbiter_results", [{}])[-1].get("decision") if result_state.get("arbiter_results") else None,
-            rounds_attempted=result_state.get("current_round", 0),
-            final_confidence=result_state.get("final_confidence", 0.0),
-        )
 
         # Enqueue to review queue
         human_review_id = None

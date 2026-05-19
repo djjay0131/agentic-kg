@@ -5,7 +5,6 @@ Implements token bucket algorithm for per-source rate limiting.
 """
 from __future__ import annotations
 
-
 import asyncio
 import logging
 import time

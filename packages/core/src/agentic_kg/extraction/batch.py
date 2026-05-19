@@ -15,19 +15,16 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from pathlib import Path
 from typing import Callable, Optional
 
 from pydantic import BaseModel, Field
 
 from agentic_kg.extraction.kg_integration import (
-    IntegrationResult,
     KnowledgeGraphIntegrator,
     get_kg_integrator,
 )
 from agentic_kg.extraction.pipeline import (
     PaperProcessingPipeline,
-    PaperProcessingResult,
     get_pipeline,
 )
 

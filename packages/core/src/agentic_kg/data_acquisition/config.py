@@ -5,7 +5,6 @@ Provides settings for API clients, rate limiting, caching, and resilience.
 """
 from __future__ import annotations
 
-
 import os
 from dataclasses import dataclass, field
 from typing import Optional

@@ -27,9 +27,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from agentic_kg.extraction.batch import BatchConfig, BatchJob, get_batch_processor
+from agentic_kg.extraction.batch import BatchConfig
 from agentic_kg.extraction.pipeline import (
-    PaperProcessingPipeline,
     PaperProcessingResult,
     PipelineConfig,
     get_pipeline,
@@ -92,7 +91,7 @@ def print_result(result: PaperProcessingResult, as_json: bool = False) -> None:
     print(f"  Total time:          {result.total_duration_ms:.0f}ms")
 
     # Stage details
-    print(f"\n  Pipeline Stages:")
+    print("\n  Pipeline Stages:")
     for stage in result.stages:
         icon = "+" if stage.success else "x"
         print(f"    [{icon}] {stage.stage} ({stage.duration_ms:.0f}ms)")
@@ -102,7 +101,7 @@ def print_result(result: PaperProcessingResult, as_json: bool = False) -> None:
     # Problems
     problems = result.get_problems()
     if problems:
-        print(f"\n  Extracted Problems:")
+        print("\n  Extracted Problems:")
         for i, p in enumerate(problems, 1):
             conf_bar = "#" * int(p.confidence * 10)
             print(f"\n    {i}. [{p.confidence:.2f}] {conf_bar}")
@@ -215,7 +214,11 @@ async def extract_batch(
                     if len(parts) >= 1:
                         entry = parts[0].strip().strip('"')
                         if entry.lower() not in ("url", "path", "doi", "file"):
-                            papers.append({"url": entry} if entry.startswith("http") else {"path": entry})
+                            papers.append(
+                                {"url": entry}
+                                if entry.startswith("http")
+                                else {"path": entry}
+                            )
     elif path.suffix == ".txt":
         with open(path) as f:
             for line in f:
@@ -263,7 +266,7 @@ async def extract_batch(
             )
         else:
             if not as_json:
-                print(f"  Skipped: no url or path")
+                print("  Skipped: no url or path")
             continue
 
         results.append(result)
@@ -295,7 +298,7 @@ async def extract_batch(
         print(json.dumps(output, indent=2))
     else:
         print(f"\n{'='*60}")
-        print(f"Batch Complete")
+        print("Batch Complete")
         print(f"{'='*60}")
         print(f"  Total:    {total}")
         print(f"  Succeeded: {succeeded}")
@@ -409,10 +412,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def print_ingestion_result(result, as_json: bool = False) -> None:
     """Print ingestion result to stdout."""
-    from agentic_kg.ingestion import IngestionResult
 
     if as_json:
-        output = result.model_dump(exclude={"dry_run_papers"} if not result.dry_run_papers else set())
+        output = result.model_dump(
+            exclude={"dry_run_papers"} if not result.dry_run_papers else set()
+        )
         print(json.dumps(output, indent=2, default=str))
         return
 
@@ -425,28 +429,28 @@ def print_ingestion_result(result, as_json: bool = False) -> None:
 
     if result.status == "dry_run":
         print(f"\n  Papers found: {result.papers_found}")
-        print(f"\n  Papers that would be ingested:")
+        print("\n  Papers that would be ingested:")
         for p in result.dry_run_papers:
             pdf = "PDF available" if p.get("pdf_url") else "No PDF"
             print(f"    - {p.get('doi', 'no-doi')}: {p.get('title', 'Untitled')} ({pdf})")
     else:
-        print(f"\n  Phase 1 - Search & Import:")
+        print("\n  Phase 1 - Search & Import:")
         print(f"    Papers found:    {result.papers_found}")
         print(f"    Papers imported: {result.papers_imported}")
-        print(f"\n  Phase 2 - Extraction:")
+        print("\n  Phase 2 - Extraction:")
         print(f"    Papers extracted:     {result.papers_extracted}")
         print(f"    Papers skipped (no PDF): {result.papers_skipped_no_pdf}")
         if result.extraction_errors:
             print(f"    Extraction errors:    {len(result.extraction_errors)}")
             for doi, err in result.extraction_errors.items():
                 print(f"      {doi}: {err}")
-        print(f"\n  Phase 3 - Integration:")
+        print("\n  Phase 3 - Integration:")
         print(f"    Total problems:    {result.total_problems}")
         print(f"    Concepts created:  {result.concepts_created}")
         print(f"    Concepts linked:   {result.concepts_linked}")
 
     if result.sanity_checks:
-        print(f"\n  Phase 4 - Sanity Checks:")
+        print("\n  Phase 4 - Sanity Checks:")
         for check in result.sanity_checks:
             icon = "+" if check.passed else "x"
             print(f"    [{icon}] {check.name}: {check.description}")
@@ -465,7 +469,7 @@ def print_sanity_checks(checks, as_json: bool = False) -> None:
         return
 
     print(f"\n{'='*60}")
-    print(f"Sanity Checks")
+    print("Sanity Checks")
     print(f"{'='*60}")
     all_passed = True
     for check in checks:

@@ -9,14 +9,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional, TypedDict
+from typing import Optional, TypedDict
 
 from agentic_kg.agents.schemas import (
-    ContinuationProposal,
-    EvaluationResult,
     HumanCheckpoint,
-    RankedProblem,
-    SynthesisReport,
     WorkflowStatus,
 )
 
