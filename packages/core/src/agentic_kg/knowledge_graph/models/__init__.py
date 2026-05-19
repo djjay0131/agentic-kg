@@ -16,6 +16,7 @@ from .entities import (
     Problem,
     ProblemConcept,
     ProblemMention,
+    ResearchConcept,
     SuggestedConceptForReview,
     Topic,
 )
@@ -92,6 +93,7 @@ __all__ = [
     "Problem",
     "ProblemConcept",
     "ProblemMention",
+    "ResearchConcept",
     "SuggestedConceptForReview",
     "Topic",
     # Relationship models

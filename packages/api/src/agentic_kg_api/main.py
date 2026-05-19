@@ -15,7 +15,7 @@ from agentic_kg.logging_config import setup_logging, get_logger
 from agentic_kg_api import __version__
 from agentic_kg_api.config import get_api_config
 from agentic_kg_api.dependencies import get_repo, get_search, get_relations, reset_dependencies
-from agentic_kg_api.routers import agents, extract, graph, ingest, papers, problems, reviews, search, topics
+from agentic_kg_api.routers import agents, concepts, extract, graph, ingest, papers, problems, reviews, search, topics
 from agentic_kg_api.schemas import HealthResponse, StatsResponse
 from agentic_kg_api.tasks import setup_event_bridge, teardown_event_bridge
 
@@ -125,6 +125,7 @@ app.include_router(agents.router)
 app.include_router(reviews.router)
 app.include_router(ingest.router)
 app.include_router(topics.router)
+app.include_router(concepts.router)
 
 
 # Health and stats endpoints
