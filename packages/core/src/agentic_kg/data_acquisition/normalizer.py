@@ -6,7 +6,6 @@ into a unified schema compatible with the Knowledge Graph Paper model.
 """
 from __future__ import annotations
 
-
 import logging
 import re
 from dataclasses import dataclass, field

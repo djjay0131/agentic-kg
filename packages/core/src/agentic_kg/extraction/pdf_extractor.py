@@ -12,7 +12,6 @@ import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Union
-from urllib.parse import urlparse
 
 import httpx
 
@@ -323,7 +322,11 @@ class PDFExtractor:
             lines = self._remove_headers_footers(lines)
 
         # Filter short lines (likely noise)
-        lines = [line for line in lines if len(line.strip()) >= self.min_line_length or not line.strip()]
+        lines = [
+            line
+            for line in lines
+            if len(line.strip()) >= self.min_line_length or not line.strip()
+        ]
 
         # Rejoin text
         text = "\n".join(lines)

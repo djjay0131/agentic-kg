@@ -5,14 +5,12 @@ Imports papers from external sources into the Knowledge Graph.
 """
 from __future__ import annotations
 
-
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from agentic_kg.data_acquisition.aggregator import (
-    AggregatedResult,
     PaperAggregator,
     get_paper_aggregator,
 )
@@ -22,8 +20,10 @@ from agentic_kg.knowledge_graph.models import Author, Paper
 from agentic_kg.knowledge_graph.repository import (
     DuplicateError,
     Neo4jRepository,
-    NotFoundError as RepoNotFoundError,
     get_repository,
+)
+from agentic_kg.knowledge_graph.repository import (
+    NotFoundError as RepoNotFoundError,
 )
 
 logger = logging.getLogger(__name__)

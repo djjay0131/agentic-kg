@@ -56,6 +56,23 @@ class DuplicateError(RepositoryError):
     pass
 
 
+def decode_json_field(value: Any, default: Any) -> Any:
+    """
+    Decode a JSON-encoded Neo4j property back to a Python object.
+
+    Tolerates legacy nodes whose nested fields were double-encoded by an
+    earlier serialization bug: repeatedly json.loads until the value is no
+    longer a string (capped to avoid pathological input).
+    """
+    if value is None:
+        return default
+    for _ in range(3):
+        if not isinstance(value, str):
+            break
+        value = json.loads(value)
+    return value
+
+
 class Neo4jRepository:
     """
     Repository for Neo4j knowledge graph operations.
@@ -264,15 +281,8 @@ class Neo4jRepository:
             record = result.single()
             return dict(record["p"]) if record else None
 
+        # to_neo4j_properties() already JSON-serializes nested fields
         props = problem.to_neo4j_properties()
-        # Convert nested dicts to JSON strings for Neo4j storage
-        props["assumptions"] = json.dumps(props["assumptions"])
-        props["constraints"] = json.dumps(props["constraints"])
-        props["datasets"] = json.dumps(props["datasets"])
-        props["metrics"] = json.dumps(props["metrics"])
-        props["baselines"] = json.dumps(props["baselines"])
-        props["evidence"] = json.dumps(props["evidence"])
-        props["extraction_metadata"] = json.dumps(props["extraction_metadata"])
 
         # Add embedding if present (excluded by to_neo4j_properties for size)
         if problem.embedding is not None:
@@ -361,14 +371,8 @@ class Neo4jRepository:
         problem.updated_at = datetime.now(timezone.utc)
         problem.version += 1
 
+        # to_neo4j_properties() already JSON-serializes nested fields
         props = problem.to_neo4j_properties()
-        props["assumptions"] = json.dumps(props["assumptions"])
-        props["constraints"] = json.dumps(props["constraints"])
-        props["datasets"] = json.dumps(props["datasets"])
-        props["metrics"] = json.dumps(props["metrics"])
-        props["baselines"] = json.dumps(props["baselines"])
-        props["evidence"] = json.dumps(props["evidence"])
-        props["extraction_metadata"] = json.dumps(props["extraction_metadata"])
 
         # Add embedding if present
         if problem.embedding is not None:
@@ -468,19 +472,27 @@ class Neo4jRepository:
                 lambda tx: _list(tx, status_str, limit, offset)
             )
 
-        return [self._problem_from_neo4j(r) for r in records]
+        # A single malformed (e.g. legacy-serialized) node must not break
+        # the whole listing — skip and log instead.
+        problems = []
+        for record in records:
+            try:
+                problems.append(self._problem_from_neo4j(record))
+            except Exception as e:
+                logger.warning("Skipping unreadable Problem node: %s", e)
+        return problems
 
     def _problem_from_neo4j(self, data: dict) -> Problem:
         """Convert Neo4j node data to Problem model."""
-        # Parse JSON strings back to objects
-        data["assumptions"] = json.loads(data.get("assumptions", "[]"))
-        data["constraints"] = json.loads(data.get("constraints", "[]"))
-        data["datasets"] = json.loads(data.get("datasets", "[]"))
-        data["metrics"] = json.loads(data.get("metrics", "[]"))
-        data["baselines"] = json.loads(data.get("baselines", "[]"))
-        data["evidence"] = json.loads(data.get("evidence", "{}"))
-        data["extraction_metadata"] = json.loads(
-            data.get("extraction_metadata", "{}")
+        # Parse JSON strings back to objects (tolerates legacy double-encoding)
+        data["assumptions"] = decode_json_field(data.get("assumptions"), [])
+        data["constraints"] = decode_json_field(data.get("constraints"), [])
+        data["datasets"] = decode_json_field(data.get("datasets"), [])
+        data["metrics"] = decode_json_field(data.get("metrics"), [])
+        data["baselines"] = decode_json_field(data.get("baselines"), [])
+        data["evidence"] = decode_json_field(data.get("evidence"), {})
+        data["extraction_metadata"] = decode_json_field(
+            data.get("extraction_metadata"), {}
         )
 
         # Parse datetimes
@@ -490,7 +502,9 @@ class Neo4jRepository:
             data["updated_at"] = datetime.fromisoformat(data["updated_at"])
 
         # Parse nested model datetimes
-        if "extracted_at" in data.get("extraction_metadata", {}):
+        if isinstance(data.get("extraction_metadata"), dict) and (
+            "extracted_at" in data["extraction_metadata"]
+        ):
             ext_meta = data["extraction_metadata"]
             if isinstance(ext_meta["extracted_at"], str):
                 ext_meta["extracted_at"] = datetime.fromisoformat(

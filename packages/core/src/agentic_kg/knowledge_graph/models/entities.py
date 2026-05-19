@@ -58,8 +58,12 @@ class Problem(BaseModel):
     baselines: list[Baseline] = Field(default_factory=list)
 
     # Provenance
-    evidence: Optional[Evidence] = Field(default=None, description="Source evidence from paper")
-    extraction_metadata: Optional[ExtractionMetadata] = Field(default=None, description="Extraction details")
+    evidence: Optional[Evidence] = Field(
+        default=None, description="Source evidence from paper"
+    )
+    extraction_metadata: Optional[ExtractionMetadata] = Field(
+        default=None, description="Extraction details"
+    )
 
     @model_validator(mode='after')
     def validate_resolved_status(self) -> 'Problem':
@@ -67,11 +71,13 @@ class Problem(BaseModel):
         if self.status in [ProblemStatus.RESOLVED, ProblemStatus.DEPRECATED]:
             if not self.evidence:
                 raise ValueError(
-                    f"Status '{self.status.value}' requires evidence field with reference to supporting paper"
+                    f"Status '{self.status.value}' requires evidence field with "
+                    "reference to supporting paper"
                 )
             if not self.evidence.source_doi:
                 raise ValueError(
-                    f"Status '{self.status.value}' requires evidence.source_doi pointing to the paper that resolves/deprecates this problem"
+                    f"Status '{self.status.value}' requires evidence.source_doi "
+                    "pointing to the paper that resolves/deprecates this problem"
                 )
         return self
 

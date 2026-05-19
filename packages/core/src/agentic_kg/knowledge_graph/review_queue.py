@@ -14,7 +14,6 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Optional
 
 from agentic_kg.agents.matching.schemas import (
-    AgentContext,
     EscalationReason,
     SuggestedConcept,
 )

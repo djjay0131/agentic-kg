@@ -6,9 +6,9 @@ expected structure for research problem extraction and can be directly
 used with the instructor library for structured LLM output.
 """
 
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
-import uuid
 
 from pydantic import BaseModel, Field, field_validator
 

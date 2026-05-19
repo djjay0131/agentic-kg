@@ -98,17 +98,17 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -e ".[dev]" || echo "Package not installable yet, skipping"
+          pip install pytest pytest-asyncio testcontainers[neo4j]
+          pip install -e ./packages/core
+          pip install -e ./packages/api
 
       - name: Run tests
         run: |
           if [ -d "packages/core/tests" ] && [ "$(find packages/core/tests -name 'test_*.py' | wc -l)" -gt 0 ]; then
-            # Run unit tests only - integration tests require Docker/Neo4j
-            # Integration tests: test_repository.py, test_search.py, test_relations.py
+            # Unit tests only: integration tests need Neo4j, e2e tests hit live APIs
             pytest packages/core/tests/ -v --tb=short \
-              --ignore=packages/core/tests/knowledge_graph/test_repository.py \
-              --ignore=packages/core/tests/knowledge_graph/test_search.py \
-              --ignore=packages/core/tests/knowledge_graph/test_relations.py
+              -m "not integration" \
+              --ignore=packages/core/tests/e2e
           else
             echo "No tests found yet. Skipping test run."
           fi

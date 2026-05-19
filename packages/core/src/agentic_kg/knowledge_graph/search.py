@@ -22,6 +22,7 @@ from agentic_kg.knowledge_graph.embeddings import (
 from agentic_kg.knowledge_graph.models import Problem, ProblemStatus
 from agentic_kg.knowledge_graph.repository import (
     Neo4jRepository,
+    decode_json_field,
     get_repository,
 )
 
@@ -217,7 +218,11 @@ class SearchService:
 
         results = []
         for record in records:
-            problem = self._problem_from_neo4j(record["node"])
+            try:
+                problem = self._problem_from_neo4j(record["node"])
+            except Exception as e:
+                logger.warning("Skipping unreadable Problem node: %s", e)
+                continue
             results.append(
                 SearchResult(
                     problem=problem,
@@ -347,21 +352,21 @@ class SearchService:
 
     def _problem_from_neo4j(self, data: dict) -> Problem:
         """Convert Neo4j node data to Problem model."""
-        import json
         from datetime import datetime
 
-        # Parse JSON strings
-        for field in [
-            "assumptions",
-            "constraints",
-            "datasets",
-            "metrics",
-            "baselines",
-            "evidence",
-            "extraction_metadata",
-        ]:
-            if field in data and isinstance(data[field], str):
-                data[field] = json.loads(data[field])
+        # Parse JSON strings (tolerates legacy double-encoded values)
+        list_defaults = {
+            "assumptions": [],
+            "constraints": [],
+            "datasets": [],
+            "metrics": [],
+            "baselines": [],
+            "evidence": {},
+            "extraction_metadata": {},
+        }
+        for field, default in list_defaults.items():
+            if field in data:
+                data[field] = decode_json_field(data[field], default)
 
         # Parse datetimes
         for field in ["created_at", "updated_at"]:
@@ -369,8 +374,8 @@ class SearchService:
                 data[field] = datetime.fromisoformat(data[field])
 
         # Parse nested datetime
-        if "extraction_metadata" in data:
-            meta = data["extraction_metadata"]
+        meta = data.get("extraction_metadata")
+        if isinstance(meta, dict):
             if "extracted_at" in meta and isinstance(meta["extracted_at"], str):
                 meta["extracted_at"] = datetime.fromisoformat(meta["extracted_at"])
             if meta.get("reviewed_at") and isinstance(meta["reviewed_at"], str):

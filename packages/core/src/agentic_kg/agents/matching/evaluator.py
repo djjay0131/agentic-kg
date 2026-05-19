@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
@@ -37,12 +37,14 @@ class EvaluatorError(Exception):
 # Prompt Template
 # =============================================================================
 
-EVALUATOR_SYSTEM_PROMPT = """You are a research problem matching expert. Your task is to decide whether a
+EVALUATOR_SYSTEM_PROMPT = """You are a research problem matching expert. Your task is to \
+decide whether a
 problem mention from a paper should be linked to an existing canonical concept.
 
 You will analyze semantic similarity, scope alignment, and domain context to make your decision.
 
-IMPORTANT: Err on the side of APPROVE. Missing a duplicate is worse than linking related-but-distinct problems.
+IMPORTANT: Err on the side of APPROVE. Missing a duplicate is worse than linking \
+related-but-distinct problems.
 Only REJECT if the problems are clearly different in scope, meaning, or domain."""
 
 

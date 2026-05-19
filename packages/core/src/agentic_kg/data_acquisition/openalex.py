@@ -6,7 +6,6 @@ works, authors, venues, and concepts.
 """
 from __future__ import annotations
 
-
 import logging
 import re
 from typing import Any
@@ -252,7 +251,7 @@ class OpenAlexClient:
 
         except NotFoundError:
             raise
-        except Exception as e:
+        except Exception:
             await self._circuit_breaker.record_failure()
             raise
 

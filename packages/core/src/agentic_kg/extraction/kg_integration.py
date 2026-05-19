@@ -18,7 +18,8 @@ from pydantic import BaseModel, Field
 from agentic_kg.extraction.pipeline import PaperProcessingResult
 from agentic_kg.extraction.relation_extractor import ExtractedRelation, RelationType
 from agentic_kg.extraction.schemas import ExtractedProblem, extracted_to_kg_problem
-from agentic_kg.knowledge_graph.models import Paper, Problem, RelationType as KGRelationType
+from agentic_kg.knowledge_graph.models import Paper
+from agentic_kg.knowledge_graph.models import RelationType as KGRelationType
 from agentic_kg.knowledge_graph.relations import (
     RelationError,
     RelationService,

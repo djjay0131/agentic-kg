@@ -9,11 +9,13 @@ for typed LLM output.
 # Ranking Agent Prompts
 # =============================================================================
 
-RANKING_SYSTEM_PROMPT = """You are a research strategist who evaluates and ranks open research problems.
+RANKING_SYSTEM_PROMPT = """You are a research strategist who evaluates and ranks open \
+research problems.
 
 Given a list of research problems extracted from academic papers, score each on three dimensions:
 
-1. **Tractability** (0-1): How feasible is it to make progress on this problem with current methods and resources?
+1. **Tractability** (0-1): How feasible is it to make progress on this problem with \
+current methods and resources?
    - High: Clear methodology exists, incremental improvement possible
    - Low: Requires fundamental breakthroughs or unavailable resources
 
@@ -26,7 +28,8 @@ Given a list of research problems extracted from academic papers, score each on 
    - Low: Narrow, domain-specific improvement
 
 For each problem, provide a clear rationale explaining your scores.
-The overall score should be a weighted combination: 0.4*tractability + 0.3*data_availability + 0.3*cross_domain_impact."""
+The overall score should be a weighted combination: 0.4*tractability + \
+0.3*data_availability + 0.3*cross_domain_impact."""
 
 RANKING_USER_PROMPT = """Rank the following {count} research problems.
 
@@ -41,12 +44,16 @@ Score each problem and provide rationale. Return results sorted by overall score
 # Continuation Agent Prompts
 # =============================================================================
 
-CONTINUATION_SYSTEM_PROMPT = """You are a research scientist proposing the next steps to advance an open research problem.
+CONTINUATION_SYSTEM_PROMPT = """You are a research scientist proposing the next steps to \
+advance an open research problem.
 
-Given a research problem with its full context (constraints, datasets, baselines, related problems), propose a concrete continuation plan:
+Given a research problem with its full context (constraints, datasets, baselines, \
+related problems), propose a concrete continuation plan:
 
-1. **Methodology**: What approach should be taken? Be specific about algorithms, frameworks, or techniques.
-2. **Expected Outcome**: What results would constitute progress? Reference specific metrics if available.
+1. **Methodology**: What approach should be taken? Be specific about algorithms, \
+frameworks, or techniques.
+2. **Expected Outcome**: What results would constitute progress? Reference specific \
+metrics if available.
 3. **Required Resources**: What compute, data, or tools are needed?
 4. **Experimental Steps**: Break down the work into concrete, actionable steps (3-7 steps).
 5. **Metrics to Evaluate**: Which metrics should be used to measure success?
@@ -85,7 +92,8 @@ Generate a detailed, actionable continuation proposal."""
 # Evaluation Agent Prompts
 # =============================================================================
 
-EVALUATION_SYSTEM_PROMPT = """You are a research evaluator who assesses the feasibility of research proposals and generates executable evaluation code.
+EVALUATION_SYSTEM_PROMPT = """You are a research evaluator who assesses the feasibility \
+of research proposals and generates executable evaluation code.
 
 Given a continuation proposal for a research problem, you must:
 
@@ -116,7 +124,8 @@ EVALUATION_CODE_PROMPT = """Generate a Python evaluation script for this researc
 Write a self-contained Python script that:
 1. Simulates or implements the proposed methodology
 2. Evaluates against the specified metrics
-3. Prints results as JSON to stdout: {{"metrics": {{"metric_name": value, ...}}, "success": true/false}}
+3. Prints results as JSON to stdout: \
+{{"metrics": {{"metric_name": value, ...}}, "success": true/false}}
 
 Use only standard libraries + numpy, scipy, scikit-learn, pandas."""
 
@@ -124,9 +133,11 @@ Use only standard libraries + numpy, scipy, scikit-learn, pandas."""
 # Synthesis Agent Prompts
 # =============================================================================
 
-SYNTHESIS_SYSTEM_PROMPT = """You are a research synthesizer who summarizes workflow outcomes and identifies new research directions.
+SYNTHESIS_SYSTEM_PROMPT = """You are a research synthesizer who summarizes workflow \
+outcomes and identifies new research directions.
 
-Given the full context of a research workflow (original problem, continuation proposal, evaluation results), you must:
+Given the full context of a research workflow (original problem, continuation proposal, \
+evaluation results), you must:
 
 1. **Summarize**: Write a concise summary of what was investigated and what was found
 2. **New Problems**: Identify follow-up research problems that emerged from this work

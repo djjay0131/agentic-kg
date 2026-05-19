@@ -6,12 +6,10 @@ with deduplication and data merging.
 """
 from __future__ import annotations
 
-
 import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any
 
 from agentic_kg.data_acquisition.arxiv import ArxivClient, get_arxiv_client
 from agentic_kg.data_acquisition.exceptions import NotFoundError
@@ -241,9 +239,17 @@ class PaperAggregator:
             # Format identifier for Semantic Scholar
             id_type = detect_identifier_type(identifier)
             if id_type == "doi":
-                formatted_id = f"DOI:{identifier}" if not identifier.upper().startswith("DOI:") else identifier
+                formatted_id = (
+                    f"DOI:{identifier}"
+                    if not identifier.upper().startswith("DOI:")
+                    else identifier
+                )
             elif id_type == "arxiv":
-                formatted_id = f"ARXIV:{identifier}" if not identifier.upper().startswith("ARXIV:") else identifier
+                formatted_id = (
+                    f"ARXIV:{identifier}"
+                    if not identifier.upper().startswith("ARXIV:")
+                    else identifier
+                )
             else:
                 formatted_id = identifier
 
