@@ -251,16 +251,23 @@ def _topic_exists(
 ) -> bool:
     """Return True if a Topic with identical (name, level, parent_id) exists."""
     def _check(tx, nm, lv, pid):
-        result = tx.run(
+        # Neo4j 5.x: `{parent_id: null}` in a node pattern never matches,
+        # so we filter via WHERE and use IS NULL when no parent is expected.
+        if pid is None:
+            query = """
+            MATCH (t:Topic {name: $name, level: $level})
+            WHERE t.parent_id IS NULL
+            RETURN t.id
+            LIMIT 1
             """
+            result = tx.run(query, name=nm, level=lv)
+        else:
+            query = """
             MATCH (t:Topic {name: $name, level: $level, parent_id: $parent_id})
             RETURN t.id
             LIMIT 1
-            """,
-            name=nm,
-            level=lv,
-            parent_id=pid,
-        )
+            """
+            result = tx.run(query, name=nm, level=lv, parent_id=pid)
         return result.single() is not None
 
     with repo.session() as session:

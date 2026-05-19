@@ -46,14 +46,22 @@ MERGE_THRESHOLD = 0.90
 
 # Cypher that creates a Topic per distinct domain + BELONGS_TO edges.
 # Uses parameterized source set so tests can exercise a subset of labels.
+#
+# Notes on Cypher 5.x compatibility:
+# - The Topic MERGE keys on (name, level) only — including a null parent_id
+#   in the MERGE pattern is rejected by Neo4j 5 ("Cannot merge node because
+#   of null property value"). parent_id is set explicitly in ON CREATE.
+# - The second MERGE pre-binds the topic variable from UNWIND (you cannot
+#   property-access an alias inside a node pattern, e.g. `pair.topic`).
 _MIGRATE_CYPHER = """
 MATCH (n)
 WHERE n.domain IS NOT NULL
   AND any(lbl IN labels(n) WHERE lbl IN $labels)
 WITH DISTINCT n.domain AS domain_name
-MERGE (t:Topic {name: domain_name, level: 'area', parent_id: NULL})
+MERGE (t:Topic {name: domain_name, level: 'area'})
 ON CREATE SET
     t.id = randomUUID(),
+    t.parent_id = NULL,
     t.source = 'migrated',
     t.problem_count = 0,
     t.paper_count = 0,
@@ -61,12 +69,13 @@ ON CREATE SET
     t.updated_at = $now
 WITH collect({topic: t, name: domain_name}) AS pairs
 UNWIND pairs AS pair
+WITH pair.topic AS topic, pair.name AS domain_name
 MATCH (src)
-WHERE src.domain = pair.name
+WHERE src.domain = domain_name
   AND any(lbl IN labels(src) WHERE lbl IN $labels)
-MERGE (src)-[:BELONGS_TO]->(pair.topic)
+MERGE (src)-[:BELONGS_TO]->(topic)
 REMOVE src.domain
-RETURN count(DISTINCT pair.topic) AS topics_created_or_matched,
+RETURN count(DISTINCT topic) AS topics_created_or_matched,
        count(src) AS sources_migrated
 """
 

@@ -956,11 +956,37 @@ class Neo4jRepository:
                 )
 
         def _merge(tx: ManagedTransaction, props: dict) -> dict:
-            # Match on the natural identity: name + level + parent_id.
-            # parent_id is NULL for domains, so use coalesce() to treat
-            # missing vs null consistently.
-            result = tx.run(
+            # Match on the natural identity. Neo4j 5.x rejects MERGE on a
+            # null property value, so root topics (parent_id IS NULL) use a
+            # different MERGE pattern that omits parent_id from the keys;
+            # parent_id is set explicitly in ON CREATE. Domain-level Topics
+            # are required to have a unique (name, level=domain) per the
+            # Topic.validate_domain_has_no_parent invariant, so name+level
+            # is a stable identity for the root tier.
+            parent_id = props.get("parent_id")
+            if parent_id is None:
+                cypher = """
+                MERGE (t:Topic {name: $name, level: $level})
+                  ON CREATE SET
+                      t.id = $id,
+                      t.parent_id = NULL,
+                      t.description = $description,
+                      t.source = $source,
+                      t.openalex_id = $openalex_id,
+                      t.embedding = $embedding,
+                      t.problem_count = $problem_count,
+                      t.paper_count = $paper_count,
+                      t.created_at = $created_at,
+                      t.updated_at = $updated_at
+                  ON MATCH SET
+                      t.description = coalesce($description, t.description),
+                      t.openalex_id = coalesce($openalex_id, t.openalex_id),
+                      t.embedding = coalesce($embedding, t.embedding),
+                      t.updated_at = $updated_at
+                RETURN t
                 """
+            else:
+                cypher = """
                 MERGE (t:Topic {
                     name: $name,
                     level: $level,
@@ -982,10 +1008,13 @@ class Neo4jRepository:
                     t.embedding = coalesce($embedding, t.embedding),
                     t.updated_at = $updated_at
                 RETURN t
-                """,
+                """
+
+            result = tx.run(
+                cypher,
                 name=props["name"],
                 level=props["level"],
-                parent_id=props.get("parent_id"),
+                parent_id=parent_id,
                 id=props["id"],
                 description=props.get("description"),
                 source=props.get("source", "manual"),

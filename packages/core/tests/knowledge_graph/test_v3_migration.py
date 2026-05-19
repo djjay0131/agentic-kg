@@ -10,7 +10,6 @@ import math
 import uuid
 
 import pytest
-
 from agentic_kg.knowledge_graph.migrations.v3_topic_migration import (
     MERGE_THRESHOLD,
     MigrationReport,
@@ -21,7 +20,6 @@ from agentic_kg.knowledge_graph.migrations.v3_topic_migration import (
     run_migration,
 )
 from agentic_kg.knowledge_graph.models import Problem
-
 
 # =============================================================================
 # Pure helpers (no Neo4j)
@@ -123,11 +121,26 @@ def _test_domain(label: str) -> str:
 
 
 def _seed_problem(repo, sample_problem_data, domain_value: str):
+    """Create a Problem and tack on a legacy ``domain`` property in Neo4j.
+
+    After E-1 the Problem model no longer exposes ``domain``; the migration
+    tests still need v2-shaped data to migrate, so we set the property via
+    Cypher after the model-level create.
+    """
+    problem_data = {
+        k: v for k, v in sample_problem_data.items() if k != "domain"
+    }
     problem = Problem(
         id=f"TEST_{uuid.uuid4().hex[:16]}",
-        **{**sample_problem_data, "domain": domain_value},
+        **problem_data,
     )
     repo.create_problem(problem, generate_embedding=False)
+    with repo.session() as session:
+        session.run(
+            "MATCH (p:Problem {id: $id}) SET p.domain = $domain",
+            id=problem.id,
+            domain=domain_value,
+        )
     return problem
 
 
@@ -166,9 +179,14 @@ class TestMigrationStep1:
             ).single()
             assert rec is not None
 
-        # The domain property is gone
-        reloaded = neo4j_repository.get_problem(problem.id)
-        assert reloaded.domain is None
+        # The legacy domain property has been removed from the node
+        with neo4j_repository.session() as session:
+            domain_left = session.run(
+                "MATCH (p:Problem {id: $id}) RETURN p.domain AS d",
+                id=problem.id,
+            ).single()
+            assert domain_left is not None
+            assert domain_left["d"] is None
 
     def test_is_idempotent(
         self, neo4j_repository, sample_problem_data
