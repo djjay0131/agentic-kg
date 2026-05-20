@@ -1,0 +1,401 @@
+<h1 id="service-inventory">Service Inventory</h1>
+
+<p><strong>Last Updated:</strong> 2026-04-17</p>
+
+<p>This document provides a comprehensive inventory of all deployed services across the agentic-kg and Denario projects.</p>
+
+<h2 id="quick-reference">Quick Reference</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Service</th>
+      <th>Type</th>
+      <th>Status</th>
+      <th>Primary URL</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>agentic-kg-api-staging</td>
+      <td>FastAPI</td>
+      <td>✅ Healthy</td>
+      <td><a href="https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app">https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app</a></td>
+    </tr>
+    <tr>
+      <td>agentic-kg-ui-staging</td>
+      <td>Next.js</td>
+      <td>⚠️ Fixing</td>
+      <td><a href="https://agentic-kg-ui-staging-tqpsba7pza-uc.a.run.app">https://agentic-kg-ui-staging-tqpsba7pza-uc.a.run.app</a></td>
+    </tr>
+    <tr>
+      <td>denario</td>
+      <td>Streamlit</td>
+      <td>⚠️ Legacy</td>
+      <td><a href="https://denario-tqpsba7pza-uc.a.run.app">https://denario-tqpsba7pza-uc.a.run.app</a></td>
+    </tr>
+    <tr>
+      <td>denario-app</td>
+      <td>Streamlit</td>
+      <td>✅ Active</td>
+      <td><a href="https://denario-app-tqpsba7pza-uc.a.run.app">https://denario-app-tqpsba7pza-uc.a.run.app</a></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="agentic-kg-services">Agentic-KG Services</h2>
+
+<h3 id="agentic-kg-api-staging">agentic-kg-api-staging</h3>
+
+<p><strong>Type:</strong> FastAPI Backend
+<strong>Repository:</strong> <a href="https://github.com/djjay0131/agentic-kg">djjay0131/agentic-kg</a>
+<strong>Status:</strong> ✅ Healthy</p>
+
+<p><strong>URLs:</strong></p>
+
+<ul>
+  <li>Primary: <a href="https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app">https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app</a></li>
+  <li>Legacy: <a href="https://agentic-kg-api-staging-542888988741.us-central1.run.app">https://agentic-kg-api-staging-542888988741.us-central1.run.app</a></li>
+</ul>
+
+<p><strong>Purpose:</strong> REST API backend for the research problem knowledge graph system.</p>
+
+<p><strong>Features:</strong></p>
+
+<ul>
+  <li>Problem CRUD operations</li>
+  <li>Paper management</li>
+  <li>Hybrid semantic search</li>
+  <li>LLM-based extraction pipeline</li>
+  <li>Agent workflow orchestration</li>
+</ul>
+
+<p><strong>Health Check:</strong></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app/health
+<span class="c"># {"status":"ok","version":"0.1.0","neo4j_connected":true}</span>
+</code></pre></div></div>
+
+<p><strong>API Documentation:</strong></p>
+
+<ul>
+  <li>OpenAPI: <code class="language-plaintext highlighter-rouge">/docs</code></li>
+  <li>ReDoc: <code class="language-plaintext highlighter-rouge">/redoc</code></li>
+</ul>
+
+<p><strong>Environment Variables:</strong></p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">NEO4J_URI</code> - Neo4j connection string (from Secret Manager)</li>
+  <li><code class="language-plaintext highlighter-rouge">NEO4J_PASSWORD</code> - Neo4j password (from Secret Manager)</li>
+  <li><code class="language-plaintext highlighter-rouge">OPENAI_API_KEY</code> - OpenAI API key (from Secret Manager)</li>
+  <li><code class="language-plaintext highlighter-rouge">ANTHROPIC_API_KEY</code> - Anthropic API key (from Secret Manager)</li>
+</ul>
+
+<p><strong>Dependencies:</strong></p>
+
+<ul>
+  <li>Neo4j: bolt://34.173.74.125:7687</li>
+  <li>GCP Secret Manager</li>
+</ul>
+
+<hr />
+
+<h3 id="agentic-kg-ui-staging">agentic-kg-ui-staging</h3>
+
+<p><strong>Type:</strong> Next.js Frontend
+<strong>Repository:</strong> <a href="https://github.com/djjay0131/agentic-kg">djjay0131/agentic-kg</a>
+<strong>Status:</strong> ⚠️ API URL configuration fix in progress</p>
+
+<p><strong>URLs:</strong></p>
+
+<ul>
+  <li>Primary: <a href="https://agentic-kg-ui-staging-tqpsba7pza-uc.a.run.app">https://agentic-kg-ui-staging-tqpsba7pza-uc.a.run.app</a></li>
+  <li>Legacy: <a href="https://agentic-kg-ui-staging-542888988741.us-central1.run.app">https://agentic-kg-ui-staging-542888988741.us-central1.run.app</a></li>
+</ul>
+
+<p><strong>Purpose:</strong> Web dashboard for exploring the knowledge graph and managing research problems.</p>
+
+<p><strong>Features:</strong></p>
+
+<ul>
+  <li>Dashboard with system stats</li>
+  <li>Problem browser and detail views</li>
+  <li>Paper listing</li>
+  <li>Semantic search interface</li>
+  <li>Graph visualization (react-force-graph)</li>
+  <li>Extraction interface</li>
+  <li>Agent workflow UI</li>
+</ul>
+
+<p><strong>Pages:</strong></p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">/</code> - Dashboard</li>
+  <li><code class="language-plaintext highlighter-rouge">/problems</code> - Problem list</li>
+  <li><code class="language-plaintext highlighter-rouge">/problems/[id]</code> - Problem details</li>
+  <li><code class="language-plaintext highlighter-rouge">/papers</code> - Paper list</li>
+  <li><code class="language-plaintext highlighter-rouge">/graph</code> - Graph visualization</li>
+  <li><code class="language-plaintext highlighter-rouge">/extract</code> - Extraction interface</li>
+  <li><code class="language-plaintext highlighter-rouge">/workflows</code> - Agent workflows</li>
+  <li><code class="language-plaintext highlighter-rouge">/workflows/[id]</code> - Workflow detail</li>
+</ul>
+
+<p><strong>Build-Time Environment:</strong></p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">NEXT_PUBLIC_API_URL</code> - API endpoint (required at build time)</li>
+</ul>
+
+<p><strong>Dependencies:</strong></p>
+
+<ul>
+  <li>agentic-kg-api-staging</li>
+</ul>
+
+<hr />
+
+<h2 id="denario-services">Denario Services</h2>
+
+<h3 id="denario-legacy">denario (Legacy)</h3>
+
+<p><strong>Type:</strong> Streamlit App
+<strong>Repository:</strong> <a href="https://github.com/djjay0131/Denario">djjay0131/Denario</a>
+<strong>Status:</strong> ⚠️ Legacy - Consider deprecating</p>
+
+<p><strong>URLs:</strong></p>
+
+<ul>
+  <li>Primary: <a href="https://denario-tqpsba7pza-uc.a.run.app">https://denario-tqpsba7pza-uc.a.run.app</a></li>
+  <li>Legacy: <a href="https://denario-542888988741.us-central1.run.app">https://denario-542888988741.us-central1.run.app</a></li>
+</ul>
+
+<p><strong>Purpose:</strong> Original Denario Streamlit interface (older version).</p>
+
+<p><strong>Version:</strong> Commit 5d5713e
+<strong>Dockerfile:</strong> <code class="language-plaintext highlighter-rouge">docker/Dockerfile.prod</code>
+<strong>Install:</strong> <code class="language-plaintext highlighter-rouge">pip install "denario[app]"</code></p>
+
+<p><strong>Environment Variables:</strong></p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">OPENAI_API_KEY</code> - OpenAI API key (from Secret Manager)</li>
+  <li><code class="language-plaintext highlighter-rouge">GOOGLE_API_KEY</code> - Google/Gemini API key (from Secret Manager)</li>
+  <li><code class="language-plaintext highlighter-rouge">ANTHROPIC_API_KEY</code> - Anthropic API key (from Secret Manager)</li>
+  <li><code class="language-plaintext highlighter-rouge">PERPLEXITY_API_KEY</code> - Perplexity API key (from Secret Manager)</li>
+</ul>
+
+<p><strong>Issues:</strong></p>
+
+<ul>
+  <li>Older version without recent bug fixes</li>
+  <li>No file upload restrictions</li>
+  <li>Missing Vertex AI improvements</li>
+</ul>
+
+<hr />
+
+<h3 id="denario-app-active">denario-app (Active)</h3>
+
+<p><strong>Type:</strong> Streamlit App
+<strong>Repository:</strong> <a href="https://github.com/djjay0131/DenarioApp">djjay0131/DenarioApp</a>
+<strong>Status:</strong> ✅ Active with improvements</p>
+
+<p><strong>URLs:</strong></p>
+
+<ul>
+  <li>Primary: <a href="https://denario-app-tqpsba7pza-uc.a.run.app">https://denario-app-tqpsba7pza-uc.a.run.app</a></li>
+  <li>Legacy: <a href="https://denario-app-542888988741.us-central1.run.app">https://denario-app-542888988741.us-central1.run.app</a></li>
+</ul>
+
+<p><strong>Purpose:</strong> Enhanced Denario Streamlit interface with production improvements.</p>
+
+<p><strong>Version:</strong> Commit b5e1270
+<strong>Dockerfile:</strong> <code class="language-plaintext highlighter-rouge">Dockerfile</code> (root)
+<strong>Install:</strong> <code class="language-plaintext highlighter-rouge">pip install denario_app</code></p>
+
+<p><strong>Improvements over legacy denario:</strong></p>
+
+<ol>
+  <li>File upload restrictions (.md and .txt only)</li>
+  <li>Better error handling (UnicodeDecodeError)</li>
+  <li>Vertex AI integration (<code class="language-plaintext highlighter-rouge">GOOGLE_CLOUD_PROJECT</code>, <code class="language-plaintext highlighter-rouge">GOOGLE_CLOUD_LOCATION</code>)</li>
+  <li>Docker permission fixes</li>
+  <li>Production warnings</li>
+</ol>
+
+<p><strong>Environment Variables:</strong></p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">OPENAI_API_KEY</code> - OpenAI API key (from Secret Manager)</li>
+  <li><code class="language-plaintext highlighter-rouge">GOOGLE_API_KEY</code> - Google/Gemini API key (from Secret Manager)</li>
+  <li><code class="language-plaintext highlighter-rouge">ANTHROPIC_API_KEY</code> - Anthropic API key (from Secret Manager)</li>
+  <li><code class="language-plaintext highlighter-rouge">PERPLEXITY_API_KEY</code> - Perplexity API key (from Secret Manager)</li>
+  <li><code class="language-plaintext highlighter-rouge">GOOGLE_CLOUD_PROJECT</code> - GCP project ID (vt-gcp-00042)</li>
+  <li><code class="language-plaintext highlighter-rouge">GOOGLE_CLOUD_LOCATION</code> - GCP region (us-central1)</li>
+</ul>
+
+<p><strong>Recent Commits:</strong></p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">b5e1270</code> - Add GOOGLE_CLOUD_PROJECT env vars for Vertex AI</li>
+  <li><code class="language-plaintext highlighter-rouge">b9f6b4b</code> - Restrict file uploads to markdown/text files only</li>
+  <li><code class="language-plaintext highlighter-rouge">289b1ef</code> - Add PDF text extraction support using PyMuPDF</li>
+  <li><code class="language-plaintext highlighter-rouge">06d6def</code> - Fix Docker build permission issue</li>
+  <li><code class="language-plaintext highlighter-rouge">a6e2c70</code> - Add Cloud Build configuration for GCP deployment</li>
+</ul>
+
+<hr />
+
+<h2 id="infrastructure">Infrastructure</h2>
+
+<h3 id="neo4j-database">Neo4j Database</h3>
+
+<p><strong>Type:</strong> Neo4j Graph Database
+<strong>Status:</strong> ✅ Running</p>
+
+<p><strong>Access:</strong></p>
+
+<ul>
+  <li>Bolt: bolt://34.173.74.125:7687</li>
+  <li>Browser: <a href="http://34.173.74.125:7474">http://34.173.74.125:7474</a></li>
+</ul>
+
+<p><strong>Purpose:</strong> Graph database for storing research problems, papers, and relationships.</p>
+
+<p><strong>Credentials:</strong></p>
+
+<ul>
+  <li>Username: <code class="language-plaintext highlighter-rouge">neo4j</code></li>
+  <li>Password: Stored in GCP Secret Manager (<code class="language-plaintext highlighter-rouge">NEO4J_PASSWORD</code>)</li>
+</ul>
+
+<p><strong>Terraform:</strong></p>
+
+<ul>
+  <li>Configuration: <code class="language-plaintext highlighter-rouge">infra/terraform/</code></li>
+  <li>Get password: <code class="language-plaintext highlighter-rouge">cd infra &amp;&amp; terraform output -raw neo4j_password</code></li>
+</ul>
+
+<hr />
+
+<h3 id="gcp-secret-manager">GCP Secret Manager</h3>
+
+<p><strong>Secrets:</strong></p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">OPENAI_API_KEY</code> - 164 bytes</li>
+  <li><code class="language-plaintext highlighter-rouge">ANTHROPIC_API_KEY</code> - 108 bytes</li>
+  <li><code class="language-plaintext highlighter-rouge">GOOGLE_API_KEY</code> - 39 bytes</li>
+  <li><code class="language-plaintext highlighter-rouge">PERPLEXITY_API_KEY</code> - 53 bytes</li>
+  <li><code class="language-plaintext highlighter-rouge">NEO4J_URI</code> - Connection string</li>
+  <li><code class="language-plaintext highlighter-rouge">NEO4J_PASSWORD</code> - Database password</li>
+</ul>
+
+<p><strong>Access:</strong></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># List secrets</span>
+gcloud secrets list
+
+<span class="c"># View secret value</span>
+gcloud secrets versions access latest <span class="nt">--secret</span><span class="o">=</span><span class="s2">"OPENAI_API_KEY"</span>
+</code></pre></div></div>
+
+<hr />
+
+<h2 id="url-formats">URL Formats</h2>
+
+<p>Cloud Run provides two URL formats for each service:</p>
+
+<ol>
+  <li><strong>Legacy Format (Project Number):</strong>
+    <ul>
+      <li>Pattern: <code class="language-plaintext highlighter-rouge">https://{service}-{project-number}.{region}.run.app</code></li>
+      <li>Example: <code class="language-plaintext highlighter-rouge">https://denario-542888988741.us-central1.run.app</code></li>
+      <li>Shown by: <code class="language-plaintext highlighter-rouge">gcloud run services list</code></li>
+    </ul>
+  </li>
+  <li><strong>New Format (Random String):</strong>
+    <ul>
+      <li>Pattern: <code class="language-plaintext highlighter-rouge">https://{service}-{random}.{region-code}.a.run.app</code></li>
+      <li>Example: <code class="language-plaintext highlighter-rouge">https://denario-tqpsba7pza-uc.a.run.app</code></li>
+      <li>Shown by: <code class="language-plaintext highlighter-rouge">gcloud run services describe</code></li>
+    </ul>
+  </li>
+</ol>
+
+<p>Both URLs point to the same service and are fully functional.</p>
+
+<hr />
+
+<h2 id="repository-links">Repository Links</h2>
+
+<ul>
+  <li><strong>agentic-kg:</strong> <a href="https://github.com/djjay0131/agentic-kg">https://github.com/djjay0131/agentic-kg</a></li>
+  <li><strong>Denario:</strong> <a href="https://github.com/djjay0131/Denario">https://github.com/djjay0131/Denario</a> (fork)</li>
+  <li><strong>DenarioApp:</strong> <a href="https://github.com/djjay0131/DenarioApp">https://github.com/djjay0131/DenarioApp</a> (fork)</li>
+  <li><strong>Upstream Denario:</strong> <a href="https://github.com/AstroPilot-AI/Denario">https://github.com/AstroPilot-AI/Denario</a></li>
+  <li><strong>Upstream DenarioApp:</strong> <a href="https://github.com/AstroPilot-AI/DenarioApp">https://github.com/AstroPilot-AI/DenarioApp</a></li>
+</ul>
+
+<hr />
+
+<h2 id="recommendations">Recommendations</h2>
+
+<h3 id="immediate-actions">Immediate Actions</h3>
+
+<ol>
+  <li><strong>Fix agentic-kg-ui deployment</strong> - Rebuild with NEXT_PUBLIC_API_URL (in progress)</li>
+  <li><strong>Document denario vs denario-app</strong> - Clarify which to use</li>
+  <li><strong>Consider deprecating legacy denario service</strong> - Consolidate to denario-app</li>
+</ol>
+
+<h3 id="future-improvements">Future Improvements</h3>
+
+<ol>
+  <li>Set up custom domains for cleaner URLs</li>
+  <li>Implement monitoring and alerting</li>
+  <li>Create automated health check dashboard</li>
+  <li>Document API endpoints with OpenAPI</li>
+  <li>Set up automated deployment pipelines</li>
+</ol>
+
+<hr />
+
+<h2 id="deployment-commands">Deployment Commands</h2>
+
+<h3 id="list-all-services">List All Services</h3>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud run services list <span class="nt">--region</span><span class="o">=</span>us-central1
+</code></pre></div></div>
+
+<h3 id="get-service-details">Get Service Details</h3>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud run services describe <span class="o">{</span>service-name<span class="o">}</span> <span class="nt">--region</span><span class="o">=</span>us-central1
+</code></pre></div></div>
+
+<h3 id="check-service-health">Check Service Health</h3>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># agentic-kg API</span>
+curl https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app/health
+
+<span class="c"># UI (check HTTP status)</span>
+curl <span class="nt">-I</span> https://agentic-kg-ui-staging-tqpsba7pza-uc.a.run.app
+</code></pre></div></div>
+
+<h3 id="view-logs">View Logs</h3>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud run services logs <span class="nb">read</span> <span class="o">{</span>service-name<span class="o">}</span> <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="nt">--limit</span><span class="o">=</span>50
+</code></pre></div></div>
+
+<hr />
+
+<h2 id="support">Support</h2>
+
+<p>For issues or questions:</p>
+
+<ul>
+  <li>Check service logs: <code class="language-plaintext highlighter-rouge">gcloud run services logs read</code></li>
+  <li>Review deployment docs: <code class="language-plaintext highlighter-rouge">construction/sprints/</code></li>
+  <li>Contact: djjay0131@gmail.com</li>
+</ul>
