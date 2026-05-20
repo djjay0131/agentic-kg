@@ -68,6 +68,7 @@ jobs:
             --disable-external
             --allow-hash-href
             --ignore-empty-alt
+            --no-enforce-https
             --swap-urls "^/agentic-kg:"
 
       - name: Deploy to GitHub Pages
