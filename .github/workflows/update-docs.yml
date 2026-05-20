@@ -68,6 +68,7 @@ jobs:
             --disable-external
             --allow-hash-href
             --ignore-empty-alt
+            --swap-urls "^/agentic-kg:"
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3

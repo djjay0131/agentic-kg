@@ -66,6 +66,7 @@ jobs:
             --disable-external
             --allow-hash-href
             --ignore-empty-alt
+            --swap-urls "^/agentic-kg/previews/pr-${{ github.event.pull_request.number }}:"
 
       - name: Publish preview
         uses: rossjrw/pr-preview-action@v1
