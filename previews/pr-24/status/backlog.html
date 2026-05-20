@@ -1,0 +1,991 @@
+<h1 id="feature-backlog">Feature Backlog</h1>
+
+<p>Auto-regenerated from <a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/BACKLOG.md"><code class="language-plaintext highlighter-rouge">llm/features/BACKLOG.md</code></a> on every push.</p>
+
+<p><strong>35</strong> active, <strong>3</strong> resolved.</p>
+
+<h2 id="active">Active</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Category</th>
+      <th>Title</th>
+      <th>Status</th>
+      <th>Priority</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>S-3</td>
+      <td> </td>
+      <td> </td>
+      <td> </td>
+      <td> </td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>Stabilization &amp; Test Fixes</td>
+      <td> </td>
+      <td> </td>
+      <td> </td>
+      <td> </td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>Sprint 10 integration tests (golden dataset)</td>
+      <td> </td>
+      <td> </td>
+      <td> </td>
+      <td> </td>
+      <td> </td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Partial Spec</code></td>
+      <td> </td>
+      <td> </td>
+      <td> </td>
+      <td> </td>
+      <td> </td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>High</td>
+    </tr>
+    <tr>
+      <td>Task 10 in sprint-10 doc; golden dataset for accuracy benchmarks not yet run against live Neo4j</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>D-1a</td>
+    </tr>
+    <tr>
+      <td>Real Data Ingestion &amp; Validation</td>
+    </tr>
+    <tr>
+      <td>Cloud Run Jobs for async ingestion</td>
+    </tr>
+    <tr>
+      <td>{: .label .label-yellow }<code class="language-plaintext highlighter-rouge">Specifying</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>High</td>
+    </tr>
+    <tr>
+      <td>Decouple ingestion from API instance lifecycle; Terraform job resource + job_runner.py. See <code class="language-plaintext highlighter-rouge">llm/features/cloud-run-jobs-ingestion.md</code></td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>D-1b</td>
+    </tr>
+    <tr>
+      <td>Real Data Ingestion &amp; Validation</td>
+    </tr>
+    <tr>
+      <td>GCS ingestion research log</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Needs Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>Medium</td>
+    </tr>
+    <tr>
+      <td>Write per-paper markdown progress files to GCS bucket during ingestion; durable provenance trail surviving job crashes. Follow-on to D-1a</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>D-2</td>
+    </tr>
+    <tr>
+      <td>Real Data Ingestion &amp; Validation</td>
+    </tr>
+    <tr>
+      <td>Extraction reliability metrics</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Needs Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>High</td>
+    </tr>
+    <tr>
+      <td>Measure F1 vs. inter-annotator agreement (success criterion from productContext.md)</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>D-3</td>
+    </tr>
+    <tr>
+      <td>Real Data Ingestion &amp; Validation</td>
+    </tr>
+    <tr>
+      <td>Retrieval quality benchmarks</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Needs Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>High</td>
+    </tr>
+    <tr>
+      <td>Measure MRR and nDCG vs. keyword/citation baselines</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>D-4</td>
+    </tr>
+    <tr>
+      <td>Real Data Ingestion &amp; Validation</td>
+    </tr>
+    <tr>
+      <td>Agent decision accuracy validation</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Needs Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>Medium</td>
+    </tr>
+    <tr>
+      <td>Validate EvaluatorAgent (&gt;90% human agreement) and consensus workflow (&gt;85%) against real data</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>E-1</td>
+    </tr>
+    <tr>
+      <td>Entity Ecosystem Expansion</td>
+    </tr>
+    <tr>
+      <td>Topic / Research Area entities</td>
+    </tr>
+    <tr>
+      <td>{: .label .label-blue }<code class="language-plaintext highlighter-rouge">Specified</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>High</td>
+    </tr>
+    <tr>
+      <td>First-class Topic nodes with hierarchy (domain → area → subtopic); replace <code class="language-plaintext highlighter-rouge">domain</code> string field; BELONGS_TO relationships. See <code class="language-plaintext highlighter-rouge">llm/features/topic-research-area-entities.md</code></td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>E-2</td>
+    </tr>
+    <tr>
+      <td>Entity Ecosystem Expansion</td>
+    </tr>
+    <tr>
+      <td>ResearchConcept entities</td>
+    </tr>
+    <tr>
+      <td>{: .label .label-blue }<code class="language-plaintext highlighter-rouge">Specified</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>High</td>
+    </tr>
+    <tr>
+      <td>Generic concepts as nodes; INVOLVES_CONCEPT and DISCUSSES relationships; shared BaseGraphEntity abstraction; embedding-based dedup. See <code class="language-plaintext highlighter-rouge">llm/features/research-concept-entities.md</code></td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>E-3</td>
+    </tr>
+    <tr>
+      <td>Entity Ecosystem Expansion</td>
+    </tr>
+    <tr>
+      <td>Model / Architecture entities</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Partial Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>Medium</td>
+    </tr>
+    <tr>
+      <td>ML models as first-class nodes (currently embedded in Baseline strings); USES_MODEL, VARIANT_OF relationships; model lineage chains. Gap analysis §4.1 Gap 3</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>E-4</td>
+    </tr>
+    <tr>
+      <td>Entity Ecosystem Expansion</td>
+    </tr>
+    <tr>
+      <td>Method / Methodology entities</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Partial Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>Medium</td>
+    </tr>
+    <tr>
+      <td>Research methods as nodes; APPLIES_METHOD, ADDRESSED_BY relationships. Gap analysis §4.1 Gap 4</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>E-5</td>
+    </tr>
+    <tr>
+      <td>Entity Ecosystem Expansion</td>
+    </tr>
+    <tr>
+      <td>Citation graph (Paper → Paper)</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Partial Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>High</td>
+    </tr>
+    <tr>
+      <td>CITES relationships from Semantic Scholar API data; enables influence chain analysis. Gap analysis §4.2</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>E-6</td>
+    </tr>
+    <tr>
+      <td>Entity Ecosystem Expansion</td>
+    </tr>
+    <tr>
+      <td>Entity descriptions for vector search</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Partial Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>Medium</td>
+    </tr>
+    <tr>
+      <td>Add <code class="language-plaintext highlighter-rouge">description</code> field to all entity types; use description+name for richer embeddings. Gap analysis §4.3 Cap 5</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>E-7</td>
+    </tr>
+    <tr>
+      <td>Entity Ecosystem Expansion</td>
+    </tr>
+    <tr>
+      <td>Cross-entity normalization</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Partial Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>Medium</td>
+    </tr>
+    <tr>
+      <td>Extend mention-to-concept canonicalization pattern to ResearchConcept, Model, Method (currently only Problems are deduplicated). Gap analysis §4.3 Cap 4</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>E-8</td>
+    </tr>
+    <tr>
+      <td>Entity Ecosystem Expansion</td>
+    </tr>
+    <tr>
+      <td>Extraction prompt expansion</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Needs Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>High</td>
+    </tr>
+    <tr>
+      <td>Extend LLM extraction prompts to capture Topics, Concepts, Models, Methods from papers (currently only extracts Problems from Limitations/Future Work sections)</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>C-1</td>
+    </tr>
+    <tr>
+      <td>Community Detection &amp; Hierarchical Summarization</td>
+    </tr>
+    <tr>
+      <td>Community detection</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Partial Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>High</td>
+    </tr>
+    <tr>
+      <td>Leiden/Louvain algorithm on full graph; Community nodes at multiple hierarchy levels; incremental updates. Gap analysis §4.3 Cap 1</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>C-2</td>
+    </tr>
+    <tr>
+      <td>Community Detection &amp; Hierarchical Summarization</td>
+    </tr>
+    <tr>
+      <td>Hierarchical graph summarization</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Partial Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>High</td>
+    </tr>
+    <tr>
+      <td>LLM-generated summaries per community at multiple resolutions (domain → topic → subtopic → concept); answers global questions. Gap analysis §4.3 Cap 2</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>C-3</td>
+    </tr>
+    <tr>
+      <td>Community Detection &amp; Hierarchical Summarization</td>
+    </tr>
+    <tr>
+      <td>Community browsing API &amp; UI</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Needs Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>Medium</td>
+    </tr>
+    <tr>
+      <td>API endpoints and frontend for exploring research landscape by community</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>R-1</td>
+    </tr>
+    <tr>
+      <td>Graph-Based RAG Retrieval</td>
+    </tr>
+    <tr>
+      <td>Query-facing vector search</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Partial Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>High</td>
+    </tr>
+    <tr>
+      <td>Expose vector search across all entity types for user queries (currently internal to matching pipeline only). Gap analysis §4.3 Cap 3</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>R-2</td>
+    </tr>
+    <tr>
+      <td>Graph-Based RAG Retrieval</td>
+    </tr>
+    <tr>
+      <td>Graph neighbor expansion</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Partial Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>High</td>
+    </tr>
+    <tr>
+      <td>Configurable-depth graph traversal from vector search hits; context assembly from graph paths</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>R-3</td>
+    </tr>
+    <tr>
+      <td>Graph-Based RAG Retrieval</td>
+    </tr>
+    <tr>
+      <td>LLM synthesis endpoint</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Partial Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>High</td>
+    </tr>
+    <tr>
+      <td>POST /api/query — natural language question → answer with provenance from graph</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>R-4</td>
+    </tr>
+    <tr>
+      <td>Graph-Based RAG Retrieval</td>
+    </tr>
+    <tr>
+      <td>Community-aware retrieval</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Partial Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>Medium</td>
+    </tr>
+    <tr>
+      <td>Include community summaries in retrieval context for global/thematic questions</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>R-5</td>
+    </tr>
+    <tr>
+      <td>Graph-Based RAG Retrieval</td>
+    </tr>
+    <tr>
+      <td>RAG evaluation &amp; benchmarks</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Needs Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>Medium</td>
+    </tr>
+    <tr>
+      <td>Measure improvement vs. vector-only retrieval for multi-hop questions</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>P-1</td>
+    </tr>
+    <tr>
+      <td>Production Readiness</td>
+    </tr>
+    <tr>
+      <td>Production deployment</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Needs Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>High</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">terraform apply -var-file=envs/prod.tfvars</code>; needs runbook, monitoring, alerting</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>P-2</td>
+    </tr>
+    <tr>
+      <td>Production Readiness</td>
+    </tr>
+    <tr>
+      <td>Neo4j production hosting docs</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Needs Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>High</td>
+    </tr>
+    <tr>
+      <td>Aura vs. self-managed decision; connection strings, backup procedures, failover (from sprint-01 backlog)</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>P-3</td>
+    </tr>
+    <tr>
+      <td>Production Readiness</td>
+    </tr>
+    <tr>
+      <td>Multi-hop graph traversal</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Needs Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>Medium</td>
+    </tr>
+    <tr>
+      <td>FR-2.3.4 deferred from Sprint 01; add <code class="language-plaintext highlighter-rouge">max_depth</code> to <code class="language-plaintext highlighter-rouge">get_related_problems()</code>; useful for agent exploration and R-2</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>P-4</td>
+    </tr>
+    <tr>
+      <td>Production Readiness</td>
+    </tr>
+    <tr>
+      <td>Referential integrity on delete</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Needs Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>Low</td>
+    </tr>
+    <tr>
+      <td>Check EXTRACTED_FROM relations before paper delete; prefer soft delete (from sprint-01 backlog)</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>P-5</td>
+    </tr>
+    <tr>
+      <td>Production Readiness</td>
+    </tr>
+    <tr>
+      <td>Scalability testing</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Needs Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>Medium</td>
+    </tr>
+    <tr>
+      <td>Current system untested beyond small datasets; paper’s system tested on only 10 papers; need to validate at 100+ papers</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>P-6</td>
+    </tr>
+    <tr>
+      <td>Production Readiness</td>
+    </tr>
+    <tr>
+      <td>Auto-publish backlog to Pages site</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Has Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>Low</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">docs/backlog.md</code> published 2026-04-15. Follow-up: extend <code class="language-plaintext highlighter-rouge">.github/scripts/generate_docs.py</code> to regenerate from <code class="language-plaintext highlighter-rouge">llm/features/BACKLOG.md</code> on every push instead of manual snapshot</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>P-7</td>
+    </tr>
+    <tr>
+      <td>Production Readiness</td>
+    </tr>
+    <tr>
+      <td>Migrate <code class="language-plaintext highlighter-rouge">update-docs.yml</code> trigger paths from <code class="language-plaintext highlighter-rouge">memory-bank/</code> to <code class="language-plaintext highlighter-rouge">llm/memory_bank/</code></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Needs Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>Low</td>
+    </tr>
+    <tr>
+      <td>Workflow still watches the stale legacy path</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>T-1</td>
+    </tr>
+    <tr>
+      <td>Production Readiness</td>
+    </tr>
+    <tr>
+      <td>Taxonomy management at scale</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Needs Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>Medium</td>
+    </tr>
+    <tr>
+      <td>Versioned taxonomy with branching/merge, import/export, conflict resolution for LLM proposals. Flagged by E-1 spec — needed if taxonomy grows beyond 200 nodes</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>V-1</td>
+    </tr>
+    <tr>
+      <td>Unvalidated Success Criteria</td>
+    </tr>
+    <tr>
+      <td>Extraction F1 within 10% of inter-annotator agreement</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Not measured</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>productContext.md</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>V-2</td>
+    </tr>
+    <tr>
+      <td>Unvalidated Success Criteria</td>
+    </tr>
+    <tr>
+      <td>MRR/nDCG improvement over keyword/citation baselines</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Not measured</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>productContext.md</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>V-3</td>
+    </tr>
+    <tr>
+      <td>Unvalidated Success Criteria</td>
+    </tr>
+    <tr>
+      <td>Faster time to actionable continuation</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Not measured</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>productContext.md</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>V-4</td>
+    </tr>
+    <tr>
+      <td>Unvalidated Success Criteria</td>
+    </tr>
+    <tr>
+      <td>Higher user-reported confidence vs. opaque AI</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Not measured</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>productContext.md</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>V-5</td>
+    </tr>
+    <tr>
+      <td>Unvalidated Success Criteria</td>
+    </tr>
+    <tr>
+      <td>Active use by research teams</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Not achieved</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>productContext.md</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+  </tbody>
+</table>
+
+<details>
+<summary><strong>Resolved (3)</strong></summary>
+
+
+
+
+| ID | Category | Title | Status | Priority | Notes |
+|---|---|---|---|---|---|
+| ~~S-1~~
+| Stabilization &amp; Test Fixes
+| Fix 33 failing extraction tests
+| {: .label .label-green }`Resolved`
+
+| Critical
+| All 264 extraction tests passing as of 2026-03-28
+|
+| ~~S-2~~
+| Stabilization &amp; Test Fixes
+| Fix E2E test import errors
+| {: .label .label-green }`Resolved`
+
+| Critical
+| 32 E2E tests collecting cleanly as of 2026-03-28
+|
+| ~~D-1~~
+| Real Data Ingestion &amp; Validation
+| Ingest real papers into KG
+| {: .label .label-green }`Verified`
+
+| High
+| Implemented and verified 2026-03-28. See `llm/features/d1-ingest-real-papers.md`
+|
+
+
+
+
+
+</details>
