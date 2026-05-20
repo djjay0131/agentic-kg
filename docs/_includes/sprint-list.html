@@ -1,0 +1,24 @@
+{%- comment -%}
+Render a card-ish list of sprints. Usage:
+
+  {% include sprint-list.html items=site.data.sprints.items %}
+{%- endcomment -%}
+
+{% assign rows = include.items %}
+{% if rows == nil or rows.size == 0 %}
+
+_No sprints found._
+
+{% else %}
+
+| # | Sprint | Status | Source |
+|---|---|---|---|
+{% for item in rows -%}
+| {{ item.number }}
+| {{ item.name }}
+| {% include status-badge.html status=item.status %}
+| [`{{ item.filename }}`](https://github.com/djjay0131/agentic-kg/blob/master/construction/sprints/{{ item.filename }})
+|
+{% endfor %}
+
+{% endif %}

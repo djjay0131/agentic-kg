@@ -4,7 +4,11 @@ Last updated: 2026-04-21
 
 ## Current Work Focus
 
-**Entity expansion phase — E-1 shipped, E-2 VERIFIED.** E-1 (Topic/Research Area entities) implemented on branch `feat/e-1-topic-model-unit-1` across 8 units, PR #22. E-2 (ResearchConcept entities) implemented on branch `feat/e-2-research-concept` across 6 units, PR #23 stacked on E-1. Both branches stacked; E-2 targets E-1's branch.
+**enhance-github-pages Phase A VERIFIED (2026-04-21).** Ran `/constellize:feature:implement` followed by `/constellize:feature:verify` on `feat/enhance-github-pages` (branched off master). 4 units shipped: (1) `generate_site_data.py` emitter with Pydantic `DocsStats` validation + 31 unit tests at 100% coverage; (2) Jekyll `just-the-docs` site skeleton with `about/` + `status/` sections, 3 Liquid includes, and placeholder page content; (3) rewrote `update-docs.yml` with new watched paths + concurrency + HTMLProofer, added `preview-docs.yml` for PR previews via `rossjrw/pr-preview-action`; (4) 56-test static structure/workflow suite. 87 tests total, ruff clean, all 4 quality gates pass.
+
+**Entity expansion phase — E-1 shipped, E-2 VERIFIED.** E-1 (Topic/Research Area entities) implemented on branch `feat/e-1-topic-model-unit-1` across 8 units, PR #22. E-2 (ResearchConcept entities) implemented on branch `feat/e-2-research-concept` across 6 units, PR #23 stacked on E-1.
+
+**Tooling/docs consolidation phase.** Ingestion pipeline working on GCP staging (commit `01d67f9`, 2026-04-01) — graph has 282 nodes, 151 edges, 18 ProblemMentions linked to ProblemConcepts, 5/5 sanity checks passing. Since then, tooling initiatives committed or specified:
 
 **E-2 verification (2026-04-21):** ran `/constellize:feature:verify` scoped to E-2 files. All four gates PASS: 99 E-2 unit tests (77 core + 22 API), 100% coverage on every E-2 source file's unit-testable code, ruff clean on every E-2 file, CLI + API smoke checks green. 22 integration repo tests (`test_research_concept_repository.py`) require live Neo4j and ran to plan in CI but not locally. Fixes applied during verification: added `test_non_mapping_entry_raises` and tests for `compute_pair_similarities` / `run_calibration` / `generate_research_concept_embedding` / `calibrate-concepts` CLI dispatch / inner `list_concepts` tx closure to reach 100% scoped coverage; ruff autofixed import ordering across six E-2 test files and `routers/concepts.py`. Feature status flipped SPECIFIED → IMPLEMENTED → VERIFIED.
 
