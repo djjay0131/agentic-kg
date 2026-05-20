@@ -92,7 +92,7 @@
   },"13": {
     "doc": "Status",
     "title": "Graph snapshot",
-    "content": "| Metric | Value | . | Last updated | 2026-04-16 | . | Graph nodes | 282 | . | Graph edges | 151 | . | Problem mentions | 18 | . | Problem concepts | 18 | . | Sanity checks | 5/5 passing | . | Completed sprints | 11 | . | Tests passing | 1217 | . ",
+    "content": "| Metric | Value | . | Last updated | 2026-05-20 | . | Graph nodes | 282 | . | Graph edges | 151 | . | Problem mentions | 18 | . | Problem concepts | 18 | . | Sanity checks | 5/5 passing | . | Completed sprints | 11 | . | Tests passing | 1312 | . ",
     "url": "/agentic-kg/status/#graph-snapshot",
     
     "relUrl": "/status/#graph-snapshot"
