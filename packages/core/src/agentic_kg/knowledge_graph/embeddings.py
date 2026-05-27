@@ -44,7 +44,10 @@ class EmbeddingService:
         if self._client is None:
             try:
                 from openai import OpenAI
-                self._client = OpenAI(api_key=self._config.api_key)
+                self._client = OpenAI(
+                    api_key=self._config.api_key,
+                    timeout=self._config.timeout,
+                )
             except ImportError:
                 raise EmbeddingError(
                     "openai package not installed. Run: pip install openai"

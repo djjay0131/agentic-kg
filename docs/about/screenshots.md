@@ -13,4 +13,4 @@ Placeholder. Screenshots of the Next.js UI and the Neo4j graph browser will land
 For now, see the deployed staging service:
 
 - API: `https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app`
-- Neo4j Browser: `http://34.173.74.125:7474`
+- Neo4j Browser: not publicly published — access via SSH tunnel or VPN (retrieve URI from Secret Manager / Terraform output `neo4j_uri`)

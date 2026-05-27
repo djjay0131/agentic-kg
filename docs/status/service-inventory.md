@@ -63,7 +63,7 @@ curl https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app/health
 
 **Dependencies:**
 
-- Neo4j: bolt://34.173.74.125:7687
+- Neo4j (bolt URL retrieved from Secret Manager — see `NEO4J_URI`)
 - GCP Secret Manager
 
 ---
@@ -194,13 +194,13 @@ curl https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app/health
 
 ### Neo4j Database
 
-**Type:** Neo4j Graph Database
+**Type:** Neo4j Graph Database (Compute Engine, staging)
 **Status:** ✅ Running
 
 **Access:**
 
-- Bolt: bolt://34.173.74.125:7687
-- Browser: <http://34.173.74.125:7474>
+- Bolt and Browser endpoints are intentionally **not published here**. Retrieve them at runtime via Secret Manager (`NEO4J_URI`) or Terraform output (`terraform output -raw neo4j_uri`).
+- The Neo4j Browser should not be exposed publicly; access via SSH tunnel or VPN only.
 
 **Purpose:** Graph database for storing research problems, papers, and relationships.
 
@@ -213,6 +213,7 @@ curl https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app/health
 
 - Configuration: `infra/terraform/`
 - Get password: `cd infra && terraform output -raw neo4j_password`
+- Get URI: `cd infra && terraform output -raw neo4j_uri`
 
 ---
 

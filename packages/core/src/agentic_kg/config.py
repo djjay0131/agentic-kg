@@ -51,6 +51,10 @@ class EmbeddingConfig:
     max_retries: int = 3
     retry_delay: float = 1.0
 
+    # Request timeout (seconds) — prevents the OpenAI client from hanging
+    # indefinitely on stalled connections during long ingestion runs.
+    timeout: float = 60.0
+
     @property
     def is_configured(self) -> bool:
         """Check if API key is properly configured."""
