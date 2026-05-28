@@ -2,10 +2,10 @@
 Unit tests for PDF text extraction.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-import httpx
 
+import httpx
+import pytest
 from agentic_kg.extraction.pdf_extractor import (
     ExtractedPage,
     ExtractedText,

@@ -315,6 +315,35 @@ def dump_taxonomy_to_yaml(taxonomy: list[dict], path: str | Path) -> None:
     Path(path).write_text(text)
 
 
+def flatten_taxonomy(parsed: list[dict]) -> dict[str, str]:
+    """Walk a parsed taxonomy and return a ``{name: level}`` mapping.
+
+    Used by ``TopicExtractor.__init__`` to build the closed-set Literal
+    schema and the prompt taxonomy block from a single source. The walk is
+    recursive — no fixed depth assumption — so future taxonomies deeper
+    than three levels work without code changes.
+
+    Args:
+        parsed: Output of ``parse_taxonomy`` (root list of domain dicts).
+
+    Returns:
+        Flat ``{name: level}`` dict. If the same name appears under two
+        different parents (legal in YAML, rare in practice), the later
+        traversal wins — the level is the same regardless, so the
+        collapse is harmless. Empty input returns an empty dict.
+    """
+    result: dict[str, str] = {}
+
+    def _visit(node: dict) -> None:
+        result[node["name"]] = node["level"]
+        for child in node.get("children") or []:
+            _visit(child)
+
+    for root in parsed:
+        _visit(root)
+    return result
+
+
 def taxonomy_to_yaml(taxonomy: list[dict]) -> str:
     """Serialize a taxonomy structure to a YAML string."""
     return yaml.safe_dump(

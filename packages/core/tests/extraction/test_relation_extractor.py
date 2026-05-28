@@ -2,9 +2,9 @@
 Unit tests for relation extractor.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from agentic_kg.extraction.llm_client import LLMResponse, TokenUsage
 from agentic_kg.extraction.relation_extractor import (
     ExtractedRelation,

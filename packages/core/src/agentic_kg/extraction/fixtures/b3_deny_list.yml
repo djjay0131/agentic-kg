@@ -1,0 +1,39 @@
+# B3 alias deny-list — E-8 spec, governance pattern (iii).
+#
+# Terms here are excluded from the per-paper alias surface forms used by
+# `link_problems_to_concepts` to draw INVOLVES_CONCEPT edges between
+# ProblemConcepts and ResearchConcepts. The intent is to prevent
+# generic-term false-positive avalanches: e.g., if the LLM extracts
+# "model" as an alias of a concept, every ProblemMention containing
+# the word "model" would otherwise be linked.
+#
+# Adding a term: edit this file with a `reason` and `added` date, open
+# a PR, and the verify-gate calibration eval over the 5 hand-labeled
+# fixtures must demonstrate concept recall stays above the AC-12 floor
+# (≥ 0.50 average). See the spec for the full governance contract.
+
+deny_list:
+  - term: "model"
+    reason: "ubiquitous in ML papers; would link nearly every mention"
+    added: "2026-05-27"
+  - term: "network"
+    reason: "ubiquitous in ML papers (neural network, attention network, etc.)"
+    added: "2026-05-27"
+  - term: "system"
+    reason: "generic across CS papers"
+    added: "2026-05-27"
+  - term: "approach"
+    reason: "generic methodology word"
+    added: "2026-05-27"
+  - term: "method"
+    reason: "generic methodology word"
+    added: "2026-05-27"
+  - term: "algorithm"
+    reason: "generic CS term"
+    added: "2026-05-27"
+  - term: "paper"
+    reason: "self-referential; would link mentions to their own paper aliases"
+    added: "2026-05-27"
+  - term: "work"
+    reason: "ubiquitous in research papers (this work, prior work, etc.)"
+    added: "2026-05-27"

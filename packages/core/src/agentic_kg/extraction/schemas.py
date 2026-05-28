@@ -8,7 +8,7 @@ used with the instructor library for structured LLM output.
 
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -296,6 +296,55 @@ def extracted_to_kg_problem(
         baselines=baselines,
         evidence=evidence,
         extraction_metadata=extraction_metadata,
+    )
+
+
+class _ExtractedTopicAssignmentBase(BaseModel):
+    """Schema base for a single topic assignment emitted by ``TopicExtractor``.
+
+    The dynamic ``topic_name`` Literal field is added by
+    ``TopicExtractor.__init__`` via ``pydantic.create_model`` so the accepted
+    name set is bound to the extractor's per-instance taxonomy snapshot.
+    Keeping the base name-free means downstream code can construct or pass
+    these without coupling to the live taxonomy.
+    """
+
+    level: Literal["domain", "area", "subtopic"]
+    confidence: float = Field(ge=0, le=1, default=0.8)
+    reasoning: Optional[str] = None
+
+
+class ExtractedResearchConcept(BaseModel):
+    """A research concept extracted from a paper.
+
+    Mirrors ``ExtractedProblem``'s grounding contract: every concept carries
+    a ``quoted_text`` snippet so downstream readers can audit the extraction.
+    Aliases are LLM-emitted surface forms for the *current* paper — the B3
+    linker uses them as-is and never substitutes the merged node's
+    accumulated alias list (pollution immunity).
+    """
+
+    name: str = Field(..., min_length=2, max_length=120)
+    aliases: list[str] = Field(default_factory=list, max_length=10)
+    description: Optional[str] = Field(default=None, max_length=400)
+    confidence: float = Field(ge=0, le=1, default=0.8)
+    quoted_text: str = Field(..., min_length=10)
+
+
+class ExtractedEntities(BaseModel):
+    """Orchestrator container for one paper's non-problem extractions.
+
+    Not an ``instructor`` response model — never sent to the LLM. The Literal
+    on ``topics`` is intentionally absent; orchestrator code may carry topic
+    assignments whose names came from a now-outdated extractor instance, and
+    the container shouldn't reject them.
+    """
+
+    topics: list[_ExtractedTopicAssignmentBase] = Field(
+        default_factory=list, max_length=5
+    )
+    concepts: list[ExtractedResearchConcept] = Field(
+        default_factory=list, max_length=20
     )
 
 

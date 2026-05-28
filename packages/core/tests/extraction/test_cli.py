@@ -2,11 +2,8 @@
 Unit tests for the extraction CLI.
 """
 
-import json
-from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from agentic_kg.cli import build_parser, main
 
 

@@ -20,6 +20,20 @@ class PromptVersion(str, Enum):
     V2 = "v2"  # Chain-of-thought reasoning (future)
 
 
+class EntityKind(str, Enum):
+    """The kind of entity an extractor pulls out of a paper.
+
+    Adding ``MODEL`` / ``METHOD`` in V2 is intentionally additive — extend
+    the enum, register a new ``build_<kind>_prompt`` factory, and wire it
+    in ``get_prompt_pair_for_kind``. Nothing else in the prompt module
+    needs to change.
+    """
+
+    PROBLEM = "problem"
+    TOPIC = "topic"
+    CONCEPT = "concept"
+
+
 @dataclass
 class PromptTemplate:
     """A versioned prompt template."""
@@ -252,6 +266,147 @@ def get_extraction_prompt(
         section_type=section_type,
         paper_title=paper_title,
     )
+
+
+# =============================================================================
+# E-8: Topic and concept prompt templates (V2-extensible)
+# =============================================================================
+
+TOPIC_SYSTEM_PROMPT_TEMPLATE_V1 = """You are an expert research librarian. \
+You will be given a paper's abstract and introduction and must assign it to \
+topics from a closed taxonomy.
+
+Rules:
+- Pick the SMALLEST number of topics that accurately characterize the paper's \
+research area(s) — usually one or two. Five is the hard upper bound.
+- Only choose topic names from the provided list. Do not invent new names, do \
+not abbreviate, and do not pluralize.
+- For each topic, also report its level (domain / area / subtopic) exactly \
+as listed in the taxonomy.
+- If the paper does not cleanly fit any topic, return an empty list rather \
+than guessing.
+- Assign a confidence score between 0 and 1 reflecting how well the paper \
+matches the topic.
+
+CLOSED-SET TAXONOMY (name :: level):
+{taxonomy}
+"""
+
+
+TOPIC_USER_PROMPT_TEMPLATE_V1 = """Paper title: {paper_title}
+
+---
+ABSTRACT AND INTRODUCTION:
+{section_text}
+---
+
+Return the smallest list of topic assignments from the taxonomy that \
+accurately characterize this paper. Drop topics you are not confident about \
+rather than guessing."""
+
+
+CONCEPT_SYSTEM_PROMPT_V1 = """You are an expert research scientist. You will \
+be given a paper's abstract, introduction, and methodology sections and must \
+extract the research concepts the paper uses or discusses.
+
+A "concept" is a technique, theory, framework, architecture, or named idea \
+that the paper relies on or contributes to — for example "attention mechanism", \
+"retrieval augmented generation", "contrastive learning", "graph neural \
+network".
+
+Rules:
+- Extract concrete, named concepts. Do not extract overly general terms like \
+"machine learning", "neural network", "deep learning", "AI", "model", or \
+"algorithm" — those are too generic to be useful as graph nodes.
+- For each concept, include the well-known synonyms or short forms the paper \
+uses (e.g. "RAG" for "retrieval augmented generation").
+- Ground each concept in a quoted snippet from the paper of at least 10 \
+characters. The quote should make it clear why this concept is in the paper.
+- Assign a confidence score between 0 and 1 based on how clearly the paper \
+relies on or discusses the concept.
+- Return at most 20 concepts. Prefer fewer high-quality extractions over \
+exhaustive enumeration.
+"""
+
+
+CONCEPT_USER_PROMPT_TEMPLATE_V1 = """Paper title: {paper_title}
+
+---
+ABSTRACT, INTRODUCTION, AND METHODOLOGY:
+{section_text}
+---
+
+Extract the research concepts the paper uses or discusses, with grounding \
+quotes. Drop concepts you would describe as "generic to the field" rather \
+than specific to this paper's contribution or approach."""
+
+
+def build_topic_prompt(taxonomy_names: tuple[str, ...]) -> tuple[str, str]:
+    """Render the closed-set taxonomy into the topic system prompt.
+
+    Returns ``(system_prompt, user_prompt_template)`` — the user template
+    still has ``{paper_title}`` and ``{section_text}`` placeholders that
+    ``TopicExtractor.extract`` fills at call time.
+
+    Args:
+        taxonomy_names: Ordered tuple of topic names from the snapshot. The
+            level annotation is rendered as a placeholder ("name :: ?")
+            because the prompt only needs the names to constrain output;
+            the level is constrained by the dynamic Literal in the schema.
+
+    Raises:
+        ValueError: If ``taxonomy_names`` is empty. An empty taxonomy means
+            ``Literal[]`` downstream, which pydantic rejects, and there is
+            no useful prompt to build.
+    """
+    if not taxonomy_names:
+        raise ValueError("taxonomy_names is empty; cannot build a closed-set prompt")
+
+    rendered = "\n".join(f"- {name}" for name in taxonomy_names)
+    system = TOPIC_SYSTEM_PROMPT_TEMPLATE_V1.format(taxonomy=rendered)
+    return system, TOPIC_USER_PROMPT_TEMPLATE_V1
+
+
+def build_concept_prompt() -> tuple[str, str]:
+    """Return the concept extractor's (system, user template) pair.
+
+    Static — there is no closed set to render. The level of detail (which
+    sections to feed) is the caller's responsibility, since some papers
+    don't separate methodology from approach.
+    """
+    return CONCEPT_SYSTEM_PROMPT_V1, CONCEPT_USER_PROMPT_TEMPLATE_V1
+
+
+def get_prompt_pair_for_kind(
+    kind: EntityKind, *, taxonomy_names: Optional[tuple[str, ...]] = None
+) -> tuple[str, str]:
+    """Dispatch ``EntityKind`` → ``(system_prompt, user_prompt_template)``.
+
+    Centralizing the dispatch here means V2 ``MODEL`` / ``METHOD`` extractors
+    add one elif branch + one factory call, not a rewrite. The function is
+    intentionally not a class method on PromptTemplate so the V1 module
+    stays import-cheap.
+
+    Args:
+        kind: One of ``EntityKind``. Unknown kinds raise ``ValueError``.
+        taxonomy_names: Required when ``kind`` is ``EntityKind.TOPIC``;
+            ignored otherwise. Raises ``TypeError`` if missing for topic.
+    """
+    if kind == EntityKind.PROBLEM:
+        # Problem extraction is still section-typed; the per-section
+        # prompts are obtained via get_extraction_prompt(...). Returning
+        # the generic V1 system + a section-shaped placeholder keeps the
+        # dispatcher signature uniform.
+        return SYSTEM_PROMPT_V1, USER_PROMPT_TEMPLATE_V1
+    if kind == EntityKind.TOPIC:
+        if taxonomy_names is None:
+            raise TypeError(
+                "get_prompt_pair_for_kind(TOPIC) requires taxonomy_names"
+            )
+        return build_topic_prompt(taxonomy_names)
+    if kind == EntityKind.CONCEPT:
+        return build_concept_prompt()
+    raise ValueError(f"Unknown EntityKind: {kind!r}")  # pragma: no cover
 
 
 # Few-shot examples for improved extraction (future use)

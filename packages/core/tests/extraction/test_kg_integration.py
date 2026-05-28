@@ -2,10 +2,9 @@
 Unit tests for Knowledge Graph integration.
 """
 
-import pytest
-from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
+import pytest
 from agentic_kg.extraction.kg_integration import (
     IntegrationConfig,
     IntegrationResult,
@@ -25,7 +24,7 @@ from agentic_kg.extraction.schemas import (
     ExtractedProblem,
     ExtractionResult,
 )
-from agentic_kg.knowledge_graph.models import Paper, Problem
+from agentic_kg.knowledge_graph.models import Paper
 from agentic_kg.knowledge_graph.relations import RelationError
 from agentic_kg.knowledge_graph.repository import DuplicateError, NotFoundError
 

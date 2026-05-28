@@ -7,31 +7,28 @@ Tests Phase 2 functionality:
 - Concept refinement after linking
 """
 
-import pytest
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from agentic_kg.extraction.kg_integration_v2 import (
+    IntegrationResultV2,
     KGIntegratorV2,
     MentionIntegrationResult,
-    IntegrationResultV2,
 )
 from agentic_kg.extraction.schemas import (
-    ExtractedProblem,
     ExtractedAssumption,
+    ExtractedBaseline,
     ExtractedConstraint,
     ExtractedDataset,
     ExtractedMetric,
-    ExtractedBaseline,
+    ExtractedProblem,
 )
 from agentic_kg.knowledge_graph.models import (
     MatchCandidate,
     MatchConfidence,
     ProblemConcept,
-    ProblemMention,
     ProblemStatus,
 )
-
 
 # =============================================================================
 # Fixtures

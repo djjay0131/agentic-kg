@@ -3,13 +3,12 @@ Unit tests for section segmentation.
 """
 
 import pytest
-
 from agentic_kg.extraction.section_segmenter import (
+    SECTION_PRIORITY,
     Section,
     SectionSegmenter,
     SectionType,
     SegmentedDocument,
-    SECTION_PRIORITY,
     get_section_segmenter,
     reset_section_segmenter,
 )

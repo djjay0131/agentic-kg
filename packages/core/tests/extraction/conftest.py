@@ -5,12 +5,16 @@ Provides shared test data, mock objects, and singleton reset fixtures
 used across extraction test modules.
 """
 
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
-from agentic_kg.extraction.batch import BatchConfig, BatchJob, BatchProgress, JobStatus, reset_batch_processor
+from agentic_kg.extraction.batch import (
+    BatchConfig,
+    BatchJob,
+    BatchProgress,
+    JobStatus,
+    reset_batch_processor,
+)
 from agentic_kg.extraction.llm_client import LLMResponse, TokenUsage
 from agentic_kg.extraction.pdf_extractor import ExtractedPage, ExtractedText
 from agentic_kg.extraction.pipeline import PipelineConfig, PipelineStageResult, reset_pipeline
@@ -33,7 +37,6 @@ from agentic_kg.extraction.schemas import (
     ExtractionResult,
 )
 from agentic_kg.extraction.section_segmenter import Section, SectionType, SegmentedDocument
-
 
 # =============================================================================
 # Singleton Reset (autouse)

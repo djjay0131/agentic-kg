@@ -2,14 +2,11 @@
 Unit tests for LLM client wrapper.
 """
 
-import pytest
-from tenacity import RetryError
 from unittest.mock import AsyncMock, MagicMock, patch
-from pydantic import BaseModel
 
+import pytest
 from agentic_kg.extraction.llm_client import (
     AnthropicClient,
-    BaseLLMClient,
     LLMAPIError,
     LLMConfig,
     LLMError,
@@ -23,6 +20,8 @@ from agentic_kg.extraction.llm_client import (
     get_openai_client,
     reset_llm_clients,
 )
+from pydantic import BaseModel
+from tenacity import RetryError
 
 
 # Sample Pydantic model for testing

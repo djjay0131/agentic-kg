@@ -3,13 +3,20 @@ Paper processing pipeline for research problem extraction.
 
 This module orchestrates the end-to-end extraction workflow:
 PDF → Text → Sections → Problems → Relations → Knowledge Graph
+
+E-8 additions (Unit 6) live at the bottom: ``extract_all_entities`` runs
+problem / topic / concept extraction in parallel via ``asyncio.gather``,
+with ``ExtractionFailure`` records carrying any unhandled exceptions so
+the integration layer can flag papers as ``extraction_incomplete``.
 """
 
+import asyncio
 import logging
+import traceback as _tb
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, Awaitable, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -628,3 +635,114 @@ def reset_pipeline() -> None:
     """Reset the singleton (useful for testing)."""
     global _pipeline
     _pipeline = None
+
+
+# =============================================================================
+# E-8 Unit 6 — Parallel orchestration (problem + topic + concept)
+# =============================================================================
+
+# Spec caps: message ≤ 500 chars, traceback ≤ 4 KB.
+_FAILURE_MESSAGE_MAX = 500
+_FAILURE_TRACEBACK_MAX = 4096
+
+
+@dataclass
+class ExtractionFailure:
+    """Structured record of a single extractor's unexpected failure.
+
+    Created by ``_run`` when an extractor raises an exception the spec did
+    not anticipate as recoverable (LLMError is silently degraded inside
+    each extractor; everything else lands here). Persisted by the
+    integration layer as ``Paper.extraction_failed_extractors`` so a
+    sanity query can surface papers needing re-ingestion.
+    """
+
+    extractor: str
+    exception_type: str
+    message: str
+    traceback: str
+    occurred_at: datetime
+
+
+@dataclass
+class PaperExtractionResult:
+    """Outcome of ``extract_all_entities`` for one paper."""
+
+    problems: list = field(default_factory=list)
+    topics: list = field(default_factory=list)
+    concepts: list = field(default_factory=list)
+    failures: list[ExtractionFailure] = field(default_factory=list)
+
+    @property
+    def is_partial(self) -> bool:
+        """True if at least one extractor raised an unexpected exception."""
+        return bool(self.failures)
+
+
+async def _run(name: str, coro: Awaitable[Any]) -> tuple[str, Any, Optional[ExtractionFailure]]:
+    """Run one extractor coroutine and translate failures to records.
+
+    ``BaseException`` is intentional so ``CancelledError`` is captured too:
+    if one extractor is cancelled (e.g. job-wide shutdown), the others
+    should still get a chance to finish before the orchestrator returns.
+    """
+    try:
+        result = await coro
+        return name, result, None
+    except BaseException as e:  # noqa: BLE001 — see docstring
+        logger.exception("Extractor %s failed", name)
+        failure = ExtractionFailure(
+            extractor=name,
+            exception_type=type(e).__name__,
+            message=str(e)[:_FAILURE_MESSAGE_MAX],
+            traceback=_tb.format_exc()[:_FAILURE_TRACEBACK_MAX],
+            occurred_at=datetime.now(timezone.utc),
+        )
+        return name, [], failure
+
+
+async def extract_all_entities(
+    *,
+    problem_call: Awaitable[list],
+    topic_call: Awaitable[list],
+    concept_call: Awaitable[list],
+    paper_doi: Optional[str] = None,
+) -> PaperExtractionResult:
+    """Run problem, topic, and concept extractors concurrently.
+
+    Each ``*_call`` is an already-built awaitable so this function stays
+    decoupled from each extractor's specific call signature. Per the
+    spec's degradation contract:
+
+    - Known ``LLMError`` is caught inside each extractor → ``[]`` returned →
+      no ``ExtractionFailure`` recorded (just a WARN in the extractor's log).
+    - Anything else is captured by ``_run`` as an ``ExtractionFailure``;
+      sibling extractors are unaffected and their payloads are preserved.
+
+    Args:
+        problem_call: Coroutine returning ``list[ExtractedProblem]``-shaped.
+        topic_call: Coroutine returning ``list[_ExtractedTopicAssignmentBase]``-shaped.
+        concept_call: Coroutine returning ``list[ExtractedResearchConcept]``-shaped.
+        paper_doi: Optional DOI for diagnostic log context.
+
+    Returns:
+        ``PaperExtractionResult`` carrying everything that succeeded and
+        any structured failure records.
+    """
+    if paper_doi is not None:
+        logger.debug("extract_all_entities: paper_doi=%s", paper_doi)
+
+    results = await asyncio.gather(
+        _run("problem", problem_call),
+        _run("topic", topic_call),
+        _run("concept", concept_call),
+    )
+    slots = {name: (payload, failure) for name, payload, failure in results}
+    failures = [f for _, f in slots.values() if f is not None]
+
+    return PaperExtractionResult(
+        problems=slots["problem"][0] or [],
+        topics=slots["topic"][0] or [],
+        concepts=slots["concept"][0] or [],
+        failures=failures,
+    )

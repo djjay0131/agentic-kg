@@ -2,11 +2,9 @@
 Unit tests for paper processing pipeline.
 """
 
-import pytest
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from agentic_kg.extraction.llm_client import LLMResponse, TokenUsage
+import pytest
 from agentic_kg.extraction.pdf_extractor import ExtractedPage, ExtractedText
 from agentic_kg.extraction.pipeline import (
     PaperProcessingPipeline,

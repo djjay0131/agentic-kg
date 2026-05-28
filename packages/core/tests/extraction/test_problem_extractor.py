@@ -2,9 +2,9 @@
 Unit tests for problem extractor.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from agentic_kg.extraction.llm_client import LLMError, LLMResponse, TokenUsage
 from agentic_kg.extraction.problem_extractor import (
     ExtractionConfig,

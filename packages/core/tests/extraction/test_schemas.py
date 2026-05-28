@@ -3,7 +3,6 @@ Unit tests for extraction schema models.
 """
 
 import pytest
-
 from agentic_kg.extraction.schemas import (
     BatchExtractionResult,
     ExtractedAssumption,
