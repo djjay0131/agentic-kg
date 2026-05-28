@@ -403,6 +403,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output results as JSON",
     )
     ingest.add_argument(
+        "--force-rewrite", action="store_true", dest="force_rewrite",
+        help=(
+            "Re-ingest papers that already exist in the graph: purge each "
+            "paper's extraction footprint before extracting again. Required "
+            "to override the guardrail that prevents collateral loss of "
+            "non-extraction edges (manual SOLVED_BY, human-curated tags). "
+            "See E-8 AC-13."
+        ),
+    )
+    ingest.add_argument(
         "-v", "--verbose", action="store_true",
         help="Enable verbose logging",
     )

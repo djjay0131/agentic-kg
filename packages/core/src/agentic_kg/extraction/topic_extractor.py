@@ -57,6 +57,16 @@ class TopicExtractor:
         self.taxonomy_names: tuple[str, ...] = tuple(flat.keys())
         self.taxonomy_levels: dict[str, str] = dict(flat)
 
+        if not self.taxonomy_names:
+            # ``Literal[()]`` raises TypeError downstream — surface the
+            # condition with a clear message instead. In practice
+            # parse_taxonomy already rejects empty roots, so this only
+            # triggers for pathological inputs (e.g. taxonomies whose
+            # children-only structure has no walkable names).
+            raise ValueError(
+                f"Taxonomy at {self.taxonomy_path} yielded zero topic names"
+            )
+
         # Dynamic Pydantic model with a Literal[*names] topic_name field.
         # Literal accepts a tuple via __class_getitem__ in Python 3.11+.
         literal_type = Literal[self.taxonomy_names]  # type: ignore[valid-type]

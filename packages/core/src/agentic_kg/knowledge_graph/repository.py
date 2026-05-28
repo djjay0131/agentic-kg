@@ -1063,6 +1063,47 @@ class Neo4jRepository:
 
         return self._topic_from_neo4j(data)
 
+    def get_topic_by_name(self, name: str) -> Topic:
+        """Fetch a Topic by its (case-sensitive) name.
+
+        Used by ``integrate_paper_entities`` after the LLM emits a closed-set
+        ``topic_name`` from the taxonomy snapshot. If the taxonomy has been
+        mutated mid-batch and the name no longer exists, this surfaces as a
+        ``NotFoundError`` — the caller is expected to log and skip rather
+        than crash the whole paper.
+
+        Raises ``NotFoundError`` when no Topic matches. If multiple Topics
+        share the name across levels, the lowest-level (most specific) one
+        is returned, then alphabetical by id as a deterministic tiebreaker.
+        """
+        def _get(tx: ManagedTransaction, nm: str) -> Optional[dict]:
+            result = tx.run(
+                """
+                MATCH (t:Topic {name: $name})
+                RETURN t
+                ORDER BY
+                  CASE t.level
+                    WHEN 'subtopic' THEN 0
+                    WHEN 'area' THEN 1
+                    WHEN 'domain' THEN 2
+                    ELSE 3
+                  END,
+                  t.id
+                LIMIT 1
+                """,
+                name=nm,
+            )
+            record = result.single()
+            return dict(record["t"]) if record else None
+
+        with self.session() as session:
+            data = session.execute_read(lambda tx: _get(tx, name))
+
+        if data is None:
+            raise NotFoundError(f"Topic not found: {name}")
+
+        return self._topic_from_neo4j(data)
+
     def update_topic(
         self,
         topic: Topic,

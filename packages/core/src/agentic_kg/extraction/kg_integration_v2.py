@@ -15,7 +15,7 @@ This module handles the new mention-to-concept workflow:
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -755,6 +755,166 @@ class KGIntegratorV2:
         logger.debug(f"[{trace_id}] CHECKPOINT [{stage}]: {data}")
         # TODO: Implement actual checkpoint storage (Neo4j or Redis)
         return True
+
+
+# =============================================================================
+# E-8 Unit 11 — Entity integration writer (topics + concepts + B3 + metadata)
+# =============================================================================
+
+
+MIN_TOPIC_CONFIDENCE = 0.7
+MIN_CONCEPT_CONFIDENCE = 0.7
+
+
+class EntityIntegrationResult(BaseModel):
+    """Outcome of ``integrate_paper_entities`` for one paper."""
+
+    paper_doi: str
+    topics_assigned: int = 0
+    concepts_linked: int = 0
+    problem_concept_edges_drawn: int = 0
+    paper_marked_incomplete: bool = False
+    skipped_topic_names: list[str] = Field(default_factory=list)
+
+
+def _set_paper_extraction_metadata(
+    repo: Neo4jRepository,
+    paper_doi: str,
+    *,
+    extraction_incomplete: bool,
+    extraction_failed_extractors: str,
+    taxonomy_hash: str,
+) -> None:
+    """Write extraction-status properties onto the Paper node.
+
+    Single Cypher statement with SET keeps the audit query simple:
+    ``MATCH (p:Paper) WHERE p.extraction_incomplete = true RETURN p`` —
+    no need to look at edges.
+    """
+    with repo.session() as session:
+        session.run(
+            """
+            MATCH (p:Paper {doi: $doi})
+            SET p.extraction_incomplete = $extraction_incomplete,
+                p.extraction_failed_extractors = $extraction_failed_extractors,
+                p.taxonomy_hash = $taxonomy_hash
+            """,
+            doi=paper_doi,
+            extraction_incomplete=extraction_incomplete,
+            extraction_failed_extractors=extraction_failed_extractors,
+            taxonomy_hash=taxonomy_hash,
+        )
+
+
+def integrate_paper_entities(
+    *,
+    paper_doi: str,
+    extraction_result: Any,  # PaperExtractionResult — annotated via runtime
+    mentions: list[Any],
+    taxonomy_hash: str,
+    repo: Neo4jRepository,
+    min_topic_confidence: float = MIN_TOPIC_CONFIDENCE,
+    min_concept_confidence: float = MIN_CONCEPT_CONFIDENCE,
+) -> EntityIntegrationResult:
+    """Write topic + concept edges and run the B3 problem→concept linker.
+
+    Spec contract (AC-5b, AC-6, AC-7, AC-8, AC-15):
+
+    - For each topic above ``min_topic_confidence``, write a ``BELONGS_TO``
+      edge from Paper to Topic via ``assign_entity_to_topic``. Unknown
+      topic names (taxonomy drift mid-batch) are skipped, not crashed.
+    - For each concept above ``min_concept_confidence``, call
+      ``create_or_merge_research_concept`` and ``link_paper_to_concept``;
+      retain the per-paper extraction for B3 (NOT the merged node's
+      alias list — pollution immunity).
+    - Run ``link_problems_to_concepts`` against the paper's problem mentions
+      and the per-paper concept extractions; write each resulting edge via
+      ``link_problem_to_concept``.
+    - Set ``Paper.extraction_incomplete`` based on ``extraction_result.failures``;
+      record failed extractor names in a comma-separated string; pin the
+      ``taxonomy_hash`` for staleness audits.
+
+    Topic/concept threshold defaults match ``MIN_TOPIC_CONFIDENCE`` and
+    ``MIN_CONCEPT_CONFIDENCE``; the verify gate must re-validate the
+    precision + recall envelope if either is changed (governance pattern iii).
+    """
+    # Import locally to avoid a top-of-module cycle on b3_linker → schemas.
+    from agentic_kg.extraction.b3_linker import link_problems_to_concepts
+
+    result = EntityIntegrationResult(paper_doi=paper_doi)
+
+    # ---- Topics → BELONGS_TO ----
+    from agentic_kg.knowledge_graph.repository import NotFoundError
+
+    for assignment in extraction_result.topics:
+        if assignment.confidence < min_topic_confidence:
+            continue
+        topic_name = getattr(assignment, "topic_name", None)
+        if topic_name is None:
+            # Defensive: assignment came from somewhere without the dynamic
+            # field. The base class doesn't carry it; this path is reached
+            # if a test passes a raw _ExtractedTopicAssignmentBase.
+            continue
+        try:
+            topic = repo.get_topic_by_name(topic_name)
+        except NotFoundError:
+            logger.warning(
+                "Topic %r not found in graph (taxonomy drift?), skipping for paper %s",
+                topic_name,
+                paper_doi,
+            )
+            result.skipped_topic_names.append(topic_name)
+            continue
+        repo.assign_entity_to_topic(
+            entity_id=paper_doi,
+            topic_id=topic.id,
+            entity_label="Paper",
+        )
+        result.topics_assigned += 1
+
+    # ---- Concepts → DISCUSSES + collect for B3 ----
+    paper_extractions: list[tuple[Any, str]] = []
+    for extracted in extraction_result.concepts:
+        if extracted.confidence < min_concept_confidence:
+            continue
+        concept, _created = repo.create_or_merge_research_concept(
+            name=extracted.name,
+            description=extracted.description,
+            aliases=list(extracted.aliases),
+        )
+        repo.link_paper_to_concept(
+            paper_doi=paper_doi,
+            research_concept_id=concept.id,
+        )
+        result.concepts_linked += 1
+        # Per-paper aliases only — see AC-8 pollution immunity.
+        paper_extractions.append((extracted, concept.id))
+
+    # ---- B3: problem mentions ↔ concepts ----
+    edges = link_problems_to_concepts(
+        mentions=mentions,
+        paper_extractions=paper_extractions,
+    )
+    for problem_concept_id, research_concept_id in edges:
+        repo.link_problem_to_concept(
+            problem_concept_id=problem_concept_id,
+            research_concept_id=research_concept_id,
+        )
+        result.problem_concept_edges_drawn += 1
+
+    # ---- Paper metadata: extraction_incomplete + taxonomy_hash ----
+    failed_names = sorted({f.extractor for f in extraction_result.failures})
+    extraction_incomplete = bool(failed_names)
+    _set_paper_extraction_metadata(
+        repo,
+        paper_doi,
+        extraction_incomplete=extraction_incomplete,
+        extraction_failed_extractors=",".join(failed_names),
+        taxonomy_hash=taxonomy_hash,
+    )
+    result.paper_marked_incomplete = extraction_incomplete
+
+    return result
 
 
 def integrate_extraction_results_v2(

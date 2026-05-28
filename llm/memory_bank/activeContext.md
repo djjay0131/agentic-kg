@@ -1,8 +1,12 @@
 # Active Context
 
-Last updated: 2026-05-20
+Last updated: 2026-05-27
 
 ## Current Work Focus
+
+**E-8 (extraction-prompt-expansion) implementation Units 1-13 complete and committed (2026-05-27).** Spec moved to IMPLEMENTED status. The extraction layer (schemas, prompts, topic/concept extractors, parallel orchestrator, B3 linker, deny-list governance) is shipped as commit `1d8b0db`; the integration + re-ingestion + completeness + eval-runner layer follows in the next commit. 51 new unit tests added (1462 total, all passing). Integration tests against live Neo4j and the AC-12 eval-set hand-labeling are deferred to `/constellize:feature:verify`.
+
+**Quick-wins from 2026-05-27.** Three small chores landed (commit `8fb6756`): scrubbed the staging Neo4j IP from `docs/about/screenshots.md` and `docs/status/service-inventory.md` (pointing readers at Secret Manager / Terraform output instead); added `timeout=60.0` to `EmbeddingConfig` and threaded through `OpenAI(...)` in `embeddings.py` so long ingestion runs cannot hang indefinitely; declared `instructor>=1.0.0` in `packages/core/pyproject.toml` (was tacit only).
 
 **All four open PRs landed (2026-05-19).** PR #25 (`fix/ci-health`, `f78d3f5`), PR #22 (E-1 Topic, `60b3f8a`), PR #26 (E-2 ResearchConcept, replacing auto-closed #23, `1d32bf5`), and PR #24 (enhance-github-pages Phase A, `42ee5fe`) all merged to master in that order. Master CI is now green end-to-end for the first time since 2026-04-17.
 
@@ -60,10 +64,8 @@ tests_passing: 1312
 
 ## Immediate Next Steps
 
-1. Commit the untracked E-8 spec so it survives reboot
-2. Decide on PR #16 (Cloud Build triggers)
-3. Scrub the staging Neo4j IP from `docs/status/service-inventory.html`
-4. Start E-8 implementation via `/constellize:feature:implement extraction-prompt-expansion` (E-1 and E-2 deps now satisfied)
-5. Add OpenAI client timeout (60s) to prevent hanging extraction calls
-6. Add `instructor` to `pyproject.toml` dependencies
-7. Run full 20-paper ingestion to complete AC-10 (human review of graph quality ≥90%)
+1. Run `/constellize:feature:verify extraction-prompt-expansion` to drive E-8 through the verify gate (test integrity, integration tests against live Neo4j, AC-12 eval-set hand-labeling, AC-14 codebase audit, AC-16 wall-clock check)
+2. Hand-label the 5 E-8 eval papers (NLP / CV / IR / ML / DM-or-Agents) per `packages/core/tests/extraction/fixtures/e8_eval/SELECTION.md` with external review
+3. Wire `--force-rewrite` through `ingestion.py` so re-ingestion actually invokes `purge_paper_extraction` (currently only the argparse flag is exposed)
+4. Decide on PR #16 (Cloud Build triggers)
+5. Run full 20-paper ingestion to complete AC-10 (human review of graph quality ≥90%) once E-8 verify is green
