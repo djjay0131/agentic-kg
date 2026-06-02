@@ -83,6 +83,29 @@ class TestTopicExtractorInit:
             )
 
 
+class TestTopicExtractorEmptyTaxonomy:
+    """Pathological input: taxonomy parses but yields no names.
+
+    parse_taxonomy already rejects truly empty input, but a structure
+    that walks into nothing (e.g. handcrafted via internal helpers) would
+    otherwise crash with the cryptic ``Literal[()]`` TypeError at model
+    construction. The guard fails fast with a usable message.
+    """
+
+    def test_empty_taxonomy_raises_value_error(self, tmp_path, mock_client, monkeypatch):
+        path = tmp_path / "shallow.yml"
+        path.write_text("- name: CS\n  level: domain\n")
+
+        # Patch flatten_taxonomy at the call site to simulate an empty walk
+        # (real parse_taxonomy would refuse the input upstream).
+        import agentic_kg.extraction.topic_extractor as mod
+
+        monkeypatch.setattr(mod, "flatten_taxonomy", lambda parsed: {})
+
+        with pytest.raises(ValueError, match="zero topic names"):
+            TopicExtractor(client=mock_client, taxonomy_path=path)
+
+
 class TestTopicExtractorSnapshotIsolation:
     """AC-2 final clause: two instances against different taxonomies have
     independent accepted-name sets."""

@@ -243,6 +243,10 @@ def run_sanity_checks(
             ))
 
             # Check 3: Every Paper has at least one Author
+            # AC-14 exempt: structural check on AUTHORED_BY edge, not on
+            # extracted entities (topics/concepts/problems). Partial-extraction
+            # papers must still pass this check, so complete_papers_filter is
+            # intentionally NOT applied.
             result = session.run(
                 "MATCH (p:Paper) "
                 "WHERE NOT (p)-[:AUTHORED_BY]->(:Author) "

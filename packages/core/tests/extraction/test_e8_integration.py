@@ -138,6 +138,27 @@ class TestTopicEdgeWriting:
         )
         mock_repo.assign_entity_to_topic.assert_not_called()
 
+    def test_raw_base_assignment_skipped_silently(self, mock_repo):
+        """Defensive guard: a raw _ExtractedTopicAssignmentBase has no
+        topic_name (the dynamic Literal field is added by TopicExtractor).
+        The integration writer should skip it without crashing — that's
+        line 857 of kg_integration_v2.py.
+        """
+        raw_base = _ExtractedTopicAssignmentBase(level="area", confidence=0.9)
+        integrate_paper_entities(
+            paper_doi="10.1/abc",
+            extraction_result=PaperExtractionResult(
+                problems=[],
+                topics=[raw_base],
+                concepts=[],
+                failures=[],
+            ),
+            mentions=[],
+            taxonomy_hash="h",
+            repo=mock_repo,
+        )
+        mock_repo.assign_entity_to_topic.assert_not_called()
+
     def test_unknown_topic_name_skipped_not_crashed(self, mock_repo):
         # Simulate get_topic_by_name raising NotFoundError for a mid-batch
         # taxonomy mutation.

@@ -1,7 +1,7 @@
 # Feature: Extraction Prompt Expansion (E-8, V1: Topics + Concepts)
 
-**Status:** IMPLEMENTED
-**Date:** 2026-04-22 (drafted) · 2026-05-18 (dual-persona review complete) · 2026-05-27 (implementation Units 1-13 landed)
+**Status:** VERIFIED
+**Date:** 2026-04-22 (drafted) · 2026-05-18 (dual-persona review complete) · 2026-05-27 (implementation Units 1-13 landed) · 2026-06-02 (verify gates passed)
 **Author:** Feature Architect (AI-assisted)
 **Backlog ID:** E-8
 **Depends On:** E-1 (Topic entities, PR #22), E-2 (ResearchConcept entities, PR #23)

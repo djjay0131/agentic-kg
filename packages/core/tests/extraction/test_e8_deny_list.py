@@ -86,6 +86,23 @@ class TestModuleLevelConstant:
             assert required in deny_module.DEFAULT_ALIAS_DENY_LIST
 
 
+class TestMergedDenyList:
+    """``merged_deny_list`` is the helper an operator uses to extend the
+    default deny-list at a callsite without editing the YAML — useful for
+    one-off calibrations during the verify-gate eval run."""
+
+    def test_returns_default_when_no_extras(self):
+        result = deny_module.merged_deny_list()
+        assert result == deny_module.DEFAULT_ALIAS_DENY_LIST
+
+    def test_extras_lowercased_and_merged(self):
+        result = deny_module.merged_deny_list(["Transformer", "ATTENTION"])
+        assert "transformer" in result
+        assert "attention" in result
+        # Default entries are still present.
+        assert "model" in result
+
+
 class TestLoadDenyList:
     def test_load_from_explicit_path(self, tmp_path):
         custom = tmp_path / "deny.yml"

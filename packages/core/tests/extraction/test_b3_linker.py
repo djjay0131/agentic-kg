@@ -292,6 +292,61 @@ class TestLinkProblemsToConcepts:
         assert any("attention mechanism" in msg.lower() for msg in debug_msgs)
 
 
+class TestLinkProblemsToConceptsAcrossConcepts:
+    """When two paper_extractions entries merge to the same research_concept_id
+    (e.g. the LLM emitted both 'attention mechanism' and 'attention head'
+    and the dedup collapsed them), the linker must not emit two identical
+    edges for one mention. The cross-extraction dedup is what line 79 of
+    b3_linker.py protects.
+    """
+
+    def test_same_concept_id_across_extractions_emits_once(self):
+        mention = _mention(
+            statement="The attention mechanism dominates our pipeline.",
+            quoted="grounding",
+        )
+        # Both extractions resolved to the same merged ResearchConcept.
+        # Both ALSO match the mention text — the cross-extraction dedup
+        # is what we're exercising.
+        ex_a = ExtractedResearchConcept(
+            name="attention mechanism", quoted_text="grounding text a"
+        )
+        ex_b = ExtractedResearchConcept(
+            name="pipeline", quoted_text="grounding text b"
+        )
+        edges = link_problems_to_concepts(
+            mentions=[mention],
+            paper_extractions=[(ex_a, "rc-shared"), (ex_b, "rc-shared")],
+        )
+        # ex_a matches "attention mechanism" → edge added.
+        # ex_b matches "dominates pipeline" → would-be edge is a duplicate.
+        # The cross-extraction `seen` set collapses to one entry.
+        assert edges == [(mention.concept_id, "rc-shared")]
+
+
+class TestLinkProblemsToConceptsEmptyCandidate:
+    """``_filter_surface_forms`` skips empty strings defensively. An LLM
+    that emits an empty-string alias should not crash the linker."""
+
+    def test_empty_string_alias_is_skipped(self):
+        mention = _mention(
+            statement="Attention mechanism in retrieval.",
+            quoted="grounding",
+        )
+        extracted = ExtractedResearchConcept(
+            name="attention mechanism",
+            aliases=["", "self-attention"],
+            quoted_text="grounding text here",
+        )
+        edges = link_problems_to_concepts(
+            mentions=[mention],
+            paper_extractions=[(extracted, "rc-1")],
+        )
+        # Match still fires on the canonical name; empty alias silently
+        # skipped (not a crash).
+        assert edges == [(mention.concept_id, "rc-1")]
+
+
 class TestLinkProblemsToConceptsDuplicates:
     """Linker may emit duplicate (pc, rc) pairs if the same mention's text
     contains multiple surface forms of the same concept (e.g. name and

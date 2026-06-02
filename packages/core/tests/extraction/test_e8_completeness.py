@@ -65,6 +65,21 @@ class TestIncompletePapersByExtractor:
 
 
 class TestCompletenessHealthCheck:
+    def test_zero_papers_returns_empty(self):
+        """Edge case: empty graph. Returning the empty dict avoids a
+        ZeroDivisionError when later code computes fractions."""
+        repo = MagicMock()
+        sess = MagicMock()
+        sess.__enter__ = lambda self: sess
+        sess.__exit__ = lambda self, *a: None
+        empty = MagicMock()
+        empty.single.return_value = {"total": 0}
+        sess.run.return_value = empty
+        repo.session.return_value = sess
+
+        result = completeness.completeness_health_check(repo)
+        assert result == {}
+
     def test_returns_mapping_extractor_to_percentage(self):
         repo = MagicMock()
         sess = MagicMock()
