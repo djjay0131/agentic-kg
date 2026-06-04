@@ -643,6 +643,7 @@ async def run_ingest(args) -> None:
         enable_agent_workflow=not args.no_agent_workflow,
         min_extraction_confidence=args.min_confidence,
         on_progress=on_progress,
+        force_rewrite=args.force_rewrite,
     )
 
     print_ingestion_result(result, as_json=args.json_output)

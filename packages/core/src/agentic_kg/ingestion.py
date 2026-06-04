@@ -16,6 +16,7 @@ from agentic_kg.data_acquisition.aggregator import get_paper_aggregator
 from agentic_kg.data_acquisition.importer import get_paper_importer
 from agentic_kg.extraction.kg_integration_v2 import KGIntegratorV2
 from agentic_kg.extraction.pipeline import get_pipeline
+from agentic_kg.extraction.re_ingestion import PurgeBlocked, purge_paper_extraction
 from agentic_kg.knowledge_graph.repository import get_repository
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,16 @@ class IngestionResult(BaseModel):
     # Phase 2 counts
     papers_extracted: int = Field(0, description="Papers with successful extraction")
     papers_skipped_no_pdf: int = Field(0, description="Papers skipped (no PDF URL)")
+    papers_purged: int = Field(
+        0, description="Papers whose existing extraction footprint was purged before re-extraction"
+    )
+    papers_blocked_by_guardrail: int = Field(
+        0,
+        description=(
+            "Papers skipped because non-extraction edges block re-ingestion "
+            "and --force-rewrite was not set (AC-13)"
+        ),
+    )
     extraction_errors: dict[str, str] = Field(
         default_factory=dict, description="DOI → error message for failed extractions"
     )
@@ -84,6 +95,24 @@ def _notify(
             pass
 
 
+def _paper_has_footprint(repo: Any, paper_doi: str) -> bool:
+    """True if the paper already has at least one ProblemMention attached.
+
+    A single-row check that gates the purge-then-rewrite path: if the
+    paper exists as metadata-only (no extraction has run yet), the purge
+    step is unnecessary and is skipped.
+    """
+    with repo.session() as session:
+        row = session.run(
+            """
+            MATCH (m:ProblemMention)-[:EXTRACTED_FROM]->(p:Paper {doi: $doi})
+            RETURN count(m) AS n
+            """,
+            doi=paper_doi,
+        ).single()
+    return bool(row and row["n"] > 0)
+
+
 async def ingest_papers(
     query: str,
     limit: int = 20,
@@ -92,6 +121,7 @@ async def ingest_papers(
     enable_agent_workflow: bool = True,
     min_extraction_confidence: float = 0.5,
     on_progress: Optional[Callable[[str, Optional[str], Any], None]] = None,
+    force_rewrite: bool = False,
 ) -> IngestionResult:
     """
     End-to-end paper ingestion: search → import → extract → integrate.
@@ -104,6 +134,10 @@ async def ingest_papers(
         enable_agent_workflow: Route MEDIUM/LOW matches through agents.
         min_extraction_confidence: Minimum problem confidence to integrate.
         on_progress: Callback(phase, paper_doi, detail) for progress.
+        force_rewrite: If True, override the AC-13 guardrail so papers with
+            non-extraction incident edges are still purged before
+            re-extraction. Without this flag, such papers are skipped with
+            a recorded error rather than crashing the run.
 
     Returns:
         IngestionResult with counts and sanity check results.
@@ -142,8 +176,35 @@ async def ingest_papers(
         papers_with_pdf = [p for p in search.papers if p.pdf_url and p.doi]
         result.papers_skipped_no_pdf = len(search.papers) - len(papers_with_pdf)
 
+        # Repository handle reused for both the footprint check and any purge.
+        repo = get_repository()
+
         extraction_results = []
         for paper in papers_with_pdf:
+            # AC-13 wiring: papers with an existing extraction footprint go
+            # through purge-then-rewrite. Fresh papers skip the purge entirely.
+            if _paper_has_footprint(repo, paper.doi):
+                try:
+                    purge_report = purge_paper_extraction(
+                        repo, paper.doi, force_rewrite=force_rewrite
+                    )
+                    result.papers_purged += 1
+                    _notify(
+                        on_progress,
+                        "purged",
+                        paper.doi,
+                        {
+                            "problems_deleted": purge_report.problems_deleted,
+                            "mentions_deleted": purge_report.mentions_deleted,
+                            "collateral": len(purge_report.collateral_edge_loss),
+                        },
+                    )
+                except PurgeBlocked as e:
+                    result.papers_blocked_by_guardrail += 1
+                    result.extraction_errors[paper.doi] = str(e)
+                    logger.warning(f"[{trace_id}] {e}")
+                    continue
+
             try:
                 proc = await pipeline.process_pdf_url(
                     url=paper.pdf_url,

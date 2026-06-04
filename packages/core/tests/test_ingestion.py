@@ -5,18 +5,16 @@ Tests the end-to-end paper ingestion workflow:
 search → import → extract → integrate → sanity checks.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, call
-from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from agentic_kg.ingestion import (
     IngestionResult,
     SanityCheck,
+    _notify,
     ingest_papers,
     run_sanity_checks,
-    _notify,
 )
-
 
 # =============================================================================
 # Model Tests
@@ -151,6 +149,22 @@ def _make_integration_result(mentions_created=3, new_concepts=2, linked=1):
 
 class TestIngestPapers:
     """Tests for the ingest_papers orchestration function."""
+
+    @pytest.fixture(autouse=True)
+    def _patch_repository(self):
+        """Block real Neo4j connections in ingest_papers.
+
+        ``ingest_papers`` now calls ``get_repository()`` to support the
+        AC-13 purge-then-rewrite path. Every test in this class works on
+        mocked papers, so a real repo is never needed — we also default
+        the footprint check to False so the purge branch never fires.
+        """
+        with (
+            patch("agentic_kg.ingestion.get_repository") as repo_p,
+            patch("agentic_kg.ingestion._paper_has_footprint", return_value=False),
+        ):
+            repo_p.return_value = MagicMock()
+            yield
 
     @pytest.mark.asyncio
     async def test_dry_run_returns_papers_without_writing(self):
