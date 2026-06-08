@@ -1,0 +1,180 @@
+# Canonical Model seed for E-3.
+#
+# Each entry creates a Model node with ``is_canonical=True`` via
+# ``load_seed_models()``. The loader is idempotent: rerunning against the
+# same graph merges instead of creating duplicates. Canonical Models are
+# write-protected during dedup: a non-canonical create call cannot rename
+# them, but a canonical create call CAN promote a near-duplicate non-
+# canonical node (see AC-3, Tech Lead Q1 review).
+#
+# v1 ships ~20 well-known models covering language / vision / multimodal /
+# classical / graph families. Expansion to ~100 tracked as a follow-up.
+# Adding entries lands via PR — the verify-time eval (AC-10) re-runs on
+# each change to confirm the 0.95 threshold still clears precision +
+# recall gates.
+
+# =============================================================================
+# Language models
+# =============================================================================
+
+- name: BERT
+  description: Bidirectional Encoder Representations from Transformers; deep
+    bidirectional language model trained on masked language modeling.
+  aliases: [bert-base, bert-large]
+  architecture: transformer
+  model_type: language_model
+  year_introduced: 2018
+  introducing_paper_doi: 10.18653/v1/N19-1423
+
+- name: GPT-2
+  description: Generative Pre-trained Transformer 2; autoregressive language
+    model from OpenAI.
+  aliases: [gpt2]
+  architecture: transformer
+  model_type: language_model
+  year_introduced: 2019
+
+- name: GPT-3
+  description: Generative Pre-trained Transformer 3; large autoregressive
+    language model with 175B parameters.
+  aliases: [gpt3]
+  architecture: transformer
+  model_type: language_model
+  year_introduced: 2020
+
+- name: GPT-4
+  description: OpenAI's fourth-generation Generative Pre-trained Transformer
+    with multimodal capabilities.
+  aliases: [gpt4]
+  architecture: transformer
+  model_type: language_model
+  year_introduced: 2023
+
+- name: T5
+  description: Text-to-Text Transfer Transformer; unified text-to-text
+    framework for transfer learning.
+  aliases: [t5-base, t5-large, T5-base, T5-large]
+  architecture: transformer
+  model_type: language_model
+  year_introduced: 2019
+
+- name: LLaMA
+  description: Meta's Large Language Model Meta AI; open-weight foundation
+    language models.
+  aliases: [llama, llama-1]
+  architecture: transformer
+  model_type: language_model
+  year_introduced: 2023
+
+- name: Llama-2
+  description: Meta's second-generation open-weight large language model.
+  aliases: [llama2, llama-2-7b, llama-2-70b]
+  architecture: transformer
+  model_type: language_model
+  year_introduced: 2023
+
+- name: Mistral
+  description: Mistral AI's family of open-weight large language models.
+  aliases: [mistral-7b, mistral-instruct]
+  architecture: transformer
+  model_type: language_model
+  year_introduced: 2023
+
+- name: Claude
+  description: Anthropic's family of large language models.
+  aliases: [claude-1, claude-2, claude-3]
+  architecture: transformer
+  model_type: language_model
+  year_introduced: 2023
+
+# =============================================================================
+# Vision models
+# =============================================================================
+
+- name: ResNet
+  description: Residual Networks; deep convolutional architecture with skip
+    connections enabling very deep training.
+  aliases: [resnet-50, resnet-101, resnet-152, ResNet-50, ResNet-101]
+  architecture: cnn
+  model_type: vision_model
+  year_introduced: 2015
+
+- name: ViT
+  description: Vision Transformer; applies the transformer architecture to
+    image patches for classification.
+  aliases: [vision-transformer]
+  architecture: transformer
+  model_type: vision_model
+  year_introduced: 2020
+
+- name: Stable Diffusion
+  description: Open-weight text-to-image diffusion model.
+  aliases: [stable-diffusion, sd-1.5, sd-xl]
+  architecture: diffusion
+  model_type: vision_model
+  year_introduced: 2022
+
+# =============================================================================
+# Multimodal models
+# =============================================================================
+
+- name: CLIP
+  description: Contrastive Language-Image Pre-training; joint embedding of
+    images and text.
+  aliases: [clip-vit, openai-clip]
+  architecture: transformer
+  model_type: multimodal
+  year_introduced: 2021
+
+- name: Flamingo
+  description: DeepMind's few-shot visual language model.
+  architecture: transformer
+  model_type: multimodal
+  year_introduced: 2022
+
+# =============================================================================
+# Classical ML
+# =============================================================================
+
+- name: XGBoost
+  description: Scalable, distributed gradient-boosted decision tree library.
+  aliases: [xgboost, xgb]
+  architecture: gbdt
+  model_type: classical
+  year_introduced: 2016
+
+- name: LightGBM
+  description: Microsoft's gradient boosting framework optimized for speed
+    and memory efficiency.
+  aliases: [lightgbm, lgbm]
+  architecture: gbdt
+  model_type: classical
+  year_introduced: 2017
+
+# =============================================================================
+# Graph neural networks
+# =============================================================================
+
+- name: GCN
+  description: Graph Convolutional Network; spectral graph convolutions for
+    semi-supervised node classification.
+  aliases: [graph-convolutional-network]
+  architecture: gnn
+  model_type: graph_model
+  year_introduced: 2017
+
+- name: GraphSAGE
+  description: Inductive Graph Representation Learning via Sampling and
+    Aggregation.
+  aliases: [graph-sage]
+  architecture: gnn
+  model_type: graph_model
+  year_introduced: 2017
+
+- name: GAT
+  description: Graph Attention Network; attention-based aggregation over
+    graph neighbors.
+  aliases: [graph-attention-network]
+  architecture: gnn
+  model_type: graph_model
+  year_introduced: 2018

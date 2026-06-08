@@ -227,6 +227,22 @@ def generate_research_concept_embedding(
     return service.generate_embedding(text)
 
 
+def generate_model_embedding(
+    name: str, description: Optional[str] = None
+) -> list[float]:
+    """
+    Generate embedding for a Model (E-3).
+
+    Mirrors ``generate_research_concept_embedding``: embeds
+    ``"{name}: {description}"`` when a description is provided, else just
+    the name. Used for dedup on create_or_merge_model and for vector
+    similarity search across the Model index.
+    """
+    text = f"{name}: {description}" if description else name
+    service = EmbeddingService()
+    return service.generate_embedding(text)
+
+
 def generate_problem_embeddings_batch(
     problems: list[Problem],
 ) -> list[Optional[list[float]]]:

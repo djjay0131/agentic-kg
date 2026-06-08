@@ -1,0 +1,41 @@
+# E-3 Dedup Eval Set (AC-10)
+#
+# 10 hand-labeled (input → expected) pairs that gate the
+# DEFAULT_MODEL_DEDUP_THRESHOLD = 0.95 against name-collision regressions
+# AND threshold-gaming. Each input is fed to create_or_merge_model AFTER
+# the seed YAML has been loaded.
+#
+# - `expected: "BERT"` means the input should merge into the canonical BERT
+#   node (the resolved model.name must equal "BERT").
+# - `expected: NEW` means the input should NOT merge into any existing seed
+#   node; create_or_merge_model must return `created=True`.
+#
+# Gates:
+#   * Precision: 10/10 must resolve correctly (single mismatch fails).
+#   * Recall tripwire: at least 6 of the 8 merge-expecting pairs must
+#     merge (not create new). Catches threshold-gaming where someone
+#     bumps the threshold to clear a false-positive at the cost of recall.
+#
+# Adding or removing pairs requires re-running the eval and updating
+# the spec's AC-10 expected counts.
+
+- input: "bert"
+  expected: "BERT"
+- input: "BERT-large"
+  expected: "BERT"
+- input: "the BERT model"
+  expected: "BERT"
+- input: "GPT-4-turbo"
+  expected: "GPT-4"
+- input: "ResNet-50"
+  expected: "ResNet"
+- input: "completely unrelated quantum thing"
+  expected: NEW
+- input: "Mistral-7B"
+  expected: "Mistral"
+- input: "DistilBERT"
+  expected: NEW
+- input: "T5-base"
+  expected: "T5"
+- input: "stablediffusion"
+  expected: "Stable Diffusion"

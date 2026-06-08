@@ -22,6 +22,7 @@ from neo4j.exceptions import (
 from agentic_kg.config import Neo4jConfig, get_config
 from agentic_kg.knowledge_graph.models import (
     Author,
+    Model,
     Paper,
     Problem,
     ProblemStatus,
@@ -1794,33 +1795,40 @@ class Neo4jRepository:
         self.create_research_concept(concept, generate_embedding=False)
         return concept, True
 
-    _CONCEPT_RELATIONSHIPS = {
-        "INVOLVES_CONCEPT": ("ProblemConcept", "id", "mention_count"),
-        "DISCUSSES": ("Paper", "doi", "paper_count"),
+    # Generalized link relationships (E-3 Tech Lead Q5 review).
+    # Tuple shape: (source_label, source_id_field, target_label, target_count_field).
+    # The target uses ``id`` as its key in every current relationship.
+    _NODE_LINK_RELATIONSHIPS = {
+        "INVOLVES_CONCEPT": ("ProblemConcept", "id", "ResearchConcept", "mention_count"),
+        "DISCUSSES": ("Paper", "doi", "ResearchConcept", "paper_count"),
+        "USES_MODEL": ("Paper", "doi", "Model", "usage_count"),
     }
 
-    def _link_entity_to_concept(
+    def _link_entity_to_node(
         self,
         entity_id: str,
-        concept_id: str,
+        target_id: str,
         relationship: str,
     ) -> bool:
         """
-        Shared helper: MERGE an edge (relationship) from a source entity to
-        the given ResearchConcept, incrementing the matching denormalized
-        count only when a new edge is created.
+        Generalized link helper: MERGE an edge (relationship) from a source
+        entity to a target node, incrementing the target's denormalized
+        count only when a new edge is created. Supersedes the E-2
+        ``_link_entity_to_node`` helper.
         """
-        if relationship not in self._CONCEPT_RELATIONSHIPS:
+        if relationship not in self._NODE_LINK_RELATIONSHIPS:
             raise ValueError(
                 f"Unsupported relationship {relationship!r}; "
-                f"expected one of {sorted(self._CONCEPT_RELATIONSHIPS)}"
+                f"expected one of {sorted(self._NODE_LINK_RELATIONSHIPS)}"
             )
-        src_label, src_field, count_field = self._CONCEPT_RELATIONSHIPS[relationship]
+        src_label, src_field, target_label, count_field = (
+            self._NODE_LINK_RELATIONSHIPS[relationship]
+        )
 
         def _link(tx: ManagedTransaction, eid: str, cid: str) -> bool:
             query = f"""
             MATCH (src:{src_label} {{{src_field}: $eid}})
-            MATCH (rc:ResearchConcept {{id: $cid}})
+            MATCH (rc:{target_label} {{id: $cid}})
             OPTIONAL MATCH (src)-[existing:{relationship}]->(rc)
             WITH src, rc, existing
             FOREACH (_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |
@@ -1840,30 +1848,32 @@ class Neo4jRepository:
             if record is None:
                 raise NotFoundError(
                     f"Cannot link: {src_label} {eid!r} or "
-                    f"ResearchConcept {cid!r} not found"
+                    f"{target_label} {cid!r} not found"
                 )
             return bool(record["created"])
 
         with self.session() as session:
-            return self._execute_with_retry(session, _link, entity_id, concept_id)
+            return self._execute_with_retry(session, _link, entity_id, target_id)
 
-    def _unlink_entity_from_concept(
+    def _unlink_entity_from_node(
         self,
         entity_id: str,
-        concept_id: str,
+        target_id: str,
         relationship: str,
     ) -> bool:
-        if relationship not in self._CONCEPT_RELATIONSHIPS:
+        if relationship not in self._NODE_LINK_RELATIONSHIPS:
             raise ValueError(
                 f"Unsupported relationship {relationship!r}; "
-                f"expected one of {sorted(self._CONCEPT_RELATIONSHIPS)}"
+                f"expected one of {sorted(self._NODE_LINK_RELATIONSHIPS)}"
             )
-        src_label, src_field, count_field = self._CONCEPT_RELATIONSHIPS[relationship]
+        src_label, src_field, target_label, count_field = (
+            self._NODE_LINK_RELATIONSHIPS[relationship]
+        )
 
         def _unlink(tx: ManagedTransaction, eid: str, cid: str) -> bool:
             query = f"""
             MATCH (src:{src_label} {{{src_field}: $eid}})
-                  -[r:{relationship}]->(rc:ResearchConcept {{id: $cid}})
+                  -[r:{relationship}]->(rc:{target_label} {{id: $cid}})
             DELETE r
             SET rc.{count_field} = CASE
                 WHEN rc.{count_field} > 0 THEN rc.{count_field} - 1
@@ -1882,15 +1892,15 @@ class Neo4jRepository:
             return (record["removed"] if record else 0) > 0
 
         with self.session() as session:
-            return self._execute_with_retry(session, _unlink, entity_id, concept_id)
+            return self._execute_with_retry(session, _unlink, entity_id, target_id)
 
     def link_problem_to_concept(
         self, problem_concept_id: str, research_concept_id: str
     ) -> bool:
         """Link a ProblemConcept → ResearchConcept via INVOLVES_CONCEPT."""
-        return self._link_entity_to_concept(
+        return self._link_entity_to_node(
             entity_id=problem_concept_id,
-            concept_id=research_concept_id,
+            target_id=research_concept_id,
             relationship="INVOLVES_CONCEPT",
         )
 
@@ -1898,9 +1908,9 @@ class Neo4jRepository:
         self, problem_concept_id: str, research_concept_id: str
     ) -> bool:
         """Remove a ProblemConcept → ResearchConcept INVOLVES_CONCEPT edge."""
-        return self._unlink_entity_from_concept(
+        return self._unlink_entity_from_node(
             entity_id=problem_concept_id,
-            concept_id=research_concept_id,
+            target_id=research_concept_id,
             relationship="INVOLVES_CONCEPT",
         )
 
@@ -1908,9 +1918,9 @@ class Neo4jRepository:
         self, paper_doi: str, research_concept_id: str
     ) -> bool:
         """Link a Paper → ResearchConcept via DISCUSSES."""
-        return self._link_entity_to_concept(
+        return self._link_entity_to_node(
             entity_id=paper_doi,
-            concept_id=research_concept_id,
+            target_id=research_concept_id,
             relationship="DISCUSSES",
         )
 
@@ -1918,9 +1928,9 @@ class Neo4jRepository:
         self, paper_doi: str, research_concept_id: str
     ) -> bool:
         """Remove a Paper → ResearchConcept DISCUSSES edge."""
-        return self._unlink_entity_from_concept(
+        return self._unlink_entity_from_node(
             entity_id=paper_doi,
-            concept_id=research_concept_id,
+            target_id=research_concept_id,
             relationship="DISCUSSES",
         )
 
@@ -2008,6 +2018,479 @@ class Neo4jRepository:
         else:
             logger.debug("ResearchConcept counts were already consistent")
         return drift
+
+
+    # =========================================================================
+    # Model Operations (E-3)
+    # =========================================================================
+
+    DEFAULT_MODEL_DEDUP_THRESHOLD = 0.95
+
+    def _model_props(self, model: Model) -> dict:
+        """Serialize a Model for Neo4j storage (embedding included when set)."""
+        props = model.to_neo4j_properties()
+        if model.embedding is not None:
+            props["embedding"] = model.embedding
+        return props
+
+    def _model_from_neo4j(self, data: dict) -> Model:
+        """Hydrate a Model from a Neo4j node dict (aliases JSON-decoded)."""
+        from datetime import datetime as _datetime
+
+        aliases = data.get("aliases")
+        if isinstance(aliases, str):
+            aliases = json.loads(aliases) if aliases else []
+        elif aliases is None:
+            aliases = []
+
+        return Model(
+            id=data["id"],
+            name=data["name"],
+            description=data.get("description"),
+            aliases=aliases,
+            architecture=data.get("architecture"),
+            model_type=data.get("model_type"),
+            year_introduced=data.get("year_introduced"),
+            introducing_paper_doi=data.get("introducing_paper_doi"),
+            is_canonical=bool(data.get("is_canonical", False)),
+            embedding=data.get("embedding"),
+            usage_count=int(data.get("usage_count", 0) or 0),
+            created_at=_datetime.fromisoformat(data["created_at"]),
+            updated_at=_datetime.fromisoformat(data["updated_at"]),
+        )
+
+    def create_model(
+        self,
+        model: Model,
+        generate_embedding: bool = True,
+    ) -> Model:
+        """Create a new Model node. Raises DuplicateError on id collision."""
+        if generate_embedding and model.embedding is None:
+            try:
+                from agentic_kg.knowledge_graph.embeddings import (
+                    generate_model_embedding,
+                )
+                model.embedding = generate_model_embedding(
+                    model.name, model.description
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to generate embedding for model {model.id}: {e}. "
+                    "Model will be created without embedding."
+                )
+
+        def _create(tx: ManagedTransaction, props: dict) -> None:
+            check = tx.run(
+                "MATCH (m:Model {id: $id}) RETURN m.id",
+                id=props["id"],
+            )
+            if check.single():
+                raise DuplicateError(
+                    f"Model with ID {props['id']} already exists"
+                )
+            tx.run(
+                """
+                CREATE (m:Model)
+                SET m = $props
+                """,
+                props=props,
+            )
+
+        props = self._model_props(model)
+
+        with self.session() as session:
+            self._execute_with_retry(session, _create, props)
+
+        logger.info(f"Created model: {model.id} ({model.name})")
+        return model
+
+    def get_model(self, model_id: str) -> Model:
+        """Fetch a Model by ID. Raises NotFoundError when missing."""
+        def _get(tx: ManagedTransaction, mid: str) -> Optional[dict]:
+            result = tx.run(
+                "MATCH (m:Model {id: $id}) RETURN m",
+                id=mid,
+            )
+            record = result.single()
+            return dict(record["m"]) if record else None
+
+        with self.session() as session:
+            data = session.execute_read(lambda tx: _get(tx, model_id))
+
+        if data is None:
+            raise NotFoundError(f"Model not found: {model_id}")
+
+        return self._model_from_neo4j(data)
+
+    def get_model_by_name(self, name: str) -> Model:
+        """Fetch a Model by name. When multiple Models share a name, the
+        canonical one wins; otherwise the alphabetically-first id breaks
+        the tie deterministically. Raises NotFoundError when none match.
+        """
+        def _get(tx: ManagedTransaction, nm: str) -> Optional[dict]:
+            result = tx.run(
+                """
+                MATCH (m:Model {name: $name})
+                RETURN m
+                ORDER BY m.is_canonical DESC, m.id
+                LIMIT 1
+                """,
+                name=nm,
+            )
+            record = result.single()
+            return dict(record["m"]) if record else None
+
+        with self.session() as session:
+            data = session.execute_read(lambda tx: _get(tx, name))
+
+        if data is None:
+            raise NotFoundError(f"Model not found: {name}")
+
+        return self._model_from_neo4j(data)
+
+    def update_model(
+        self,
+        model_id: str,
+        *,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        aliases: Optional[list[str]] = None,
+        architecture: Optional[str] = None,
+        model_type: Optional[str] = None,
+        year_introduced: Optional[int] = None,
+        introducing_paper_doi: Optional[str] = None,
+        is_canonical: Optional[bool] = None,
+        embedding: Optional[list[float]] = None,
+        regenerate_embedding: bool = False,
+    ) -> Model:
+        """Partial update of a Model. None-valued kwargs leave fields untouched."""
+        existing = self.get_model(model_id)
+
+        next_name = name if name is not None else existing.name
+        next_description = (
+            description if description is not None else existing.description
+        )
+        next_aliases = aliases if aliases is not None else existing.aliases
+        next_architecture = (
+            architecture if architecture is not None else existing.architecture
+        )
+        next_model_type = (
+            model_type if model_type is not None else existing.model_type
+        )
+        next_year = (
+            year_introduced
+            if year_introduced is not None
+            else existing.year_introduced
+        )
+        next_doi = (
+            introducing_paper_doi
+            if introducing_paper_doi is not None
+            else existing.introducing_paper_doi
+        )
+        next_canonical = (
+            is_canonical if is_canonical is not None else existing.is_canonical
+        )
+
+        if embedding is None and regenerate_embedding:
+            try:
+                from agentic_kg.knowledge_graph.embeddings import (
+                    generate_model_embedding,
+                )
+                embedding = generate_model_embedding(next_name, next_description)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to regenerate embedding for model {model_id}: {e}"
+                )
+
+        now = datetime.now(timezone.utc).isoformat()
+        aliases_json = json.dumps(next_aliases)
+
+        def _update(tx: ManagedTransaction) -> bool:
+            query = """
+            MATCH (m:Model {id: $id})
+            SET m.name = $name,
+                m.description = $description,
+                m.aliases = $aliases,
+                m.architecture = $architecture,
+                m.model_type = $model_type,
+                m.year_introduced = $year_introduced,
+                m.introducing_paper_doi = $introducing_paper_doi,
+                m.is_canonical = $is_canonical,
+                m.updated_at = $now
+            """
+            params = {
+                "id": model_id,
+                "name": next_name,
+                "description": next_description,
+                "aliases": aliases_json,
+                "architecture": next_architecture,
+                "model_type": next_model_type,
+                "year_introduced": next_year,
+                "introducing_paper_doi": next_doi,
+                "is_canonical": next_canonical,
+                "now": now,
+            }
+            if embedding is not None:
+                query += ", m.embedding = $embedding"
+                params["embedding"] = embedding
+            query += " RETURN m.id"
+            result = tx.run(query, **params)
+            return result.single() is not None
+
+        with self.session() as session:
+            found = self._execute_with_retry(session, lambda tx: _update(tx))
+
+        if not found:
+            raise NotFoundError(f"Model not found: {model_id}")
+
+        logger.info(f"Updated model: {model_id}")
+        return self.get_model(model_id)
+
+    def delete_model(self, model_id: str, force: bool = False) -> bool:
+        """DETACH DELETE a Model. Refuses canonical Models unless force=True.
+
+        QA Q4 review decision: rebuild-over-migrate — the node and all
+        incident USES_MODEL edges are removed in one shot, no audit log.
+        Re-extraction recreates the edge structure if needed.
+        """
+        existing = self.get_model(model_id)
+        if existing.is_canonical and not force:
+            raise ValueError(
+                f"Refusing to delete canonical Model {model_id!r} ({existing.name!r}). "
+                "Pass force=True to override."
+            )
+
+        def _delete(tx: ManagedTransaction, mid: str) -> bool:
+            result = tx.run(
+                """
+                MATCH (m:Model {id: $id})
+                DETACH DELETE m
+                RETURN count(*) as deleted
+                """,
+                id=mid,
+            )
+            record = result.single()
+            return record["deleted"] > 0 if record else False
+
+        with self.session() as session:
+            deleted = self._execute_with_retry(session, _delete, model_id)
+
+        if not deleted:
+            raise NotFoundError(f"Model not found: {model_id}")
+
+        logger.info(f"Deleted model: {model_id}")
+        return True
+
+    def search_models_by_embedding(
+        self,
+        embedding: list[float],
+        top_k: int = 10,
+        min_score: Optional[float] = None,
+    ) -> list[tuple[Model, float]]:
+        """Vector similarity search over the model_embedding_idx."""
+        def _search(
+            tx: ManagedTransaction,
+            emb: list[float],
+            lim: int,
+            floor: Optional[float],
+        ) -> list[dict]:
+            query = """
+            CALL db.index.vector.queryNodes(
+                'model_embedding_idx', $top_k, $embedding
+            ) YIELD node, score
+            """
+            params: dict[str, Any] = {"embedding": emb, "top_k": lim}
+            if floor is not None:
+                query += "WHERE score >= $min_score\n"
+                params["min_score"] = floor
+            query += "RETURN node as m, score ORDER BY score DESC"
+            result = tx.run(query, **params)
+            return [
+                {"model": dict(r["m"]), "score": r["score"]}
+                for r in result
+            ]
+
+        with self.session() as session:
+            records = session.execute_read(
+                lambda tx: _search(tx, embedding, top_k, min_score)
+            )
+
+        return [
+            (self._model_from_neo4j(r["model"]), r["score"]) for r in records
+        ]
+
+    def link_paper_to_model(
+        self, paper_doi: str, model_id: str
+    ) -> bool:
+        """Link a Paper → Model via USES_MODEL (idempotent MERGE)."""
+        return self._link_entity_to_node(
+            entity_id=paper_doi,
+            target_id=model_id,
+            relationship="USES_MODEL",
+        )
+
+    def unlink_paper_from_model(
+        self, paper_doi: str, model_id: str
+    ) -> bool:
+        """Remove a Paper → Model USES_MODEL edge (decrements usage_count)."""
+        return self._unlink_entity_from_node(
+            entity_id=paper_doi,
+            target_id=model_id,
+            relationship="USES_MODEL",
+        )
+
+    def get_papers_for_model(
+        self, model_id: str, limit: int = 50
+    ) -> list[dict]:
+        """Return Paper rows linked to ``model_id`` via USES_MODEL."""
+        def _fetch(tx: ManagedTransaction, mid: str, lim: int) -> list[dict]:
+            result = tx.run(
+                """
+                MATCH (p:Paper)-[:USES_MODEL]->(m:Model {id: $mid})
+                RETURN p
+                ORDER BY p.title
+                LIMIT $limit
+                """,
+                mid=mid,
+                limit=lim,
+            )
+            return [dict(r["p"]) for r in result]
+
+        with self.session() as session:
+            return session.execute_read(
+                lambda tx: _fetch(tx, model_id, limit)
+            )
+
+    def create_or_merge_model(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        aliases: Optional[list[str]] = None,
+        architecture: Optional[str] = None,
+        model_type: Optional[str] = None,
+        year_introduced: Optional[int] = None,
+        introducing_paper_doi: Optional[str] = None,
+        is_canonical: bool = False,
+        threshold: Optional[float] = None,
+        embedding: Optional[list[float]] = None,
+    ) -> tuple[Model, bool]:
+        """Embedding-based create-or-merge with canonical protection.
+
+        Decision matrix when an existing candidate scores ≥ threshold:
+
+        - existing canonical, incoming non-canonical → preserve canonical
+          name, add incoming name to aliases, keep is_canonical=True.
+        - existing non-canonical, incoming canonical → promote: name
+          overwritten with the incoming canonical name, prior name moves
+          to aliases, is_canonical flipped to True. usage_count survives
+          the rename (no edge changes).
+        - both canonical → idempotent (no rename); aliases merge.
+        - both non-canonical → standard E-2-style alias merge (existing
+          name wins).
+
+        On embedding service failure: falls back to create-without-embedding,
+        dedup is skipped, new node carries embedding=None. Logged at WARN
+        (AC-13).
+
+        Returns ``(model, created)`` — created=True for new nodes.
+        """
+        threshold = (
+            threshold
+            if threshold is not None
+            else self.DEFAULT_MODEL_DEDUP_THRESHOLD
+        )
+
+        if embedding is None:
+            try:
+                from agentic_kg.knowledge_graph.embeddings import (
+                    generate_model_embedding,
+                )
+                embedding = generate_model_embedding(name, description)
+            except Exception as e:
+                logger.warning(
+                    f"Embedding failed for model '{name}': {e}. "
+                    "Falling back to create-without-embedding (dedup skipped)."
+                )
+
+        if embedding is not None:
+            candidates = self.search_models_by_embedding(
+                embedding=embedding,
+                top_k=5,
+                min_score=threshold,
+            )
+            if candidates:
+                best, score = candidates[0]
+                logger.info(
+                    f"Model dedup: '{name}' -> '{best.name}' (score={score:.3f})"
+                )
+
+                # Spec edge-case: incoming canonical entry merges into another
+                # canonical entry. The curator probably intended two distinct
+                # nodes — log a WARN so seed-load review catches it.
+                if is_canonical and best.is_canonical and best.name != name:
+                    logger.warning(
+                        "Canonical-canonical merge: seed entry %r merged into "
+                        "existing canonical %r (score=%.3f). The curator "
+                        "likely intended two distinct nodes; consider "
+                        "renaming one in the seed YAML.",
+                        name,
+                        best.name,
+                        score,
+                    )
+
+                # Canonical-protection rules.
+                if is_canonical and not best.is_canonical:
+                    # Promote existing → canonical. Prior name moves to aliases.
+                    next_name = name
+                    next_aliases = sorted(
+                        set(best.aliases)
+                        | set(aliases or [])
+                        | ({best.name} if best.name != name else set())
+                    )
+                    next_canonical = True
+                else:
+                    # Either existing canonical wins, OR both non-canonical
+                    # (existing wins). Incoming name appended as alias.
+                    next_name = best.name
+                    next_aliases = sorted(
+                        set(best.aliases)
+                        | set(aliases or [])
+                        | ({name} if name != best.name else set())
+                    )
+                    next_canonical = best.is_canonical or is_canonical
+
+                self.update_model(
+                    best.id,
+                    name=next_name,
+                    aliases=next_aliases,
+                    description=best.description or description,
+                    architecture=best.architecture or architecture,
+                    model_type=best.model_type or model_type,
+                    year_introduced=(
+                        best.year_introduced
+                        if best.year_introduced is not None
+                        else year_introduced
+                    ),
+                    introducing_paper_doi=(
+                        best.introducing_paper_doi or introducing_paper_doi
+                    ),
+                    is_canonical=next_canonical,
+                )
+                return self.get_model(best.id), False
+
+        model = Model(
+            name=name,
+            description=description,
+            aliases=list(aliases or []),
+            architecture=architecture,
+            model_type=model_type,
+            year_introduced=year_introduced,
+            introducing_paper_doi=introducing_paper_doi,
+            is_canonical=is_canonical,
+            embedding=embedding,
+        )
+        self.create_model(model, generate_embedding=False)
+        return model, True
 
 
 # Module-level convenience functions

@@ -7,15 +7,27 @@ Run with: uvicorn agentic_kg_api.main:app --reload
 import os
 from contextlib import asynccontextmanager
 
+from agentic_kg.logging_config import get_logger, setup_logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from agentic_kg.logging_config import setup_logging, get_logger
 from agentic_kg_api import __version__
 from agentic_kg_api.config import get_api_config
-from agentic_kg_api.dependencies import get_repo, get_search, get_relations, reset_dependencies
-from agentic_kg_api.routers import agents, concepts, extract, graph, ingest, papers, problems, reviews, search, topics
+from agentic_kg_api.dependencies import get_relations, get_repo, get_search, reset_dependencies
+from agentic_kg_api.routers import (
+    agents,
+    concepts,
+    extract,
+    graph,
+    ingest,
+    papers,
+    problems,
+    reviews,
+    search,
+    topics,
+)
+from agentic_kg_api.routers import models as models_router
 from agentic_kg_api.schemas import HealthResponse, StatsResponse
 from agentic_kg_api.tasks import setup_event_bridge, teardown_event_bridge
 
@@ -126,6 +138,7 @@ app.include_router(reviews.router)
 app.include_router(ingest.router)
 app.include_router(topics.router)
 app.include_router(concepts.router)
+app.include_router(models_router.router)
 
 
 # Health and stats endpoints

@@ -1,6 +1,29 @@
 # Active Context
 
-Last updated: 2026-06-02
+Last updated: 2026-06-08
+
+## Current Work Focus
+
+**E-3 (model-entity) implementation Units 1-10 complete (2026-06-08).** Spec moved to IMPLEMENTED status. All 10 units shipped TDD-first against testcontainers Neo4j:
+
+1. Pydantic `Model` entity with hybrid open-set design + `is_canonical` flag
+2. Schema bump to v5: `model_id_unique` constraint, `model_name_idx`, `model_is_canonical_idx`, `model_embedding_idx` (1536 cosine)
+3. CRUD methods + `generate_model_embedding`
+4. Generalized `_link_entity_to_concept` → `_link_entity_to_node` / `_NODE_LINK_RELATIONSHIPS` covering DISCUSSES, INVOLVES_CONCEPT, USES_MODEL (Tech Lead Q5 decision)
+5. `create_or_merge_model` with canonical-protection rules + canonical-canonical collision WARN log (spec edge case)
+6. `seed_models.py` + `data/seed_models.yml` (20 canonical entries spanning language / vision / multimodal / classical / graph families)
+7. REST API at `/api/models` (list, search, create, detail, link-paper, delete; force=true required for canonical delete)
+8. CLI: `load-models`, `create-model`, `link-model`
+9. Dedup eval-set scaffolding — 10 hand-labeled pairs + precision (10/10) + anti-gaming recall tripwire (≥ 6/8 merge-expecting). Costly+integration gate, runs at verify with OpenAI key.
+10. AC-11 testcontainers integration test exercising seed-load → 5 synthetic Papers → link → API-shaped query → usage_count increment
+
+**Tests added:** +60 core unit tests (1473 → 1533) and +18 API unit tests (193 → 211). 68 E-3 integration tests pass against testcontainers Neo4j (28 model repo + 15 seed + 3 done demo + 22 E-2 regression). Ruff clean on all E-3 code.
+
+**Pre-existing testcontainers conftest password fix.** `packages/core/tests/conftest.py` Neo4jContainer didn't set a password, so integration tests had never run locally for anyone. Patched: explicit `password="testpassword"` on container + matching `password="testpassword"` on the client config.
+
+**E-2 regression suite green** post-link-helper-rename: 22 ResearchConcept integration tests still pass after `_CONCEPT_RELATIONSHIPS` → `_NODE_LINK_RELATIONSHIPS` and `_link_entity_to_concept` → `_link_entity_to_node`. Updated one E-2 test that reached into the renamed internal.
+
+
 
 ## Current Work Focus
 

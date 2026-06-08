@@ -64,7 +64,7 @@ def neo4j_container():
         pytest.skip("Docker not available and NEO4J_URI not set")
         return
 
-    container = Neo4jContainer("neo4j:5.26-community")
+    container = Neo4jContainer("neo4j:5.26-community", password="testpassword")
     container.with_env("NEO4J_PLUGINS", '["apoc"]')
 
     try:
@@ -97,7 +97,7 @@ def neo4j_config(neo4j_container, monkeypatch):
         # Use testcontainer (local dev mode)
         uri = neo4j_container.get_connection_url()
         username = "neo4j"
-        password = "neo4j"  # Default password for test container
+        password = "testpassword"  # Must match Neo4jContainer(password=...)
         database = "neo4j"
     else:
         pytest.skip("No Neo4j connection available")

@@ -334,9 +334,11 @@ class TestLinking:
             name=_test_name("BadRel"), embedding=_fake_embedding(0.3)
         )
         neo4j_repository.create_research_concept(concept, generate_embedding=False)
+        # E-3 generalized this helper: _link_entity_to_concept →
+        # _link_entity_to_node, concept_id → target_id.
         with pytest.raises(ValueError):
-            neo4j_repository._link_entity_to_concept(
-                entity_id="x", concept_id=concept.id, relationship="NOT_A_REL"
+            neo4j_repository._link_entity_to_node(
+                entity_id="x", target_id=concept.id, relationship="NOT_A_REL"
             )
 
     def test_get_problems_for_concept(self, neo4j_repository):

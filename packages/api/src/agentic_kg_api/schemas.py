@@ -5,7 +5,6 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-
 # =============================================================================
 # Problem Schemas
 # =============================================================================
@@ -605,3 +604,103 @@ class ConceptLinkResponse(BaseModel):
         description="True if the edge was created, False if it already existed"
     )
 
+
+
+# =============================================================================
+# Model Schemas (E-3)
+# =============================================================================
+
+
+class ModelSummary(BaseModel):
+    """Flat Model summary for list views."""
+
+    id: str
+    name: str
+    description: Optional[str] = None
+    aliases: list[str] = Field(default_factory=list)
+    architecture: Optional[str] = None
+    model_type: Optional[str] = None
+    year_introduced: Optional[int] = None
+    introducing_paper_doi: Optional[str] = None
+    is_canonical: bool = False
+    usage_count: int = 0
+
+
+class ModelDetail(ModelSummary):
+    """Model detail — same shape for now, room to extend."""
+
+    pass
+
+
+class ModelListResponse(BaseModel):
+    """Response for GET /api/models."""
+
+    models: list[ModelSummary] = Field(default_factory=list)
+    total: int = 0
+
+
+class ModelCreateRequest(BaseModel):
+    """Request body for POST /api/models."""
+
+    name: str = Field(..., min_length=2, max_length=120)
+    description: Optional[str] = None
+    aliases: list[str] = Field(default_factory=list)
+    architecture: Optional[str] = None
+    model_type: Optional[str] = None
+    year_introduced: Optional[int] = None
+    introducing_paper_doi: Optional[str] = None
+    is_canonical: bool = False
+    threshold: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Override the dedup cosine threshold (default 0.95)",
+    )
+
+
+class ModelCreateResponse(BaseModel):
+    """Response for POST /api/models."""
+
+    model: ModelSummary
+    created: bool = Field(
+        description="True if a new node was inserted; False if merged."
+    )
+
+
+class ModelSearchResultItem(BaseModel):
+    """A single model similarity-search hit."""
+
+    model: ModelSummary
+    score: float
+
+
+class ModelSearchResponse(BaseModel):
+    """Response for GET /api/models/search."""
+
+    query: str
+    results: list[ModelSearchResultItem] = Field(default_factory=list)
+
+
+class ModelPapersResponse(BaseModel):
+    """Response for GET /api/models/{id}/papers."""
+
+    model_id: str
+    papers: list[dict] = Field(default_factory=list)
+    total: int = 0
+
+
+class ModelLinkRequest(BaseModel):
+    """Request body for the link-paper endpoint."""
+
+    entity_id: str = Field(..., description="Paper DOI to link to this Model")
+
+
+class ModelLinkResponse(BaseModel):
+    """Response for the link-paper endpoint."""
+
+    model_id: str
+    entity_id: str
+    relationship: str = Field(description="Always USES_MODEL for Models")
+    created: bool = Field(
+        description="True if the edge was created, False if it already existed"
+    )

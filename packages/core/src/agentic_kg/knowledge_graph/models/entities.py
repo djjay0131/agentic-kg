@@ -503,6 +503,79 @@ class ResearchConcept(BaseModel):
 
 
 # =============================================================================
+# Model Entity (E-3)
+# =============================================================================
+
+
+class Model(BaseModel):
+    """
+    An ML model / architecture as a first-class graph node.
+
+    Represents named models like "BERT", "GPT-4", "ResNet-50" that papers
+    use, benchmark against, or build on. Hybrid open-set design: any name
+    can become a Model, but ~100 well-known seed entries are flagged
+    ``is_canonical=True`` and write-protected during dedup merges.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique identifier")
+    name: str = Field(..., min_length=2, max_length=120, description="Canonical model name")
+    description: Optional[str] = Field(
+        default=None, max_length=400, description="Longer description for richer embeddings"
+    )
+    aliases: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description="Alternative names / surface forms (e.g. 'bert-base', 'bert-large')",
+    )
+
+    # Free-form strings in v1 — promote to enums later if data clusters cleanly.
+    architecture: Optional[str] = Field(
+        default=None, description="Architecture family: transformer, cnn, rnn, ..."
+    )
+    model_type: Optional[str] = Field(
+        default=None,
+        description="Type: language_model, vision_model, multimodal, ...",
+    )
+    year_introduced: Optional[int] = Field(
+        default=None, description="Year the model was first introduced"
+    )
+    introducing_paper_doi: Optional[str] = Field(
+        default=None, description="DOI of the paper that introduced this model"
+    )
+
+    is_canonical: bool = Field(
+        default=False,
+        description=(
+            "True only for curated seed entries. Canonical nodes are "
+            "write-protected during dedup merges (incoming non-canonical "
+            "names cannot rename or downgrade them)."
+        ),
+    )
+
+    embedding: Optional[list[float]] = Field(
+        default=None, description="Model embedding (1536 dims)"
+    )
+
+    usage_count: int = Field(
+        default=0, ge=0, description="Denormalized: count of USES_MODEL edges"
+    )
+
+    created_at: datetime = Field(default_factory=_utc_now)
+    updated_at: datetime = Field(default_factory=_utc_now)
+
+    def to_neo4j_properties(self) -> dict:
+        """Convert to Neo4j node properties. Aliases become a JSON string;
+        timestamps become ISO-format strings; embedding is excluded (written
+        via a separate Cypher SET when needed)."""
+        import json
+        data = self.model_dump(exclude={"embedding"})
+        data["aliases"] = json.dumps(self.aliases)
+        data["created_at"] = self.created_at.isoformat()
+        data["updated_at"] = self.updated_at.isoformat()
+        return data
+
+
+# =============================================================================
 # Human Review Queue Models
 # =============================================================================
 

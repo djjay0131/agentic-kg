@@ -537,6 +537,76 @@ def build_parser() -> argparse.ArgumentParser:
         "-v", "--verbose", action="store_true", help="Enable verbose logging",
     )
 
+    # load-models command (E-3)
+    load_models_cmd = subparsers.add_parser(
+        "load-models",
+        help="Load canonical Model seed YAML into the knowledge graph",
+    )
+    load_models_cmd.add_argument(
+        "--file", default=None,
+        help="Path to a Model seed YAML (defaults to the bundled seed_models.yml)",
+    )
+    load_models_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
+    # create-model command (E-3)
+    create_model_cmd = subparsers.add_parser(
+        "create-model",
+        help="Create a Model (with embedding-based dedup + canonical protection)",
+    )
+    create_model_cmd.add_argument(
+        "--name", required=True, help="Model name (>=2 chars)",
+    )
+    create_model_cmd.add_argument(
+        "--description", default=None,
+        help="Optional description for richer embeddings",
+    )
+    create_model_cmd.add_argument(
+        "--aliases", default=None,
+        help="Comma-separated list of alternative names",
+    )
+    create_model_cmd.add_argument(
+        "--architecture", default=None,
+        help="Architecture family (e.g., transformer, cnn, gnn)",
+    )
+    create_model_cmd.add_argument(
+        "--model-type", default=None, dest="model_type",
+        help="Model type (e.g., language_model, vision_model, multimodal)",
+    )
+    create_model_cmd.add_argument(
+        "--year-introduced", default=None, type=int, dest="year_introduced",
+        help="Year the model was first introduced",
+    )
+    create_model_cmd.add_argument(
+        "--canonical", action="store_true", dest="is_canonical",
+        help="Mark this as a canonical Model (write-protected during dedup)",
+    )
+    create_model_cmd.add_argument(
+        "--threshold", type=float, default=None,
+        help="Override the cosine dedup threshold (default 0.95)",
+    )
+    create_model_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
+    # link-model command (E-3)
+    link_model_cmd = subparsers.add_parser(
+        "link-model",
+        help="Link a Paper to a Model via USES_MODEL",
+    )
+    link_model_cmd.add_argument(
+        "--paper-doi", required=True, dest="paper_doi",
+        help="Source Paper DOI",
+    )
+    link_model_cmd.add_argument(
+        "--model-id", required=True, dest="model_id",
+        help="Target Model id",
+    )
+    link_model_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
     return parser
 
 
@@ -799,6 +869,77 @@ def run_link_concept(args) -> None:
     )
 
 
+def run_load_models(args) -> None:
+    """Load the canonical Model seed YAML (E-3)."""
+    from pathlib import Path
+
+    from agentic_kg.knowledge_graph.repository import get_repository
+    from agentic_kg.knowledge_graph.seed_models import (
+        DEFAULT_SEED_PATH,
+        load_seed_models,
+    )
+
+    repo = get_repository()
+    path = Path(args.file) if args.file else DEFAULT_SEED_PATH
+    try:
+        stats = load_seed_models(repo, path=path)
+    except (ValueError, FileNotFoundError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    print(
+        f"Loaded {stats['created']} new + {stats['merged']} merged "
+        f"canonical Models from {path}"
+    )
+
+
+def run_create_model(args) -> None:
+    """Create a Model via the embedding-dedup'd create_or_merge path (E-3)."""
+    from agentic_kg.knowledge_graph.repository import get_repository
+
+    aliases: list[str] = []
+    if args.aliases:
+        aliases = [a.strip() for a in args.aliases.split(",") if a.strip()]
+
+    repo = get_repository()
+    model, created = repo.create_or_merge_model(
+        name=args.name,
+        description=args.description,
+        aliases=aliases,
+        architecture=args.architecture,
+        model_type=args.model_type,
+        year_introduced=args.year_introduced,
+        is_canonical=args.is_canonical,
+        threshold=args.threshold,
+    )
+    verb = "Created" if created else "Merged into existing model"
+    canon = " (canonical)" if model.is_canonical else ""
+    print(f"{verb}: {model.name}{canon} (id={model.id})")
+    if model.aliases:
+        print(f"  Aliases: {', '.join(model.aliases)}")
+
+
+def run_link_model(args) -> None:
+    """Link a Paper to a Model via USES_MODEL (E-3)."""
+    from agentic_kg.knowledge_graph.repository import (
+        NotFoundError,
+        get_repository,
+    )
+
+    repo = get_repository()
+    try:
+        created = repo.link_paper_to_model(
+            paper_doi=args.paper_doi, model_id=args.model_id,
+        )
+    except NotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    verb = "Created" if created else "Already present"
+    print(
+        f"{verb} edge: Paper {args.paper_doi} -USES_MODEL-> Model {args.model_id}"
+    )
+
+
 def main(argv: Optional[list[str]] = None) -> None:
     """CLI entry point."""
     parser = build_parser()
@@ -825,6 +966,12 @@ def main(argv: Optional[list[str]] = None) -> None:
         run_link_concept(args)
     elif args.command == "calibrate-concepts":
         run_calibrate_concepts(args)
+    elif args.command == "load-models":
+        run_load_models(args)
+    elif args.command == "create-model":
+        run_create_model(args)
+    elif args.command == "link-model":
+        run_link_model(args)
     elif args.command == "extract":
         # Build pipeline config
         config = PipelineConfig(
