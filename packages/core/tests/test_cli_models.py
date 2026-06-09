@@ -153,3 +153,70 @@ class TestRunLoadModels:
         load_fn.assert_called_once()
         out = capsys.readouterr().out
         assert "5 new" in out
+
+    @patch("agentic_kg.knowledge_graph.seed_models.load_seed_models")
+    @patch("agentic_kg.knowledge_graph.repository.get_repository")
+    def test_load_failure_exits_nonzero(
+        self, get_repo, load_fn, capsys
+    ):
+        """ValueError or FileNotFoundError from the loader → exit 1 with
+        the error message on stderr."""
+        import pytest
+
+        get_repo.return_value = MagicMock()
+        load_fn.side_effect = FileNotFoundError("seed file missing")
+
+        with pytest.raises(SystemExit) as exc:
+            main(["load-models", "--file", "/nope.yml"])
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert "seed file missing" in err
+
+
+class TestRunCreateModelAliases:
+    """Cover the aliases comma-split branch in run_create_model."""
+
+    @patch("agentic_kg.knowledge_graph.repository.get_repository")
+    def test_aliases_comma_split(self, get_repo, capsys):
+        repo = MagicMock()
+        merged_model = MagicMock(
+            id="m-1",
+            name="BERT",
+            is_canonical=False,
+            aliases=["bert-base", "bert-large"],
+        )
+        repo.create_or_merge_model.return_value = (merged_model, True)
+        get_repo.return_value = repo
+
+        main([
+            "create-model",
+            "--name", "BERT",
+            "--aliases", "bert-base, bert-large , ,",
+        ])
+
+        kwargs = repo.create_or_merge_model.call_args.kwargs
+        # Whitespace trimmed, empty strings dropped.
+        assert kwargs["aliases"] == ["bert-base", "bert-large"]
+
+
+class TestRunLinkModelErrors:
+    """Cover the NotFoundError exit-1 branch in run_link_model."""
+
+    @patch("agentic_kg.knowledge_graph.repository.get_repository")
+    def test_not_found_exits_nonzero(self, get_repo, capsys):
+        import pytest
+        from agentic_kg.knowledge_graph.repository import NotFoundError
+
+        repo = MagicMock()
+        repo.link_paper_to_model.side_effect = NotFoundError("paper missing")
+        get_repo.return_value = repo
+
+        with pytest.raises(SystemExit) as exc:
+            main([
+                "link-model",
+                "--paper-doi", "10.1/missing",
+                "--model-id", "m-1",
+            ])
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert "paper missing" in err

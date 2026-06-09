@@ -50,9 +50,19 @@ def _patch_embeddings(monkeypatch):
 
 @pytest.fixture
 def loaded_repo(neo4j_repository, _patch_embeddings):
-    """Repository with the canonical Model seed YAML loaded."""
+    """Repository with the canonical Model seed YAML loaded.
+
+    Teardown drops every Model node afterwards — the bundled seed Models
+    don't carry a TEST_ prefix, so the shared cleanup query wouldn't
+    catch them, and subsequent tests would see leftover BERT / GPT-4 /
+    etc. nodes with deterministic embeddings that collide with their own
+    inputs.
+    """
     load_seed_models(neo4j_repository)
-    return neo4j_repository
+    yield neo4j_repository
+
+    with neo4j_repository.session() as session:
+        session.run("MATCH (m:Model) DETACH DELETE m")
 
 
 def _make_paper(repo, doi: str, title_suffix: str) -> Paper:

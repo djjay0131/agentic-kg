@@ -4,7 +4,23 @@ Last updated: 2026-06-08
 
 ## Current Work Focus
 
-**E-3 (model-entity) implementation Units 1-10 complete (2026-06-08).** Spec moved to IMPLEMENTED status. All 10 units shipped TDD-first against testcontainers Neo4j:
+**E-3 (model-entity) VERIFIED (2026-06-08).** All four Constellize verify gates passed for E-3 scope:
+
+| Gate | Result | Notes |
+|------|--------|-------|
+| 1. Test Integrity | PASS | 1681 core + 211 API unit tests pass; 0 failures. E-3 new modules at 100% line coverage (seed_models, routers/models, cli handlers, embeddings helper, entity, schema, repository methods exercised via integration). |
+| 2. Health Check | PASS | All inputs validated (path/YAML/name/duplicates via Pydantic + parse_seed_models; bounded Query params); NotFoundError → 404, canonical-without-force → 409, embedding outage → 500 with log; no bare excepts; AC-13 graceful degradation in `create_or_merge_model`. |
+| 3. Deployment | PASS | `agentic-kg load-models / create-model / link-model` exposed; all E-3 modules import cleanly; bundled seed parses 19 entries; `/api/models` router mounts. |
+| 4. Maintainability | PASS | Ruff clean on all 18 E-3 source + test files. |
+
+**Verify-time fixes applied:**
+
+- `seed_models.py`: covered the FileNotFoundError-on-string-path branch and the list-source branch (added 2 tests, brought module to 100%).
+- `cli.py`: covered the load-models error path, create-model aliases comma-split, link-model NotFoundError exit-1 (added 3 tests).
+- `embeddings.py`: covered `generate_model_embedding` via mocked-service unit tests (added 2 tests).
+- `test_e3_done_demo.py`: bundled seed Models (BERT, GPT-4, …) don't carry a TEST_ prefix and were leaking into subsequent test classes whose deterministic-slot embeddings collided with them. Added a teardown that `DETACH DELETE`s all Model nodes after the done-demo class finishes. Test isolation now clean.
+
+**E-3 (model-entity) implementation Units 1-10 complete (2026-06-08).** Spec moved to IMPLEMENTED → VERIFIED status. All 10 units shipped TDD-first against testcontainers Neo4j:
 
 1. Pydantic `Model` entity with hybrid open-set design + `is_canonical` flag
 2. Schema bump to v5: `model_id_unique` constraint, `model_name_idx`, `model_is_canonical_idx`, `model_embedding_idx` (1536 cosine)

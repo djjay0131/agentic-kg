@@ -99,6 +99,16 @@ class TestParseSeedModels:
         entries = parse_seed_models(f)
         assert {e.name for e in entries} == {"BERT", "GPT-4"}
 
+    def test_string_path_missing_raises(self):
+        with pytest.raises(FileNotFoundError):
+            parse_seed_models("/tmp/definitely-does-not-exist-12345.yml")
+
+    def test_accepts_already_parsed_list(self):
+        """Allows callers to pass a Python list directly (useful for
+        in-memory composition in tests and orchestration code)."""
+        entries = parse_seed_models([{"name": "BERT"}, {"name": "GPT-4"}])
+        assert {e.name for e in entries} == {"BERT", "GPT-4"}
+
 
 # =============================================================================
 # Bundled seed file
