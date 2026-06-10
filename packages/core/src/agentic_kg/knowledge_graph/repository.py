@@ -22,6 +22,7 @@ from neo4j.exceptions import (
 from agentic_kg.config import Neo4jConfig, get_config
 from agentic_kg.knowledge_graph.models import (
     Author,
+    Method,
     Model,
     Paper,
     Problem,
@@ -1802,6 +1803,7 @@ class Neo4jRepository:
         "INVOLVES_CONCEPT": ("ProblemConcept", "id", "ResearchConcept", "mention_count"),
         "DISCUSSES": ("Paper", "doi", "ResearchConcept", "paper_count"),
         "USES_MODEL": ("Paper", "doi", "Model", "usage_count"),
+        "APPLIES_METHOD": ("Paper", "doi", "Method", "usage_count"),  # E-4
     }
 
     def _link_entity_to_node(
@@ -2491,6 +2493,383 @@ class Neo4jRepository:
         )
         self.create_model(model, generate_embedding=False)
         return model, True
+
+
+    # =========================================================================
+    # Method Operations (E-4)
+    # =========================================================================
+
+    DEFAULT_METHOD_DEDUP_THRESHOLD = 0.90  # E-2 baseline; not E-3's 0.95
+
+    def _method_props(self, method: Method) -> dict:
+        """Serialize a Method for Neo4j storage (embedding included when set)."""
+        props = method.to_neo4j_properties()
+        if method.embedding is not None:
+            props["embedding"] = method.embedding
+        return props
+
+    def _method_from_neo4j(self, data: dict) -> Method:
+        """Hydrate a Method from a Neo4j node dict (aliases JSON-decoded)."""
+        from datetime import datetime as _datetime
+
+        aliases = data.get("aliases")
+        if isinstance(aliases, str):
+            aliases = json.loads(aliases) if aliases else []
+        elif aliases is None:
+            aliases = []
+
+        return Method(
+            id=data["id"],
+            name=data["name"],
+            description=data.get("description"),
+            aliases=aliases,
+            method_type=data.get("method_type"),
+            embedding=data.get("embedding"),
+            usage_count=int(data.get("usage_count", 0) or 0),
+            created_at=_datetime.fromisoformat(data["created_at"]),
+            updated_at=_datetime.fromisoformat(data["updated_at"]),
+        )
+
+    def create_method(
+        self,
+        method: Method,
+        generate_embedding: bool = True,
+    ) -> Method:
+        """Create a new Method node. Raises DuplicateError on id collision."""
+        if generate_embedding and method.embedding is None:
+            try:
+                from agentic_kg.knowledge_graph.embeddings import (
+                    generate_method_embedding,
+                )
+                method.embedding = generate_method_embedding(
+                    method.name, method.description
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Failed to generate embedding for method {method.id}: {e}. "
+                    "Method will be created without embedding."
+                )
+
+        def _create(tx: ManagedTransaction, props: dict) -> None:
+            check = tx.run(
+                "MATCH (m:Method {id: $id}) RETURN m.id",
+                id=props["id"],
+            )
+            if check.single():
+                raise DuplicateError(
+                    f"Method with ID {props['id']} already exists"
+                )
+            tx.run(
+                """
+                CREATE (m:Method)
+                SET m = $props
+                """,
+                props=props,
+            )
+
+        props = self._method_props(method)
+
+        with self.session() as session:
+            self._execute_with_retry(session, _create, props)
+
+        logger.info(f"Created method: {method.id} ({method.name})")
+        return method
+
+    def get_method(self, method_id: str) -> Method:
+        """Fetch a Method by ID. Raises NotFoundError when missing."""
+        def _get(tx: ManagedTransaction, mid: str) -> Optional[dict]:
+            result = tx.run(
+                "MATCH (m:Method {id: $id}) RETURN m",
+                id=mid,
+            )
+            record = result.single()
+            return dict(record["m"]) if record else None
+
+        with self.session() as session:
+            data = session.execute_read(lambda tx: _get(tx, method_id))
+
+        if data is None:
+            raise NotFoundError(f"Method not found: {method_id}")
+
+        return self._method_from_neo4j(data)
+
+    def get_method_by_name(self, name: str) -> Method:
+        """Fetch a Method by name. Deterministic tie-break on alphabetical id
+        when multiple Methods share the name (rare; only happens when dedup
+        was skipped during an embedding-service outage). No canonical
+        preference — E-4 has no is_canonical field.
+        """
+        def _get(tx: ManagedTransaction, nm: str) -> Optional[dict]:
+            result = tx.run(
+                """
+                MATCH (m:Method {name: $name})
+                RETURN m
+                ORDER BY m.id
+                LIMIT 1
+                """,
+                name=nm,
+            )
+            record = result.single()
+            return dict(record["m"]) if record else None
+
+        with self.session() as session:
+            data = session.execute_read(lambda tx: _get(tx, name))
+
+        if data is None:
+            raise NotFoundError(f"Method not found: {name}")
+
+        return self._method_from_neo4j(data)
+
+    def update_method(
+        self,
+        method_id: str,
+        *,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        aliases: Optional[list[str]] = None,
+        method_type: Optional[str] = None,
+        embedding: Optional[list[float]] = None,
+        regenerate_embedding: bool = False,
+    ) -> Method:
+        """Partial update of a Method. None-valued kwargs leave fields untouched."""
+        existing = self.get_method(method_id)
+
+        next_name = name if name is not None else existing.name
+        next_description = (
+            description if description is not None else existing.description
+        )
+        next_aliases = aliases if aliases is not None else existing.aliases
+        next_method_type = (
+            method_type if method_type is not None else existing.method_type
+        )
+
+        if embedding is None and regenerate_embedding:
+            try:
+                from agentic_kg.knowledge_graph.embeddings import (
+                    generate_method_embedding,
+                )
+                embedding = generate_method_embedding(next_name, next_description)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to regenerate embedding for method {method_id}: {e}"
+                )
+
+        now = datetime.now(timezone.utc).isoformat()
+        aliases_json = json.dumps(next_aliases)
+
+        def _update(tx: ManagedTransaction) -> bool:
+            query = """
+            MATCH (m:Method {id: $id})
+            SET m.name = $name,
+                m.description = $description,
+                m.aliases = $aliases,
+                m.method_type = $method_type,
+                m.updated_at = $now
+            """
+            params = {
+                "id": method_id,
+                "name": next_name,
+                "description": next_description,
+                "aliases": aliases_json,
+                "method_type": next_method_type,
+                "now": now,
+            }
+            if embedding is not None:
+                query += ", m.embedding = $embedding"
+                params["embedding"] = embedding
+            query += " RETURN m.id"
+            result = tx.run(query, **params)
+            return result.single() is not None
+
+        with self.session() as session:
+            found = self._execute_with_retry(session, lambda tx: _update(tx))
+
+        if not found:
+            raise NotFoundError(f"Method not found: {method_id}")
+
+        logger.info(f"Updated method: {method_id}")
+        return self.get_method(method_id)
+
+    def delete_method(self, method_id: str) -> bool:
+        """DETACH DELETE a Method. No force flag — Method has no
+        is_canonical to protect. Same rebuild-over-migrate ethos as E-3.
+        """
+        def _delete(tx: ManagedTransaction, mid: str) -> bool:
+            result = tx.run(
+                """
+                MATCH (m:Method {id: $id})
+                DETACH DELETE m
+                RETURN count(*) as deleted
+                """,
+                id=mid,
+            )
+            record = result.single()
+            return record["deleted"] > 0 if record else False
+
+        with self.session() as session:
+            deleted = self._execute_with_retry(session, _delete, method_id)
+
+        if not deleted:
+            raise NotFoundError(f"Method not found: {method_id}")
+
+        logger.info(f"Deleted method: {method_id}")
+        return True
+
+    def search_methods_by_embedding(
+        self,
+        embedding: list[float],
+        top_k: int = 10,
+        min_score: Optional[float] = None,
+    ) -> list[tuple[Method, float]]:
+        """Vector similarity search over the method_embedding_idx."""
+        def _search(
+            tx: ManagedTransaction,
+            emb: list[float],
+            lim: int,
+            floor: Optional[float],
+        ) -> list[dict]:
+            query = """
+            CALL db.index.vector.queryNodes(
+                'method_embedding_idx', $top_k, $embedding
+            ) YIELD node, score
+            """
+            params: dict[str, Any] = {"embedding": emb, "top_k": lim}
+            if floor is not None:
+                query += "WHERE score >= $min_score\n"
+                params["min_score"] = floor
+            query += "RETURN node as m, score ORDER BY score DESC"
+            result = tx.run(query, **params)
+            return [
+                {"method": dict(r["m"]), "score": r["score"]}
+                for r in result
+            ]
+
+        with self.session() as session:
+            records = session.execute_read(
+                lambda tx: _search(tx, embedding, top_k, min_score)
+            )
+
+        return [
+            (self._method_from_neo4j(r["method"]), r["score"]) for r in records
+        ]
+
+    def link_paper_to_method(
+        self, paper_doi: str, method_id: str
+    ) -> bool:
+        """Link a Paper → Method via APPLIES_METHOD (idempotent MERGE)."""
+        return self._link_entity_to_node(
+            entity_id=paper_doi,
+            target_id=method_id,
+            relationship="APPLIES_METHOD",
+        )
+
+    def unlink_paper_from_method(
+        self, paper_doi: str, method_id: str
+    ) -> bool:
+        """Remove a Paper → Method APPLIES_METHOD edge (decrements usage_count)."""
+        return self._unlink_entity_from_node(
+            entity_id=paper_doi,
+            target_id=method_id,
+            relationship="APPLIES_METHOD",
+        )
+
+    def get_papers_for_method(
+        self, method_id: str, limit: int = 50
+    ) -> list[dict]:
+        """Return Paper rows linked to ``method_id`` via APPLIES_METHOD."""
+        def _fetch(tx: ManagedTransaction, mid: str, lim: int) -> list[dict]:
+            result = tx.run(
+                """
+                MATCH (p:Paper)-[:APPLIES_METHOD]->(m:Method {id: $mid})
+                RETURN p
+                ORDER BY p.title
+                LIMIT $limit
+                """,
+                mid=mid,
+                limit=lim,
+            )
+            return [dict(r["p"]) for r in result]
+
+        with self.session() as session:
+            return session.execute_read(
+                lambda tx: _fetch(tx, method_id, limit)
+            )
+
+    def create_or_merge_method(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        aliases: Optional[list[str]] = None,
+        method_type: Optional[str] = None,
+        threshold: Optional[float] = None,
+        embedding: Optional[list[float]] = None,
+    ) -> tuple[Method, bool]:
+        """Embedding-dedup'd create — E-2 ResearchConcept shape.
+
+        Standard alias merge: existing name wins, incoming joins the
+        aliases set. Description and method_type fill from incoming only
+        when existing is None. **No canonical protection**, no force
+        flags — Method has no is_canonical field.
+
+        QA Q2 review: passing ``threshold=1.01`` forces the dedup search
+        to return no matches (cosine ≤ 1.0), so a new node is always
+        created. This is the operator escape valve for unwanted-merge
+        scenarios.
+
+        On embedding service failure: falls back to create-without-
+        embedding, logs WARN, dedup is skipped (AC-12).
+        """
+        threshold = (
+            threshold
+            if threshold is not None
+            else self.DEFAULT_METHOD_DEDUP_THRESHOLD
+        )
+
+        if embedding is None:
+            try:
+                from agentic_kg.knowledge_graph.embeddings import (
+                    generate_method_embedding,
+                )
+                embedding = generate_method_embedding(name, description)
+            except Exception as e:
+                logger.warning(
+                    f"Embedding failed for method '{name}': {e}. "
+                    "Falling back to create-without-embedding (dedup skipped)."
+                )
+
+        if embedding is not None:
+            candidates = self.search_methods_by_embedding(
+                embedding=embedding,
+                top_k=5,
+                min_score=threshold,
+            )
+            if candidates:
+                best, score = candidates[0]
+                logger.info(
+                    f"Method dedup: '{name}' -> '{best.name}' (score={score:.3f})"
+                )
+                merged_aliases = sorted(
+                    set(best.aliases)
+                    | set(aliases or [])
+                    | ({name} if name != best.name else set())
+                )
+                self.update_method(
+                    best.id,
+                    aliases=merged_aliases,
+                    description=best.description or description,
+                    method_type=best.method_type or method_type,
+                )
+                return self.get_method(best.id), False
+
+        method = Method(
+            name=name,
+            description=description,
+            aliases=list(aliases or []),
+            method_type=method_type,
+            embedding=embedding,
+        )
+        self.create_method(method, generate_embedding=False)
+        return method, True
 
 
 # Module-level convenience functions

@@ -576,6 +576,65 @@ class Model(BaseModel):
 
 
 # =============================================================================
+# Method Entity (E-4)
+# =============================================================================
+
+
+class Method(BaseModel):
+    """
+    A research method / methodology as a first-class graph node.
+
+    Pure open-set design — matches E-2 ResearchConcept rather than E-3
+    Model. Method names are conceptual phrases ("fine-tuning", "contrastive
+    learning"), not identities like "BERT" / "GPT-4", so the canonical-
+    protection machinery E-3 needed adds no value here.
+    """
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique identifier")
+    name: str = Field(..., min_length=2, max_length=120, description="Canonical method name")
+    description: Optional[str] = Field(
+        default=None, max_length=400, description="Longer description for richer embeddings"
+    )
+    aliases: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description=(
+            "Alternative names / surface forms. The cap is documented in the "
+            "spec's Edge Cases — hitting it raises Pydantic ValidationError "
+            "and the operator manually trims via update_method."
+        ),
+    )
+
+    # Free-form string in v1 — promote to enums later if data clusters.
+    method_type: Optional[str] = Field(
+        default=None,
+        description="Type: training, evaluation, data_processing, optimization, ...",
+    )
+
+    embedding: Optional[list[float]] = Field(
+        default=None, description="Method embedding (1536 dims)"
+    )
+
+    usage_count: int = Field(
+        default=0, ge=0, description="Denormalized: count of APPLIES_METHOD edges"
+    )
+
+    created_at: datetime = Field(default_factory=_utc_now)
+    updated_at: datetime = Field(default_factory=_utc_now)
+
+    def to_neo4j_properties(self) -> dict:
+        """Convert to Neo4j node properties. Aliases become a JSON string;
+        timestamps become ISO-format strings; embedding is excluded (written
+        via a separate Cypher SET when needed)."""
+        import json
+        data = self.model_dump(exclude={"embedding"})
+        data["aliases"] = json.dumps(self.aliases)
+        data["created_at"] = self.created_at.isoformat()
+        data["updated_at"] = self.updated_at.isoformat()
+        return data
+
+
+# =============================================================================
 # Human Review Queue Models
 # =============================================================================
 

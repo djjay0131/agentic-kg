@@ -704,3 +704,99 @@ class ModelLinkResponse(BaseModel):
     created: bool = Field(
         description="True if the edge was created, False if it already existed"
     )
+
+
+# =============================================================================
+# Method Schemas (E-4)
+# =============================================================================
+
+
+class MethodSummary(BaseModel):
+    """Flat Method summary for list views."""
+
+    id: str
+    name: str
+    description: Optional[str] = None
+    aliases: list[str] = Field(default_factory=list)
+    method_type: Optional[str] = None
+    usage_count: int = 0
+
+
+class MethodDetail(MethodSummary):
+    """Method detail — same shape for now, room to extend."""
+
+    pass
+
+
+class MethodListResponse(BaseModel):
+    """Response for GET /api/methods."""
+
+    methods: list[MethodSummary] = Field(default_factory=list)
+    total: int = 0
+
+
+class MethodCreateRequest(BaseModel):
+    """Request body for POST /api/methods."""
+
+    name: str = Field(..., min_length=2, max_length=120)
+    description: Optional[str] = None
+    aliases: list[str] = Field(default_factory=list)
+    method_type: Optional[str] = None
+    threshold: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.01,
+        description=(
+            "Override the dedup cosine threshold (default 0.90). "
+            "Pass threshold=1.01 to bypass dedup entirely and force a new "
+            "node — operator escape valve for unwanted-merge scenarios."
+        ),
+    )
+
+
+class MethodCreateResponse(BaseModel):
+    """Response for POST /api/methods."""
+
+    method: MethodSummary
+    created: bool = Field(
+        description="True if a new node was inserted; False if merged."
+    )
+
+
+class MethodSearchResultItem(BaseModel):
+    """A single method similarity-search hit."""
+
+    method: MethodSummary
+    score: float
+
+
+class MethodSearchResponse(BaseModel):
+    """Response for GET /api/methods/search."""
+
+    query: str
+    results: list[MethodSearchResultItem] = Field(default_factory=list)
+
+
+class MethodPapersResponse(BaseModel):
+    """Response for GET /api/methods/{id}/papers."""
+
+    method_id: str
+    papers: list[dict] = Field(default_factory=list)
+    total: int = 0
+
+
+class MethodLinkRequest(BaseModel):
+    """Request body for the link-paper endpoint."""
+
+    entity_id: str = Field(..., description="Paper DOI to link to this Method")
+
+
+class MethodLinkResponse(BaseModel):
+    """Response for the link-paper endpoint."""
+
+    method_id: str
+    entity_id: str
+    relationship: str = Field(description="Always APPLIES_METHOD for Methods")
+    created: bool = Field(
+        description="True if the edge was created, False if it already existed"
+    )

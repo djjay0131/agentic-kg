@@ -607,6 +607,55 @@ def build_parser() -> argparse.ArgumentParser:
         "-v", "--verbose", action="store_true", help="Enable verbose logging",
     )
 
+    # create-method command (E-4)
+    create_method_cmd = subparsers.add_parser(
+        "create-method",
+        help="Create a Method (with embedding-based dedup; E-2-shape, no canonical)",
+    )
+    create_method_cmd.add_argument(
+        "--name", required=True, help="Method name (>=2 chars)",
+    )
+    create_method_cmd.add_argument(
+        "--description", default=None,
+        help="Optional description for richer embeddings",
+    )
+    create_method_cmd.add_argument(
+        "--aliases", default=None,
+        help="Comma-separated list of alternative names",
+    )
+    create_method_cmd.add_argument(
+        "--method-type", default=None, dest="method_type",
+        help="Method type (e.g., training, evaluation, data_processing)",
+    )
+    create_method_cmd.add_argument(
+        "--threshold", type=float, default=None,
+        help=(
+            "Override the cosine dedup threshold (default 0.90). "
+            "Pass --threshold 1.01 to bypass dedup and force a distinct "
+            "node (operator escape valve, E-4 QA Q2)."
+        ),
+    )
+    create_method_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
+    # link-method command (E-4)
+    link_method_cmd = subparsers.add_parser(
+        "link-method",
+        help="Link a Paper to a Method via APPLIES_METHOD",
+    )
+    link_method_cmd.add_argument(
+        "--paper-doi", required=True, dest="paper_doi",
+        help="Source Paper DOI",
+    )
+    link_method_cmd.add_argument(
+        "--method-id", required=True, dest="method_id",
+        help="Target Method id",
+    )
+    link_method_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
     return parser
 
 
@@ -940,6 +989,51 @@ def run_link_model(args) -> None:
     )
 
 
+def run_create_method(args) -> None:
+    """Create a Method via embedding-dedup'd create_or_merge (E-4)."""
+    from agentic_kg.knowledge_graph.repository import get_repository
+
+    aliases: list[str] = []
+    if args.aliases:
+        aliases = [a.strip() for a in args.aliases.split(",") if a.strip()]
+
+    repo = get_repository()
+    method, created = repo.create_or_merge_method(
+        name=args.name,
+        description=args.description,
+        aliases=aliases,
+        method_type=args.method_type,
+        threshold=args.threshold,
+    )
+    verb = "Created" if created else "Merged into existing method"
+    print(f"{verb}: {method.name} (id={method.id})")
+    if method.aliases:
+        print(f"  Aliases: {', '.join(method.aliases)}")
+
+
+def run_link_method(args) -> None:
+    """Link a Paper to a Method via APPLIES_METHOD (E-4)."""
+    from agentic_kg.knowledge_graph.repository import (
+        NotFoundError,
+        get_repository,
+    )
+
+    repo = get_repository()
+    try:
+        created = repo.link_paper_to_method(
+            paper_doi=args.paper_doi, method_id=args.method_id,
+        )
+    except NotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    verb = "Created" if created else "Already present"
+    print(
+        f"{verb} edge: Paper {args.paper_doi} -APPLIES_METHOD-> "
+        f"Method {args.method_id}"
+    )
+
+
 def main(argv: Optional[list[str]] = None) -> None:
     """CLI entry point."""
     parser = build_parser()
@@ -972,6 +1066,10 @@ def main(argv: Optional[list[str]] = None) -> None:
         run_create_model(args)
     elif args.command == "link-model":
         run_link_model(args)
+    elif args.command == "create-method":
+        run_create_method(args)
+    elif args.command == "link-method":
+        run_link_method(args)
     elif args.command == "extract":
         # Build pipeline config
         config = PipelineConfig(

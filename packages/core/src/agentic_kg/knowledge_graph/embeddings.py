@@ -243,6 +243,23 @@ def generate_model_embedding(
     return service.generate_embedding(text)
 
 
+def generate_method_embedding(
+    name: str, description: Optional[str] = None
+) -> list[float]:
+    """
+    Generate embedding for a Method (E-4).
+
+    Same shape as ``generate_research_concept_embedding`` and
+    ``generate_model_embedding``: embeds ``"{name}: {description}"`` when
+    a description is provided, else just the name. Used for dedup on
+    create_or_merge_method and for vector similarity search across the
+    Method index.
+    """
+    text = f"{name}: {description}" if description else name
+    service = EmbeddingService()
+    return service.generate_embedding(text)
+
+
 def generate_problem_embeddings_batch(
     problems: list[Problem],
 ) -> list[Optional[list[float]]]:

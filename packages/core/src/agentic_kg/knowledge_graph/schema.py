@@ -19,7 +19,7 @@ from agentic_kg.knowledge_graph.repository import Neo4jRepository, get_repositor
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when making schema changes
-SCHEMA_VERSION = 5  # Added Model (E-3)
+SCHEMA_VERSION = 6  # Added Method (E-4)
 
 # Schema definitions - fmt: off to allow long Cypher strings
 CONSTRAINTS = [
@@ -70,6 +70,12 @@ CONSTRAINTS = [
         "model_id_unique",
         "CREATE CONSTRAINT model_id_unique IF NOT EXISTS "
         "FOR (m:Model) REQUIRE m.id IS UNIQUE",
+    ),
+    # Method constraints (E-4)
+    (
+        "method_id_unique",
+        "CREATE CONSTRAINT method_id_unique IF NOT EXISTS "
+        "FOR (m:Method) REQUIRE m.id IS UNIQUE",
     ),
     # Schema metadata
     (
@@ -166,6 +172,12 @@ INDEXES = [
         "CREATE INDEX model_is_canonical_idx IF NOT EXISTS "
         "FOR (m:Model) ON (m.is_canonical)",
     ),
+    # Method indexes (E-4)
+    (
+        "method_name_idx",
+        "CREATE INDEX method_name_idx IF NOT EXISTS "
+        "FOR (m:Method) ON (m.name)",
+    ),
 ]
 
 # Vector indexes for semantic search (Neo4j 5.x)
@@ -251,6 +263,21 @@ VECTOR_INDEXES = [
         """
         CREATE VECTOR INDEX model_embedding_idx IF NOT EXISTS
         FOR (m:Model)
+        ON m.embedding
+        OPTIONS {
+            indexConfig: {
+                `vector.dimensions`: 1536,
+                `vector.similarity_function`: 'cosine'
+            }
+        }
+        """
+    ),
+    # Method embedding index (E-4)
+    (
+        "method_embedding_idx",
+        """
+        CREATE VECTOR INDEX method_embedding_idx IF NOT EXISTS
+        FOR (m:Method)
         ON m.embedding
         OPTIONS {
             indexConfig: {

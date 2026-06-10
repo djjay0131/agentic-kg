@@ -27,6 +27,7 @@ from agentic_kg_api.routers import (
     search,
     topics,
 )
+from agentic_kg_api.routers import methods as methods_router
 from agentic_kg_api.routers import models as models_router
 from agentic_kg_api.schemas import HealthResponse, StatsResponse
 from agentic_kg_api.tasks import setup_event_bridge, teardown_event_bridge
@@ -139,6 +140,7 @@ app.include_router(ingest.router)
 app.include_router(topics.router)
 app.include_router(concepts.router)
 app.include_router(models_router.router)
+app.include_router(methods_router.router)
 
 
 # Health and stats endpoints

@@ -4,6 +4,14 @@ Last updated: 2026-06-08
 
 ## Current Work Focus
 
+**E-4 (method-entity) implementation Units 1-9 complete (2026-06-10).** Spec moved to IMPLEMENTED status. The smaller-than-E-3 v1 surface flowed through cleanly: E-2 ResearchConcept shape (no `is_canonical`, no seed YAML, no canonical-protection rules), one-line absorption into `_NODE_LINK_RELATIONSHIPS` (registered `APPLIES_METHOD`), dedup threshold 0.90 (matches E-2). 72 new core tests + 16 new API tests (1753 core / 227 API total). Ruff clean on all E-4 code.
+
+**Notable spec adherence:**
+- AC-11 dedup smoke test ships as a single sentinel (case-variant merges at default threshold). Catches threshold-inversion bugs and the "threshold accidentally set to 9.0" class without paying for a full eval set.
+- AC-3 alias merge uses exact-string set union (matches E-2/E-3 — Tech Lead Q1 review).
+- Threshold escape valve (QA Q2 review) — `--threshold 1.01` on the CLI and `threshold: 1.01` in the API force-create distinct nodes by ensuring no cosine score can clear 1.0.
+- Alias-cap (Pydantic `max_length=20`) overflow surfaces as `ValidationError` per Tech Lead Q3 review (pinned by integration test `test_alias_cap_overflow_via_merge_raises`).
+
 **E-3 (model-entity) VERIFIED (2026-06-08).** All four Constellize verify gates passed for E-3 scope:
 
 | Gate | Result | Notes |
