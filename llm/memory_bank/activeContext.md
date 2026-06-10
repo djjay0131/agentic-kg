@@ -4,6 +4,20 @@ Last updated: 2026-06-08
 
 ## Current Work Focus
 
+**E-4 (method-entity) VERIFIED (2026-06-10).** All four Constellize verify gates passed for E-4 scope:
+
+| Gate | Result | Notes |
+|------|--------|-------|
+| 1. Test Integrity | PASS | 1759 core tests + 227 API tests pass. E-4 new code at 100% line coverage on `routers/methods.py`, `generate_method_embedding`, and all Method repository methods (one pragma-no-cover on the defensive TOCTOU race-condition guard in `update_method`, justified inline). |
+| 2. Health Check | PASS | Pydantic guards (name min/max, alias cap, usage_count ≥ 0); FastAPI bounded Query params; `NotFoundError → 404`; embedding outage → WARN + create-without-embedding (AC-12). No bare excepts. |
+| 3. Deployment | PASS | `agentic-kg create-method / link-method` exposed; Method entity imports cleanly; `/api/methods` router mounts. |
+| 4. Maintainability | PASS | Ruff clean on all 15 E-4 source + test files. Patterns mirror E-2 ResearchConcept exactly. |
+
+**Verify-time fixes applied:**
+
+- Closed 5 coverage gaps in `repository.py`: `_method_from_neo4j` aliases-missing branch, `create_method` embedding-generation try/except, `update_method` explicit-embedding branch, `update_method` regenerate-embedding success + failure paths.
+- One `# pragma: no cover` added on `update_method`'s defensive race-condition `NotFoundError` raise — justified inline as a TOCTOU guard that's only reachable if the Method is deleted between `get_method` and the `SET` query (not reproducible without mocking the inner Cypher).
+
 **E-4 (method-entity) implementation Units 1-9 complete (2026-06-10).** Spec moved to IMPLEMENTED status. The smaller-than-E-3 v1 surface flowed through cleanly: E-2 ResearchConcept shape (no `is_canonical`, no seed YAML, no canonical-protection rules), one-line absorption into `_NODE_LINK_RELATIONSHIPS` (registered `APPLIES_METHOD`), dedup threshold 0.90 (matches E-2). 72 new core tests + 16 new API tests (1753 core / 227 API total). Ruff clean on all E-4 code.
 
 **Notable spec adherence:**

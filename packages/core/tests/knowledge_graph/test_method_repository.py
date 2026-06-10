@@ -126,6 +126,80 @@ class TestMethodCRUD:
         assert retrieved.aliases == ["alias1", "alias2"]
         assert retrieved.method_type == "training"
 
+    def test_update_with_explicit_embedding_persists(self, neo4j_repository):
+        """Cover the `if embedding is not None` branch in update_method.
+        Passing an explicit embedding kwarg writes it via the Cypher SET."""
+        m = Method(
+            name=_test_name("UpdEmb"),
+            embedding=_fake_embedding(0.61),
+        )
+        neo4j_repository.create_method(m, generate_embedding=False)
+
+        new_embedding = _orthogonal_embedding(42)
+        neo4j_repository.update_method(m.id, embedding=new_embedding)
+
+        # Sanity: a vector search at the new slot finds the method.
+        results = neo4j_repository.search_methods_by_embedding(
+            embedding=new_embedding, top_k=5,
+        )
+        ids = {model.id for model, _ in results}
+        assert m.id in ids
+
+    def test_update_regenerate_embedding_succeeds(
+        self, neo4j_repository, monkeypatch
+    ):
+        """Cover the regenerate_embedding=True branch in update_method."""
+        from agentic_kg.knowledge_graph import embeddings as emb_mod
+
+        monkeypatch.setattr(
+            emb_mod,
+            "generate_method_embedding",
+            lambda name, description=None: _orthogonal_embedding(99),
+        )
+
+        m = Method(
+            name=_test_name("Regen"),
+            embedding=_fake_embedding(0.62),
+        )
+        neo4j_repository.create_method(m, generate_embedding=False)
+
+        neo4j_repository.update_method(
+            m.id, description="now described", regenerate_embedding=True,
+        )
+
+        # Verify the regenerated embedding is queryable.
+        results = neo4j_repository.search_methods_by_embedding(
+            embedding=_orthogonal_embedding(99), top_k=5,
+        )
+        ids = {model.id for model, _ in results}
+        assert m.id in ids
+
+    def test_update_regenerate_embedding_failure_is_tolerated(
+        self, neo4j_repository, monkeypatch
+    ):
+        """Cover the except branch in update_method's regenerate path —
+        embedding service down should WARN, leave the existing embedding
+        untouched, and not raise."""
+        from agentic_kg.knowledge_graph import embeddings as emb_mod
+
+        def boom(name, description=None):
+            raise RuntimeError("embedding service down")
+
+        monkeypatch.setattr(emb_mod, "generate_method_embedding", boom)
+
+        m = Method(
+            name=_test_name("RegenBoom"),
+            embedding=_fake_embedding(0.63),
+        )
+        neo4j_repository.create_method(m, generate_embedding=False)
+
+        # Should not raise; existing embedding stays.
+        neo4j_repository.update_method(
+            m.id, description="updated", regenerate_embedding=True,
+        )
+        retrieved = neo4j_repository.get_method(m.id)
+        assert retrieved.description == "updated"
+
     def test_update_nonexistent_raises(self, neo4j_repository):
         with pytest.raises(NotFoundError):
             neo4j_repository.update_method("TEST_missing_id", description="x")
@@ -141,6 +215,70 @@ class TestMethodCRUD:
     def test_delete_nonexistent_raises(self, neo4j_repository):
         with pytest.raises(NotFoundError):
             neo4j_repository.delete_method("TEST_no_such_method")
+
+    def test_method_from_neo4j_handles_missing_aliases_property(
+        self, neo4j_repository
+    ):
+        """Cover the `elif aliases is None` branch in _method_from_neo4j.
+
+        Method nodes that pre-date a hypothetical schema change might
+        not carry the aliases property at all. The hydrator should treat
+        that as []."""
+        # Construct a hand-rolled dict missing the aliases key.
+        from datetime import datetime as _dt
+        now_iso = _dt.now().isoformat()
+        data = {
+            "id": _test_name("NoAliasesProp"),
+            "name": "fine-tuning",
+            "description": None,
+            "method_type": None,
+            "embedding": None,
+            "usage_count": 0,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+            # NOTE: no `aliases` key at all.
+        }
+        m = neo4j_repository._method_from_neo4j(data)
+        assert m.aliases == []
+
+    def test_create_method_generates_embedding_when_flag_true(
+        self, neo4j_repository, monkeypatch
+    ):
+        """Cover the embedding-generation try branch in create_method."""
+        from agentic_kg.knowledge_graph import embeddings as emb_mod
+
+        monkeypatch.setattr(
+            emb_mod,
+            "generate_method_embedding",
+            lambda name, description=None: _orthogonal_embedding(7),
+        )
+
+        m = Method(name=_test_name("EmbedGen"))  # no embedding pre-set
+        neo4j_repository.create_method(m, generate_embedding=True)
+
+        # The generated embedding should be queryable.
+        results = neo4j_repository.search_methods_by_embedding(
+            embedding=_orthogonal_embedding(7), top_k=5,
+        )
+        ids = {model.id for model, _ in results}
+        assert m.id in ids
+
+    def test_create_method_embedding_generation_failure_is_tolerated(
+        self, neo4j_repository, monkeypatch
+    ):
+        """Cover the embedding-generation except branch in create_method."""
+        from agentic_kg.knowledge_graph import embeddings as emb_mod
+
+        def boom(name, description=None):
+            raise RuntimeError("embedding service down")
+
+        monkeypatch.setattr(emb_mod, "generate_method_embedding", boom)
+
+        m = Method(name=_test_name("EmbedFail"))
+        neo4j_repository.create_method(m, generate_embedding=True)
+
+        retrieved = neo4j_repository.get_method(m.id)
+        assert retrieved.name == m.name  # node created; embedding=None
 
     def test_delete_with_inbound_applies_method_edge_detaches(
         self, neo4j_repository

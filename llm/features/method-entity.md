@@ -1,7 +1,7 @@
 # Feature: Method / Methodology Entities (E-4)
 
-**Status:** IMPLEMENTED
-**Date:** 2026-06-09 (specified) · 2026-06-10 (implementation Units 1-9 landed)
+**Status:** VERIFIED
+**Date:** 2026-06-09 (specified) · 2026-06-10 (implementation Units 1-9 landed; verify gates passed)
 **Author:** Feature Architect (AI-assisted)
 **Backlog ID:** E-4
 **Depends On:** E-3 (Model) — reuses the `_NODE_LINK_RELATIONSHIPS` generalization landed in E-3 to add `APPLIES_METHOD` in one line.

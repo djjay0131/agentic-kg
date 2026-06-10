@@ -2684,7 +2684,12 @@ class Neo4jRepository:
         with self.session() as session:
             found = self._execute_with_retry(session, lambda tx: _update(tx))
 
-        if not found:
+        if not found:  # pragma: no cover
+            # Defensive: get_method above already raised NotFoundError if
+            # the row was missing at the start of update_method. This path
+            # only triggers under a TOCTOU race where the node is deleted
+            # between get_method and _update — not reproducible in tests
+            # without mocking the inner Cypher transaction.
             raise NotFoundError(f"Method not found: {method_id}")
 
         logger.info(f"Updated method: {method_id}")
