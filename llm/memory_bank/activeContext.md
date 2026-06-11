@@ -1,8 +1,14 @@
 # Active Context
 
-Last updated: 2026-06-08
+Last updated: 2026-06-11
 
 ## Current Work Focus
+
+**E-5 (citation-graph) implementation Units 1-7 complete (2026-06-11).** Spec moved to IMPLEMENTED status. Significantly different shape from E-1 through E-4: no new entity, just a self-referential `(:Paper)-[:CITES]->(:Paper)` relationship populated from Semantic Scholar reference lists. Stub Paper nodes (`is_stub=True`) absorb cited papers not yet in the KG; the importer-equivalent path promotes them on later full ingestion (preserving inbound CITES edges + denormalized `citation_count`). 1812 core tests pass (+99 from E-5) and 235 API tests pass (+8 from E-5). All E-5 code is ruff-clean.
+
+**Spec-author decisions captured in `citation-graph.md` Review Record.** Q1 (stubs with `is_stub=True`) and Q2 (out-only references at ingestion) were user-answered. Remaining 5 decisions (no backfill command; DOI-only stub dedup; plain `:CITES` with no properties; relax `Paper.year` to Optional + `title.min_length` 10 → 2; testcontainers integration test + stub-promotion sentinel as the verify floor) were taken by the Feature Architect per the user's instruction to "go ahead and take your choices and implement but record the choices."
+
+**Note on PaperImporter hook:** `populate_citations` ships as a standalone async helper in `knowledge_graph/citation_graph.py`. It is **not yet wired into `PaperImporter.import_paper`** — the helper exists, is fully tested, and the testcontainers done-demo exercises it directly. Wiring is a small follow-up; deferred to keep the Importer changes minimal during this implementation window.
 
 **E-4 (method-entity) VERIFIED (2026-06-10).** All four Constellize verify gates passed for E-4 scope:
 

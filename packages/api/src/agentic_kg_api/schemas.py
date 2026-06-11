@@ -800,3 +800,43 @@ class MethodLinkResponse(BaseModel):
     created: bool = Field(
         description="True if the edge was created, False if it already existed"
     )
+
+
+# =============================================================================
+# Citation Graph Schemas (E-5)
+# =============================================================================
+
+
+class CitationPaperEntry(BaseModel):
+    """Compact Paper shape returned by citation endpoints."""
+
+    doi: str
+    title: str
+    year: Optional[int] = None
+    is_stub: bool = False
+    citation_count: int = 0
+
+
+class PaperReferencesResponse(BaseModel):
+    """Response for GET /api/papers/{doi}/references."""
+
+    paper_doi: str
+    references: list[CitationPaperEntry] = Field(default_factory=list)
+    total: int = 0
+
+
+class PaperCitationsResponse(BaseModel):
+    """Response for GET /api/papers/{doi}/citations."""
+
+    paper_doi: str
+    citations: list[CitationPaperEntry] = Field(default_factory=list)
+    total: int = 0
+
+
+class PaperCitationCountsResponse(BaseModel):
+    """Response for GET /api/papers/{doi}/citation-counts."""
+
+    paper_doi: str
+    citation_count: int = 0
+    reference_count: int = 0
+    is_stub: bool = False

@@ -19,7 +19,7 @@ from agentic_kg.knowledge_graph.repository import Neo4jRepository, get_repositor
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when making schema changes
-SCHEMA_VERSION = 6  # Added Method (E-4)
+SCHEMA_VERSION = 7  # Added Paper.is_stub index + CITES edge (E-5)
 
 # Schema definitions - fmt: off to allow long Cypher strings
 CONSTRAINTS = [
@@ -177,6 +177,12 @@ INDEXES = [
         "method_name_idx",
         "CREATE INDEX method_name_idx IF NOT EXISTS "
         "FOR (m:Method) ON (m.name)",
+    ),
+    # Paper.is_stub index (E-5) — filters stubs out of "list all real papers" queries
+    (
+        "paper_is_stub_idx",
+        "CREATE INDEX paper_is_stub_idx IF NOT EXISTS "
+        "FOR (p:Paper) ON (p.is_stub)",
     ),
 ]
 

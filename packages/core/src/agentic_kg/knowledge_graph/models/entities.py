@@ -338,10 +338,14 @@ class Paper(BaseModel):
     """
 
     doi: str = Field(..., description="DOI (primary key)")
-    title: str = Field(..., min_length=10, description="Paper title")
+    # E-5: relaxed min_length 10 → 2 to admit stubs with partial metadata.
+    title: str = Field(..., min_length=2, max_length=500, description="Paper title")
     authors: list[str] = Field(default_factory=list, description="Author names")
     venue: Optional[str] = Field(default=None, description="Publication venue")
-    year: int = Field(..., ge=1900, le=2100, description="Publication year")
+    # E-5: year is Optional — stubs created from references may lack a year.
+    year: Optional[int] = Field(
+        default=None, ge=1900, le=2100, description="Publication year"
+    )
     abstract: Optional[str] = Field(default=None, description="Paper abstract")
 
     # External identifiers
@@ -355,6 +359,27 @@ class Paper(BaseModel):
 
     # Metadata
     ingested_at: datetime = Field(default_factory=_utc_now)
+
+    # E-5 Citation Graph fields
+    is_stub: bool = Field(
+        default=False,
+        description=(
+            "True for placeholder Paper nodes created from another paper's "
+            "reference list when the cited paper hasn't been ingested yet. "
+            "Stubs are promoted to full Papers when fully ingested. "
+            "Monotone: starts true → flips false → never goes back."
+        ),
+    )
+    citation_count: int = Field(
+        default=0,
+        ge=0,
+        description="Denormalized: count of inbound CITES edges (papers that cite this one)",
+    )
+    reference_count: int = Field(
+        default=0,
+        ge=0,
+        description="Denormalized: count of outbound CITES edges (papers this one cites)",
+    )
 
     @field_validator("doi")
     @classmethod

@@ -590,15 +590,18 @@ class TestPaper:
             Paper(doi="invalid-doi", title="Valid Title Here", year=2024)
 
     # Title validation tests
+    # E-5: relaxed min_length 10 → 2 to admit stub Papers with partial
+    # metadata. The original "Short" test now passes (5 chars > 2);
+    # adjusted to test the new minimum.
     def test_title_minimum_length(self, sample_doi):
-        """Title must have minimum length of 10 characters."""
-        with pytest.raises(ValidationError, match="String should have at least 10 characters"):
-            Paper(doi=sample_doi, title="Short", year=2024)
+        """Title must have minimum length of 2 characters."""
+        with pytest.raises(ValidationError, match="String should have at least 2 characters"):
+            Paper(doi=sample_doi, title="A", year=2024)
 
     def test_title_at_minimum_length(self, sample_doi):
-        """Title with exactly 10 characters is valid."""
-        paper = Paper(doi=sample_doi, title="1234567890", year=2024)
-        assert len(paper.title) == 10
+        """Title with exactly 2 characters is valid."""
+        paper = Paper(doi=sample_doi, title="AB", year=2024)
+        assert len(paper.title) == 2
 
     # Year validation tests
     @pytest.mark.parametrize(

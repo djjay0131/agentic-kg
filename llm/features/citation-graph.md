@@ -1,7 +1,7 @@
 # Feature: Citation Graph (E-5)
 
-**Status:** SPECIFIED
-**Date:** 2026-06-10
+**Status:** IMPLEMENTED
+**Date:** 2026-06-10 (specified) · 2026-06-11 (implementation Units 1-7 landed)
 **Author:** Feature Architect (AI-assisted)
 **Backlog ID:** E-5
 **Depends On:** None hard — Semantic Scholar client already exposes `get_paper_references`. Reuses the existing `PaperImporter` orchestration shape.

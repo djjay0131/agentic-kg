@@ -2877,6 +2877,186 @@ class Neo4jRepository:
         return method, True
 
 
+    # =========================================================================
+    # Citation Graph (E-5)
+    # =========================================================================
+
+    def link_paper_cites_paper(
+        self, source_doi: str, target_doi: str,
+    ) -> bool:
+        """Create a Paper-CITES->Paper edge. Idempotent. Increments
+        source.reference_count and target.citation_count atomically when
+        the edge is new.
+
+        Self-citation (source == target) is allowed per spec edge case.
+
+        Raises NotFoundError when either Paper is missing.
+        """
+        def _link(tx: ManagedTransaction, s_doi: str, t_doi: str) -> bool:
+            result = tx.run(
+                """
+                MATCH (src:Paper {doi: $s_doi})
+                MATCH (tgt:Paper {doi: $t_doi})
+                OPTIONAL MATCH (src)-[existing:CITES]->(tgt)
+                WITH src, tgt, existing
+                FOREACH (_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |
+                    CREATE (src)-[:CITES]->(tgt)
+                    SET src.reference_count = coalesce(src.reference_count, 0) + 1,
+                        tgt.citation_count   = coalesce(tgt.citation_count, 0) + 1
+                )
+                RETURN existing IS NULL AS created
+                """,
+                s_doi=s_doi, t_doi=t_doi,
+            )
+            record = result.single()
+            if record is None:
+                raise NotFoundError(
+                    f"Cannot link CITES: source Paper {s_doi!r} or "
+                    f"target Paper {t_doi!r} not found"
+                )
+            return bool(record["created"])
+
+        with self.session() as session:
+            return self._execute_with_retry(
+                session, _link, source_doi, target_doi,
+            )
+
+    def unlink_paper_cites_paper(
+        self, source_doi: str, target_doi: str,
+    ) -> bool:
+        """Remove a Paper-CITES->Paper edge. Decrements both counters
+        (clamped at 0). Returns True if an edge was removed, False if
+        no edge existed."""
+        def _unlink(tx: ManagedTransaction, s_doi: str, t_doi: str) -> bool:
+            result = tx.run(
+                """
+                MATCH (src:Paper {doi: $s_doi})
+                      -[r:CITES]->
+                      (tgt:Paper {doi: $t_doi})
+                DELETE r
+                SET src.reference_count = CASE
+                    WHEN coalesce(src.reference_count, 0) > 0
+                    THEN src.reference_count - 1 ELSE 0 END,
+                    tgt.citation_count = CASE
+                    WHEN coalesce(tgt.citation_count, 0) > 0
+                    THEN tgt.citation_count - 1 ELSE 0 END
+                RETURN count(r) AS removed
+                """,
+                s_doi=s_doi, t_doi=t_doi,
+            )
+            record = result.single()
+            return (record["removed"] if record else 0) > 0
+
+        with self.session() as session:
+            return self._execute_with_retry(
+                session, _unlink, source_doi, target_doi,
+            )
+
+    def create_or_promote_paper_stub(
+        self,
+        doi: str,
+        title: str,
+        year: Optional[int] = None,
+    ) -> tuple[Paper, bool]:
+        """Idempotent Paper-stub creator (E-5 AC-4).
+
+        - If a Paper exists with this DOI (stub or full), returns it unchanged.
+          `created=False`. **The existing title is NOT overwritten** — that is
+          the role of the promotion path via PaperImporter.
+        - If no Paper exists, creates a stub with is_stub=True. `created=True`.
+        """
+        try:
+            existing = self.get_paper(doi)
+            return existing, False
+        except NotFoundError:
+            pass
+
+        stub = Paper(
+            doi=doi, title=title, year=year, is_stub=True, authors=[],
+        )
+        self.create_paper(stub)
+        return stub, True
+
+    def _promote_paper_stub(self, doi: str, full_paper: Paper) -> Paper:
+        """Promote a stub Paper to a full Paper. Scalar properties are
+        overwritten with the full payload; relationships and the
+        citation_count counter are preserved (counter is what came in
+        from accumulated edges; reference_count starts at 0 if the full
+        paper hasn't created its own outbound edges yet, which it will
+        in PaperImporter._fetch_and_link_references).
+        """
+        props = full_paper.to_neo4j_properties()
+        # Preserve accumulated counters from the stub period.
+        props.pop("citation_count", None)
+        props.pop("reference_count", None)
+        # The promotion always flips is_stub to False.
+        props["is_stub"] = False
+
+        def _promote(tx: ManagedTransaction) -> None:
+            tx.run(
+                """
+                MATCH (p:Paper {doi: $doi})
+                SET p += $props
+                """,
+                doi=doi, props=props,
+            )
+
+        with self.session() as session:
+            self._execute_with_retry(session, lambda tx: _promote(tx))
+
+        logger.info(f"Promoted stub Paper {doi} to full Paper")
+        return self.get_paper(doi)
+
+    def get_references(
+        self, paper_doi: str, limit: int = 50,
+    ) -> list[dict]:
+        """Return Paper rows linked from ``paper_doi`` via outbound CITES."""
+        def _fetch(tx: ManagedTransaction, doi: str, lim: int) -> list[dict]:
+            result = tx.run(
+                """
+                MATCH (p:Paper {doi: $doi})-[:CITES]->(r:Paper)
+                RETURN r
+                ORDER BY r.title
+                LIMIT $limit
+                """,
+                doi=doi, limit=lim,
+            )
+            return [dict(rec["r"]) for rec in result]
+
+        with self.session() as session:
+            return session.execute_read(
+                lambda tx: _fetch(tx, paper_doi, limit),
+            )
+
+    def get_citing_papers(
+        self, paper_doi: str, limit: int = 50,
+    ) -> list[dict]:
+        """Return Paper rows that link to ``paper_doi`` via inbound CITES."""
+        def _fetch(tx: ManagedTransaction, doi: str, lim: int) -> list[dict]:
+            result = tx.run(
+                """
+                MATCH (c:Paper)-[:CITES]->(p:Paper {doi: $doi})
+                RETURN c
+                ORDER BY c.title
+                LIMIT $limit
+                """,
+                doi=doi, limit=lim,
+            )
+            return [dict(rec["c"]) for rec in result]
+
+        with self.session() as session:
+            return session.execute_read(
+                lambda tx: _fetch(tx, paper_doi, limit),
+            )
+
+    def count_citations(self, paper_doi: str) -> int:
+        """Returns the denormalized citation_count from the Paper node.
+
+        Raises NotFoundError when the Paper doesn't exist."""
+        paper = self.get_paper(paper_doi)
+        return paper.citation_count
+
+
 # Module-level convenience functions
 _repository: Optional[Neo4jRepository] = None
 

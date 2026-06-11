@@ -656,6 +656,32 @@ def build_parser() -> argparse.ArgumentParser:
         "-v", "--verbose", action="store_true", help="Enable verbose logging",
     )
 
+    # citation-graph command (E-5)
+    citation_graph_cmd = subparsers.add_parser(
+        "citation-graph",
+        help="Traverse the citation graph around a Paper to a given depth",
+    )
+    citation_graph_cmd.add_argument(
+        "--paper-doi", required=True, dest="paper_doi",
+        help="Anchor Paper DOI",
+    )
+    citation_graph_cmd.add_argument(
+        "--depth", type=int, default=1,
+        help="Traversal depth (default 1). Larger depths can grow fast.",
+    )
+    citation_graph_cmd.add_argument(
+        "--direction", default="out", choices=["in", "out", "both"],
+        help="`out` = papers cited by the anchor; `in` = papers that cite "
+             "the anchor; `both` = both edge directions (default: out)",
+    )
+    citation_graph_cmd.add_argument(
+        "--limit", type=int, default=20,
+        help="Max neighbors to print per node (default 20)",
+    )
+    citation_graph_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
     return parser
 
 
@@ -1034,6 +1060,64 @@ def run_link_method(args) -> None:
     )
 
 
+def run_citation_graph(args) -> None:
+    """Traverse the citation graph around a Paper (E-5)."""
+    from agentic_kg.knowledge_graph.repository import (
+        NotFoundError,
+        get_repository,
+    )
+
+    repo = get_repository()
+    try:
+        anchor = repo.get_paper(args.paper_doi)
+    except NotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    anchor_tag = "[stub]" if anchor.is_stub else ""
+    print(
+        f"Anchor: {anchor.doi} {anchor_tag} \"{anchor.title}\" "
+        f"(citation_count={anchor.citation_count}, "
+        f"reference_count={anchor.reference_count})"
+    )
+
+    visited: set[str] = {args.paper_doi}
+    frontier: list[tuple[str, int]] = [(args.paper_doi, 0)]
+
+    while frontier:
+        doi, depth = frontier.pop(0)
+        if depth >= args.depth:
+            continue
+
+        if args.direction in ("out", "both"):
+            refs = repo.get_references(doi, limit=args.limit)
+            for row in refs:
+                child_doi = row.get("doi")
+                if not child_doi or child_doi in visited:
+                    continue
+                visited.add(child_doi)
+                stub_tag = "[stub]" if row.get("is_stub") else ""
+                print(
+                    "  " * (depth + 1)
+                    + f"-> {child_doi} {stub_tag} \"{row.get('title')}\""
+                )
+                frontier.append((child_doi, depth + 1))
+
+        if args.direction in ("in", "both"):
+            citing = repo.get_citing_papers(doi, limit=args.limit)
+            for row in citing:
+                child_doi = row.get("doi")
+                if not child_doi or child_doi in visited:
+                    continue
+                visited.add(child_doi)
+                stub_tag = "[stub]" if row.get("is_stub") else ""
+                print(
+                    "  " * (depth + 1)
+                    + f"<- {child_doi} {stub_tag} \"{row.get('title')}\""
+                )
+                frontier.append((child_doi, depth + 1))
+
+
 def main(argv: Optional[list[str]] = None) -> None:
     """CLI entry point."""
     parser = build_parser()
@@ -1070,6 +1154,8 @@ def main(argv: Optional[list[str]] = None) -> None:
         run_create_method(args)
     elif args.command == "link-method":
         run_link_method(args)
+    elif args.command == "citation-graph":
+        run_citation_graph(args)
     elif args.command == "extract":
         # Build pipeline config
         config = PipelineConfig(
