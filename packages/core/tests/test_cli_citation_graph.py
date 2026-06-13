@@ -138,6 +138,35 @@ class TestRunCitationGraph:
         assert out.count("10.1/A") == 1
 
     @patch("agentic_kg.knowledge_graph.repository.get_repository")
+    def test_in_direction_visited_skip(self, get_repo, capsys):
+        """Cover the in-direction visited-set skip (line 1111).
+
+        Setup: depth 2, direction=in. anchor's citers include X. X's
+        citers include the anchor (cycle). The visited check must prevent
+        the anchor from being re-expanded.
+        """
+        repo = MagicMock()
+        repo.get_paper.return_value = _stub_paper(doi="10.1/anchor")
+
+        def citing_side_effect(doi, limit=50):
+            if doi == "10.1/anchor":
+                return [{"doi": "10.1/X", "title": "X", "is_stub": False}]
+            if doi == "10.1/X":
+                return [{"doi": "10.1/anchor", "title": "Anchor", "is_stub": False}]
+            return []
+
+        repo.get_citing_papers.side_effect = citing_side_effect
+        get_repo.return_value = repo
+
+        main([
+            "citation-graph", "--paper-doi", "10.1/anchor",
+            "--depth", "2", "--direction", "in",
+        ])
+        out = capsys.readouterr().out
+        # X appears once (depth 1). Anchor's re-visit at depth 2 is skipped.
+        assert out.count("10.1/X") == 1
+
+    @patch("agentic_kg.knowledge_graph.repository.get_repository")
     def test_not_found_exits_nonzero(self, get_repo, capsys):
         from agentic_kg.knowledge_graph.repository import NotFoundError
 

@@ -1,8 +1,22 @@
 # Active Context
 
-Last updated: 2026-06-11
+Last updated: 2026-06-12
 
 ## Current Work Focus
+
+**E-5 (citation-graph) VERIFIED (2026-06-12).** All four Constellize verify gates passed for E-5 scope:
+
+| Gate | Result | Notes |
+|------|--------|-------|
+| 1. Test Integrity | PASS | 1813 core + 235 API tests pass; 0 failures. E-5 new code at 100% line coverage: `knowledge_graph/citation_graph.py` (100%), routers/papers.py E-5 endpoints (100%), all 7 new repository methods (100%), CLI `run_citation_graph` handler (100% after adding an in-direction cycle-skip test during verify). |
+| 2. Health Check | PASS | populate_citations absorbs every failure (s2 lookup, references endpoint, stub-create, link) with WARN logs and structured CitationPopulationResult counts; FastAPI bounded Query params; NotFoundError → 404; no bare excepts; AC-11 graceful degradation. |
+| 3. Deployment | PASS | `agentic-kg citation-graph --paper-doi <doi> --depth N --direction in|out|both` exposed; all E-5 modules import cleanly; `/api/papers/{doi}/{references,citations,citation-counts}` endpoints mount in the existing papers router. |
+| 4. Maintainability | PASS | Ruff clean on all 13 E-5 source + test files. Patterns consistent with E-1 through E-4. |
+
+**Verify-time fixes applied:** one CLI cycle-skip test added (`test_in_direction_visited_skip`) to cover the in-direction `continue` branch (line 1111). No code changes; coverage gap closed.
+
+**Open follow-ups (deferred from spec, not blocking VERIFIED):**
+- `populate_citations` is **not yet wired into `PaperImporter.import_paper`**. The helper ships as a standalone async function fully tested via the done-demo. Wiring is a small follow-up; ingestion currently doesn't auto-populate citations.
 
 **E-5 (citation-graph) implementation Units 1-7 complete (2026-06-11).** Spec moved to IMPLEMENTED status. Significantly different shape from E-1 through E-4: no new entity, just a self-referential `(:Paper)-[:CITES]->(:Paper)` relationship populated from Semantic Scholar reference lists. Stub Paper nodes (`is_stub=True`) absorb cited papers not yet in the KG; the importer-equivalent path promotes them on later full ingestion (preserving inbound CITES edges + denormalized `citation_count`). 1812 core tests pass (+99 from E-5) and 235 API tests pass (+8 from E-5). All E-5 code is ruff-clean.
 
