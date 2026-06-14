@@ -1734,6 +1734,8 @@ class Neo4jRepository:
         aliases: Optional[list[str]] = None,
         threshold: Optional[float] = None,
         embedding: Optional[list[float]] = None,
+        generate_description: bool = False,
+        llm_client: Optional[Any] = None,
     ) -> tuple[ResearchConcept, bool]:
         """
         Embedding-based create-or-merge for ResearchConcepts.
@@ -1743,9 +1745,25 @@ class Neo4jRepository:
         and aliases are merged into the existing concept's alias list
         (existing concept returned). Otherwise a new concept is created.
 
+        E-6: ``generate_description`` is only supported on the async
+        sibling ``acreate_or_merge_research_concept``. Calling this sync
+        method with ``generate_description=True`` raises
+        ``NotImplementedError`` per the spec's QA Q2 review.
+
         Returns (concept, created) — ``created`` is True when a new node
         was inserted, False when an existing node was reused.
         """
+        if generate_description:
+            raise NotImplementedError(
+                "generate_description=True requires the async sibling "
+                "acreate_or_merge_research_concept. The sync method "
+                "cannot safely run async LLM calls. "
+                "See E-6 spec, AC-5 / QA Q2 review."
+            )
+        # llm_client is accepted but unused on the sync path so callers can
+        # pass the same kwargs to either sibling without conditional code.
+        _ = llm_client
+
         threshold = (
             threshold if threshold is not None else self.DEFAULT_CONCEPT_DEDUP_THRESHOLD
         )
@@ -2375,8 +2393,14 @@ class Neo4jRepository:
         is_canonical: bool = False,
         threshold: Optional[float] = None,
         embedding: Optional[list[float]] = None,
+        generate_description: bool = False,
+        llm_client: Optional[Any] = None,
     ) -> tuple[Model, bool]:
         """Embedding-based create-or-merge with canonical protection.
+
+        E-6: ``generate_description=True`` is only supported on the async
+        sibling ``acreate_or_merge_model`` and raises ``NotImplementedError``
+        here (spec QA Q2 review).
 
         Decision matrix when an existing candidate scores ≥ threshold:
 
@@ -2396,6 +2420,14 @@ class Neo4jRepository:
 
         Returns ``(model, created)`` — created=True for new nodes.
         """
+        if generate_description:
+            raise NotImplementedError(
+                "generate_description=True requires the async sibling "
+                "acreate_or_merge_model. The sync method cannot safely "
+                "run async LLM calls. See E-6 spec, AC-5 / QA Q2 review."
+            )
+        _ = llm_client  # accepted for kwarg parity with the async sibling
+
         threshold = (
             threshold
             if threshold is not None
@@ -2808,6 +2840,8 @@ class Neo4jRepository:
         method_type: Optional[str] = None,
         threshold: Optional[float] = None,
         embedding: Optional[list[float]] = None,
+        generate_description: bool = False,
+        llm_client: Optional[Any] = None,
     ) -> tuple[Method, bool]:
         """Embedding-dedup'd create — E-2 ResearchConcept shape.
 
@@ -2816,14 +2850,26 @@ class Neo4jRepository:
         when existing is None. **No canonical protection**, no force
         flags — Method has no is_canonical field.
 
-        QA Q2 review: passing ``threshold=1.01`` forces the dedup search
-        to return no matches (cosine ≤ 1.0), so a new node is always
-        created. This is the operator escape valve for unwanted-merge
-        scenarios.
+        E-4 QA Q2 review: passing ``threshold=1.01`` forces the dedup
+        search to return no matches (cosine ≤ 1.0), so a new node is
+        always created. This is the operator escape valve for unwanted-
+        merge scenarios.
+
+        E-6 QA Q2 review: ``generate_description=True`` is only
+        supported on the async sibling ``acreate_or_merge_method`` and
+        raises ``NotImplementedError`` here.
 
         On embedding service failure: falls back to create-without-
         embedding, logs WARN, dedup is skipped (AC-12).
         """
+        if generate_description:
+            raise NotImplementedError(
+                "generate_description=True requires the async sibling "
+                "acreate_or_merge_method. The sync method cannot safely "
+                "run async LLM calls. See E-6 spec, AC-5 / QA Q2 review."
+            )
+        _ = llm_client  # accepted for kwarg parity with the async sibling
+
         threshold = (
             threshold
             if threshold is not None
@@ -2876,6 +2922,147 @@ class Neo4jRepository:
         self.create_method(method, generate_embedding=False)
         return method, True
 
+
+    # =========================================================================
+    # E-6 Async siblings — create_or_merge_X with generate_description support
+    # =========================================================================
+
+    async def _aresolve_description(
+        self,
+        *,
+        entity_type: str,
+        name: str,
+        description: Optional[str],
+        aliases: Optional[list[str]],
+        generate_description: bool,
+        llm_client: Optional[Any],
+    ) -> Optional[str]:
+        """Resolve the final description value for an async-create call.
+
+        - Explicit description wins (no LLM call).
+        - generate_description=False or no llm_client → return description unchanged.
+        - Otherwise: invoke the LLM helper; return its result (which may be
+          None on validation rejection / LLM failure).
+        """
+        if description is not None and description != "":
+            return description
+        if not generate_description:
+            return description
+        if llm_client is None:
+            logger.warning(
+                "%s description generation requested but no llm_client "
+                "provided for %r; proceeding without description.",
+                entity_type, name,
+            )
+            return description
+
+        from agentic_kg.knowledge_graph.description_generation import (
+            generate_description_with_self_check,
+        )
+        generated = await generate_description_with_self_check(
+            entity_type=entity_type,  # type: ignore[arg-type]
+            name=name,
+            aliases=list(aliases or []),
+            llm_client=llm_client,
+        )
+        # Either the validated description, or None if rejected/failed.
+        return generated
+
+    async def acreate_or_merge_research_concept(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        aliases: Optional[list[str]] = None,
+        threshold: Optional[float] = None,
+        embedding: Optional[list[float]] = None,
+        generate_description: bool = False,
+        llm_client: Optional[Any] = None,
+    ) -> tuple[ResearchConcept, bool]:
+        """Async sibling supporting LLM description generation (E-6)."""
+        description = await self._aresolve_description(
+            entity_type="concept",
+            name=name,
+            description=description,
+            aliases=aliases,
+            generate_description=generate_description,
+            llm_client=llm_client,
+        )
+        return self.create_or_merge_research_concept(
+            name=name,
+            description=description,
+            aliases=aliases,
+            threshold=threshold,
+            embedding=embedding,
+            generate_description=False,
+        )
+
+    async def acreate_or_merge_model(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        aliases: Optional[list[str]] = None,
+        architecture: Optional[str] = None,
+        model_type: Optional[str] = None,
+        year_introduced: Optional[int] = None,
+        introducing_paper_doi: Optional[str] = None,
+        is_canonical: bool = False,
+        threshold: Optional[float] = None,
+        embedding: Optional[list[float]] = None,
+        generate_description: bool = False,
+        llm_client: Optional[Any] = None,
+    ) -> tuple[Model, bool]:
+        """Async sibling supporting LLM description generation (E-6)."""
+        description = await self._aresolve_description(
+            entity_type="model",
+            name=name,
+            description=description,
+            aliases=aliases,
+            generate_description=generate_description,
+            llm_client=llm_client,
+        )
+        return self.create_or_merge_model(
+            name=name,
+            description=description,
+            aliases=aliases,
+            architecture=architecture,
+            model_type=model_type,
+            year_introduced=year_introduced,
+            introducing_paper_doi=introducing_paper_doi,
+            is_canonical=is_canonical,
+            threshold=threshold,
+            embedding=embedding,
+            generate_description=False,
+        )
+
+    async def acreate_or_merge_method(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        aliases: Optional[list[str]] = None,
+        method_type: Optional[str] = None,
+        threshold: Optional[float] = None,
+        embedding: Optional[list[float]] = None,
+        generate_description: bool = False,
+        llm_client: Optional[Any] = None,
+    ) -> tuple[Method, bool]:
+        """Async sibling supporting LLM description generation (E-6)."""
+        description = await self._aresolve_description(
+            entity_type="method",
+            name=name,
+            description=description,
+            aliases=aliases,
+            generate_description=generate_description,
+            llm_client=llm_client,
+        )
+        return self.create_or_merge_method(
+            name=name,
+            description=description,
+            aliases=aliases,
+            method_type=method_type,
+            threshold=threshold,
+            embedding=embedding,
+            generate_description=False,
+        )
 
     # =========================================================================
     # Citation Graph (E-5)

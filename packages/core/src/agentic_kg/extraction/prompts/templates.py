@@ -409,6 +409,41 @@ def get_prompt_pair_for_kind(
     raise ValueError(f"Unknown EntityKind: {kind!r}")  # pragma: no cover
 
 
+# =============================================================================
+# E-6: Description generation with LLM self-validation
+# =============================================================================
+
+DESCRIPTION_GENERATION_SYSTEM_PROMPT_V1 = """You are a research librarian. \
+Output factual, concise descriptions of research entities (topics, concepts, \
+models, methods).
+
+After generating the description, rigorously self-evaluate it against the four \
+boolean criteria in the response schema:
+
+- is_factually_grounded: True if the description is grounded in well-known \
+facts about the entity, not speculation.
+- is_concise: True if the description is 1-2 sentences (not a paragraph, not \
+a single word).
+- is_specific: True if the description names what distinguishes this entity \
+from similar ones — not generic platitudes.
+- is_not_tautological: True if the description doesn't just rephrase the \
+entity name (e.g., "BERT is a model called BERT" would be False).
+
+If any criterion is False, populate rejection_reason explaining which one and \
+why. Be honest in your self-evaluation — it is better to reject a weak \
+description than to ship it."""
+
+
+DESCRIPTION_GENERATION_USER_PROMPT_TEMPLATE_V1 = """Write a 1-2 sentence \
+factual description of the {entity_type} "{name}"{aliases_hint}.
+
+Focus on what it IS and what distinguishes it from similar {entity_type}s. \
+Do NOT just rephrase the name.
+
+Then evaluate your description against the self-check criteria provided in \
+the response schema."""
+
+
 # Few-shot examples for improved extraction (future use)
 EXTRACTION_EXAMPLES = [
     {

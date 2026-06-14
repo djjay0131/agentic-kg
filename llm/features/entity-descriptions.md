@@ -1,7 +1,8 @@
 # Feature: Entity Descriptions at Create-Time (E-6)
 
-**Status:** SPECIFIED
+**Status:** IMPLEMENTED
 **Date:** 2026-06-14
+**Implementation Date:** 2026-06-14
 **Author:** Feature Architect (AI-assisted)
 **Backlog ID:** E-6
 **Depends On:** E-1 (Topic), E-2 (ResearchConcept), E-3 (Model), E-4 (Method) — all four already carry a `description: Optional[str]` field wired into embedding generation. This feature populates the field at create time.

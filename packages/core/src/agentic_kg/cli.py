@@ -488,6 +488,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the cosine dedup threshold (default 0.90)",
     )
     create_concept_cmd.add_argument(
+        "--no-generate-description",
+        action="store_false", dest="generate_description", default=True,
+        help=(
+            "Skip LLM-generated descriptions when --description is omitted. "
+            "Without this flag the CLI calls an LLM to generate a description "
+            "(E-6); requires OPENAI_API_KEY."
+        ),
+    )
+    create_concept_cmd.add_argument(
         "-v", "--verbose", action="store_true", help="Enable verbose logging",
     )
 
@@ -587,6 +596,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the cosine dedup threshold (default 0.95)",
     )
     create_model_cmd.add_argument(
+        "--no-generate-description",
+        action="store_false", dest="generate_description", default=True,
+        help=(
+            "Skip LLM-generated descriptions when --description is omitted. "
+            "Without this flag the CLI calls an LLM to generate a description "
+            "(E-6); requires OPENAI_API_KEY."
+        ),
+    )
+    create_model_cmd.add_argument(
         "-v", "--verbose", action="store_true", help="Enable verbose logging",
     )
 
@@ -633,6 +651,15 @@ def build_parser() -> argparse.ArgumentParser:
             "Override the cosine dedup threshold (default 0.90). "
             "Pass --threshold 1.01 to bypass dedup and force a distinct "
             "node (operator escape valve, E-4 QA Q2)."
+        ),
+    )
+    create_method_cmd.add_argument(
+        "--no-generate-description",
+        action="store_false", dest="generate_description", default=True,
+        help=(
+            "Skip LLM-generated descriptions when --description is omitted. "
+            "Without this flag the CLI calls an LLM to generate a description "
+            "(E-6); requires OPENAI_API_KEY."
         ),
     )
     create_method_cmd.add_argument(
@@ -862,6 +889,41 @@ def run_assign_topic(args) -> None:
     )
 
 
+def _llm_client_for_description(*, requested: bool):
+    """Build an OpenAI LLM client for description generation, with silent fallback.
+
+    Returns None (and logs WARN once) when:
+      * generation was requested but OPENAI_API_KEY is unset (AC-12), or
+      * the openai/instructor packages aren't importable.
+
+    The async description helper handles ``llm_client=None`` by skipping
+    generation and persisting ``description=None``, so the CLI never crashes
+    on missing credentials.
+    """
+    import os
+
+    if not requested:
+        return None
+    if not os.environ.get("OPENAI_API_KEY"):
+        logger.warning(
+            "OPENAI_API_KEY not set; skipping LLM description generation. "
+            "Pass --no-generate-description to silence this warning."
+        )
+        return None
+    try:
+        from agentic_kg.extraction.llm_client import (
+            LLMProvider,
+            create_llm_client,
+        )
+    except Exception as e:  # pragma: no cover - import-time safety
+        logger.warning(
+            "Cannot import LLM client (%s); skipping description generation.",
+            e,
+        )
+        return None
+    return create_llm_client(provider=LLMProvider.OPENAI)
+
+
 def run_create_concept(args) -> None:
     """Create or dedup-merge a ResearchConcept."""
     from agentic_kg.knowledge_graph.repository import get_repository
@@ -871,12 +933,25 @@ def run_create_concept(args) -> None:
         aliases = [a.strip() for a in args.aliases.split(",") if a.strip()]
 
     repo = get_repository()
-    concept, created = repo.create_or_merge_research_concept(
-        name=args.name,
-        description=args.description,
-        aliases=aliases,
-        threshold=args.threshold,
-    )
+    llm = _llm_client_for_description(requested=args.generate_description)
+    if args.generate_description and llm is not None:
+        concept, created = asyncio.run(
+            repo.acreate_or_merge_research_concept(
+                name=args.name,
+                description=args.description,
+                aliases=aliases,
+                threshold=args.threshold,
+                generate_description=True,
+                llm_client=llm,
+            )
+        )
+    else:
+        concept, created = repo.create_or_merge_research_concept(
+            name=args.name,
+            description=args.description,
+            aliases=aliases,
+            threshold=args.threshold,
+        )
     verb = "Created" if created else "Merged into existing concept"
     print(f"{verb}: {concept.name} (id={concept.id})")
     if concept.aliases:
@@ -976,16 +1051,33 @@ def run_create_model(args) -> None:
         aliases = [a.strip() for a in args.aliases.split(",") if a.strip()]
 
     repo = get_repository()
-    model, created = repo.create_or_merge_model(
-        name=args.name,
-        description=args.description,
-        aliases=aliases,
-        architecture=args.architecture,
-        model_type=args.model_type,
-        year_introduced=args.year_introduced,
-        is_canonical=args.is_canonical,
-        threshold=args.threshold,
-    )
+    llm = _llm_client_for_description(requested=args.generate_description)
+    if args.generate_description and llm is not None:
+        model, created = asyncio.run(
+            repo.acreate_or_merge_model(
+                name=args.name,
+                description=args.description,
+                aliases=aliases,
+                architecture=args.architecture,
+                model_type=args.model_type,
+                year_introduced=args.year_introduced,
+                is_canonical=args.is_canonical,
+                threshold=args.threshold,
+                generate_description=True,
+                llm_client=llm,
+            )
+        )
+    else:
+        model, created = repo.create_or_merge_model(
+            name=args.name,
+            description=args.description,
+            aliases=aliases,
+            architecture=args.architecture,
+            model_type=args.model_type,
+            year_introduced=args.year_introduced,
+            is_canonical=args.is_canonical,
+            threshold=args.threshold,
+        )
     verb = "Created" if created else "Merged into existing model"
     canon = " (canonical)" if model.is_canonical else ""
     print(f"{verb}: {model.name}{canon} (id={model.id})")
@@ -1024,13 +1116,27 @@ def run_create_method(args) -> None:
         aliases = [a.strip() for a in args.aliases.split(",") if a.strip()]
 
     repo = get_repository()
-    method, created = repo.create_or_merge_method(
-        name=args.name,
-        description=args.description,
-        aliases=aliases,
-        method_type=args.method_type,
-        threshold=args.threshold,
-    )
+    llm = _llm_client_for_description(requested=args.generate_description)
+    if args.generate_description and llm is not None:
+        method, created = asyncio.run(
+            repo.acreate_or_merge_method(
+                name=args.name,
+                description=args.description,
+                aliases=aliases,
+                method_type=args.method_type,
+                threshold=args.threshold,
+                generate_description=True,
+                llm_client=llm,
+            )
+        )
+    else:
+        method, created = repo.create_or_merge_method(
+            name=args.name,
+            description=args.description,
+            aliases=aliases,
+            method_type=args.method_type,
+            threshold=args.threshold,
+        )
     verb = "Created" if created else "Merged into existing method"
     print(f"{verb}: {method.name} (id={method.id})")
     if method.aliases:

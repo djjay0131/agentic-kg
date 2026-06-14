@@ -1,8 +1,47 @@
 # Active Context
 
-Last updated: 2026-06-12
+Last updated: 2026-06-14
 
 ## Current Work Focus
+
+**E-6 (entity-descriptions) IMPLEMENTED (2026-06-14).** Spec moved to IMPLEMENTED status. Create-time, opt-in LLM description generation with in-call self-validation. Reasonably small surface — one new helper module, three async sibling repository methods, three CLI flags.
+
+**What was built (6 units, 52 unit tests, all pass):**
+
+- Unit 1 — `DescriptionWithSelfCheck` Pydantic schema (`knowledge_graph/description_generation.py`) carrying the description + 4 boolean self-validation gates (`is_factually_grounded`, `is_concise`, `is_specific`, `is_not_tautological`) + `rejection_reason`. `passes_self_validation` returns True only when all 4 are True. min_length=20, max_length=400 on `description`.
+- Unit 2 — Prompts (`extraction/prompts/templates.py`): `DESCRIPTION_GENERATION_SYSTEM_PROMPT_V1` (instructs LLM to rigorously self-evaluate) + `DESCRIPTION_GENERATION_USER_PROMPT_TEMPLATE_V1`.
+- Unit 3 — `generate_description_with_self_check()` async helper. Never raises. Returns `None` on rejection or LLM failure, WARN-logs both with entity name + reason. 13 helper tests + 12 schema tests.
+- Unit 4 — Sync guard: `create_or_merge_research_concept`, `create_or_merge_model`, `create_or_merge_method` raise `NotImplementedError` pointing to the async sibling when `generate_description=True`. Default `generate_description=False` preserves all existing call sites.
+- Unit 5 — Async siblings `acreate_or_merge_X` (3 entities). Thin wrappers: call `_aresolve_description` first (LLM helper if requested), then delegate to the sync method with the resolved description value. 9 integration tests (Docker-skipped locally; will run in CI). 6 description-flow unit tests cover AC-9 (description reaches embedding text) at the unit level so the wiring is verified even without Docker.
+- Unit 6 — CLI: `--no-generate-description` flag on all three commands. Default = generation ON. `_llm_client_for_description(requested)` helper: silent-fallback returns `None` + single WARN when `OPENAI_API_KEY` is unset. CLI handlers dispatch async sibling when `(flag default AND llm_client built)`, sync path otherwise. 14 CLI tests cover AC-11/AC-12/AC-13.
+
+**Structural deviation flagged:** Topic uses `merge_topic` (set during E-1) rather than `create_or_merge_topic`, so E-6's `generate_description: bool = False` kwarg is wired only on the three E-2/E-3/E-4 entities. Topic-description generation deferred — separate feature spike would either rename `merge_topic` → `create_or_merge_topic` (consistency win) or add a parallel helper. Captured as a separate backlog item rather than scope-creeping E-6.
+
+**L-1 added to BACKLOG.md:** Low-cost SLM for narrow description-generation tasks (operator concern raised during the E-6 interview).
+
+**Self-validation pattern saved as memory:** `feedback_llm_self_validation.md` — prefer in-call self-validation (Pydantic gates in response schema) over critic-call-after-extract retry loops. Single LLM call carries both content and its evaluation; cheaper, simpler, and the LLM has full context.
+
+**Full-suite regression (after E-6 changes):** 1679 passed, 251 skipped (testcontainers — Docker not available locally), 2 unrelated failures in `e2e/test_acquisition.py` (live SemanticScholar rate limit, pre-existing). Ruff clean on all E-6 source + test files.
+
+**Files created:**
+- `packages/core/src/agentic_kg/knowledge_graph/description_generation.py` (helper + schema)
+- `packages/core/tests/knowledge_graph/test_description_generation_schema.py` (12 tests)
+- `packages/core/tests/knowledge_graph/test_description_generation_helper.py` (14 tests)
+- `packages/core/tests/knowledge_graph/test_description_generation_sync_guard.py` (5 tests)
+- `packages/core/tests/knowledge_graph/test_acreate_or_merge_X.py` (9 integration tests, CI-only)
+- `packages/core/tests/knowledge_graph/test_description_in_embedding.py` (6 tests, AC-9)
+- `packages/core/tests/test_cli_descriptions.py` (15 tests, AC-11/12/13)
+
+**Files modified:**
+- `packages/core/src/agentic_kg/extraction/prompts/templates.py` (E-6 prompt constants)
+- `packages/core/src/agentic_kg/knowledge_graph/repository.py` (3 sync guards + `_aresolve_description` + 3 async siblings)
+- `packages/core/src/agentic_kg/cli.py` (`_llm_client_for_description` helper + flag + 3 handler updates)
+- `llm/features/BACKLOG.md` (L-1 SLM item)
+- `llm/features/entity-descriptions.md` (Status: SPECIFIED → IMPLEMENTED)
+
+Next: `/constellize:feature:verify entity-descriptions` to walk the four quality gates.
+
+---
 
 **E-5 (citation-graph) VERIFIED (2026-06-12).** All four Constellize verify gates passed for E-5 scope:
 
