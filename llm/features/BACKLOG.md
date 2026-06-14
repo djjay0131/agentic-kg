@@ -94,6 +94,7 @@ The "killer feature" — makes the KG useful for researcher queries. Depends on 
 | P-6 | Auto-publish backlog to Pages site | Has Spec | Low | `docs/backlog.md` published 2026-04-15. Follow-up: extend `.github/scripts/generate_docs.py` to regenerate from `llm/features/BACKLOG.md` on every push instead of manual snapshot |
 | P-7 | Migrate `update-docs.yml` trigger paths from `memory-bank/` to `llm/memory_bank/` | Needs Spec | Low | Workflow still watches the stale legacy path |
 | T-1 | Taxonomy management at scale | Needs Spec | Medium | Versioned taxonomy with branching/merge, import/export, conflict resolution for LLM proposals. Flagged by E-1 spec — needed if taxonomy grows beyond ~200 nodes |
+| L-1 | Local / low-cost SLM for narrow tasks | Needs Spec | Medium | Several KG-pipeline tasks (entity-description backfill, alias generation, dedup tie-breaking, deny-list scoring) are narrow enough that a small open-weight model (Llama 3.x 1B/3B, Gemma 2B, Phi-3 Mini) running locally or via cheap inference would suffice. Adds a third `BaseLLMClient` implementation backed by a local-hosted or low-cost provider. Reframes the "is the OpenAI cost too high?" question from binary go/no-go to "route this task to the cheaper model". Flagged during E-6 (entity-descriptions) spec — would meaningfully change the cost economics of LLM-driven backfill commands. |
 
 ---
 
