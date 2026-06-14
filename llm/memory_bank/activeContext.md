@@ -4,6 +4,17 @@ Last updated: 2026-06-14
 
 ## Current Work Focus
 
+**E-6 (entity-descriptions) VERIFIED (2026-06-14).** All four Constellize verify gates passed for E-6 scope:
+
+| Gate | Result | Notes |
+|------|--------|-------|
+| 1. Test Integrity | PASS | 56 E-6 unit tests + 9 testcontainers integration tests (Docker-skipped locally; CI-only). E-6 source files at 100% line coverage: `knowledge_graph/description_generation.py` (37/37 stmts), repository.py E-6 lines (sync guards on 3 entities + `_aresolve_description` + 3 async siblings), cli.py E-6 lines (`_llm_client_for_description` + 3 handler updates). |
+| 2. Health Check | PASS | Pydantic validates description bounds (min=20, max=400) + required gates. Helper catches `Exception` around `llm_client.extract` and around self-validation rejection; both branches log WARN with entity name + reason. Sync guards raise `NotImplementedError` with actionable messages pointing to the async sibling. CLI silent fallback on missing OPENAI_API_KEY logs WARN to stderr + "Pass --no-generate-description to silence this warning." No bare excepts. |
+| 3. Deployment | PASS | `agentic-kg create-concept / create-model / create-method` all expose `--no-generate-description` with consistent help text. All E-6 modules import cleanly. No new dependencies (reuses `instructor`, `openai`, `pydantic`, `BaseLLMClient` from E-8 V1). |
+| 4. Maintainability | PASS | Ruff clean on all 11 E-6 source + test files. Async sibling pattern (`acreate_or_merge_X`) is a new project convention; documented inline + tested with the regression sentinel `TestCLIPrintsSuccessFromAsync` that would catch a future removal of `asyncio.run` in the CLI handlers. Prompt constants live next to E-8 prompts in `extraction/prompts/templates.py`. Self-validation via Pydantic gates in the structured response — explicit operator-readable contract. |
+
+**Verify-time fixes applied:** added `tests/knowledge_graph/test_aresolve_description.py` (4 unit tests) to close coverage of three short-circuit branches inside `_aresolve_description` that integration tests cover but were Docker-skipped locally. No source code changes during verification.
+
 **E-6 (entity-descriptions) IMPLEMENTED (2026-06-14).** Spec moved to IMPLEMENTED status. Create-time, opt-in LLM description generation with in-call self-validation. Reasonably small surface — one new helper module, three async sibling repository methods, three CLI flags.
 
 **What was built (6 units, 52 unit tests, all pass):**
