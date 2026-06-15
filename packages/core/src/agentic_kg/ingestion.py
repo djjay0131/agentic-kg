@@ -122,6 +122,7 @@ async def ingest_papers(
     min_extraction_confidence: float = 0.5,
     on_progress: Optional[Callable[[str, Optional[str], Any], None]] = None,
     force_rewrite: bool = False,
+    populate_citations: bool = True,
 ) -> IngestionResult:
     """
     End-to-end paper ingestion: search → import → extract → integrate.
@@ -167,7 +168,11 @@ async def ingest_papers(
         # Phase 1b: Import metadata to KG
         importer = get_paper_importer()
         dois = [p.doi for p in search.papers if p.doi]
-        import_batch = await importer.batch_import(dois, create_authors=True)
+        import_batch = await importer.batch_import(
+            dois,
+            create_authors=True,
+            populate_citations=populate_citations,
+        )
         result.papers_imported = import_batch.created + import_batch.updated
         _notify(on_progress, "metadata_imported", None, result.papers_imported)
 

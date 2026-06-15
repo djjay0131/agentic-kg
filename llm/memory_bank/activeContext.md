@@ -1,8 +1,61 @@
 # Active Context
 
-Last updated: 2026-06-14
+Last updated: 2026-06-15
 
 ## Current Work Focus
+
+**E-8 V2 (extraction-prompt-expansion-v2) IMPLEMENTED (2026-06-15).** Spec moved to IMPLEMENTED status. Closes the entity-expansion loop (E-1..E-6) at ingestion time: papers ingested through the standard path now populate Model + Method nodes via two new extractors, and the citation graph populates automatically via E-5's `populate_citations` hook wired into `PaperImporter.import_paper`.
+
+**What was built (9 units, 118 V2 unit tests, 1788 total pass / 0 failures):**
+
+- Unit 1 — Schemas (`extraction/schemas.py`): `ExtractedModel`, `ExtractedMethod`. Open-set, dedup at write time. Tests cover field bounds (min/max length, ge/le, year_introduced 1950–2100), aliases cap at 10, quoted_text min 10. ExtractedEntities envelope gains `models` + `methods` lists capped at 20.
+- Unit 2 — Prompts (`extraction/prompts/templates.py`): `MODEL_*_PROMPT_V1`, `METHOD_*_PROMPT_V1`, `build_model_prompt()`, `build_method_prompt()`. `EntityKind` enum gains `MODEL` + `METHOD`. Dispatcher routes new kinds. Disambiguation hints baked into system prompts ("transformer architecture" is NOT a model; "training" is NOT a method).
+- Unit 3 — Extractor classes: `extraction/model_extractor.py`, `extraction/method_extractor.py`. Mirror ConceptExtractor exactly — confidence filter, empty-section short-circuit, LLMError catch + WARN. Includes boundary test at `confidence == 0.7` to guard against future `>=` → `>` regression.
+- Unit 4 — Pipeline (`extraction/pipeline.py`): `extract_all_entities` gains `model_call` + `method_call` required kwargs; `PaperExtractionResult` gains `models` + `methods` fields. V1 callers missing the new kwargs get a clean `TypeError` (AC-5, no silent regression). V1's `_run` failure-isolation pattern extends to both new extractors.
+- Unit 5 — Integration writer (`extraction/kg_integration_v2.py`): `integrate_paper_entities` gains USES_MODEL + APPLIES_METHOD writers with `MIN_MODEL_CONFIDENCE`/`MIN_METHOD_CONFIDENCE = 0.7`. `EntityIntegrationResult` gains `models_linked` + `methods_linked`. Never passes `generate_description=True` (E-6 AC-11 default preserved). `getattr` defends against pinned PaperExtractionResult instances without V2 fields.
+- Unit 6 — PaperImporter (`data_acquisition/importer.py`): `import_paper` gains `populate_citations: bool = True` + `s2_client: Any | None = None` kwargs. Calls `populate_citations` after persist on both create + update paths; skipped on the skipped=True path. Defensive `try/except` absorbs any unexpected exception with an ERROR log including the paper DOI. `ImportResult` gains `citation_population`. `batch_import` threads the kwarg through.
+- Unit 7 — CLI + Cloud Run Job: `agentic-kg ingest --no-populate-citations` flag (default-on), threaded through `ingest_papers`. `job_runner.py` reads `POPULATE_CITATIONS` env var (default true; only literal `false` disables). Tests cover argparse + env-var parsing including case-insensitive `false` and "any non-false value preserves default".
+- Unit 8 — Test guard (`tests/data_acquisition/conftest.py`): autouse fixture monkeypatches `populate_citations` to an AsyncMock returning an empty `CitationPopulationResult`. AC-18 guarantees future unit tests can't silently hit S2. Tests that exercise real wiring patch over the autouse stub.
+- Unit 9 — Eval scoring (`tests/extraction/test_e8_eval.py`): adds `model_precision`, `method_precision`, `model_method_recall` pure-function scoring helpers. Gate constants (`MODEL_PRECISION_AVG_MIN=0.70`, `METHOD_PRECISION_AVG_MIN=0.65`, combined recall floor `0.45`) are draft; `SELECTION.md` documents the calibration step the verify gate runs. Cross-pollination test pins that predicted Models can't recover gold Methods.
+
+**Adversarial review pass (Phase 5):** Added 2 gap tests — confidence at threshold (`==0.7`) boundary for both Model + Method extractors, and AC-9 strengthening that the integrator never sets `is_canonical=True` and passes the LLM-emitted name unchanged.
+
+**Full-suite regression:** 1788 passed, 234 skipped (e2e + integration), 0 failures. One brittle assertion in `tests/test_ingestion.py::test_papers_without_doi_skipped_for_import` was updated for the new `populate_citations=True` kwarg in `batch_import`. Ruff clean on all 16 V2 source + test files after auto-removing 6 unused imports.
+
+**Files created:**
+- `packages/core/src/agentic_kg/extraction/model_extractor.py`
+- `packages/core/src/agentic_kg/extraction/method_extractor.py`
+- `packages/core/tests/extraction/test_e8v2_schemas.py` (25)
+- `packages/core/tests/extraction/test_e8v2_prompts.py` (14)
+- `packages/core/tests/extraction/test_model_extractor.py` (10)
+- `packages/core/tests/extraction/test_method_extractor.py` (10)
+- `packages/core/tests/extraction/test_e8v2_orchestrator.py` (10)
+- `packages/core/tests/extraction/test_e8v2_integration.py` (14)
+- `packages/core/tests/extraction/test_e8v2_eval.py` (17)
+- `packages/core/tests/data_acquisition/test_e8v2_importer_citations.py` (11)
+- `packages/core/tests/test_cli_v2_citations.py` (9)
+
+**Files modified:**
+- `packages/core/src/agentic_kg/extraction/schemas.py` (added two Pydantic classes + ExtractedEntities envelope fields)
+- `packages/core/src/agentic_kg/extraction/prompts/templates.py` (4 new prompt constants + 2 factories + EntityKind extension + dispatcher branches)
+- `packages/core/src/agentic_kg/extraction/pipeline.py` (extract_all_entities signature + PaperExtractionResult fields)
+- `packages/core/src/agentic_kg/extraction/kg_integration_v2.py` (2 thresholds + 2 writers + 2 EntityIntegrationResult counters)
+- `packages/core/src/agentic_kg/data_acquisition/importer.py` (ImportResult.citation_population + import_paper kwargs + batch_import kwargs + lazy s2_client)
+- `packages/core/src/agentic_kg/ingestion.py` (populate_citations kwarg threaded)
+- `packages/core/src/agentic_kg/job_runner.py` (POPULATE_CITATIONS env var)
+- `packages/core/src/agentic_kg/cli.py` (--no-populate-citations flag + run_ingest forwarding)
+- `packages/core/tests/data_acquisition/conftest.py` (autouse stub for AC-18)
+- `packages/core/tests/extraction/test_e8_eval.py` (5 new gate constants + 3 new scoring helpers)
+- `packages/core/tests/extraction/fixtures/e8_eval/SELECTION.md` (V2 gold schema + V2 gates docs)
+- `packages/core/tests/extraction/test_e8_orchestrator.py` (V1 callsites updated with new kwargs)
+- `packages/core/tests/test_ingestion.py` (one assertion updated for new kwarg)
+- `llm/features/extraction-prompt-expansion-v2.md` (Status SPECIFIED → IMPLEMENTED)
+
+**Deviations from spec:** None. Eval gold YAMLs remain placeholder (V1 set the same baseline — only `SELECTION.md` was checked in). The 5-paper labeling effort + calibration step is the verify gate's job per AC-17.
+
+Next: `/constellize:feature:verify extraction-prompt-expansion-v2` to walk the four quality gates.
+
+---
 
 **E-6 (entity-descriptions) VERIFIED (2026-06-14).** All four Constellize verify gates passed for E-6 scope:
 

@@ -331,6 +331,42 @@ class ExtractedResearchConcept(BaseModel):
     quoted_text: str = Field(..., min_length=10)
 
 
+class ExtractedModel(BaseModel):
+    """A specific ML model or named neural architecture extracted from a paper.
+
+    E-8 V2: open-set extraction. The extractor never marks ``is_canonical``;
+    that's reserved for ``seed_models.yml`` (E-3). Embedding-dedup at write
+    time (``create_or_merge_model``) routes "bert-base-uncased" /
+    "BERT-base" to the existing canonical "BERT" node automatically.
+    """
+
+    name: str = Field(..., min_length=2, max_length=120)
+    aliases: list[str] = Field(default_factory=list, max_length=10)
+    architecture: Optional[str] = Field(default=None, max_length=40)
+    model_type: Optional[str] = Field(default=None, max_length=40)
+    year_introduced: Optional[int] = Field(default=None, ge=1950, le=2100)
+    description: Optional[str] = Field(default=None, max_length=400)
+    confidence: float = Field(ge=0, le=1, default=0.8)
+    quoted_text: str = Field(..., min_length=10)
+
+
+class ExtractedMethod(BaseModel):
+    """A research method / named technique extracted from a paper.
+
+    E-8 V2: open-set, mirror of ``ExtractedModel``. A Method is a named
+    recipe (fine-tuning, contrastive learning, RLHF) — not a Model (which
+    has weights) and not a generic Concept (an abstract idea). Dedup
+    happens at write time via ``create_or_merge_method`` (E-4).
+    """
+
+    name: str = Field(..., min_length=2, max_length=120)
+    aliases: list[str] = Field(default_factory=list, max_length=10)
+    method_type: Optional[str] = Field(default=None, max_length=40)
+    description: Optional[str] = Field(default=None, max_length=400)
+    confidence: float = Field(ge=0, le=1, default=0.8)
+    quoted_text: str = Field(..., min_length=10)
+
+
 class ExtractedEntities(BaseModel):
     """Orchestrator container for one paper's non-problem extractions.
 
@@ -346,6 +382,8 @@ class ExtractedEntities(BaseModel):
     concepts: list[ExtractedResearchConcept] = Field(
         default_factory=list, max_length=20
     )
+    models: list[ExtractedModel] = Field(default_factory=list, max_length=20)
+    methods: list[ExtractedMethod] = Field(default_factory=list, max_length=20)
 
 
 class BatchExtractionResult(BaseModel):

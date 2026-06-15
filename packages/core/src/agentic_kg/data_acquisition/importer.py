@@ -39,6 +39,9 @@ class ImportResult:
     skipped: bool = False
     error: str | None = None
     sources: list[str] = field(default_factory=list)
+    # E-8 V2: attached when populate_citations ran. None if skipped (flag
+    # off, no paper persisted, or unexpected exception absorbed).
+    citation_population: Any | None = None
 
 
 @dataclass
@@ -170,6 +173,8 @@ class PaperImporter:
         sources: list[str] | None = None,
         update_existing: bool = False,
         create_authors: bool = True,
+        populate_citations: bool = True,
+        s2_client: Any | None = None,
     ) -> ImportResult:
         """
         Import a paper by identifier.
@@ -179,9 +184,18 @@ class PaperImporter:
             sources: Sources to fetch from (None = auto-detect)
             update_existing: Whether to update existing papers
             create_authors: Whether to create Author entities
+            populate_citations: E-8 V2 — if True (default), fetch the
+                paper's Semantic Scholar references and create CITES
+                edges + stub Paper nodes after persisting. Runs on both
+                create and update_existing=True paths. Failures are
+                absorbed; never blocks the import. Pass False in unit
+                tests or for bulk re-ingestion when S2 is rate-limiting.
+            s2_client: Optional Semantic Scholar client for citation
+                population. If None, a lazy singleton is constructed.
 
         Returns:
-            Import result
+            Import result. ``citation_population`` is populated when the
+            citation hook ran (None otherwise).
         """
         try:
             # Fetch paper from external sources
@@ -208,33 +222,62 @@ class PaperImporter:
                     # Update existing paper
                     kg_paper = normalized_to_kg_paper(normalized)
                     updated = self.repository.update_paper(kg_paper)
-                    return ImportResult(
+                    result = ImportResult(
                         paper=updated,
                         updated=True,
                         sources=aggregated.sources,
                     )
                 else:
-                    return ImportResult(
+                    result = ImportResult(
                         paper=existing,
                         skipped=True,
                         sources=aggregated.sources,
                     )
+            else:
+                # Create new paper
+                kg_paper = normalized_to_kg_paper(normalized)
+                created_paper = self.repository.create_paper(kg_paper)
 
-            # Create new paper
-            kg_paper = normalized_to_kg_paper(normalized)
-            created_paper = self.repository.create_paper(kg_paper)
+                # Create authors and link to paper
+                if create_authors and normalized.authors:
+                    await self._create_and_link_authors(
+                        created_paper.doi, normalized.authors
+                    )
 
-            # Create authors and link to paper
-            if create_authors and normalized.authors:
-                await self._create_and_link_authors(
-                    created_paper.doi, normalized.authors
+                result = ImportResult(
+                    paper=created_paper,
+                    created=True,
+                    sources=aggregated.sources,
                 )
 
-            return ImportResult(
-                paper=created_paper,
-                created=True,
-                sources=aggregated.sources,
-            )
+            # E-8 V2 — populate the citation graph after persisting the
+            # Paper. Runs on both create and update_existing paths. Never
+            # blocks the import: populate_citations is never-raises by
+            # contract; the defensive try/except absorbs anything that
+            # leaks through a future refactor. Skipped on the skipped=True
+            # path (existing paper, update_existing=False) since the
+            # operator's intent was a no-op.
+            if (
+                populate_citations
+                and result.paper is not None
+                and not result.skipped
+            ):
+                try:
+                    from agentic_kg.knowledge_graph.citation_graph import (
+                        populate_citations as _populate,
+                    )
+                    result.citation_population = await _populate(
+                        repo=self.repository,
+                        s2_client=s2_client or self._get_s2_client(),
+                        paper_doi=result.paper.doi,
+                    )
+                except Exception:
+                    logger.exception(
+                        "populate_citations unexpectedly raised for %s",
+                        result.paper.doi,
+                    )
+
+            return result
 
         except NotFoundError as e:
             return ImportResult(error=f"Not found: {str(e)}")
@@ -243,6 +286,13 @@ class PaperImporter:
         except Exception as e:
             logger.exception("Error importing paper %s", identifier)
             return ImportResult(error=str(e))
+
+    def _get_s2_client(self) -> Any:
+        """Return a lazy Semantic Scholar client for citation population."""
+        from agentic_kg.data_acquisition.semantic_scholar import (
+            SemanticScholarClient,
+        )
+        return SemanticScholarClient()
 
     async def _create_and_link_authors(
         self,
@@ -307,6 +357,7 @@ class PaperImporter:
         update_existing: bool = False,
         create_authors: bool = True,
         progress_callback: Any | None = None,
+        populate_citations: bool = True,
     ) -> BatchImportResult:
         """
         Import multiple papers by identifier.
@@ -317,6 +368,7 @@ class PaperImporter:
             update_existing: Whether to update existing papers
             create_authors: Whether to create Author entities
             progress_callback: Optional callback for progress updates
+            populate_citations: Forwarded to ``import_paper`` (E-8 V2).
 
         Returns:
             Batch import result
@@ -329,6 +381,7 @@ class PaperImporter:
                 sources=sources,
                 update_existing=update_existing,
                 create_authors=create_authors,
+                populate_citations=populate_citations,
             )
 
             result.results.append(import_result)

@@ -50,6 +50,11 @@ def _parse_env() -> dict:
         "min_extraction_confidence": float(
             os.environ.get("INGEST_MIN_CONFIDENCE", "0.5")
         ),
+        # E-8 V2: default True; only an explicit `false` (any casing)
+        # disables citation graph population for this job.
+        "populate_citations": os.environ.get(
+            "POPULATE_CITATIONS", "true"
+        ).lower() != "false",
     }
 
 
@@ -129,6 +134,7 @@ def main() -> None:
             sources=config["sources"],
             enable_agent_workflow=config["enable_agent_workflow"],
             min_extraction_confidence=config["min_extraction_confidence"],
+            populate_citations=config["populate_citations"],
         )
     )
 

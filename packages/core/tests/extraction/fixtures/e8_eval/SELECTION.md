@@ -49,17 +49,38 @@ expected_concepts:
     acceptable_aliases: ["self-attention", "scaled dot-product attention"]
   - canonical: "retrieval augmented generation"
     acceptable_aliases: ["RAG"]
+# E-8 V2 additions (AC-17). Empty lists are valid; the eval test
+# short-circuits the relevant precision / recall calculation per paper
+# when its expected list is empty, but the implementation phase MUST
+# fill these in for the verify gate to run meaningfully.
+expected_models:
+  - canonical: "BERT"
+    acceptable_aliases: ["bert-base", "bert-large", "BERT-base-uncased"]
+expected_methods:
+  - canonical: "fine-tuning"
+    acceptable_aliases: ["finetuning", "supervised fine-tuning"]
 ```
 
-## AC-12 gates
+## AC-12 / AC-17 gates
 
-The eval is opt-in via `pytest -m costly`. Gates:
+The eval is opt-in via `pytest -m costly`. Gates (V1 + V2 combined):
 
 - **Topic precision:** average ≥ 0.80 AND no paper below 0.60.
 - **Concept precision:** average ≥ 0.70 AND no paper below 0.50.
 - **Concept recall (anti-gaming tripwire):** average ≥ 0.50 (no per-paper
   floor). Catches confidence-threshold gaming — recall floor must hold any
   time `MIN_TOPIC_CONFIDENCE` or `MIN_CONCEPT_CONFIDENCE` changes.
+- **Model precision (V2):** average ≥ 0.70 AND no paper below 0.50.
+- **Method precision (V2):** average ≥ 0.65 AND no paper below 0.45.
+- **Combined Model+Method recall tripwire (V2):** average ≥ 0.45. Same
+  governance: threshold changes must re-clear precision + recall.
+
+V2 floors are *draft* (set slightly below V1's). The implementation phase
+runs the extractors against the 5-paper set once before verify; if the
+draft floors are infeasible, the implementation report flags the gap
+and the verify gate decides whether to lower with documented
+justification, tune prompts, or defer. See spec AC-17 for the
+calibration step contract.
 
 Per-paper scores are printed in the verify report for regression tracking.
 

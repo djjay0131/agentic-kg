@@ -98,6 +98,34 @@ def reset_singletons():
     reset_circuit_breaker_registry()
 
 
+@pytest.fixture(autouse=True)
+def _stub_populate_citations(monkeypatch):
+    """E-8 V2 AC-18 — autouse guard against unit tests hitting Semantic Scholar.
+
+    ``PaperImporter.import_paper`` calls ``populate_citations`` by default.
+    Unit tests that exercise the importer must not accidentally hit the
+    live S2 API. This fixture monkeypatches the helper to an
+    ``AsyncMock`` returning an empty ``CitationPopulationResult``.
+
+    Opting in to real wiring: tests that explicitly want to drive the
+    populate-citations path patch ``populate_citations`` themselves
+    (the more specific patch takes precedence at call time), or pass
+    ``populate_citations=False`` to ``import_paper``.
+    """
+    from unittest.mock import AsyncMock
+
+    from agentic_kg.knowledge_graph.citation_graph import (
+        CitationPopulationResult,
+    )
+
+    stub = AsyncMock(return_value=CitationPopulationResult())
+    monkeypatch.setattr(
+        "agentic_kg.knowledge_graph.citation_graph.populate_citations",
+        stub,
+    )
+    yield stub
+
+
 # Sample data fixtures
 
 @pytest.fixture

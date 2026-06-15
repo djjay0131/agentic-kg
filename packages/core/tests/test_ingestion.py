@@ -300,9 +300,10 @@ class TestIngestPapers:
 
             result = await ingest_papers("test", limit=10)
 
-        # Only doi "10.1/b" should be passed to batch_import
+        # Only doi "10.1/b" should be passed to batch_import.
+        # E-8 V2 added populate_citations kwarg with default True.
         mock_imp.return_value.batch_import.assert_called_once_with(
-            ["10.1/b"], create_authors=True
+            ["10.1/b"], create_authors=True, populate_citations=True,
         )
 
     @pytest.mark.asyncio

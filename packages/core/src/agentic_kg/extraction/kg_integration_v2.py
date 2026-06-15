@@ -764,6 +764,8 @@ class KGIntegratorV2:
 
 MIN_TOPIC_CONFIDENCE = 0.7
 MIN_CONCEPT_CONFIDENCE = 0.7
+MIN_MODEL_CONFIDENCE = 0.7
+MIN_METHOD_CONFIDENCE = 0.7
 
 
 class EntityIntegrationResult(BaseModel):
@@ -772,6 +774,8 @@ class EntityIntegrationResult(BaseModel):
     paper_doi: str
     topics_assigned: int = 0
     concepts_linked: int = 0
+    models_linked: int = 0
+    methods_linked: int = 0
     problem_concept_edges_drawn: int = 0
     paper_marked_incomplete: bool = False
     skipped_topic_names: list[str] = Field(default_factory=list)
@@ -815,6 +819,8 @@ def integrate_paper_entities(
     repo: Neo4jRepository,
     min_topic_confidence: float = MIN_TOPIC_CONFIDENCE,
     min_concept_confidence: float = MIN_CONCEPT_CONFIDENCE,
+    min_model_confidence: float = MIN_MODEL_CONFIDENCE,
+    min_method_confidence: float = MIN_METHOD_CONFIDENCE,
 ) -> EntityIntegrationResult:
     """Write topic + concept edges and run the B3 problem→concept linker.
 
@@ -901,6 +907,39 @@ def integrate_paper_entities(
             research_concept_id=research_concept_id,
         )
         result.problem_concept_edges_drawn += 1
+
+    # ---- Models → USES_MODEL (E-8 V2 / AC-7) ----
+    # generate_description omitted → defaults to False per E-6 AC-11.
+    # Ingestion stays cost-neutral; the operator-facing CLI flags
+    # generate_description=True for description generation.
+    for extracted_model in getattr(extraction_result, "models", []) or []:
+        if extracted_model.confidence < min_model_confidence:
+            continue
+        model, _created = repo.create_or_merge_model(
+            name=extracted_model.name,
+            description=extracted_model.description,
+            aliases=list(extracted_model.aliases),
+            architecture=extracted_model.architecture,
+            model_type=extracted_model.model_type,
+            year_introduced=extracted_model.year_introduced,
+        )
+        repo.link_paper_to_model(paper_doi=paper_doi, model_id=model.id)
+        result.models_linked += 1
+
+    # ---- Methods → APPLIES_METHOD (E-8 V2 / AC-8) ----
+    for extracted_method in getattr(extraction_result, "methods", []) or []:
+        if extracted_method.confidence < min_method_confidence:
+            continue
+        method, _created = repo.create_or_merge_method(
+            name=extracted_method.name,
+            description=extracted_method.description,
+            aliases=list(extracted_method.aliases),
+            method_type=extracted_method.method_type,
+        )
+        repo.link_paper_to_method(
+            paper_doi=paper_doi, method_id=method.id,
+        )
+        result.methods_linked += 1
 
     # ---- Paper metadata: extraction_incomplete + taxonomy_hash ----
     failed_names = sorted({f.extractor for f in extraction_result.failures})

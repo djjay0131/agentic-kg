@@ -671,6 +671,8 @@ class PaperExtractionResult:
     problems: list = field(default_factory=list)
     topics: list = field(default_factory=list)
     concepts: list = field(default_factory=list)
+    models: list = field(default_factory=list)
+    methods: list = field(default_factory=list)
     failures: list[ExtractionFailure] = field(default_factory=list)
 
     @property
@@ -706,9 +708,15 @@ async def extract_all_entities(
     problem_call: Awaitable[list],
     topic_call: Awaitable[list],
     concept_call: Awaitable[list],
+    model_call: Awaitable[list],
+    method_call: Awaitable[list],
     paper_doi: Optional[str] = None,
 ) -> PaperExtractionResult:
-    """Run problem, topic, and concept extractors concurrently.
+    """Run all five entity extractors concurrently.
+
+    E-8 V2 adds ``model_call`` and ``method_call`` as required kwargs.
+    V1 callers passing only the original three get a clean ``TypeError``
+    at call time — no silent regression (AC-5).
 
     Each ``*_call`` is an already-built awaitable so this function stays
     decoupled from each extractor's specific call signature. Per the
@@ -723,6 +731,8 @@ async def extract_all_entities(
         problem_call: Coroutine returning ``list[ExtractedProblem]``-shaped.
         topic_call: Coroutine returning ``list[_ExtractedTopicAssignmentBase]``-shaped.
         concept_call: Coroutine returning ``list[ExtractedResearchConcept]``-shaped.
+        model_call: Coroutine returning ``list[ExtractedModel]``-shaped (V2).
+        method_call: Coroutine returning ``list[ExtractedMethod]``-shaped (V2).
         paper_doi: Optional DOI for diagnostic log context.
 
     Returns:
@@ -736,6 +746,8 @@ async def extract_all_entities(
         _run("problem", problem_call),
         _run("topic", topic_call),
         _run("concept", concept_call),
+        _run("model", model_call),
+        _run("method", method_call),
     )
     slots = {name: (payload, failure) for name, payload, failure in results}
     failures = [f for _, f in slots.values() if f is not None]
@@ -744,5 +756,7 @@ async def extract_all_entities(
         problems=slots["problem"][0] or [],
         topics=slots["topic"][0] or [],
         concepts=slots["concept"][0] or [],
+        models=slots["model"][0] or [],
+        methods=slots["method"][0] or [],
         failures=failures,
     )

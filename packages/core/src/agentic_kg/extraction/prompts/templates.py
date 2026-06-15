@@ -32,6 +32,8 @@ class EntityKind(str, Enum):
     PROBLEM = "problem"
     TOPIC = "topic"
     CONCEPT = "concept"
+    MODEL = "model"
+    METHOD = "method"
 
 
 @dataclass
@@ -377,6 +379,104 @@ def build_concept_prompt() -> tuple[str, str]:
     return CONCEPT_SYSTEM_PROMPT_V1, CONCEPT_USER_PROMPT_TEMPLATE_V1
 
 
+# =============================================================================
+# E-8 V2: Model + Method prompts
+# =============================================================================
+
+MODEL_SYSTEM_PROMPT_V1 = """You are an expert research scientist. You will \
+be given a paper's abstract, introduction, methodology, and experiments \
+sections and must extract the specific ML models or named neural \
+architectures the paper introduces, uses, or evaluates against.
+
+A "model" is a *named* artifact with weights and an architecture family. \
+Examples of models: BERT, GPT-2, ResNet-50, T5, CLIP, AlphaFold, BART.
+
+Rules:
+- Extract concrete, named models. Do NOT extract generic architecture \
+families or techniques as models — "transformer architecture", "attention \
+mechanism", "fine-tuning", "CNNs" are NOT models. Those are concepts or \
+methods.
+- Include the model's well-known short forms or version variants as \
+aliases (e.g. "BERT-base", "bert-large-uncased" for "BERT").
+- When the paper mentions the architecture family (transformer, cnn, gnn, \
+rnn, ...), populate the ``architecture`` field. Leave it null if unclear.
+- When the paper mentions the model type (language_model, vision_model, \
+multimodal, ...), populate ``model_type``. Leave it null if unclear.
+- If a paper clearly states the year a model was introduced, populate \
+``year_introduced``. Otherwise leave it null.
+- Ground each model in a quoted snippet of at least 10 characters that \
+makes it clear why this model is in the paper.
+- Assign a confidence score between 0 and 1.
+- Return at most 20 models. Prefer fewer high-quality extractions.
+"""
+
+
+MODEL_USER_PROMPT_TEMPLATE_V1 = """Paper title: {paper_title}
+
+---
+ABSTRACT, INTRODUCTION, METHODOLOGY, AND EXPERIMENTS:
+{section_text}
+---
+
+Extract the specific ML models or named neural architectures the paper \
+introduces, uses, or evaluates against, with grounding quotes. Drop \
+generic architecture families and techniques — those are not models."""
+
+
+METHOD_SYSTEM_PROMPT_V1 = """You are an expert research scientist. You will \
+be given a paper's abstract, introduction, methodology, and experiments \
+sections and must extract the methods or techniques the paper applies.
+
+A "method" is a named *recipe* or procedure: fine-tuning, contrastive \
+learning, knowledge distillation, RLHF, LoRA, instruction tuning. A \
+method doesn't have weights — it's something you do, often to a model.
+
+Rules:
+- Extract concrete, named methods. Do NOT extract overly general terms \
+like "training", "evaluation", "running experiments", or "applying the \
+model" — those are too generic to be useful as graph nodes.
+- Include well-known synonyms or short forms as aliases (e.g. "RLHF" for \
+"reinforcement learning from human feedback").
+- When the paper signals a method category, populate ``method_type`` \
+("training", "evaluation", "data_processing"). Leave it null if unclear.
+- Ground each method in a quoted snippet of at least 10 characters that \
+makes it clear why this method is in the paper.
+- Assign a confidence score between 0 and 1.
+- Return at most 20 methods. Prefer fewer high-quality extractions.
+"""
+
+
+METHOD_USER_PROMPT_TEMPLATE_V1 = """Paper title: {paper_title}
+
+---
+ABSTRACT, INTRODUCTION, METHODOLOGY, AND EXPERIMENTS:
+{section_text}
+---
+
+Extract the methods or techniques the paper applies, with grounding \
+quotes. Drop generic activities like "training" or "evaluation" — those \
+are not methods."""
+
+
+def build_model_prompt() -> tuple[str, str]:
+    """Return the model extractor's (system, user template) pair.
+
+    Static — open-set, same shape as ``build_concept_prompt``. Dedup at
+    write time via ``create_or_merge_model`` (E-3) handles canonical
+    routing for the seed YAML's 19 canonical models.
+    """
+    return MODEL_SYSTEM_PROMPT_V1, MODEL_USER_PROMPT_TEMPLATE_V1
+
+
+def build_method_prompt() -> tuple[str, str]:
+    """Return the method extractor's (system, user template) pair.
+
+    Static — open-set, mirror of ``build_model_prompt``. Dedup at write
+    time via ``create_or_merge_method`` (E-4).
+    """
+    return METHOD_SYSTEM_PROMPT_V1, METHOD_USER_PROMPT_TEMPLATE_V1
+
+
 def get_prompt_pair_for_kind(
     kind: EntityKind, *, taxonomy_names: Optional[tuple[str, ...]] = None
 ) -> tuple[str, str]:
@@ -406,6 +506,10 @@ def get_prompt_pair_for_kind(
         return build_topic_prompt(taxonomy_names)
     if kind == EntityKind.CONCEPT:
         return build_concept_prompt()
+    if kind == EntityKind.MODEL:
+        return build_model_prompt()
+    if kind == EntityKind.METHOD:
+        return build_method_prompt()
     raise ValueError(f"Unknown EntityKind: {kind!r}")  # pragma: no cover
 
 

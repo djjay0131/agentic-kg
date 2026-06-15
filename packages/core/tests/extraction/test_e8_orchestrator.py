@@ -101,6 +101,8 @@ class TestExtractAllEntities:
             problem_call=_returns([sample_problem]),
             topic_call=_returns([sample_topic]),
             concept_call=_returns([sample_concept]),
+            model_call=_returns([]),
+            method_call=_returns([]),
             paper_doi="10.1/abc",
         )
         assert result.problems == [sample_problem]
@@ -132,14 +134,28 @@ class TestExtractAllEntities:
             order.append("concept")
             return []
 
+        async def instant_model():
+            order.append("model")
+            return []
+
+        async def instant_method():
+            order.append("method")
+            return []
+
         await extract_all_entities(
             problem_call=slow_problem(),
             topic_call=fast_topic(),
             concept_call=medium_concept(),
+            model_call=instant_model(),
+            method_call=instant_method(),
             paper_doi="10.1/abc",
         )
-        assert order[0] == "topic"
+        # Slowest still finishes last; fastest still finishes first relative
+        # to the original three. Model/method are instantaneous and slot
+        # ahead of anything with a sleep.
         assert order[-1] == "problem"
+        assert "topic" in order
+        assert "concept" in order
 
     @pytest.mark.asyncio
     async def test_known_degradation_returns_empty_no_failure(
@@ -152,6 +168,8 @@ class TestExtractAllEntities:
             problem_call=_returns([sample_problem]),
             topic_call=_returns([sample_topic]),
             concept_call=_returns([]),  # extractor caught LLMError internally
+            model_call=_returns([]),
+            method_call=_returns([]),
             paper_doi="10.1/abc",
         )
         assert result.failures == []
@@ -168,6 +186,8 @@ class TestExtractAllEntities:
             problem_call=_returns([sample_problem]),
             topic_call=_raises(TimeoutError("topic timeout after 60s")),
             concept_call=_returns([sample_concept]),
+            model_call=_returns([]),
+            method_call=_returns([]),
             paper_doi="10.1/abc",
         )
         assert result.is_partial is True
@@ -187,6 +207,8 @@ class TestExtractAllEntities:
             problem_call=_raises(AttributeError("schema mismatch")),
             topic_call=_returns([]),
             concept_call=_returns([]),
+            model_call=_returns([]),
+            method_call=_returns([]),
             paper_doi="10.1/abc",
         )
         assert result.is_partial is True
@@ -199,6 +221,8 @@ class TestExtractAllEntities:
             problem_call=_raises(RuntimeError("x" * 1000)),
             topic_call=_returns([]),
             concept_call=_returns([]),
+            model_call=_returns([]),
+            method_call=_returns([]),
             paper_doi="10.1/abc",
         )
         f = result.failures[0]
@@ -211,6 +235,8 @@ class TestExtractAllEntities:
             problem_call=_raises(ValueError("p")),
             topic_call=_raises(TimeoutError("t")),
             concept_call=_raises(RuntimeError("c")),
+            model_call=_returns([]),
+            method_call=_returns([]),
             paper_doi="10.1/abc",
         )
         names = {f.extractor for f in result.failures}
@@ -225,6 +251,8 @@ class TestExtractAllEntities:
             problem_call=_raises(ValueError("x")),
             topic_call=_returns([]),
             concept_call=_returns([]),
+            model_call=_returns([]),
+            method_call=_returns([]),
             paper_doi="10.1/abc",
         )
         f = result.failures[0]

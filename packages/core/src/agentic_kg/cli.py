@@ -413,6 +413,17 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     ingest.add_argument(
+        "--no-populate-citations",
+        action="store_false", dest="populate_citations", default=True,
+        help=(
+            "Skip citation graph population during paper import. "
+            "Without this flag, PaperImporter fetches the paper's "
+            "Semantic Scholar references and creates CITES edges + "
+            "stub Paper nodes (E-8 V2 default). Pass to disable "
+            "during bulk runs when S2 is rate-limiting."
+        ),
+    )
+    ingest.add_argument(
         "-v", "--verbose", action="store_true",
         help="Enable verbose logging",
     )
@@ -816,6 +827,7 @@ async def run_ingest(args) -> None:
         min_extraction_confidence=args.min_confidence,
         on_progress=on_progress,
         force_rewrite=args.force_rewrite,
+        populate_citations=args.populate_citations,
     )
 
     print_ingestion_result(result, as_json=args.json_output)
