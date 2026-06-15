@@ -4,6 +4,17 @@ Last updated: 2026-06-15
 
 ## Current Work Focus
 
+**E-8 V2 (extraction-prompt-expansion-v2) VERIFIED (2026-06-15).** All four Constellize verify gates passed for V2 scope:
+
+| Gate | Result | Notes |
+|------|--------|-------|
+| 1. Test Integrity | PASS | 119 V2-specific unit tests + 1788 full suite (0 failures, 234 skipped on Docker/e2e). V2 source files at 100% line coverage: model_extractor.py (26/26), method_extractor.py (26/26), schemas.py V2 additions, prompts/templates.py V2 additions (build_model_prompt, build_method_prompt, MODEL/METHOD enum branches), pipeline.py V2 additions (extract_all_entities + PaperExtractionResult fields), kg_integration_v2.py V2 additions (Model + Method writers + constants + counters), importer.py V2 additions (populate_citations + s2_client kwargs + _get_s2_client lazy helper), ingestion.py kwarg, job_runner.py env var + main() forwarding line, cli.py flag + run_ingest forwarding. |
+| 2. Health Check | PASS | All Pydantic schemas validate. Empty-section short-circuit prevents wasted LLM calls. LLMError caught in each extractor with WARN naming the extractor. Orchestrator `_run` catches BaseException, truncates message/traceback bounded. AC-5 enforces explicit TypeError on V1 callers (no silent regression). Integrator filter + defensive getattr + never sets is_canonical. Importer's defensive try/except absorbs unexpected populate_citations exceptions with ERROR log + paper DOI. CLI/env var: only literal `false` disables (audit-friendly). |
+| 3. Deployment | PASS | `agentic-kg ingest --no-populate-citations` flag visible. All V2 modules import cleanly. Cloud Run Job reads `POPULATE_CITATIONS=false` env var. No new dependencies (reuses instructor, openai, pydantic, BaseLLMClient, SemanticScholarClient). |
+| 4. Maintainability | PASS | Ruff clean on all 16 V2 source + test files. Extractor classes mirror ConceptExtractor exactly (open-set, paper-level, confidence filter, LLMError catch). Prompts colocated with V1 prompts in templates.py with the SYSTEM/USER_PROMPT_V1 convention. Integrator additions follow the V1 confidence-threshold + counter pattern. Importer kwarg follows E-6's `--no-generate-description` convention (action="store_false", default=True). |
+
+**Verify-time fixes applied:** added `TestJobRunnerMainForwarding::test_main_forwards_populate_citations_to_ingest_papers` to close the one remaining V2 line in `job_runner.py::main()` (the `populate_citations=config["populate_citations"]` kwarg forwarded to `ingest_papers`). No source code changes during verification.
+
 **E-8 V2 (extraction-prompt-expansion-v2) IMPLEMENTED (2026-06-15).** Spec moved to IMPLEMENTED status. Closes the entity-expansion loop (E-1..E-6) at ingestion time: papers ingested through the standard path now populate Model + Method nodes via two new extractors, and the citation graph populates automatically via E-5's `populate_citations` hook wired into `PaperImporter.import_paper`.
 
 **What was built (9 units, 118 V2 unit tests, 1788 total pass / 0 failures):**

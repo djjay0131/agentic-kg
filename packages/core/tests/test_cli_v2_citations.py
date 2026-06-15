@@ -95,3 +95,38 @@ class TestJobRunnerEnvVar:
         monkeypatch.setenv("INGEST_QUERY", "x")
         monkeypatch.setenv("POPULATE_CITATIONS", "garbage")
         assert _parse_env()["populate_citations"] is True
+
+
+class TestJobRunnerMainForwarding:
+    """AC-14 end-to-end: the Cloud Run Job entrypoint reads the env var
+    and forwards the value all the way to ``ingest_papers``."""
+
+    def test_main_forwards_populate_citations_to_ingest_papers(
+        self, monkeypatch,
+    ):
+        import agentic_kg.job_runner as jr
+
+        monkeypatch.setenv("INGEST_QUERY", "test query")
+        monkeypatch.setenv("POPULATE_CITATIONS", "false")
+
+        captured: dict = {}
+
+        def _fake_asyncio_run(coro):
+            # Closing the coroutine to avoid the "never awaited" warning.
+            try:
+                coro.close()
+            except Exception:
+                pass
+            return MagicMock(status="ok", total_problems=0, extraction_errors=[])
+
+        fake_ingest = MagicMock(side_effect=lambda **kw: captured.update(kw))
+
+        monkeypatch.setattr(jr, "asyncio", MagicMock(run=_fake_asyncio_run))
+        monkeypatch.setattr(jr, "ingest_papers", fake_ingest)
+        monkeypatch.setattr(jr, "persist_ingestion_run", lambda *a, **k: True)
+        monkeypatch.setattr(jr.sys, "exit", lambda code: None)
+
+        jr.main()
+
+        assert "populate_citations" in captured
+        assert captured["populate_citations"] is False

@@ -1,8 +1,9 @@
 # Feature: Extraction Prompt Expansion V2 (E-8 V2: Models + Methods + Citation Wiring)
 
-**Status:** IMPLEMENTED
+**Status:** VERIFIED
 **Date:** 2026-06-14
 **Implementation Date:** 2026-06-15
+**Verification Date:** 2026-06-15
 **Author:** Feature Architect (AI-assisted)
 **Backlog ID:** E-8 (V2 follow-up)
 **Depends On:** E-3 (Model entities, VERIFIED), E-4 (Method entities, VERIFIED), E-5 (Citation graph helper, VERIFIED), E-6 (Entity descriptions, VERIFIED), E-8 V1 (Topic + Concept extractors, VERIFIED)
