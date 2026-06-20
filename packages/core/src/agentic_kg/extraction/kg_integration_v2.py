@@ -810,6 +810,23 @@ def _set_paper_extraction_metadata(
         )
 
 
+def _set_paper_normalization_audit(
+    repo: Neo4jRepository, paper_doi: str, audit_json: str,
+) -> None:
+    """E-7 AC-14: persist the cross-entity normalization audit as a JSON
+    property on the Paper node. Called only when the audit is non-empty
+    (clean papers leave the property unset)."""
+    with repo.session() as session:
+        session.run(
+            """
+            MATCH (p:Paper {doi: $doi})
+            SET p.normalization_audit = $audit_json
+            """,
+            doi=paper_doi,
+            audit_json=audit_json,
+        )
+
+
 def integrate_paper_entities(
     *,
     paper_doi: str,
@@ -821,6 +838,7 @@ def integrate_paper_entities(
     min_concept_confidence: float = MIN_CONCEPT_CONFIDENCE,
     min_model_confidence: float = MIN_MODEL_CONFIDENCE,
     min_method_confidence: float = MIN_METHOD_CONFIDENCE,
+    normalization_result: Any = None,  # E-7 NormalizationResult; optional
 ) -> EntityIntegrationResult:
     """Write topic + concept edges and run the B3 problem→concept linker.
 
@@ -952,6 +970,18 @@ def integrate_paper_entities(
         taxonomy_hash=taxonomy_hash,
     )
     result.paper_marked_incomplete = extraction_incomplete
+
+    # ---- E-7: cross-entity normalization audit ----
+    if normalization_result is not None and not normalization_result.is_clean:
+        from agentic_kg.extraction.cross_entity_normalizer import audit_to_json
+
+        audit_json = audit_to_json(normalization_result)
+        # Defensive — only set the property when there's actually
+        # something to record. Clean papers leave the property NULL so
+        # the AC-14 audit query (WHERE p.normalization_audit IS NOT NULL)
+        # picks up exactly the papers that had collisions.
+        if audit_json:
+            _set_paper_normalization_audit(repo, paper_doi, audit_json)
 
     return result
 
