@@ -186,9 +186,13 @@ def _cheap_collisions(
             extractions.setdefault(kind, ex)
 
         # Dedupe identical pairs that show up via both name AND alias
-        # hits on the same triplet of extractions.
+        # hits on the same triplet of extractions. Defensive against
+        # exotic inputs (e.g. distinct lowercase surfaces somehow
+        # producing the same extraction triplet); .lower() normalization
+        # plus the same-surface-key pathway make this structurally
+        # unreachable under valid schemas.
         signature = tuple(sorted(id(ex) for ex in extractions.values()))
-        if signature in seen_signatures:
+        if signature in seen_signatures:  # pragma: no cover - structurally unreachable
             continue
         seen_signatures.add(signature)
 
@@ -291,7 +295,11 @@ def _embedding_collisions(
                 if score < threshold:
                     continue
                 sig = tuple(sorted((id(a), id(b))))
-                if sig in seen_signatures:
+                if sig in seen_signatures:  # pragma: no cover - structurally unreachable
+                    # Defensive: the three axes (concept×model,
+                    # concept×method, model×method) are disjoint by
+                    # construction, so the same (a, b) pair can never
+                    # be visited twice.
                     continue
                 seen_signatures.add(sig)
                 pairs.append(

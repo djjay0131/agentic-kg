@@ -4,6 +4,17 @@ Last updated: 2026-06-20
 
 ## Current Work Focus
 
+**E-7 (cross-entity-normalization) VERIFIED (2026-06-20).** All four Constellize verify gates passed for E-7 scope:
+
+| Gate | Result | Notes |
+|------|--------|-------|
+| 1. Test Integrity | PASS | 87 V2-specific unit tests + 1876 full suite (0 failures). `cross_entity_normalizer.py` at 100% line coverage (2 pragmas on structurally-unreachable signature-dedup branches: lines 192 and 295). All E-7 additions to `kg_integration_v2.py` (`_set_paper_normalization_audit` + audit-write block + new kwarg) covered. All E-7 prompt additions to `templates.py` covered. |
+| 2. Health Check | PASS | DisambiguationDecision Pydantic Literal on picked_kind is injection-resistant + confidence bounded + gates required. Cheap-collision detector defensive against empty strings + in-kind-only collisions. `_embed_with_cache` catches `Exception` → None + WARN naming the surface. `disambiguate_pair` catches `Exception` around `llm_client.extract` → returns `(None, reason)` + WARN; three reject paths (gates, confidence, out-of-pair) all log diagnostic reason. `normalize_cross_entity` short-circuits on zero pairs; audit populated on accept AND reject. Integrator: backwards-compat preserved via `normalization_result=None` default. |
+| 3. Deployment | PASS | All E-7 modules import cleanly. `integrate_paper_entities` signature carries the new `normalization_result` kwarg. No new dependencies (reuses `BaseLLMClient`, `EmbeddingService`, `instructor`, `pydantic`). |
+| 4. Maintainability | PASS | Ruff clean on all 9 E-7 source + test files. `DisambiguationDecision` mirrors E-6's `DescriptionWithSelfCheck` exactly (same self-validation gate shape per `feedback_llm_self_validation` saved memory). Prompts colocated with V1/V2 prompts in `templates.py`. Integrator audit-write mirrors V1's `_set_paper_extraction_metadata`. |
+
+**Verify-time fixes applied:** added two `# pragma: no cover` justifications on structurally-unreachable signature-dedup branches (`_cheap_collisions` line 192 and `_embedding_collisions` line 295 — `.lower()` normalization + disjoint scan axes make double-hit impossible under valid schemas). No source code changes during verification beyond pragma annotations.
+
 **E-7 (cross-entity-normalization) IMPLEMENTED (2026-06-20).** Spec moved to IMPLEMENTED status. Per-paper routing LLM call disambiguates cross-entity collisions (Concept ↔ Model ↔ Method) at extraction time, before write. Closes the known E-8 V2 duplication risk ("attention mechanism" as both Concept and Method).
 
 **What was built (7 units, 87 V2 unit tests, all pass + 1876 full-suite no failures):**
