@@ -55,6 +55,19 @@ def _parse_env() -> dict:
         "populate_citations": os.environ.get(
             "POPULATE_CITATIONS", "true"
         ).lower() != "false",
+        # entity-pipeline-orchestration: default True; only explicit
+        # `false` (case-insensitive) disables the 4 entity extractors +
+        # cross-entity normalizer for this job. BREAKING CHANGE on
+        # deploy — see release notes.
+        "extract_entities": os.environ.get(
+            "EXTRACT_ENTITIES", "true"
+        ).lower() != "false",
+        "normalize_cross_entity_collisions": os.environ.get(
+            "NORMALIZE_CROSS_ENTITY", "true",
+        ).lower() != "false",
+        "force_reextract": os.environ.get(
+            "FORCE_REEXTRACT", "false",
+        ).lower() == "true",
     }
 
 
@@ -135,6 +148,11 @@ def main() -> None:
             enable_agent_workflow=config["enable_agent_workflow"],
             min_extraction_confidence=config["min_extraction_confidence"],
             populate_citations=config["populate_citations"],
+            extract_entities=config["extract_entities"],
+            normalize_cross_entity_collisions=(
+                config["normalize_cross_entity_collisions"]
+            ),
+            force_reextract=config["force_reextract"],
         )
     )
 

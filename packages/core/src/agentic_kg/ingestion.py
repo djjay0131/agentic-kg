@@ -14,8 +14,16 @@ from pydantic import BaseModel, Field
 
 from agentic_kg.data_acquisition.aggregator import get_paper_aggregator
 from agentic_kg.data_acquisition.importer import get_paper_importer
-from agentic_kg.extraction.kg_integration_v2 import KGIntegratorV2
-from agentic_kg.extraction.pipeline import get_pipeline
+from agentic_kg.extraction.cross_entity_normalizer import normalize_cross_entity
+from agentic_kg.extraction.kg_integration_v2 import (
+    KGIntegratorV2,
+    integrate_paper_entities,
+)
+from agentic_kg.extraction.pipeline import (
+    PaperExtractionResult,
+    extract_all_entities,
+    get_pipeline,
+)
 from agentic_kg.extraction.re_ingestion import PurgeBlocked, purge_paper_extraction
 from agentic_kg.knowledge_graph.repository import get_repository
 
@@ -59,10 +67,40 @@ class IngestionResult(BaseModel):
         default_factory=dict, description="DOI → error message for failed extractions"
     )
 
-    # Phase 3 counts
+    # Phase 3 counts (V1 problem path)
     total_problems: int = Field(0, description="Total problems extracted")
     concepts_created: int = Field(0, description="New ProblemConcepts created")
     concepts_linked: int = Field(0, description="Mentions linked to existing concepts")
+
+    # Phase 3 counts (V2 entity path — entity-pipeline-orchestration)
+    topics_linked: int = Field(0, description="Paper-BELONGS_TO-Topic edges drawn")
+    concepts_v2_linked: int = Field(
+        0, description="Paper-DISCUSSES-ResearchConcept edges drawn (V2)"
+    )
+    models_linked: int = Field(0, description="Paper-USES_MODEL edges drawn")
+    methods_linked: int = Field(0, description="Paper-APPLIES_METHOD edges drawn")
+    papers_marked_incomplete: int = Field(
+        0,
+        description=(
+            "Papers where one of the 5 extractors failed; "
+            "Paper.extraction_incomplete=true on the node"
+        ),
+    )
+    papers_with_normalization_audit: int = Field(
+        0,
+        description=(
+            "Papers whose cross-entity normalizer detected at least one pair; "
+            "Paper.normalization_audit is non-null on the node"
+        ),
+    )
+    papers_skipped_complete: int = Field(
+        0,
+        description=(
+            "Papers skipped because they were already extracted under the "
+            "current taxonomy and extraction_incomplete=false (re-ingest "
+            "cost guard, AC-21). Bypass via --force-reextract."
+        ),
+    )
 
     # Phase 4
     sanity_checks: list[SanityCheck] = Field(
@@ -113,6 +151,101 @@ def _paper_has_footprint(repo: Any, paper_doi: str) -> bool:
     return bool(row and row["n"] > 0)
 
 
+# Sections fed to the 4 V2 entity extractors. Order matters for prompt
+# readability: abstract → intro → methods → experiments roughly matches
+# how a human reads the paper. See entity-pipeline-orchestration spec
+# AC-4/AC-5/AC-6 for the resolution contract.
+_EXTRACTOR_WANTED_SECTIONS = (
+    "abstract",
+    "introduction",
+    "methods",
+    "experiments",
+)
+
+
+def _build_extractor_section_text(seg: Any) -> str:
+    """Join the abstract + intro + methods + experiments content from a
+    ``SegmentedDocument`` into a single text block for the entity
+    extractors.
+
+    Returns ``""`` when ``seg`` is None or contains none of the wanted
+    sections. The per-extractor empty-input short-circuit then prevents
+    a wasted LLM call. See spec edge case "Empty section text — clean
+    short-circuit".
+    """
+    if seg is None or not getattr(seg, "sections", None):
+        return ""
+    parts: list[str] = []
+    for section in seg.sections:
+        section_type = getattr(section, "section_type", None)
+        # section_type is a SectionType enum; its .value is the string.
+        section_value = getattr(section_type, "value", None) or str(section_type or "")
+        if section_value.lower() in _EXTRACTOR_WANTED_SECTIONS:
+            content = getattr(section, "content", "") or ""
+            if content.strip():
+                parts.append(content.strip())
+    return "\n\n".join(parts)
+
+
+def _can_skip_entity_extraction(
+    repo: Any,
+    paper_doi: Optional[str],
+    current_taxonomy_hash: str,
+) -> bool:
+    """E-7-style cost guard (AC-21): True when the paper already has a
+    complete extraction under the current taxonomy snapshot.
+
+    Skip semantics:
+      * Paper.taxonomy_hash equals the current batch's hash.
+      * Paper.extraction_incomplete is NOT True (None or false counts as
+        complete; the V2 integrator only sets it on real failure).
+
+    The check fails (returns False) when:
+      * The paper has no DOI (no graph match-key).
+      * The paper doesn't exist in the graph yet (NotFoundError).
+      * Any query failure (defensive — never let the cost guard crash
+        the batch).
+      * The taxonomy_hash mismatches (e.g., after AC-13 purge or after
+        a taxonomy YAML edit).
+      * extraction_incomplete is True (one of the 5 extractors failed
+        last time; re-extraction is the recovery).
+
+    Phase 1 metadata refresh + ``populate_citations`` still run for
+    skipped papers; only the LLM-touching extraction body is bypassed.
+    """
+    if not paper_doi:
+        return False
+    if not current_taxonomy_hash:
+        # No hash to compare against — caller is in extract_entities=False
+        # mode, so there's nothing to skip.
+        return False
+    try:
+        with repo.session() as session:
+            row = session.run(
+                """
+                MATCH (p:Paper {doi: $doi})
+                RETURN p.taxonomy_hash AS taxonomy_hash,
+                       p.extraction_incomplete AS extraction_incomplete
+                """,
+                doi=paper_doi,
+            ).single()
+    except Exception:
+        return False
+    if row is None:
+        return False
+    stored_hash = row["taxonomy_hash"]
+    incomplete = row["extraction_incomplete"]
+    return stored_hash == current_taxonomy_hash and incomplete is not True
+
+
+async def _returns(value: Any) -> Any:
+    """Tiny awaitable wrapper used to satisfy ``extract_all_entities``'s
+    five required ``*_call`` kwargs when one of the values is already
+    materialized (e.g., problems extracted by `pipeline.process_pdf_url`).
+    """
+    return value
+
+
 async def ingest_papers(
     query: str,
     limit: int = 20,
@@ -123,6 +256,9 @@ async def ingest_papers(
     on_progress: Optional[Callable[[str, Optional[str], Any], None]] = None,
     force_rewrite: bool = False,
     populate_citations: bool = True,
+    extract_entities: bool = True,
+    normalize_cross_entity_collisions: bool = True,
+    force_reextract: bool = False,
 ) -> IngestionResult:
     """
     End-to-end paper ingestion: search → import → extract → integrate.
@@ -139,6 +275,20 @@ async def ingest_papers(
             non-extraction incident edges are still purged before
             re-extraction. Without this flag, such papers are skipped with
             a recorded error rather than crashing the run.
+        populate_citations: E-8 V2 — when True, PaperImporter populates
+            the citation graph during metadata import. Default True.
+        extract_entities: entity-pipeline-orchestration — when True, the
+            4 entity extractors (Topic / ResearchConcept / Model / Method)
+            run alongside problem extraction and the V2 entity integrator
+            writes the resulting nodes + edges. Default True. BREAKING
+            CHANGE on deploy — see release notes.
+        normalize_cross_entity_collisions: E-7 — when True AND extract_entities
+            is True, the cross-entity routing LLM disambiguates collisions
+            before V2 integration. Default True. Costs ~1 LLM call per
+            ambiguous pair per paper.
+        force_reextract: when True, bypass the per-paper skip check (AC-21)
+            and re-run extraction on every paper regardless of taxonomy_hash
+            match. Default False.
 
     Returns:
         IngestionResult with counts and sanity check results.
@@ -176,79 +326,277 @@ async def ingest_papers(
         result.papers_imported = import_batch.created + import_batch.updated
         _notify(on_progress, "metadata_imported", None, result.papers_imported)
 
-        # Phase 2: Extract problems from papers with PDFs
+        # Phase 2/3 setup: shared per-batch dependencies.
         pipeline = get_pipeline()
-        papers_with_pdf = [p for p in search.papers if p.pdf_url and p.doi]
-        result.papers_skipped_no_pdf = len(search.papers) - len(papers_with_pdf)
-
-        # Repository handle reused for both the footprint check and any purge.
+        result.papers_skipped_no_pdf = sum(
+            1 for p in search.papers if not (p.pdf_url and p.doi)
+        )
         repo = get_repository()
 
-        extraction_results = []
-        for paper in papers_with_pdf:
-            # AC-13 wiring: papers with an existing extraction footprint go
-            # through purge-then-rewrite. Fresh papers skip the purge entirely.
-            if _paper_has_footprint(repo, paper.doi):
-                try:
-                    purge_report = purge_paper_extraction(
-                        repo, paper.doi, force_rewrite=force_rewrite
-                    )
-                    result.papers_purged += 1
-                    _notify(
-                        on_progress,
-                        "purged",
-                        paper.doi,
-                        {
-                            "problems_deleted": purge_report.problems_deleted,
-                            "mentions_deleted": purge_report.mentions_deleted,
-                            "collateral": len(purge_report.collateral_edge_loss),
-                        },
-                    )
-                except PurgeBlocked as e:
-                    result.papers_blocked_by_guardrail += 1
-                    result.extraction_errors[paper.doi] = str(e)
-                    logger.warning(f"[{trace_id}] {e}")
-                    continue
-
-            try:
-                proc = await pipeline.process_pdf_url(
-                    url=paper.pdf_url,
-                    paper_title=paper.title,
-                    paper_doi=paper.doi,
-                    authors=[a.name for a in paper.authors],
-                )
-                if proc.success and proc.problem_count > 0:
-                    extraction_results.append((paper.doi, paper.title, proc))
-                    _notify(on_progress, "extracted", paper.doi, proc.problem_count)
-            except Exception as e:
-                result.extraction_errors[paper.doi] = str(e)
-                logger.warning(f"[{trace_id}] Extract failed {paper.doi}: {e}")
-
-        result.papers_extracted = len(extraction_results)
-
-        # Phase 3: Integrate into canonical architecture
-        integrator = KGIntegratorV2(
+        v1_integrator = KGIntegratorV2(
             enable_agent_workflow=enable_agent_workflow,
             enable_concept_refinement=True,
         )
-        for doi, title, proc in extraction_results:
-            problems = proc.get_high_confidence_problems(min_extraction_confidence)
-            if not problems:
-                continue
-            try:
-                integration = integrator.integrate_extracted_problems(
-                    extracted_problems=problems,
-                    paper_doi=doi,
-                    paper_title=title,
-                    session_trace_id=trace_id,
+
+        # V2 extractor / normalizer dependencies (constructed only when
+        # extract_entities=True so V1-only callers pay zero import + init
+        # cost).
+        llm_client = None
+        topic_x = concept_x = model_x = method_x = None
+        embedder = None
+        taxonomy_hash = ""
+        if extract_entities:
+            from agentic_kg.extraction.concept_extractor import ConceptExtractor
+            from agentic_kg.extraction.llm_client import get_openai_client
+            from agentic_kg.extraction.method_extractor import MethodExtractor
+            from agentic_kg.extraction.model_extractor import ModelExtractor
+            from agentic_kg.extraction.taxonomy_hash import (
+                canonical_taxonomy_hash,
+            )
+            from agentic_kg.extraction.topic_extractor import TopicExtractor
+            from agentic_kg.knowledge_graph.taxonomy import parse_taxonomy
+
+            llm_client = get_openai_client()
+            topic_x = TopicExtractor(client=llm_client)
+            concept_x = ConceptExtractor(client=llm_client)
+            model_x = ModelExtractor(client=llm_client)
+            method_x = MethodExtractor(client=llm_client)
+            taxonomy_hash = canonical_taxonomy_hash(
+                parse_taxonomy(topic_x.taxonomy_path)
+            )
+
+            if normalize_cross_entity_collisions:
+                from agentic_kg.knowledge_graph.embeddings import (
+                    EmbeddingService,
                 )
-                result.total_problems += len(problems)
-                result.concepts_created += integration.mentions_new_concepts
-                result.concepts_linked += integration.mentions_linked
-                _notify(on_progress, "integrated", doi, integration.mentions_created)
+                embedder = EmbeddingService()
+
+        # Phase 2/3: per-paper unified loop.
+        for paper in search.papers:
+            doi = paper.doi
+            try:
+                # --- AC-13 purge guardrail (unchanged from V1). ---
+                if doi and _paper_has_footprint(repo, doi):
+                    try:
+                        purge_report = purge_paper_extraction(
+                            repo, doi, force_rewrite=force_rewrite,
+                        )
+                        result.papers_purged += 1
+                        _notify(
+                            on_progress, "purged", doi,
+                            {
+                                "problems_deleted": purge_report.problems_deleted,
+                                "mentions_deleted": purge_report.mentions_deleted,
+                                "collateral": len(
+                                    purge_report.collateral_edge_loss
+                                ),
+                            },
+                        )
+                    except PurgeBlocked as e:
+                        result.papers_blocked_by_guardrail += 1
+                        result.extraction_errors[doi] = str(e)
+                        logger.warning(f"[{trace_id}] {e}")
+                        continue
+
+                # --- AC-21 skip check: re-ingest cost guard. ---
+                if (
+                    extract_entities
+                    and not force_reextract
+                    and _can_skip_entity_extraction(repo, doi, taxonomy_hash)
+                ):
+                    result.papers_skipped_complete += 1
+                    _notify(
+                        on_progress, "skipped_complete", doi,
+                        {"reason": "taxonomy_hash matches; extraction complete"},
+                    )
+                    continue
+
+                # --- Text source resolution (AC-4 / AC-5 / AC-6). ---
+                proc = None
+                problems: list[Any] = []
+                section_text = ""
+                if paper.pdf_url and doi:
+                    try:
+                        proc = await pipeline.process_pdf_url(
+                            url=paper.pdf_url,
+                            paper_title=paper.title,
+                            paper_doi=doi,
+                            authors=[a.name for a in paper.authors],
+                        )
+                    except Exception as e:
+                        result.extraction_errors[doi] = (
+                            f"PDF processing failed: {e}"
+                        )
+                        logger.warning(
+                            f"[{trace_id}] PDF processing failed {doi}: {e}"
+                        )
+                        proc = None
+                    if proc is not None and proc.success:
+                        section_text = _build_extractor_section_text(
+                            proc.segmented_document,
+                        )
+                        problems = proc.get_high_confidence_problems(
+                            min_extraction_confidence,
+                        )
+                        if proc.problem_count > 0:
+                            _notify(
+                                on_progress, "extracted", doi,
+                                proc.problem_count,
+                            )
+                else:
+                    section_text = paper.abstract or ""
+
+                # --- 5-way parallel extraction (E-8 V1 + V2). ---
+                if extract_entities:
+                    extraction_result = await extract_all_entities(
+                        problem_call=_returns(problems),
+                        topic_call=topic_x.extract(
+                            paper.title, section_text,
+                        ),
+                        concept_call=concept_x.extract(
+                            paper.title, section_text,
+                        ),
+                        model_call=model_x.extract(
+                            paper.title, section_text,
+                        ),
+                        method_call=method_x.extract(
+                            paper.title, section_text,
+                        ),
+                        paper_doi=doi,
+                    )
+                else:
+                    extraction_result = PaperExtractionResult(
+                        problems=problems,
+                    )
+
+                # --- E-7 cross-entity normalization. ---
+                norm_result = None
+                if (
+                    extract_entities
+                    and normalize_cross_entity_collisions
+                    and embedder is not None
+                    and llm_client is not None
+                ):
+                    norm_result = await normalize_cross_entity(
+                        extraction_result,
+                        paper_title=paper.title,
+                        embedder=embedder,
+                        llm_client=llm_client,
+                    )
+                    if norm_result and not norm_result.is_clean:
+                        result.papers_with_normalization_audit += 1
+                    _notify(
+                        on_progress, "normalized", doi,
+                        {
+                            "pairs_detected": (
+                                norm_result.pairs_detected
+                                if norm_result else 0
+                            ),
+                            "pairs_resolved": (
+                                norm_result.pairs_resolved
+                                if norm_result else 0
+                            ),
+                            "pairs_rejected": (
+                                norm_result.pairs_rejected
+                                if norm_result else 0
+                            ),
+                        },
+                    )
+
+                # --- V1: ProblemMention/ProblemConcept routing. ---
+                v1_integration = None
+                if problems:
+                    try:
+                        v1_integration = (
+                            v1_integrator.integrate_extracted_problems(
+                                extracted_problems=problems,
+                                paper_doi=doi,
+                                paper_title=paper.title,
+                                session_trace_id=trace_id,
+                            )
+                        )
+                        result.total_problems += len(problems)
+                        result.concepts_created += (
+                            v1_integration.mentions_new_concepts
+                        )
+                        result.concepts_linked += (
+                            v1_integration.mentions_linked
+                        )
+                        _notify(
+                            on_progress, "integrated", doi,
+                            v1_integration.mentions_created,
+                        )
+                    except Exception as e:
+                        # TL Q1: V1 failure skips V2 (couples failure
+                        # surface; AC-13 is the recovery path).
+                        result.extraction_errors[doi] = (
+                            f"V1 integration failed: {e}"
+                        )
+                        logger.error(
+                            f"[{trace_id}] V1 integration failed {doi}: {e}"
+                        )
+                        continue
+
+                # --- V2: Topic + Concept + Model + Method writers. ---
+                any_v2_extractions = extract_entities and bool(
+                    extraction_result.topics
+                    or extraction_result.concepts
+                    or extraction_result.models
+                    or extraction_result.methods
+                )
+                if (any_v2_extractions or v1_integration is not None) and doi:
+                    mentions = (
+                        [
+                            m for m in v1_integration.mentions
+                            if m.concept_id
+                        ]
+                        if v1_integration else []
+                    )
+                    v2_integration = integrate_paper_entities(
+                        paper_doi=doi,
+                        extraction_result=extraction_result,
+                        mentions=mentions,
+                        taxonomy_hash=taxonomy_hash,
+                        repo=repo,
+                        normalization_result=norm_result,
+                    )
+                    result.topics_linked += v2_integration.topics_assigned
+                    result.concepts_v2_linked += (
+                        v2_integration.concepts_linked
+                    )
+                    result.models_linked += v2_integration.models_linked
+                    result.methods_linked += v2_integration.methods_linked
+                    if v2_integration.paper_marked_incomplete:
+                        result.papers_marked_incomplete += 1
+                    _notify(
+                        on_progress, "entity_integrated", doi,
+                        {
+                            "topics": v2_integration.topics_assigned,
+                            "concepts_v2": v2_integration.concepts_linked,
+                            "models": v2_integration.models_linked,
+                            "methods": v2_integration.methods_linked,
+                        },
+                    )
+
+                # papers_extracted counts papers where ANY V1 problem
+                # extraction landed (preserves V1 semantic per AC-19) OR
+                # any V2 entity extraction landed.
+                if (
+                    (proc is not None and proc.success and proc.problem_count > 0)
+                    or any_v2_extractions
+                ):
+                    result.papers_extracted += 1
+
             except Exception as e:
-                result.extraction_errors[doi] = f"Integration failed: {e}"
-                logger.error(f"[{trace_id}] Integration failed {doi}: {e}")
+                # AC-14: per-paper failure isolation. Anything that
+                # leaked past the inner try/except lands here so the
+                # batch continues.
+                key = doi or paper.title or f"paper#{id(paper)}"
+                result.extraction_errors[key] = str(e)
+                logger.warning(
+                    f"[{trace_id}] Per-paper failure {key}: {e}"
+                )
+                continue
 
         # Phase 4: Sanity checks
         result.sanity_checks = run_sanity_checks()

@@ -424,6 +424,39 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     ingest.add_argument(
+        "--no-extract-entities",
+        action="store_false", dest="extract_entities", default=True,
+        help=(
+            "Skip the 4 entity extractors (Topic, ResearchConcept, "
+            "Model, Method) AND the cross-entity normalizer. Falls back "
+            "to V1 problem-only behavior. Adds zero LLM calls vs ~5-6 "
+            "per paper with extraction on. Entity-pipeline-orchestration "
+            "AC-13."
+        ),
+    )
+    ingest.add_argument(
+        "--no-normalize-cross-entity",
+        action="store_false",
+        dest="normalize_cross_entity_collisions",
+        default=True,
+        help=(
+            "Run the 4 entity extractors but skip the cross-entity "
+            "routing LLM (E-7). Concept ↔ Method double-edges may land "
+            "in the graph; trade quality for cost ceiling."
+        ),
+    )
+    ingest.add_argument(
+        "--force-reextract",
+        action="store_true", dest="force_reextract", default=False,
+        help=(
+            "Bypass the per-paper skip check that avoids re-running "
+            "entity extraction on previously-complete papers under the "
+            "current taxonomy. Use after prompt reworks or extractor "
+            "changes when you want all papers re-extracted without "
+            "going through the AC-13 purge path. Default off."
+        ),
+    )
+    ingest.add_argument(
         "-v", "--verbose", action="store_true",
         help="Enable verbose logging",
     )
@@ -828,6 +861,11 @@ async def run_ingest(args) -> None:
         on_progress=on_progress,
         force_rewrite=args.force_rewrite,
         populate_citations=args.populate_citations,
+        extract_entities=args.extract_entities,
+        normalize_cross_entity_collisions=(
+            args.normalize_cross_entity_collisions
+        ),
+        force_reextract=args.force_reextract,
     )
 
     print_ingestion_result(result, as_json=args.json_output)

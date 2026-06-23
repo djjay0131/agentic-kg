@@ -192,7 +192,7 @@ class TestIngestPapers:
         with (
             patch("agentic_kg.ingestion.get_paper_aggregator") as mock_agg,
             patch("agentic_kg.ingestion.get_paper_importer") as mock_imp,
-            patch("agentic_kg.ingestion.get_pipeline") as mock_pipe,
+            patch("agentic_kg.ingestion.get_pipeline"),
             patch("agentic_kg.ingestion.KGIntegratorV2"),
             patch("agentic_kg.ingestion.run_sanity_checks", return_value=[]),
         ):
@@ -267,7 +267,9 @@ class TestIngestPapers:
             mock_pipe.return_value.process_pdf_url = AsyncMock(return_value=proc_result)
             mock_intg.return_value.integrate_extracted_problems.return_value = int_result
 
-            result = await ingest_papers("test", limit=10)
+            result = await ingest_papers(
+                "test", limit=10, extract_entities=False,
+            )
 
         assert result.papers_skipped_no_pdf == 1
         assert result.papers_extracted == 1
@@ -298,7 +300,9 @@ class TestIngestPapers:
             mock_pipe.return_value.process_pdf_url = AsyncMock(return_value=proc_result)
             mock_intg.return_value.integrate_extracted_problems.return_value = int_result
 
-            result = await ingest_papers("test", limit=10)
+            await ingest_papers(
+                "test", limit=10, extract_entities=False,
+            )
 
         # Only doi "10.1/b" should be passed to batch_import.
         # E-8 V2 added populate_citations kwarg with default True.
@@ -339,7 +343,9 @@ class TestIngestPapers:
             mock_pipe.return_value.process_pdf_url = AsyncMock(side_effect=side_effect)
             mock_intg.return_value.integrate_extracted_problems.return_value = int_result
 
-            result = await ingest_papers("test", limit=10)
+            result = await ingest_papers(
+                "test", limit=10, extract_entities=False,
+            )
 
         assert result.papers_extracted == 1
         assert "10.1/a" in result.extraction_errors
@@ -364,7 +370,9 @@ class TestIngestPapers:
             mock_imp.return_value.batch_import = AsyncMock(return_value=import_result)
             mock_pipe.return_value.process_pdf_url = AsyncMock(return_value=proc_result)
 
-            result = await ingest_papers("test", limit=10)
+            result = await ingest_papers(
+                "test", limit=10, extract_entities=False,
+            )
 
         assert result.papers_extracted == 0
         mock_intg.return_value.integrate_extracted_problems.assert_not_called()
@@ -394,7 +402,9 @@ class TestIngestPapers:
             result = await ingest_papers("test", limit=10)
 
         assert "10.1/a" in result.extraction_errors
-        assert "Integration failed" in result.extraction_errors["10.1/a"]
+        # entity-pipeline-orchestration refined error message:
+        # "V1 integration failed: ..." (was: "Integration failed: ...")
+        assert "V1 integration failed" in result.extraction_errors["10.1/a"]
         assert result.status == "completed"
 
     @pytest.mark.asyncio

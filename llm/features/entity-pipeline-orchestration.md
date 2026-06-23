@@ -1,7 +1,8 @@
 # Feature: Entity Pipeline Orchestration
 
-**Status:** SPECIFIED
+**Status:** IMPLEMENTED
 **Date:** 2026-06-21
+**Implementation Date:** 2026-06-23
 **Author:** Feature Architect (AI-assisted)
 **Backlog ID:** (loop-close; no explicit backlog item — surfaced after E-7 verify)
 **Depends On:** E-1 (Topic, VERIFIED), E-2 (ResearchConcept, VERIFIED), E-3 (Model, VERIFIED), E-4 (Method, VERIFIED), E-5 (Citation graph, VERIFIED), E-6 (Entity descriptions, VERIFIED), E-7 (Cross-entity normalization, VERIFIED), E-8 V1 (Topic+Concept extractors, VERIFIED), E-8 V2 (Model+Method extractors + citation wiring, VERIFIED)

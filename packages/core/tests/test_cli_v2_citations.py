@@ -97,6 +97,111 @@ class TestJobRunnerEnvVar:
         assert _parse_env()["populate_citations"] is True
 
 
+class TestJobRunnerEntityPipelineEnvVars:
+    """AC-2: entity-pipeline-orchestration env vars."""
+
+    def test_extract_entities_defaults_true(self, monkeypatch):
+        from agentic_kg.job_runner import _parse_env
+
+        monkeypatch.setenv("INGEST_QUERY", "x")
+        monkeypatch.delenv("EXTRACT_ENTITIES", raising=False)
+        assert _parse_env()["extract_entities"] is True
+
+    def test_extract_entities_false_disables(self, monkeypatch):
+        from agentic_kg.job_runner import _parse_env
+
+        monkeypatch.setenv("INGEST_QUERY", "x")
+        monkeypatch.setenv("EXTRACT_ENTITIES", "FALSE")
+        assert _parse_env()["extract_entities"] is False
+
+    def test_normalize_cross_entity_defaults_true(self, monkeypatch):
+        from agentic_kg.job_runner import _parse_env
+
+        monkeypatch.setenv("INGEST_QUERY", "x")
+        monkeypatch.delenv("NORMALIZE_CROSS_ENTITY", raising=False)
+        assert _parse_env()["normalize_cross_entity_collisions"] is True
+
+    def test_normalize_cross_entity_false_disables(self, monkeypatch):
+        from agentic_kg.job_runner import _parse_env
+
+        monkeypatch.setenv("INGEST_QUERY", "x")
+        monkeypatch.setenv("NORMALIZE_CROSS_ENTITY", "false")
+        assert _parse_env()["normalize_cross_entity_collisions"] is False
+
+    def test_force_reextract_defaults_false(self, monkeypatch):
+        from agentic_kg.job_runner import _parse_env
+
+        monkeypatch.setenv("INGEST_QUERY", "x")
+        monkeypatch.delenv("FORCE_REEXTRACT", raising=False)
+        assert _parse_env()["force_reextract"] is False
+
+    def test_force_reextract_true_enables(self, monkeypatch):
+        from agentic_kg.job_runner import _parse_env
+
+        monkeypatch.setenv("INGEST_QUERY", "x")
+        monkeypatch.setenv("FORCE_REEXTRACT", "TRUE")
+        assert _parse_env()["force_reextract"] is True
+
+
+class TestCLIEntityPipelineFlags:
+    """AC-1: CLI flag parsing for the 3 new flags."""
+
+    def test_extract_entities_defaults_true(self):
+        from agentic_kg.cli import build_parser
+
+        parser = build_parser()
+        ns = parser.parse_args(["ingest", "--query", "x"])
+        assert ns.extract_entities is True
+        assert ns.normalize_cross_entity_collisions is True
+        assert ns.force_reextract is False
+
+    def test_no_extract_entities_flips_false(self):
+        from agentic_kg.cli import build_parser
+
+        parser = build_parser()
+        ns = parser.parse_args([
+            "ingest", "--query", "x", "--no-extract-entities",
+        ])
+        assert ns.extract_entities is False
+
+    def test_no_normalize_cross_entity_flips_false(self):
+        from agentic_kg.cli import build_parser
+
+        parser = build_parser()
+        ns = parser.parse_args([
+            "ingest", "--query", "x", "--no-normalize-cross-entity",
+        ])
+        assert ns.normalize_cross_entity_collisions is False
+
+    def test_force_reextract_flips_true(self):
+        from agentic_kg.cli import build_parser
+
+        parser = build_parser()
+        ns = parser.parse_args([
+            "ingest", "--query", "x", "--force-reextract",
+        ])
+        assert ns.force_reextract is True
+
+    def test_main_forwards_all_three_flags(self):
+        from agentic_kg.cli import main
+
+        with patch("agentic_kg.ingestion.ingest_papers") as fake:
+            fake.side_effect = AsyncMock(return_value=MagicMock(
+                status="ok", extraction_errors=[],
+            ))
+            main([
+                "ingest", "--query", "x",
+                "--no-extract-entities",
+                "--no-normalize-cross-entity",
+                "--force-reextract",
+            ])
+
+        kwargs = fake.call_args.kwargs
+        assert kwargs["extract_entities"] is False
+        assert kwargs["normalize_cross_entity_collisions"] is False
+        assert kwargs["force_reextract"] is True
+
+
 class TestJobRunnerMainForwarding:
     """AC-14 end-to-end: the Cloud Run Job entrypoint reads the env var
     and forwards the value all the way to ``ingest_papers``."""

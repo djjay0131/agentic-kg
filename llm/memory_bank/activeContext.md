@@ -4,6 +4,53 @@ Last updated: 2026-06-20
 
 ## Current Work Focus
 
+**entity-pipeline-orchestration IMPLEMENTED (2026-06-23). LOOP CLOSED.** Spec moved to IMPLEMENTED status. Wires `extract_all_entities` + `normalize_cross_entity` + `integrate_paper_entities` into the production `ingest_papers` path. Every entity-expansion feature from E-1 through E-8 V2 + E-7 was dormant until now; this feature is the orchestration glue that makes the entire arc actually populate Topic/Concept/Model/Method/Citation in production.
+
+**⚠️ BREAKING CHANGE on deploy.** `extract_entities` defaults to `True`. Every existing `ingest_papers`/Cloud Run Job call without `extract_entities=False` will start running ~5-6 extra LLM calls per paper. Per-paper skip check (AC-21) makes re-running the same query day-over-day near-zero-cost on previously-extracted papers.
+
+**What was built (5 units, 28 new orchestration tests + 11 V2 env-var/CLI tests + 50 V1 regression tests = 89 ingestion-path tests; full suite 1918/0 fails):**
+
+- Unit 1 — Helpers in `ingestion.py`: `_build_extractor_section_text(seg)` joins abstract+intro+methods+experiments from a SegmentedDocument (spec-correctness fix from QA review prep; the spec originally assumed `proc.section_text` but the real field is `segmented_document`); `_can_skip_entity_extraction(repo, doi, current_taxonomy_hash)` queries the Paper node for taxonomy_hash + extraction_incomplete, returns True only when hash matches AND incomplete IS NOT True. Defensive: returns False on missing DOI, missing hash, missing Paper, Cypher failure.
+- Unit 2 — `IngestionResult` gains 7 new counters: `topics_linked`, `concepts_v2_linked` (distinct from V1's `concepts_linked`), `models_linked`, `methods_linked`, `papers_marked_incomplete`, `papers_with_normalization_audit`, `papers_skipped_complete`.
+- Unit 3 — CLI flags + Cloud Run Job env vars. CLI: `--no-extract-entities` (default-on), `--no-normalize-cross-entity` (default-on), `--force-reextract` (default-off). Job env vars: `EXTRACT_ENTITIES=false` disables, `NORMALIZE_CROSS_ENTITY=false` disables, `FORCE_REEXTRACT=true` enables (only `true` enables, matching the inverse-default pattern). All three threaded through to `ingest_papers`.
+- Unit 4 — `ingest_papers` refactor: signature gains `extract_entities=True`, `normalize_cross_entity_collisions=True`, `force_reextract=False`. Per-batch shared deps (TopicExtractor, ConceptExtractor, ModelExtractor, MethodExtractor, EmbeddingService, LLM client singleton, taxonomy_hash) constructed once inside an `if extract_entities` block. Per-paper loop unified: purge check (existing) → skip check (AC-21) → text source (PDF via segmented_document or abstract fallback) → 5-way `extract_all_entities` → `normalize_cross_entity` (when flag on) → V1 `integrate_extracted_problems` (when problems present; V1 failure SKIPS V2 per TL Q1) → V2 `integrate_paper_entities` (Q3: runs when any extraction landed OR V1 ran). Per-paper outer try/except absorbs unexpected exceptions and records into `extraction_errors`.
+- Unit 5 — New `tests/test_ingestion_v2_orchestration.py` (28 tests) covering: helpers, skip check (positive + 5 negative branches + force-reextract bypass), shared-dep construction (extractors built once, embedder skipped when normalize off), `extract_entities=False` short-circuit (V1 still runs), normalize flag combos, text source resolution including PDF-less and abstract-less papers, V1→V2 sequencing on failure, per-paper error isolation, V2 trigger gate (Q3 fires when entities present even without problems; skipped when nothing extracted), `extraction_incomplete` counter propagation, and AC-18 progress callback phases (`normalized` + `entity_integrated` + `skipped_complete`).
+
+**Adversarial review (Phase 5):** added env-var parsing tests in `test_cli_v2_citations.py::TestJobRunnerEntityPipelineEnvVars` (6 tests for all 3 env vars × default + non-default × case sensitivity); CLI flag tests in `TestCLIEntityPipelineFlags` (5 tests for argparse + main forwarding); 3 progress-callback tests for AC-18.
+
+**V1 test migration per AC-19:** 4 existing V1 ingestion tests updated to pass `extract_entities=False` (preserves V1-only behavior) — same shape as the E-8 V2 `populate_citations=True` test fix. One assertion text updated from "Integration failed" to "V1 integration failed" to match the refined error prefix.
+
+**Full-suite regression:** 1918 passed, 234 skipped (e2e + integration), 0 failures. Ruff clean on all 6 modified source + test files.
+
+**Files modified:**
+- `packages/core/src/agentic_kg/ingestion.py` (helpers + IngestionResult counters + ingest_papers refactor + new imports)
+- `packages/core/src/agentic_kg/cli.py` (3 new flags + run_ingest forwarding)
+- `packages/core/src/agentic_kg/job_runner.py` (3 env vars in _parse_env + forwarded to ingest_papers in main)
+- `packages/core/tests/test_ingestion.py` (4 V1 test migrations + 1 unused mock_pipe alias fix)
+- `packages/core/tests/test_cli_v2_citations.py` (env var + CLI flag parsing tests)
+
+**Files created:**
+- `packages/core/tests/test_ingestion_v2_orchestration.py` (28 orchestration tests)
+
+**Deviations from spec:** none. Spec-correctness fix during review (`segmented_document` vs `section_text`) was caught and resolved before implementation began. The implementation matches the spec's per-paper loop structure exactly. AC-3 progress callback tests added during adversarial review (not in the original AC-25 list).
+
+**LOOP CLOSURE STATUS:**
+- E-1 Topic: VERIFIED — now wired into ingest_papers
+- E-2 ResearchConcept: VERIFIED — now wired
+- E-3 Model: VERIFIED — now wired
+- E-4 Method: VERIFIED — now wired
+- E-5 Citation graph: VERIFIED — already wired via E-8 V2's PaperImporter hook
+- E-6 Entity descriptions: VERIFIED — generate_description stays False in ingestion path (per E-6 AC-11); operators flip it ON at the CLI for individual creates
+- E-7 Cross-entity normalization: VERIFIED — now wired
+- E-8 V1 (Topic+Concept extractors): VERIFIED — now invoked from ingest_papers
+- E-8 V2 (Model+Method extractors + citations): VERIFIED — now invoked from ingest_papers
+
+The entity-expansion arc is fully connected to production ingestion. Real-data shakedown + eval calibration (the deferred E-7 AC-21 + E-8 V2 AC-17 + this spec's calibration follow-up) is now actionable.
+
+Next: `/constellize:feature:verify entity-pipeline-orchestration` to walk the four quality gates.
+
+---
+
 **E-7 (cross-entity-normalization) VERIFIED (2026-06-20).** All four Constellize verify gates passed for E-7 scope:
 
 | Gate | Result | Notes |
