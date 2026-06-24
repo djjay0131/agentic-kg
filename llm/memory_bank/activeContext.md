@@ -4,6 +4,17 @@ Last updated: 2026-06-20
 
 ## Current Work Focus
 
+**entity-pipeline-orchestration VERIFIED (2026-06-24). LOOP CLOSED.** All four Constellize verify gates passed:
+
+| Gate | Result | Notes |
+|------|--------|-------|
+| 1. Test Integrity | PASS | 92 ingestion-path tests + 1918 full suite (0 failures). `ingestion.py` at 95% line coverage; the 12 missing lines are pre-existing V1 `_paper_has_footprint` Cypher helper + AC-13 purge branch (covered by `test_re_ingestion.py` directly, not via `ingest_papers`). All new orchestration helpers, ingest_papers per-paper loop body, IngestionResult counters, CLI flags, and env-var parsing fully covered. |
+| 2. Health Check | PASS | Helpers are exception-safe (`_can_skip_entity_extraction` catches `Exception` around Cypher; `_build_extractor_section_text` uses defensive `getattr` chain). Per-paper outer try/except absorbs anything that leaks past the inner specific catches. Three distinct error prefixes ("PDF processing failed", "V1 integration failed", generic) help operators triage. Flag + env-var validation uses the audit-friendly `.lower() != "false"` pattern (default-on; only literal `false` disables). |
+| 3. Deployment | PASS | All modules import cleanly. `ingest_papers` signature exposes `extract_entities`, `normalize_cross_entity_collisions`, `force_reextract` with the documented defaults. CLI defaults and Cloud Run Job env-var defaults match exactly. No new dependencies. |
+| 4. Maintainability | PASS | Ruff clean on all 6 modified source + test files. Per-paper try/except mirrors V1 shape. Flag pattern matches `--no-populate-citations`. Env-var pattern matches `POPULATE_CITATIONS`. Per-batch shared dep construction follows the E-6 + E-8 V2 LLM-client-injection precedent. |
+
+**Verify-time fixes applied:** none. The implementation already had 100% coverage on new code; the only "missing" lines flagged by the coverage tool are pre-existing V1 paths the orchestration moved but didn't change, and they're covered by their existing dedicated test files.
+
 **entity-pipeline-orchestration IMPLEMENTED (2026-06-23). LOOP CLOSED.** Spec moved to IMPLEMENTED status. Wires `extract_all_entities` + `normalize_cross_entity` + `integrate_paper_entities` into the production `ingest_papers` path. Every entity-expansion feature from E-1 through E-8 V2 + E-7 was dormant until now; this feature is the orchestration glue that makes the entire arc actually populate Topic/Concept/Model/Method/Citation in production.
 
 **⚠️ BREAKING CHANGE on deploy.** `extract_entities` defaults to `True`. Every existing `ingest_papers`/Cloud Run Job call without `extract_entities=False` will start running ~5-6 extra LLM calls per paper. Per-paper skip check (AC-21) makes re-running the same query day-over-day near-zero-cost on previously-extracted papers.
