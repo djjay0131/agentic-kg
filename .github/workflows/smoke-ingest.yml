@@ -1,0 +1,112 @@
+# ci-smoke-test-ingestion — end-to-end pipeline contract check.
+# Ingests 3 real papers against a fresh testcontainers Neo4j, asserts
+# that Topic / Concept / Model+Method / CITES / taxonomy_hash land.
+# See llm/features/ci-smoke-test-ingestion.md for the 15 ACs.
+
+name: Smoke Test — Ingest
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: 'Search query'
+        default: 'retrieval augmented generation'
+      limit:
+        description: 'Paper count'
+        default: '3'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'packages/core/**'
+      - 'pyproject.toml'
+      - '.github/workflows/smoke-ingest.yml'
+      - 'scripts/smoke_assert.py'
+  schedule:
+    - cron: '17 6 * * *'  # 06:17 UTC daily; off-peak window, deterministic minute
+
+# TL Q2: cancel stale runs when a new commit arrives on the same ref.
+# Saves ~10-30 LLM calls on multi-commit PRs.
+concurrency:
+  group: smoke-ingest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Ingest + Assert
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      neo4j:
+        image: neo4j:5.26-community
+        ports: ['7687:7687', '7474:7474']
+        env:
+          NEO4J_AUTH: neo4j/testpassword
+          NEO4J_PLUGINS: '["apoc"]'
+        options: >-
+          --health-cmd "wget -qO /dev/null http://localhost:7474 || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 18
+
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      NEO4J_URI: bolt://localhost:7687
+      NEO4J_USERNAME: neo4j
+      NEO4J_PASSWORD: testpassword
+      NEO4J_DATABASE: neo4j
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install package
+        run: |
+          pip install --upgrade pip
+          pip install -e ./packages/core
+
+      - name: Initialize Neo4j schema
+        run: python -c "from agentic_kg.knowledge_graph.schema import initialize_schema; initialize_schema(force=True)"
+
+      - name: Ingest (with single retry)
+        run: |
+          set +e
+          ATTEMPT=1
+          MAX=2
+          QUERY="${{ github.event.inputs.query || 'retrieval augmented generation' }}"
+          LIMIT="${{ github.event.inputs.limit || '3' }}"
+          while [ $ATTEMPT -le $MAX ]; do
+            echo "::group::Ingest attempt $ATTEMPT/$MAX"
+            agentic-kg ingest --query "$QUERY" --limit "$LIMIT" --json > "ingest_result_$ATTEMPT.json"
+            STATUS=$?
+            echo "::endgroup::"
+            if [ $STATUS -eq 0 ]; then
+              cp "ingest_result_$ATTEMPT.json" ingest_result.json
+              exit 0
+            fi
+            if [ $ATTEMPT -lt $MAX ]; then
+              echo "::warning::Ingest attempt $ATTEMPT failed; sleeping 30s before retry"
+              sleep 30
+            fi
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+          echo "::error::Ingest failed on both attempts"
+          [ -f "ingest_result_2.json" ] && cp "ingest_result_2.json" ingest_result.json
+          exit 1
+
+      - name: Assert graph shape
+        run: python scripts/smoke_assert.py ingest_result.json
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-result-${{ github.run_id }}
+          path: |
+            ingest_result*.json
+          retention-days: 14

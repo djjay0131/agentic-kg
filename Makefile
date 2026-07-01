@@ -1,4 +1,4 @@
-.PHONY: install test test-core test-api test-e2e smoke-test lint build-ui dev docker-up docker-down clean
+.PHONY: install test test-core test-api test-e2e smoke-test smoke-local lint build-ui dev docker-up docker-down clean
 
 # Install all packages in development mode
 install:
@@ -24,6 +24,33 @@ test-e2e:
 # Smoke test against staging
 smoke-test:
 	python scripts/smoke_test.py
+
+# Local reproduction of the ci-smoke-test-ingestion GHA workflow
+# (llm/features/ci-smoke-test-ingestion.md AC-15). Mirrors the workflow
+# steps line-for-line: spin a local Neo4j, init schema, ingest, assert.
+# Usage: make smoke-local
+#        QUERY="custom query" LIMIT=5 make smoke-local
+smoke-local:
+	@command -v docker >/dev/null || { echo "docker required"; exit 1; }
+	@[ -n "$$OPENAI_API_KEY" ] || { echo "OPENAI_API_KEY env required"; exit 1; }
+	@docker rm -f smoke-neo4j >/dev/null 2>&1 || true
+	@docker run -d --name smoke-neo4j \
+		-e NEO4J_AUTH=neo4j/testpassword \
+		-e NEO4J_PLUGINS='["apoc"]' \
+		-p 7687:7687 -p 7474:7474 \
+		neo4j:5.26-community
+	@echo "Waiting for Neo4j..."
+	@until curl -sf http://localhost:7474 >/dev/null 2>&1; do sleep 2; done
+	@NEO4J_URI=bolt://localhost:7687 NEO4J_USERNAME=neo4j NEO4J_PASSWORD=testpassword \
+		python -c "from agentic_kg.knowledge_graph.schema import initialize_schema; initialize_schema(force=True)"
+	@NEO4J_URI=bolt://localhost:7687 NEO4J_USERNAME=neo4j NEO4J_PASSWORD=testpassword \
+		agentic-kg ingest \
+		--query "$${QUERY:-retrieval augmented generation}" \
+		--limit "$${LIMIT:-3}" \
+		--json > ingest_result.json
+	@NEO4J_URI=bolt://localhost:7687 NEO4J_USERNAME=neo4j NEO4J_PASSWORD=testpassword \
+		python scripts/smoke_assert.py ingest_result.json
+	@docker rm -f smoke-neo4j >/dev/null 2>&1 || true
 
 # Lint (ruff)
 lint:

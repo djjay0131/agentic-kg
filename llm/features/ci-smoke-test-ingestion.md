@@ -1,7 +1,8 @@
 # Feature: CI Smoke Test — Ingestion
 
-**Status:** SPECIFIED
+**Status:** IMPLEMENTED
 **Date:** 2026-06-25
+**Implementation Date:** 2026-06-30
 **Author:** Feature Architect (AI-assisted)
 **Backlog ID:** (follow-up to entity-pipeline-orchestration loop closure)
 **Depends On:** entity-pipeline-orchestration (VERIFIED), all of E-1..E-8 V2 + E-7 (VERIFIED)

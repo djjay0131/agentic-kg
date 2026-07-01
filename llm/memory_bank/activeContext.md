@@ -4,6 +4,42 @@ Last updated: 2026-06-20
 
 ## Current Work Focus
 
+**ci-smoke-test-ingestion IMPLEMENTED (2026-06-30).** GHA workflow that ingests 3 real papers through the entity-pipeline-orchestration loop against a fresh testcontainers Neo4j inside the runner + asserts batch-level graph shape. First real-data validation surface for the loop closure.
+
+**What was built (6 units, 76 tests, all pass + 1994 full suite):**
+
+- Unit 1 — `scripts/smoke_assert.py` — reads `IngestionResult` JSON, verifies `status="completed"` (AC-7), runs single Cypher round-trip against Neo4j returning 6 counts, evaluates AC-6's standard-strictness checks (papers≥1, BELONGS_TO topic edges≥1, ResearchConcept nodes≥1, Model OR Method≥1, CITES edges≥1, Papers with taxonomy_hash≥1). Prints per-check PASS/FAIL table + raw counts. Exits 0 on all-pass, 1 on any fail. Never raises: `_load_result` returns tuple, missing/unparseable JSON handled (AC-8). Single `# pragma: no cover` on the `if __name__ == "__main__"` argv-guard block.
+- Unit 2 — `tests/test_smoke_assert.py` (22 tests) — dynamically loads the script via `importlib`, mocks `get_repository()`, covers happy path, all 6 individual check-failure modes, Model-only/Method-only boundary, multiple simultaneous failures, status-precheck-before-Neo4j guarantee (repo mock's `assert_not_called()` on failed status), and pure-function unit tests on `_evaluate_checks` / `_run_graph_checks` / `_load_result`.
+- Unit 3 — `.github/workflows/smoke-ingest.yml` — three triggers (workflow_dispatch with query/limit inputs, pull_request with path filter, schedule at 06:17 UTC), 15-minute timeout, concurrency group with cancel-in-progress (AC-14), neo4j:5.26-community service container with APOC + healthcheck, install + schema-init + retry-loop ingest + assert + artifact steps. Retry loop is bash-driven (matches existing integration-tests.yml style): 2 attempts max, 30s sleep between, per-attempt JSON always captured for artifact upload.
+- Unit 4 — `tests/test_smoke_workflow_structure.py` (34 tests) — parses the YAML via PyYAML, asserts: triggers (workflow_dispatch/pull_request/schedule), path filter set matches spec, timeout ≤15, PR targets master, no push trigger, neo4j image + APOC + ports + healthcheck, schema-init step calls `initialize_schema(force=True)`, ingest uses `--json` and no `--no-*` opt-out flags, retry loop shape (`MAX=2`, `sleep 30`, both `exit 0` and `exit 1` paths, final-artifact copy), artifact upload with `if: always()` + `retention-days: 14`, dispatch input defaults, env block with exactly the 5 required keys, no GCP secrets in the file at all, workflow name matches AC-13, concurrency group + cancel-in-progress, and step ordering (schema-init → ingest → assert → artifact).
+- Unit 5 — `Makefile` — adds `smoke-local` target to `.PHONY` and body. Mirrors the CI workflow step-for-step: docker + OPENAI_API_KEY guards, spin `neo4j:5.26-community` container, wait for HTTP 200 on 7474, init schema, run `agentic-kg ingest --json` with QUERY/LIMIT env-var overrides, run `smoke_assert.py`, tear down container. Existing `smoke-test` target (against staging) preserved (AC-13-analog).
+- Unit 6 — `tests/test_smoke_local_makefile.py` (12 tests) — parses the Makefile block for `smoke-local`, asserts: target present in `.PHONY`, docker + OPENAI_API_KEY guards, neo4j:5.26-community image + APOC, initialize_schema+force=True call, `agentic-kg ingest --json` + smoke_assert.py invocation, `QUERY:-` and `LIMIT:-` shell parameter defaults, localhost NEO4J_URI (no staging leakage), and two `docker rm` calls (pre-run + post-run cleanup).
+
+**Adversarial review (Phase 5):** added 3 step-ordering tests to `test_smoke_workflow_structure.py::TestStepOrdering` — schema-init before ingest, ingest before assert, artifact upload last. Catches accidental step-reordering regressions the individual-step tests miss.
+
+**Full-suite regression:** 1994 passed, 234 skipped (e2e + integration), 0 failures. Ruff clean on all 4 new files.
+
+**Files created:**
+- `.github/workflows/smoke-ingest.yml` (workflow)
+- `scripts/smoke_assert.py` (assertion script)
+- `packages/core/tests/test_smoke_assert.py` (22 tests)
+- `packages/core/tests/test_smoke_workflow_structure.py` (34 tests)
+- `packages/core/tests/test_smoke_local_makefile.py` (12 tests)
+
+**Files modified:**
+- `Makefile` (added `smoke-local` target; existing `smoke-test` staging target preserved)
+
+**Coverage pragmas:** one on `scripts/smoke_assert.py`'s `if __name__ == "__main__"` argv-guard block — genuinely untestable as script entrypoint without subprocess ceremony.
+
+**Deviations from spec:** none. All 15 ACs mapped to tests + adversarial review closed the step-ordering gap.
+
+**Next up (per user's earlier ask):**
+1. **Fire the smoke test now via `workflow_dispatch`** — this is the first real-data shakedown of the entity-pipeline-orchestration loop. If it goes green, the loop is genuinely closed. Requires the `OPENAI_API_KEY` GitHub secret to already be configured.
+2. Run `/constellize:feature:verify ci-smoke-test-ingestion` to walk the four verify gates.
+3. Full memory bank update the user requested during specification.
+
+---
+
 **entity-pipeline-orchestration VERIFIED (2026-06-24). LOOP CLOSED.** All four Constellize verify gates passed:
 
 | Gate | Result | Notes |
