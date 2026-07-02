@@ -4,6 +4,17 @@ Last updated: 2026-06-20
 
 ## Current Work Focus
 
+**ci-smoke-test-ingestion VERIFIED (2026-07-02).** All four Constellize verify gates passed:
+
+| Gate | Result | Notes |
+|------|--------|-------|
+| 1. Test Integrity | PASS | 76 smoke-suite tests + 1994 full suite (0 failures). `scripts/smoke_assert.py` at 100% line coverage (48/48 statements) with one justified `# pragma: no cover` on the `if __name__ == "__main__"` argv-guard block. YAML + Makefile structure tests catch AC drift without firing the actual workflow. |
+| 2. Health Check | PASS | `_load_result` catches `OSError` + `json.JSONDecodeError` explicitly (no bare excepts); status pre-check runs before Neo4j construction; diagnostic PASS/FAIL table + raw counts printed on failure; script argv-count guard prints usage to stderr and exits 2 (distinguishable from ingest-failure exit 1). Workflow: bounded retry (2 attempts), 15-min timeout, GHA-native `::warning::`/`::error::` markers. Makefile: docker + OPENAI_API_KEY guards fail fast; container cleaned up pre + post-run. |
+| 3. Deployment | PASS | Script runs standalone (`python scripts/smoke_assert.py`) with clean usage message; missing-file path produces actionable error; no new Python or GHA-action dependencies (uses `actions/checkout@v4`, `actions/setup-python@v5`, `actions/upload-artifact@v4` — all already pinned in existing workflows). |
+| 4. Maintainability | PASS | Ruff clean on all 4 new files. Pattern consistency: script name matches `scripts/smoke_test.py` precedent; workflow shape mirrors `.github/workflows/integration-tests.yml`; Makefile target style matches existing `smoke-test` target. |
+
+**Verify-time fixes applied:** none. No source or test changes required.
+
 **ci-smoke-test-ingestion IMPLEMENTED (2026-06-30).** GHA workflow that ingests 3 real papers through the entity-pipeline-orchestration loop against a fresh testcontainers Neo4j inside the runner + asserts batch-level graph shape. First real-data validation surface for the loop closure.
 
 **What was built (6 units, 76 tests, all pass + 1994 full suite):**
