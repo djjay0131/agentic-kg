@@ -95,7 +95,7 @@
 <p><strong>Dependencies:</strong></p>
 
 <ul>
-  <li>Neo4j: bolt://34.173.74.125:7687</li>
+  <li>Neo4j (bolt URL retrieved from Secret Manager — see <code class="language-plaintext highlighter-rouge">NEO4J_URI</code>)</li>
   <li>GCP Secret Manager</li>
 </ul>
 
@@ -251,14 +251,14 @@
 
 <h3 id="neo4j-database">Neo4j Database</h3>
 
-<p><strong>Type:</strong> Neo4j Graph Database
+<p><strong>Type:</strong> Neo4j Graph Database (Compute Engine, staging)
 <strong>Status:</strong> ✅ Running</p>
 
 <p><strong>Access:</strong></p>
 
 <ul>
-  <li>Bolt: bolt://34.173.74.125:7687</li>
-  <li>Browser: <a href="http://34.173.74.125:7474">http://34.173.74.125:7474</a></li>
+  <li>Bolt and Browser endpoints are intentionally <strong>not published here</strong>. Retrieve them at runtime via Secret Manager (<code class="language-plaintext highlighter-rouge">NEO4J_URI</code>) or Terraform output (<code class="language-plaintext highlighter-rouge">terraform output -raw neo4j_uri</code>).</li>
+  <li>The Neo4j Browser should not be exposed publicly; access via SSH tunnel or VPN only.</li>
 </ul>
 
 <p><strong>Purpose:</strong> Graph database for storing research problems, papers, and relationships.</p>
@@ -275,6 +275,7 @@
 <ul>
   <li>Configuration: <code class="language-plaintext highlighter-rouge">infra/terraform/</code></li>
   <li>Get password: <code class="language-plaintext highlighter-rouge">cd infra &amp;&amp; terraform output -raw neo4j_password</code></li>
+  <li>Get URI: <code class="language-plaintext highlighter-rouge">cd infra &amp;&amp; terraform output -raw neo4j_uri</code></li>
 </ul>
 
 <hr />

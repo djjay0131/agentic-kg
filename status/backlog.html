@@ -2,7 +2,7 @@
 
 <p>Auto-regenerated from <a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/BACKLOG.md"><code class="language-plaintext highlighter-rouge">llm/features/BACKLOG.md</code></a> on every push.</p>
 
-<p><strong>35</strong> active, <strong>3</strong> resolved.</p>
+<p><strong>36</strong> active, <strong>3</strong> resolved.</p>
 
 <h2 id="active">Active</h2>
 
@@ -814,6 +814,32 @@
     </tr>
     <tr>
       <td>Versioned taxonomy with branching/merge, import/export, conflict resolution for LLM proposals. Flagged by E-1 spec — needed if taxonomy grows beyond 200 nodes</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>L-1</td>
+    </tr>
+    <tr>
+      <td>Production Readiness</td>
+    </tr>
+    <tr>
+      <td>Local / low-cost SLM for narrow tasks</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Needs Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>Medium</td>
+    </tr>
+    <tr>
+      <td>Several KG-pipeline tasks (entity-description backfill, alias generation, dedup tie-breaking, deny-list scoring) are narrow enough that a small open-weight model (Llama 3.x 1B/3B, Gemma 2B, Phi-3 Mini) running locally or via cheap inference would suffice. Adds a third <code class="language-plaintext highlighter-rouge">BaseLLMClient</code> implementation backed by a local-hosted or low-cost provider. Reframes the “is the OpenAI cost too high?” question from binary go/no-go to “route this task to the cheaper model”. Flagged during E-6 (entity-descriptions) spec — would meaningfully change the cost economics of LLM-driven backfill commands.</td>
     </tr>
     <tr>
       <td> </td>
