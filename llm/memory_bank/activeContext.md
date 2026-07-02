@@ -1,8 +1,35 @@
 # Active Context
 
-Last updated: 2026-06-20
+Last updated: 2026-07-02
 
 ## Current Work Focus
+
+**First real-data smoke run FAILED with useful signal (2026-07-02).** Fired `smoke-ingest.yml` on run [28621965589](https://github.com/djjay0131/agentic-kg/actions/runs/28621965589) via `workflow_dispatch` immediately after `ci-smoke-test-ingestion` VERIFIED. Ingest step went green on attempt 1 — the entire orchestrator ran without errors — but `Assert graph shape` red-lined because zero papers reached V2 integration:
+
+| Counter | Value | What it says |
+|---|---|---|
+| `papers_found` | 6 | Aggregator returned 6 for "retrieval augmented generation" |
+| `papers_imported` | 3 | 3 had DOIs |
+| `papers_skipped_no_pdf` | 3 | Some combination of missing pdf_url / doi |
+| `papers_extracted` | **0** | No V1 problems OR V2 entities landed |
+| `papers_marked_incomplete` | 0 | No extractor FAILURES either — just empty short-circuits |
+| `extraction_errors` | {} | No exceptions |
+| `total_problems` | 0 | V1 problem extractor got no PDFs |
+| V2 counters (topics/concepts/models/methods) | 0/0/0/0 | Extractors ran against empty section_text; all short-circuited |
+| `papers_with_normalization_audit` | 0 | Never reached the E-7 normalizer |
+
+**Not a wiring bug.** The pipeline correctly ran end-to-end. The finding is that the abstract-fallback path (Q1 decision from entity-pipeline-orchestration: "PDF-less papers fall back to title + abstract") degrades to zero output when `paper.abstract` is None/empty — apparently the OpenAlex result shape for this query's top-6. The `taxonomy_hash on >= 1 Paper` assertion consequently failed because no paper ever reached the V2 integrator (which is what writes `taxonomy_hash`).
+
+**Actionable follow-ups (pick one or more):**
+1. **Investigate the aggregator normalizer**: verify `NormalizedPaper.pdf_url` and `.abstract` are populated when source data has them. If OpenAlex has these fields but our normalizer drops them, that's a real bug this smoke test just surfaced.
+2. **Add a preflight WARN** in `ingest_papers` when 100% of imported papers had empty section_text — currently the failure mode only surfaces as counter=0 in the JSON.
+3. **Change the smoke query**: pick a query whose top-3 reliably has PDFs. But entity-pipeline-orchestration was designed for real-data ingestion; masking the real data is a smell.
+4. **Increase the smoke `--limit`** from 3 to 10 to raise probability. Cheap but doesn't fix the root cause.
+5. **Adjust the assertion floors**: reject; AC-6's contract is standard-strictness and the failure is legitimate.
+
+Recommendation: (1) then (2). (1) is the root-cause investigation; (2) makes future failures of this class louder.
+
+---
 
 **ci-smoke-test-ingestion VERIFIED (2026-07-02).** All four Constellize verify gates passed:
 
