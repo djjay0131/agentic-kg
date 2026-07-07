@@ -91,7 +91,7 @@ The "killer feature". Depends on entity expansion + communities.
 | P-4 | Referential integrity on delete | Needs Spec | Check `EXTRACTED_FROM` before paper delete; prefer soft delete. |
 | P-5 | Scalability testing | Needs Spec | Validate at 100+ papers; current system untested beyond small datasets. |
 | P-6 | Auto-publish backlog to Pages | Has Spec | Extend `.github/scripts/generate_docs.py` to regenerate from this file on every push. |
-| P-7 | Migrate `update-docs.yml` trigger paths | Needs Spec | Workflow still watches stale `memory-bank/` path instead of `llm/memory_bank/`. |
+| ~~P-7~~ | ~~Migrate `update-docs.yml` trigger paths~~ | **Resolved** | Workflows already watch `llm/memory_bank/**`. Verified 2026-07-07. |
 | T-1 | Taxonomy management at scale | Needs Spec | Versioned taxonomy with branching + merge + conflict resolution; flagged by E-1. |
 | L-1 | Local / low-cost SLM client | Needs Spec | Third `BaseLLMClient` backed by Llama 3.x / Gemma / Phi-3 for narrow tasks (description-gen, dedup tie-breaking, routing). |
 
@@ -110,11 +110,11 @@ Require spec of *how* to measure.
 
 | # | Criterion | Source | Status |
 |---|-----------|--------|--------|
-| V-1 | Extraction F1 within 10% of inter-annotator agreement | productContext | Not measured |
-| V-2 | MRR/nDCG improvement over keyword + citation baselines | productContext | Not measured |
-| V-3 | Faster time to actionable continuation | productContext | Not measured |
-| V-4 | Higher user-reported confidence vs. opaque AI | productContext | Not measured |
-| V-5 | Active use by research teams | productContext | Not achieved |
+| V-1 | Extraction F1 within 10% of inter-annotator agreement | [productContext](../memory_bank/productContext.md) | Not measured |
+| V-2 | MRR/nDCG improvement over keyword + citation baselines | [productContext](../memory_bank/productContext.md) | Not measured |
+| V-3 | Faster time to actionable continuation | [productContext](../memory_bank/productContext.md) | Not measured |
+| V-4 | Higher user-reported confidence vs. opaque AI | [productContext](../memory_bank/productContext.md) | Not measured |
+| V-5 | Active use by research teams | [productContext](../memory_bank/productContext.md) | Not achieved |
 
 ---
 

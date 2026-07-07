@@ -77,11 +77,10 @@ agentic-kg/
 ├── llm/                              # LLM-related project files
 │   ├── features/                     # Feature specs (BACKLOG.md + 15 spec files)
 │   └── memory_bank/                  # Authoritative project context (this directory)
-├── construction/                     # Design docs and sprint tracking
+├── construction/sprints/             # Sprint history archive (read by GitHub Pages generator)
 ├── .claude/                          # Claude Code config
 │   ├── agents/                       # Project agent definitions
 │   └── skills/                       # Constellize skills (specify / implement / verify / memory)
-├── memory-bank/                      # Legacy project context (STALE — use llm/memory_bank/)
 └── Makefile                          # install, test, smoke-test (staging), smoke-local (Docker Neo4j)
 ```
 

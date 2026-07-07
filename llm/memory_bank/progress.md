@@ -70,7 +70,7 @@ Last updated: 2026-07-02
 
 - `docs/status/service-inventory.html` exposes the staging Neo4j browser endpoint (still open)
 - Denario core: `arXiv_pdf` variable scope bug in `literature.py:114` (external)
-- Legacy `memory-bank/` directory is stale; `llm/memory_bank/` is authoritative
+- Legacy `memory-bank/` and `construction/{design,requirements,backlog}` deleted 2026-07-07 — content superseded by `llm/memory_bank/` + `llm/features/`
 - Cross-entity duplicate risk between paper batches: E-7 is per-paper; cross-paper "attention mechanism" as Concept in one paper, Method in another is by-design accepted until cross-paper canonicalization ships
 - OpenAI extraction cost visibility: no per-batch LLM-call counter yet; operators rely on the OpenAI dashboard for spend tracking
 - (Fixed 2026-05-19) OpenAI API intermittent hangs — mitigated via 60s timeout

@@ -54,8 +54,10 @@ agentic-kg/
 ├── deploy/
 │   ├── docker/         # Dockerfiles for each service
 │   └── terraform/      # Infrastructure as code
-├── memory-bank/        # Project documentation and context
-├── construction/       # Active development tracking
+├── llm/
+│   ├── memory_bank/    # Project documentation and context
+│   └── features/       # Feature specs + master catalog (BACKLOG.md)
+├── construction/       # Historical design + sprint archive (read-only)
 └── files/              # Reference materials
 ```
 
@@ -78,7 +80,8 @@ pip install -e ".[dev]"
 - **📖 Main Docs:** [GitHub Pages](https://djjay0131.github.io/agentic-kg/)
 - **📋 Service Inventory:** [docs/SERVICE_INVENTORY.md](docs/SERVICE_INVENTORY.md)
 - **🏗️ Architecture:** See [construction/sprints/](construction/sprints/) for detailed design docs
-- **💾 Project Context:** [memory-bank/](memory-bank/) for active development tracking
+- **💾 Project Context:** [llm/memory_bank/](llm/memory_bank/) for active development tracking
+- **📌 Feature Catalog:** [llm/features/BACKLOG.md](llm/features/BACKLOG.md) — every spec + status
 
 ## API Documentation
 
@@ -88,7 +91,7 @@ pip install -e ".[dev]"
 
 ## Development
 
-See [memory-bank/](memory-bank/) for project context and documentation.
+See [llm/memory_bank/](llm/memory_bank/) for project context and documentation.
 
 ### Local Development
 

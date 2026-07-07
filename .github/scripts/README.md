@@ -4,19 +4,20 @@ This directory contains automation scripts for maintaining project documentation
 
 ## generate_docs.py
 
-**Purpose:** Automatically generates GitHub Pages documentation from memory-bank and construction folders.
+**Purpose:** Automatically generates GitHub Pages documentation from `llm/memory_bank/`, `llm/features/`, and `construction/sprints/`.
 
 **Triggers:**
-- Automatic: When files in `memory-bank/` or `construction/` are pushed to master
+- Automatic: When files in `llm/memory_bank/`, `llm/features/`, or `construction/sprints/` are pushed to master
 - Manual: Via GitHub Actions "workflow_dispatch" trigger
 
 **What it does:**
 
 1. **Reads Source Files:**
-   - `memory-bank/activeContext.md` - Current project state
-   - `memory-bank/techContext.md` - Technical architecture
-   - `memory-bank/progress.md` - Progress tracking
-   - `construction/sprints/*.md` - All sprint documentation
+   - `llm/memory_bank/activeContext.md` - Current project state
+   - `llm/memory_bank/techContext.md` - Technical architecture
+   - `llm/memory_bank/progress.md` - Progress tracking
+   - `llm/features/BACKLOG.md` - Master feature catalog
+   - `construction/sprints/*.md` - Sprint history
 
 2. **Generates Documentation:**
    - Updates `docs/index.html` with latest status
@@ -44,7 +45,7 @@ cd docs && python -m http.server 8080
 
 ### GitHub Actions
 
-The workflow runs automatically on push to master when memory-bank or construction files change.
+The workflow runs automatically on push to master when files under `llm/memory_bank/`, `llm/features/`, or `construction/sprints/` change.
 
 **Manual trigger:**
 ```bash
@@ -111,8 +112,9 @@ Add more paths to `.github/workflows/update-docs.yml`:
 on:
   push:
     paths:
-      - 'memory-bank/**'
-      - 'construction/**'
+      - 'llm/memory_bank/**'
+      - 'llm/features/**'
+      - 'construction/sprints/**'
       - 'my-custom-folder/**'  # Add this
 ```
 

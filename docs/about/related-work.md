@@ -12,4 +12,4 @@ nav_order: 4
 - **Denario framework** — the underlying agent runtime; Agentic KG extends it.
 - **GraphRAG** — hierarchical community summarization technique referenced in gap analysis §4.3.
 
-A fuller reading list lives in `construction/design/related-work.md` while the public page is authored.
+A fuller reading list will land here as this page is authored.

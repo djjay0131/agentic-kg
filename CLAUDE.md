@@ -19,7 +19,7 @@ The previous `construction-agent` / `memory-agent` sub-agents were superseded on
 
 **Personas** (`.claude/agents/`): `construction-lead`, `knowledge-steward`, `feature-architect`.
 
-📁 **Locations:** Feature specs in `llm/features/`, memory bank in `llm/memory_bank/`. Historical design docs remain in `construction/design/` (read-only archive); `construction/sprints/` preserves completed sprint history.
+📁 **Locations:** Feature specs in `llm/features/` (master index: `BACKLOG.md`), memory bank in `llm/memory_bank/`. `construction/sprints/` preserves completed sprint history (still read by the GitHub Pages generator). Legacy `memory-bank/` and `construction/{design,requirements,backlog}` folders were deleted 2026-07-07 — content superseded by the above.
 
 ---
 
@@ -85,11 +85,13 @@ gcloud builds list --project=vt-gcp-00042 --limit=5
 - New Service: `denario-app` (UI) at https://denario-app-tqpsba7pza-uc.a.run.app
 
 ### Key Files to Remember
-- memory-bank/activeContext.md - Current work phase
-- memory-bank/techContext.md - Technical details
-- memory-bank/progress.md - Task tracking
+- llm/memory_bank/activeContext.md - Current work phase
+- llm/memory_bank/techContext.md - Technical details
+- llm/memory_bank/progress.md - Task tracking
+- llm/memory_bank/productContext.md - Problem statement + success criteria
+- llm/features/BACKLOG.md - Master feature catalog (every spec + status)
 
 ## Notes for Future Sessions
-- Always read this file AND memory-bank/*.md on context reset
+- Always read this file AND llm/memory_bank/*.md on context reset
 - Need to test DenarioApp fix before reopening PR
 - Denario core still has arXiv_pdf scope bug to fix
