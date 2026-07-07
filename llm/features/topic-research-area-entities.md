@@ -1,7 +1,7 @@
 # Feature: Topic / Research Area Entities (E-1)
 
-**Status:** SPECIFIED
-**Date:** 2026-04-16
+**Status:** VERIFIED
+**Date:** 2026-04-16 (verified 2026-07-07 — status corrected from SPECIFIED; E-1 shipped in the E-8 V1 extractor + entity-pipeline-orchestration cycles and is asserted by ci-smoke-test-ingestion)
 **Author:** Feature Architect (AI-assisted)
 **Depends On:** None (builds on existing entity patterns from Sprint 09-10)
 **Decoupled From:** E-8 (extraction prompt expansion — adds LLM topic mapping, separate feature)

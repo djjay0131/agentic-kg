@@ -1,141 +1,130 @@
-# Feature Backlog
+# Feature Catalog — Master Index
 
-Last updated: 2026-04-17
+Last updated: 2026-07-07
 
-Features that need detailed specification and/or implementation. Ordered by priority within each category. Status key:
+Single source of truth for every feature ever spec'd in this project — one line per feature plus a link to the full spec. Backlog items (unbuilt) live in the second half.
 
-- **Needs Spec** — no design doc exists; must go through `@construction-agent design` before implementation
-- **Has Spec** — design doc exists but implementation not started
-- **Partial Spec** — covered in a broader design doc but needs its own detailed spec
-- **Implemented (Broken)** — code exists but is failing or incomplete
+**Maintenance:** Kept current by `/constellize:memory:update`. When a spec's status changes (SPECIFIED → IMPLEMENTED → VERIFIED) or a new spec lands in `llm/features/`, the memory-update skill refreshes the tables below alongside the other memory-bank files.
 
----
-
-## Category 1: Stabilization & Test Fixes
-
-~~These block everything else — the codebase must be green before new features.~~
-Codebase is green: 1146 tests passing, 0 failures (verified 2026-03-28).
-
-| # | Feature | Status | Priority | Notes |
-|---|---------|--------|----------|-------|
-| ~~S-1~~ | ~~Fix 33 failing extraction tests~~ | **Resolved** | ~~Critical~~ | All 264 extraction tests passing as of 2026-03-28 |
-| ~~S-2~~ | ~~Fix E2E test import errors~~ | **Resolved** | ~~Critical~~ | 32 E2E tests collecting cleanly as of 2026-03-28 |
-| S-3 | Sprint 10 integration tests (golden dataset) | Partial Spec | High | Task 10 in sprint-10 doc; golden dataset for accuracy benchmarks not yet run against live Neo4j |
+Status key: **VERIFIED** (shipped + all four gates pass) · **IMPLEMENTED** (built, gates pending) · **SPECIFIED** (spec written, no code) · **BACKLOG** (needs spec).
 
 ---
 
-## Category 2: Real Data Ingestion & Validation
+## Shipped Specs (`llm/features/`)
 
-The KG has only test data. These features prove the system works end-to-end.
+Every spec that has reached SPECIFIED or beyond. Newest first within each theme.
 
-| # | Feature | Status | Priority | Notes |
-|---|---------|--------|----------|-------|
-| ~~D-1~~ | ~~Ingest real papers into KG~~ | **Verified** | ~~High~~ | Implemented and verified 2026-03-28. See `llm/features/d1-ingest-real-papers.md` |
-| D-1a | Cloud Run Jobs for async ingestion | **Specifying** | **High** | Decouple ingestion from API instance lifecycle; Terraform job resource + job_runner.py. See `llm/features/cloud-run-jobs-ingestion.md` |
-| D-1b | GCS ingestion research log | Needs Spec | Medium | Write per-paper markdown progress files to GCS bucket during ingestion; durable provenance trail surviving job crashes. Follow-on to D-1a |
-| D-2 | Extraction reliability metrics | Needs Spec | High | Measure F1 vs. inter-annotator agreement (success criterion from productContext.md) |
-| D-3 | Retrieval quality benchmarks | Needs Spec | High | Measure MRR and nDCG vs. keyword/citation baselines |
-| D-4 | Agent decision accuracy validation | Needs Spec | Medium | Validate EvaluatorAgent (>90% human agreement) and consensus workflow (>85%) against real data |
+### Entity expansion arc — E-1..E-8 + orchestration
 
----
+| # | Feature | Status | One-liner |
+|---|---------|--------|-----------|
+| E-1 | [Topic / Research Area entities](topic-research-area-entities.md) | VERIFIED | First-class Topic nodes with hierarchy; replaces flat `domain` string; enables `BELONGS_TO` graph edges. |
+| E-2 | [ResearchConcept entities](research-concept-entities.md) | VERIFIED | Generic research concepts as nodes; `INVOLVES_CONCEPT` / `DISCUSSES` edges; embedding-based dedup. |
+| E-3 | [Model / Architecture entities](model-entity.md) | VERIFIED | ML models as first-class nodes (extracted from Baseline strings); `USES_MODEL`, `VARIANT_OF`. |
+| E-4 | [Method / Methodology entities](method-entity.md) | VERIFIED | Research methods as nodes; `APPLIES_METHOD` edges from papers. |
+| E-5 | [Citation graph](citation-graph.md) | VERIFIED | `CITES` edges from Semantic Scholar reference lists; influence chains + hub analysis. |
+| E-6 | [Entity descriptions at create-time](entity-descriptions.md) | VERIFIED | Backfills `description` on Topic/Concept/Model/Method for richer `{name}: {description}` embeddings. |
+| E-7 | [Cross-entity normalization](cross-entity-normalization.md) | VERIFIED | LLM router disambiguates Concept vs Model vs Method for the same surface form (e.g. "attention mechanism"). |
+| E-8 V1 | [Extraction prompt expansion (Topics + Concepts)](extraction-prompt-expansion.md) | VERIFIED | Extends ingestion extractor to populate Topic + ResearchConcept from paper text. |
+| E-8 V2 | [Extraction prompt expansion V2 (Models + Methods + Citations)](extraction-prompt-expansion-v2.md) | VERIFIED | Adds Model + Method extractors and wires citation population into `PaperImporter`. |
+| — | [Entity pipeline orchestration](entity-pipeline-orchestration.md) | VERIFIED | Wires E-1..E-8 V2 + E-7 into production `ingest_papers`; default-on with skip-check + audit trail. |
 
-## Category 3: Entity Ecosystem Expansion
+### Ingestion + infra
 
-From `construction/design/kg-schema-enhancement-gap-analysis.md`. Currently we have 5 entity types (Problem, ProblemMention, ProblemConcept, Paper, Author). The gap analysis identifies 4 missing entity types needed to become a true research knowledge graph.
+| # | Feature | Status | One-liner |
+|---|---------|--------|-----------|
+| D-1 | [Ingest real papers into KG](d1-ingest-real-papers.md) | VERIFIED | End-to-end ingestion CLI: search → import metadata → extract Problems → integrate. |
+| D-1a | [Cloud Run Jobs async ingestion](cloud-run-jobs-ingestion.md) | VERIFIED | Terraform-managed Cloud Run Job for durable async ingestion; env-var driven, no in-memory job store. |
+| — | [CI smoke test (ingestion loop)](ci-smoke-test-ingestion.md) | VERIFIED | GHA workflow — daily cron + PR path-filter + `workflow_dispatch` — asserts entity edges land in ephemeral Neo4j. |
 
-| # | Feature | Status | Priority | Proposed Sprint | Notes |
-|---|---------|--------|----------|-----------------|-------|
-| E-1 | Topic / Research Area entities | **Specified** | **High** | Sprint 11 | First-class Topic nodes with hierarchy (domain → area → subtopic); replace `domain` string field; BELONGS_TO relationships. See `llm/features/topic-research-area-entities.md` |
-| E-2 | ResearchConcept entities | **Specified** | **High** | Sprint 11 | Generic concepts as nodes; INVOLVES_CONCEPT and DISCUSSES relationships; shared BaseGraphEntity abstraction; embedding-based dedup. See `llm/features/research-concept-entities.md` |
-| E-3 | Model / Architecture entities | Partial Spec | Medium | Sprint 12 | ML models as first-class nodes (currently embedded in Baseline strings); USES_MODEL, VARIANT_OF relationships; model lineage chains. Gap analysis §4.1 Gap 3 |
-| E-4 | Method / Methodology entities | Partial Spec | Medium | Sprint 12 | Research methods as nodes; APPLIES_METHOD, ADDRESSED_BY relationships. Gap analysis §4.1 Gap 4 |
-| E-5 | Citation graph (Paper → Paper) | Partial Spec | **High** | Sprint 12 | CITES relationships from Semantic Scholar API data; enables influence chain analysis. Gap analysis §4.2 |
-| E-6 | Entity descriptions for vector search | Partial Spec | Medium | Sprint 11-12 | Add `description` field to all entity types; use description+name for richer embeddings. Gap analysis §4.3 Cap 5 |
-| E-7 | Cross-entity normalization | Partial Spec | Medium | Sprint 12+ | Extend mention-to-concept canonicalization pattern to ResearchConcept, Model, Method (currently only Problems are deduplicated). Gap analysis §4.3 Cap 4 |
-| E-8 | Extraction prompt expansion | Needs Spec | **High** | Sprint 11 | Extend LLM extraction prompts to capture Topics, Concepts, Models, Methods from papers (currently only extracts Problems from Limitations/Future Work sections) |
+### Docs / site
 
----
-
-## Category 4: Community Detection & Hierarchical Summarization
-
-From gap analysis §4.3 Capabilities 1-2. Depends on Category 3 for a richer entity graph.
-
-| # | Feature | Status | Priority | Proposed Sprint | Notes |
-|---|---------|--------|----------|-----------------|-------|
-| C-1 | Community detection | Partial Spec | High | Sprint 13 | Leiden/Louvain algorithm on full graph; Community nodes at multiple hierarchy levels; incremental updates. Gap analysis §4.3 Cap 1 |
-| C-2 | Hierarchical graph summarization | Partial Spec | High | Sprint 13 | LLM-generated summaries per community at multiple resolutions (domain → topic → subtopic → concept); answers global questions. Gap analysis §4.3 Cap 2 |
-| C-3 | Community browsing API & UI | Needs Spec | Medium | Sprint 13 | API endpoints and frontend for exploring research landscape by community |
+| # | Feature | Status | One-liner |
+|---|---------|--------|-----------|
+| — | [Enhance GitHub Pages site](enhance-github-pages.md) | VERIFIED (Phase A) | Rebuilds docs generator to read `llm/memory_bank/`; unified nav; auto-published backlog. |
 
 ---
 
-## Category 5: Graph-Based RAG Retrieval
+## Backlog — Unbuilt or Partial
 
-The "killer feature" — makes the KG useful for researcher queries. Depends on Categories 3-4.
+Ordered by category, roughly by priority within category.
 
-| # | Feature | Status | Priority | Proposed Sprint | Notes |
-|---|---------|--------|----------|-----------------|-------|
-| R-1 | Query-facing vector search | Partial Spec | **High** | Sprint 14 | Expose vector search across all entity types for user queries (currently internal to matching pipeline only). Gap analysis §4.3 Cap 3 |
-| R-2 | Graph neighbor expansion | Partial Spec | High | Sprint 14 | Configurable-depth graph traversal from vector search hits; context assembly from graph paths |
-| R-3 | LLM synthesis endpoint | Partial Spec | High | Sprint 14 | POST /api/query — natural language question → answer with provenance from graph |
-| R-4 | Community-aware retrieval | Partial Spec | Medium | Sprint 14 | Include community summaries in retrieval context for global/thematic questions |
-| R-5 | RAG evaluation & benchmarks | Needs Spec | Medium | Sprint 14 | Measure improvement vs. vector-only retrieval for multi-hop questions |
+### Validation & metrics (post real-data)
+
+| # | Feature | Status | Notes |
+|---|---------|--------|-------|
+| D-1b | GCS ingestion research log | Needs Spec | Per-paper markdown progress files to GCS; durable provenance surviving crashes. Follow-on to D-1a. |
+| D-2 | Extraction reliability metrics | Needs Spec | F1 vs. inter-annotator agreement — success criterion from productContext. |
+| D-3 | Retrieval quality benchmarks | Needs Spec | MRR / nDCG vs. keyword + citation baselines. |
+| D-4 | Agent decision accuracy validation | Needs Spec | EvaluatorAgent >90% human agreement; consensus workflow >85%. |
+| S-3 | Sprint 10 integration tests (golden dataset) | Partial Spec | Golden dataset benchmarks against live Neo4j not yet run. |
+
+### Community detection & summarization
+
+Depends on the entity expansion arc for a richer graph.
+
+| # | Feature | Status | Notes |
+|---|---------|--------|-------|
+| C-1 | Community detection | Partial Spec | Leiden/Louvain over full graph; Community nodes at multiple levels; incremental updates. |
+| C-2 | Hierarchical graph summarization | Partial Spec | LLM summaries per community at multiple resolutions (domain → topic → concept). |
+| C-3 | Community browsing API + UI | Needs Spec | Endpoints and frontend for exploring landscape by community. |
+
+### Graph-based RAG retrieval
+
+The "killer feature". Depends on entity expansion + communities.
+
+| # | Feature | Status | Notes |
+|---|---------|--------|-------|
+| R-1 | Query-facing vector search | Partial Spec | Expose vector search across all entity types for user queries (currently internal). |
+| R-2 | Graph neighbor expansion | Partial Spec | Configurable-depth traversal from vector hits; context assembly from graph paths. |
+| R-3 | LLM synthesis endpoint | Partial Spec | `POST /api/query` — NL question → answer with provenance from graph. |
+| R-4 | Community-aware retrieval | Partial Spec | Include community summaries in retrieval context for global/thematic questions. |
+| R-5 | RAG evaluation & benchmarks | Needs Spec | Improvement vs. vector-only for multi-hop questions. |
+
+### Production readiness
+
+| # | Feature | Status | Notes |
+|---|---------|--------|-------|
+| P-1 | Production deployment | Needs Spec | `terraform apply -var-file=envs/prod.tfvars`; needs runbook + monitoring + alerting. |
+| P-2 | Neo4j production hosting docs | Needs Spec | Aura vs. self-managed decision; backup + failover procedures. |
+| P-3 | Multi-hop graph traversal | Needs Spec | FR-2.3.4 from Sprint 01; `max_depth` on `get_related_problems()`. |
+| P-4 | Referential integrity on delete | Needs Spec | Check `EXTRACTED_FROM` before paper delete; prefer soft delete. |
+| P-5 | Scalability testing | Needs Spec | Validate at 100+ papers; current system untested beyond small datasets. |
+| P-6 | Auto-publish backlog to Pages | Has Spec | Extend `.github/scripts/generate_docs.py` to regenerate from this file on every push. |
+| P-7 | Migrate `update-docs.yml` trigger paths | Needs Spec | Workflow still watches stale `memory-bank/` path instead of `llm/memory_bank/`. |
+| T-1 | Taxonomy management at scale | Needs Spec | Versioned taxonomy with branching + merge + conflict resolution; flagged by E-1. |
+| L-1 | Local / low-cost SLM client | Needs Spec | Third `BaseLLMClient` backed by Llama 3.x / Gemma / Phi-3 for narrow tasks (description-gen, dedup tie-breaking, routing). |
+
+### Follow-ups from the first live smoke run (2026-07-02)
+
+| # | Feature | Status | Notes |
+|---|---------|--------|-------|
+| SM-1 | Investigate aggregator normalizer | Needs Spec | First real smoke run showed `NormalizedPaper.pdf_url=None` + empty abstract on all 3 imported papers; root-cause the OpenAlex / Semantic Scholar normalizers. |
+| SM-2 | Preflight WARN on empty section_text | Needs Spec | When 100% of imported papers have empty `section_text`, log ERROR / fail batch loudly; current behavior is silent zero counters. Small fix-forward. |
 
 ---
 
-## Category 6: Production Readiness
+## Validation success criteria (not features)
 
-| # | Feature | Status | Priority | Notes |
-|---|---------|--------|----------|-------|
-| P-1 | Production deployment | Needs Spec | High | `terraform apply -var-file=envs/prod.tfvars`; needs runbook, monitoring, alerting |
-| P-2 | Neo4j production hosting docs | Needs Spec | High | Aura vs. self-managed decision; connection strings, backup procedures, failover (from sprint-01 backlog) |
-| P-3 | Multi-hop graph traversal | Needs Spec | Medium | FR-2.3.4 deferred from Sprint 01; add `max_depth` to `get_related_problems()`; useful for agent exploration and R-2 |
-| P-4 | Referential integrity on delete | Needs Spec | Low | Check EXTRACTED_FROM relations before paper delete; prefer soft delete (from sprint-01 backlog) |
-| P-5 | Scalability testing | Needs Spec | Medium | Current system untested beyond small datasets; paper's system tested on only 10 papers; need to validate at 100+ papers |
-| P-6 | Auto-publish backlog to Pages site | Has Spec | Low | `docs/backlog.md` published 2026-04-15. Follow-up: extend `.github/scripts/generate_docs.py` to regenerate from `llm/features/BACKLOG.md` on every push instead of manual snapshot |
-| P-7 | Migrate `update-docs.yml` trigger paths from `memory-bank/` to `llm/memory_bank/` | Needs Spec | Low | Workflow still watches the stale legacy path |
-| T-1 | Taxonomy management at scale | Needs Spec | Medium | Versioned taxonomy with branching/merge, import/export, conflict resolution for LLM proposals. Flagged by E-1 spec — needed if taxonomy grows beyond ~200 nodes |
-| L-1 | Local / low-cost SLM for narrow tasks | Needs Spec | Medium | Several KG-pipeline tasks (entity-description backfill, alias generation, dedup tie-breaking, deny-list scoring) are narrow enough that a small open-weight model (Llama 3.x 1B/3B, Gemma 2B, Phi-3 Mini) running locally or via cheap inference would suffice. Adds a third `BaseLLMClient` implementation backed by a local-hosted or low-cost provider. Reframes the "is the OpenAI cost too high?" question from binary go/no-go to "route this task to the cheaper model". Flagged during E-6 (entity-descriptions) spec — would meaningfully change the cost economics of LLM-driven backfill commands. |
-
----
-
-## Category 7: Unvalidated Success Criteria
-
-These aren't features per se, but require specification of how we'll measure and validate them.
+Require spec of *how* to measure.
 
 | # | Criterion | Source | Status |
 |---|-----------|--------|--------|
-| V-1 | Extraction F1 within 10% of inter-annotator agreement | productContext.md | Not measured |
-| V-2 | MRR/nDCG improvement over keyword/citation baselines | productContext.md | Not measured |
-| V-3 | Faster time to actionable continuation | productContext.md | Not measured |
-| V-4 | Higher user-reported confidence vs. opaque AI | productContext.md | Not measured |
-| V-5 | Active use by research teams | productContext.md | Not achieved |
+| V-1 | Extraction F1 within 10% of inter-annotator agreement | productContext | Not measured |
+| V-2 | MRR/nDCG improvement over keyword + citation baselines | productContext | Not measured |
+| V-3 | Faster time to actionable continuation | productContext | Not measured |
+| V-4 | Higher user-reported confidence vs. opaque AI | productContext | Not measured |
+| V-5 | Active use by research teams | productContext | Not achieved |
 
 ---
 
-## Dependency Graph
+## Dependency graph (backlog)
 
 ```
-S-1, S-2 (test fixes)
-    └──► D-1 (real data ingestion)
-            └──► D-2, D-3, D-4 (metrics & validation)
-            └──► E-8 (extraction prompt expansion)
-                    └──► E-1, E-2 (Topics & Concepts — Sprint 11)
-                            └──► E-3, E-4, E-5 (Models, Methods, Citations — Sprint 12)
-                                    └──► C-1, C-2 (Community detection — Sprint 13)
-                                            └──► R-1, R-2, R-3 (RAG retrieval — Sprint 14)
+Entity expansion arc ✓ (E-1..E-8 + orchestration + CI smoke)
+    └──► Community detection (C-1, C-2, C-3)
+            └──► RAG retrieval (R-1..R-5)
+    └──► Validation & metrics (D-2, D-3, D-4)
 
-P-1, P-2 (production) — can run in parallel after S-1/S-2
-P-3 (multi-hop) — prerequisite for R-2
+Production readiness (P-1..P-7) — parallel track
 ```
-
----
-
-## Open Design Questions
-
-From the gap analysis, these need answers before Sprint 11 spec:
-
-1. **Entity extraction scope** — Extract all 9 entity types from the paper, or prioritize top 4 (Topic, Concept, Model, Method)?
-2. **Concept canonicalization** — Full mention-to-concept pipeline (with agents + human review) for ResearchConcepts, or simpler auto-merge?
-3. **Community algorithm** — Leiden (hierarchical, GraphRAG-style) vs. Louvain (simpler, paper-style)?
-4. **RAG service architecture** — Separate service or integrated into existing API?
-5. **Migration strategy** — How to convert existing `domain` string fields to Topic nodes without breaking functionality?

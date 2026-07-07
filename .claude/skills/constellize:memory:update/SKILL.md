@@ -25,7 +25,9 @@ Read all 5 files in `llm/memory_bank/`:
 - `activeContext.md`
 - `progress.md`
 
-Note the `Last updated` date on activeContext.md and progress.md to understand how stale they are.
+Also read the **master feature catalog** at `llm/features/BACKLOG.md`. It is a memory-bank artifact — the single-source-of-truth index of every feature ever spec'd (one-line description + link + status).
+
+Note the `Last updated` date on activeContext.md, progress.md, and BACKLOG.md to understand how stale they are.
 
 ## Step 2: Detect Changes
 
@@ -52,7 +54,7 @@ Compare what the memory bank says against what the code shows. Look for:
 ## Step 4: Apply Updates
 
 ### Quick Mode
-Update these two files:
+Update these three files:
 
 **activeContext.md**:
 - Set current work focus based on recent commits
@@ -66,6 +68,14 @@ Update these two files:
 - Update known issues
 - Update the date stamp
 
+**llm/features/BACKLOG.md** (master feature catalog):
+- For every spec in `llm/features/` (excluding `BACKLOG.md` itself), extract its `**Status:**` line and its `## Problem` opener. `ls llm/features/*.md` + `grep -E "^\*\*Status:\*\*|^# Feature:" llm/features/*.md` is enough.
+- Update the status column for any spec whose status changed since last update (SPECIFIED → IMPLEMENTED → VERIFIED).
+- Add a new row for any spec file that isn't in the catalog yet (one-liner drawn from the spec's Problem section — one sentence, ≤120 chars).
+- Delete rows for specs whose files were removed.
+- Update the date stamp.
+- Do NOT rewrite the whole file; make targeted edits per row.
+
 ### Full Mode
 Update all files that have drifted. In addition to the quick mode updates:
 
@@ -75,13 +85,17 @@ Update all files that have drifted. In addition to the quick mode updates:
 
 **systemPatterns.md**: Update architecture, new patterns, new modules, changed file structure.
 
+**llm/features/BACKLOG.md**: In addition to quick-mode edits, review the Backlog section — reorder or reclassify items if priorities shifted, add newly-identified follow-ups (e.g. SM-* items), and prune resolved backlog rows.
+
 ## Step 5: Verify
 
 After writing updates, confirm:
 
 - [ ] No placeholder text introduced
-- [ ] Date stamps updated on modified files
-- [ ] No contradictions between files (e.g., progress.md says done, activeContext.md says in progress)
+- [ ] Date stamps updated on modified files (including BACKLOG.md)
+- [ ] No contradictions between files (e.g., progress.md says done, activeContext.md says in progress, BACKLOG.md says SPECIFIED)
+- [ ] BACKLOG.md status column matches each spec's `**Status:**` header
+- [ ] Every `.md` file in `llm/features/` (excluding BACKLOG.md itself) has a row in BACKLOG.md
 - [ ] New patterns reference actual file paths
 - [ ] Removed or renamed files are no longer referenced
 
