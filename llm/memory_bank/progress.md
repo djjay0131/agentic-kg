@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-07-02
+Last updated: 2026-07-12
 
 ## What Is Built and Working
 
@@ -44,9 +44,11 @@ Last updated: 2026-07-02
 ## What Remains to Be Built
 
 ### Immediate / actionable
-- **First real-data shakedown of entity-pipeline-orchestration**: smoke workflow triggered manually 2026-07-02 (run 28621965589); if green, LOOP CLOSED is validated against real papers end-to-end
+- **`deploy-pipeline-fix` SPECIFIED, mid-review (2026-07-12)**: 18 ACs, 6 units. Paused during Phase 7/8 dual-persona review, TL Q1 asked. Fixes 2-month `Deploy Master` startup_failure (missing `staging` GitHub env) + adds ingest-Job deploy step (currently untouched by workflow) + Terraform lifecycle guardrail + `/version` endpoint + UI `<VersionBadge />` + Job SHA logging. **This is the current front-line ticket — everything else blocks on it.**
+- **`human-review-ui` (not spec'd yet)**: `/api/reviews` backend exists (`packages/api/src/agentic_kg_api/routers/reviews.py`), no Next.js page. Needed for user's stated goal of human-reviewing extracted nodes + testing review-queue action items. Spec after deploy-pipeline-fix ships.
+- **SM-1 (Investigate aggregator normalizer)** + **SM-2 (Preflight WARN on empty section_text)** — carried forward from 2026-07-02 smoke run finding
 - **Real-data eval calibration** (E-7 AC-21 + E-8 V2 AC-17 + entity-pipeline-orchestration follow-up): hand-labeled 5-10 collision-pair fixture set + precision/recall floors for the routing LLM
-- **Cloud Run Job verification post-orchestration**: production `agentic-kg-ingest-staging` Cloud Run Job hasn't been executed since the BREAKING CHANGE landed; needs a controlled `gcloud run jobs execute` with `INGEST_LIMIT=3` to validate the deploy-path wiring
+- **Cloud Run Job verification post-orchestration**: production `agentic-kg-ingest-staging` Cloud Run Job hasn't been executed since the BREAKING CHANGE landed. **Blocked by deploy-pipeline-fix** — cannot verify until we can actually deploy current code to the Job.
 - **Cost telemetry** (deferred from E-7, E-8 V2, entity-pipeline-orchestration): per-batch LLM-call counter surfaced in `IngestionResult`; needed once bulk ingestion runs land
 
 ### Next backlog features
@@ -68,6 +70,10 @@ Last updated: 2026-07-02
 
 ## Known Bugs / Tech Debt
 
+- **CRITICAL: `Deploy Master` workflow broken since 2026-05-19** — `deploy-staging` job references nonexistent `staging` GitHub environment → `startup_failure` on every push. **No entity-expansion code (E-3..E-8 V2, E-7, entity-pipeline-orchestration) is deployed to Cloud Run.** Being fixed by `deploy-pipeline-fix` spec.
+- **`deploy-master.yml` never touches the ingest Cloud Run Job** — only Services. Even with startup fixed, ingest would keep running stale code. Also being fixed by `deploy-pipeline-fix`.
+- **No version visibility** — `/health` returns hardcoded `"0.1.0"`, no `/version` endpoint, UI has no build info. Also being fixed by `deploy-pipeline-fix`.
+- **`docker/Dockerfile.worker` is orphaned January 2026 legacy** — `build-images.yml` references it, `cloudbuild.yaml` uses `Dockerfile.job` instead. Deleted by `deploy-pipeline-fix`.
 - `docs/status/service-inventory.html` exposes the staging Neo4j browser endpoint (still open)
 - Denario core: `arXiv_pdf` variable scope bug in `literature.py:114` (external)
 - Legacy `memory-bank/` and `construction/{design,requirements,backlog}` deleted 2026-07-07 — content superseded by `llm/memory_bank/` + `llm/features/`

@@ -1,6 +1,6 @@
 # Feature Catalog — Master Index
 
-Last updated: 2026-07-07
+Last updated: 2026-07-12
 
 Single source of truth for every feature ever spec'd in this project — one line per feature plus a link to the full spec. Backlog items (unbuilt) live in the second half.
 
@@ -36,6 +36,7 @@ Every spec that has reached SPECIFIED or beyond. Newest first within each theme.
 | D-1 | [Ingest real papers into KG](d1-ingest-real-papers.md) | VERIFIED | End-to-end ingestion CLI: search → import metadata → extract Problems → integrate. |
 | D-1a | [Cloud Run Jobs async ingestion](cloud-run-jobs-ingestion.md) | VERIFIED | Terraform-managed Cloud Run Job for durable async ingestion; env-var driven, no in-memory job store. |
 | — | [CI smoke test (ingestion loop)](ci-smoke-test-ingestion.md) | VERIFIED | GHA workflow — daily cron + PR path-filter + `workflow_dispatch` — asserts entity edges land in ephemeral Neo4j. |
+| — | [Deploy pipeline fix + version pinning](deploy-pipeline-fix.md) | SPECIFIED | Fixes 2-month `Deploy Master` startup_failure (missing GH env), adds ingest-Job deploy step, Terraform lifecycle guardrail, `/version` endpoint + UI badge + Job SHA logging. Mid dual-persona review (Phase 7/8). |
 
 ### Docs / site
 

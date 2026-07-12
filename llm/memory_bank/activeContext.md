@@ -1,8 +1,37 @@
 # Active Context
 
-Last updated: 2026-07-02
+Last updated: 2026-07-12
 
 ## Current Work Focus
+
+**Paused mid-spec on `deploy-pipeline-fix` — Phase 7/8 dual-persona review, waiting on TL Q1 (2026-07-12).**
+
+Session sequence over the past few days:
+
+1. **Docs consolidation shipped (commits `b1d1753`, `b36e8bf`).** Rewrote `llm/features/BACKLOG.md` as the single-source-of-truth master feature catalog (14 shipped specs + backlog groups + V-* success criteria). Wired `/constellize:memory:update` to refresh it. Deleted the legacy `memory-bank/` folder and `construction/{design,requirements,backlog}/` — 13,259 lines removed. Salvaged `productContext.md` into `llm/memory_bank/`. Closed backlog item P-7 (workflows already point at correct paths). Fixed E-1 status doc-drift (SPECIFIED → VERIFIED).
+
+2. **GCP deployment diagnosis (2026-07-11).** Investigated staging state. **Every `Deploy Master` workflow run since 2026-05-19 has failed with `startup_failure`.** Root cause: `deploy-staging` job declares `environment: staging` but no `staging` GitHub environment exists on the repo (only `github-pages`). No entity-expansion code (E-3..E-8 V2, E-7, entity-pipeline-orchestration) has been auto-deployed to Cloud Run in ~2 months. Version visibility is broken too: `/health` returns hardcoded `"0.1.0"`, no `/version` endpoint, UI has no version display. Also discovered: `deploy-master.yml` never touches the ingest Cloud Run **Job** (only Services), so even after fixing startup failure, ingest would keep running stale code. Naming inconsistency: `build-images.yml` builds a `worker` image via orphaned `docker/Dockerfile.worker` (Jan 2026), but `cloudbuild.yaml` uses `_SERVICE=job` with `docker/Dockerfile.job` (April 2026 D-1a). WIF secrets (`GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT`) are NOT set on the repo.
+
+3. **Spec draft in flight: `llm/features/deploy-pipeline-fix.md` (SPECIFIED, 18 ACs).** Scope decided via interview:
+   - Fix approach: **create the `staging` GitHub environment** (keep `environment: staging` in workflow) — not delete the line
+   - Auth: **Workload Identity Federation** (WIF), not SA JSON keys
+   - Scope: **Services + Job + version pinning** bundled (option C from the earlier menu)
+   - Terraform: **include** `lifecycle { ignore_changes = [image] }` on the ingest Job resource
+   - Test all three deploy workflows (`deploy-master`, `deploy-branch`, `deploy-tag`) at least once
+   - Trivy tightening: deferred to open question (needs research)
+
+   Six units of change: (1) GCP WIF pool + SA + IAM setup, (2) GitHub env + secrets + vars, (3) `deploy-master.yml` ingest-Job deploy step + verify step, (4) `worker`→`job` rename + delete orphan Dockerfile, (5) Terraform lifecycle guardrail, (6) version pinning across API `/version` + `/health`, UI `<VersionBadge />` footer, Job SHA logging, Docker `ARG BUILD_SHA` injection.
+
+4. **Interview state — Phase 7/8 dual-persona review started.** Skeptical Tech Lead Q1 asked (about AC-8's `terraform plan` assertion being too weak — it tests that `ignore_changes` is configured, not that HCL is consistent with reality). **Waiting on user response.** ~6 more questions to go before Phase 9 (finalize + status write-up).
+
+**Resume point after reboot:**
+- Read `llm/features/deploy-pipeline-fix.md` for full spec
+- Re-ask the TL Q1 (verbatim below) or continue if user answered
+- TL Q1: "AC-8 checks `terraform plan` shows zero diffs — but that's just testing we configured `ignore_changes`, not that HCL is consistent with reality. Failure mode: HCL hardcodes stale image ref, workflow updates running Job to new SHA, `terraform plan` still shows zero diffs, HCL now silently lies. Is that the semantics you want, or a stronger AC (e.g., HCL image must be `latest` and Cloud Run must be SHA-pinned; or nightly drift-check job)?"
+- Remaining planned questions: 3 more Tech Lead (PR splitting for blast radius; least-privilege recovery loop; `BUILD_TIME` semantics — commit vs build timestamp), 4 QA/Ops (how to actually test SHA-drift AC-14; what does `deploy-branch.yml` deploy to and does it clobber master's staging; UI badge baked-at-build risk; over-triggering cost of `packages/core/**` in Job filter)
+- After Phase 9 finalize: user's stated end-goal is **running a larger ingestion + human review of nodes + testing review-queue action items**. That needs the deploy-pipeline-fix implementation + a follow-on `human-review-ui` spec (backend exists at `packages/api/src/agentic_kg_api/routers/reviews.py` but no UI page).
+
+---
 
 **First real-data smoke run FAILED with useful signal (2026-07-02).** Fired `smoke-ingest.yml` on run [28621965589](https://github.com/djjay0131/agentic-kg/actions/runs/28621965589) via `workflow_dispatch` immediately after `ci-smoke-test-ingestion` VERIFIED. Ingest step went green on attempt 1 — the entire orchestrator ran without errors — but `Assert graph shape` red-lined because zero papers reached V2 integration:
 
