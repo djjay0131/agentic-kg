@@ -18,7 +18,18 @@ What shipped in the code commit (all tested — 9 new tests pass, ruff clean, al
 
 **Notes / minor pre-existing issue (out of PR-1 scope):** `deploy-master.yml`'s `update-manifest` job references `needs.build.outputs.api_image` but doesn't list `build` in its `needs:` → the manifest's `image:` field is always `not-deployed`. AC-17 only checks the `commit:` field (uses `github.sha` directly, works). Left as-is; note for a follow-up.
 
-**RESUME:** once operator setup lands, push the branch / open PR-1, let `Deploy Master` run, and confirm AC-5 (no startup_failure) + AC-6 (SHA parity across api/ui/job). Then PR-2 (Terraform lifecycle + AC-8 lint), then PR-3 (version pinning).
+**PR-1 OPENED as PR #27 (2026-07-12); operator WIF setup DONE + verified** (staging env + both GCP_* secrets + GCP_PROJECT_ID var all present; `scripts/setup_wif_deploy.sh` committed to the branch, idempotent, DRY_RUN-verified).
+
+**PR #27 CI results:**
+- ✅ PASS: Pre-Check, Lint & Type Check, Tests (3m4s), Unit Tests (2m45s), test 3.12 (3m17s) — the new `test_assert_deploy_parity.py` passes in CI; worker→job changes broke nothing.
+- ❌ `build-preview` — PRE-EXISTING, unrelated: HTML-Proofer flags docs-site `backlog.html` linking to spec `.md` files not published into `_site` (fallout from the docs-consolidation commits already on master). Would be red on any PR. → file as separate docs-generator debt.
+- ❌ `Ingest + Assert` — PRE-EXISTING, unrelated to PR-1 (touches no ingestion code). **NEW ROOT CAUSE FOUND:** the repo has **no GitHub `OPENAI_API_KEY` secret**, so `smoke-ingest.yml`'s `OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}` is empty → `llm_client - WARNING - No API key found for openai` → all LLM extractors short-circuit → papers=23, cites=19 land but topics/concepts/models/methods=0. This refines backlog **SM-1** (previously blamed solely on the OpenAlex normalizer's empty abstracts — the missing key is a dominant, distinct cause for CI smoke).
+  - **IMPORTANT distinction:** GCP **Secret Manager** DOES have `OPENAI_API_KEY` (verified), and the deploy workflows mount it via `--set-secrets=OPENAI_API_KEY=OPENAI_API_KEY:latest`. So the **deployed** Cloud Run job/services HAVE the key at runtime — a real staging ingestion will extract entities. The zero-extraction is a **CI-only** gap. Fix: `gh secret set OPENAI_API_KEY` on the repo (value from the user or copied from Secret Manager).
+- `Integration Tests (Neo4j)` — was still pending at last check; likely also affected by the missing GitHub key.
+
+**`master` is NOT branch-protected** → the two red checks do NOT block merge. Merging PR #27 triggers `Deploy Master` = the actual staging recovery deploy.
+
+**RESUME / decision pending:** merge PR #27 (→ real staging deploy of api/ui/job; confirm AC-5 no-startup_failure + AC-6 SHA parity) is a user go-ahead (merge = deploy, outward-facing). Optional pre-merge fixes: set GitHub `OPENAI_API_KEY` secret (unblocks CI smoke + the user's node-extraction goal); fix docs-link check (separate small PR). Then PR-2 (Terraform lifecycle + AC-8 lint), PR-3 (version pinning).
 
 Session sequence over the past few days:
 

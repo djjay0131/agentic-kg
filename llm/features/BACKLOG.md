@@ -101,7 +101,8 @@ The "killer feature". Depends on entity expansion + communities.
 
 | # | Feature | Status | Notes |
 |---|---------|--------|-------|
-| SM-1 | Investigate aggregator normalizer | Needs Spec | First real smoke run showed `NormalizedPaper.pdf_url=None` + empty abstract on all 3 imported papers; root-cause the OpenAlex / Semantic Scholar normalizers. |
+| SM-1 | Investigate aggregator normalizer | Needs Spec | First real smoke run showed `NormalizedPaper.pdf_url=None` + empty abstract on all 3 imported papers; root-cause the OpenAlex / Semantic Scholar normalizers. **Update 2026-07-12:** PR #27 CI smoke found a distinct, dominant cause — the repo has **no GitHub `OPENAI_API_KEY` secret**, so CI-run LLM extraction short-circuits (papers/cites land, entities=0). Deployed runtime is unaffected (GCP Secret Manager has the key). Fix CI first (`gh secret set OPENAI_API_KEY`), then re-assess whether the normalizer issue remains. |
+| SM-3 | Docs-site link check fails on backlog.html | Needs Spec | `build-preview` (HTML-Proofer) red: generated `backlog.html` links to spec `.md` files + `../memory_bank/productContext.md` not published into `_site`. Fix the Pages generator link rewriting or the BACKLOG relative links. Pre-existing since the docs-consolidation commits. |
 | SM-2 | Preflight WARN on empty section_text | Needs Spec | When 100% of imported papers have empty `section_text`, log ERROR / fail batch loudly; current behavior is silent zero counters. Small fix-forward. |
 
 ---
