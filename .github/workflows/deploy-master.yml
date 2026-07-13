@@ -227,8 +227,12 @@ jobs:
           # pytest tests/integration --base-url=$STAGING_API_URL
 
   # Update deployment manifest
+  # `build` is required in needs because the manifest body references
+  # needs.build.outputs.*; omitting it made `needs.build` an undefined-context
+  # reference, which GitHub rejects at startup (root cause of this workflow
+  # never running — 34/34 startup_failure since 2026-02-05).
   update-manifest:
-    needs: [deploy-staging, integration-test]
+    needs: [build, deploy-staging, integration-test]
     runs-on: ubuntu-latest
     permissions:
       contents: write
