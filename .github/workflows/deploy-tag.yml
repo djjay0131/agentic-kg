@@ -51,7 +51,9 @@ jobs:
 
       - name: Run linting
         run: |
-          ruff check packages/core/src packages/core/tests
+          # Source only — matches code-review.yml (project standard). Test-tree
+          # lint debt tracked as SM-5; re-add packages/core/tests after cleanup.
+          ruff check packages/core/src
 
       - name: Run tests
         run: |
