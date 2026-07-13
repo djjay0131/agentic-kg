@@ -36,7 +36,7 @@ Every spec that has reached SPECIFIED or beyond. Newest first within each theme.
 | D-1 | [Ingest real papers into KG](d1-ingest-real-papers.md) | VERIFIED | End-to-end ingestion CLI: search → import metadata → extract Problems → integrate. |
 | D-1a | [Cloud Run Jobs async ingestion](cloud-run-jobs-ingestion.md) | VERIFIED | Terraform-managed Cloud Run Job for durable async ingestion; env-var driven, no in-memory job store. |
 | — | [CI smoke test (ingestion loop)](ci-smoke-test-ingestion.md) | VERIFIED | GHA workflow — daily cron + PR path-filter + `workflow_dispatch` — asserts entity edges land in ephemeral Neo4j. |
-| — | [Deploy pipeline fix + version pinning](deploy-pipeline-fix.md) | SPECIFIED | Fixes 2-month `Deploy Master` startup_failure (missing GH env), adds ingest-Job deploy step, Terraform lifecycle guardrail, `/version` endpoint + UI badge + Job SHA logging. Mid dual-persona review (Phase 7/8). |
+| — | [Deploy pipeline fix + version pinning](deploy-pipeline-fix.md) | SPECIFIED | Fixes 2-month `Deploy Master` startup_failure (missing GH env), adds ingest-Job deploy step, Terraform lifecycle guardrail + HCL-invariant lint, `/version` endpoint + UI badge + Job SHA logging. Ships as 3 PRs (Recovery → TF safety → Version pinning). Review complete; 19 ACs. |
 
 ### Docs / site
 
@@ -93,6 +93,7 @@ The "killer feature". Depends on entity expansion + communities.
 | P-5 | Scalability testing | Needs Spec | Validate at 100+ papers; current system untested beyond small datasets. |
 | P-6 | Auto-publish backlog to Pages | Has Spec | Extend `.github/scripts/generate_docs.py` to regenerate from this file on every push. |
 | ~~P-7~~ | ~~Migrate `update-docs.yml` trigger paths~~ | **Resolved** | Workflows already watch `llm/memory_bank/**`. Verified 2026-07-07. |
+| P-8 | Tighten deploy SA to least-privilege | Needs Spec | Follow-up to `deploy-pipeline-fix`. Replace `roles/run.admin` on `gh-deploy@vt-gcp-00042` with `roles/run.developer` + resource-level `roles/run.invoker` on the 3 known Cloud Run targets. Ships after PR-3 lands and staging is stable. |
 | T-1 | Taxonomy management at scale | Needs Spec | Versioned taxonomy with branching + merge + conflict resolution; flagged by E-1. |
 | L-1 | Local / low-cost SLM client | Needs Spec | Third `BaseLLMClient` backed by Llama 3.x / Gemma / Phi-3 for narrow tasks (description-gen, dedup tie-breaking, routing). |
 
