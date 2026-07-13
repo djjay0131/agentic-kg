@@ -14,7 +14,16 @@ Last updated: 2026-07-12
 
 **Root-cause summary:** deploy-master never worked because of the `id-token`/reusable-permissions gap (PR #29) — the "missing environment since May 19" story was entirely wrong. Every merge past that revealed the NEXT never-exercised gate (test lint, then build/deploy). Confirmed blockers all pre-existing; none introduced by the deploy-pipeline-fix work.
 
-**Pending: watch run 29224559187** for test→build→deploy-staging→verify. AC-6 (SHA parity across api/ui/job) verifies once deploy-staging completes. Possible further gates: Cloud Run resource existence (api-staging/ui-staging services + ingest-staging job must exist for the deploy/verify steps).
+**✅ DEPLOY MASTER IS GREEN (2026-07-13, run 29258501729, commit `0f85a0d`) — first successful run in repo history. AC-5 ACHIEVED.** The post-#29 gate chain, each a never-exercised gate revealed in turn:
+- #30: lint scope (172 pre-existing test-tree violations → narrowed to src, SM-5).
+- #31: e2e tests hitting live Semantic Scholar API (rate-limited) → `--ignore=e2e`.
+- #32: `test_e3_dedup_eval` (costly+integration, "skipped by default") RAN because the deploy job's `.[dev]` install has testcontainers → spun up Neo4j → failed on missing OpenAI key → added `-m "not integration and not costly"`. Verified locally green (1514 passed).
+
+**Cloud Run targets confirmed to EXIST** (`gcloud run services/jobs list`): `agentic-kg-api-staging`, `agentic-kg-ui-staging`, job `agentic-kg-ingest-staging`. gcloud is authed to vt-gcp-00042.
+
+**AC-6 (SHA parity across deployed api/ui/job) NOT YET EXERCISED** — build+deploy-staging were correctly SKIPPED on the green run because commit `0f85a0d` touched only `.github/workflows/` (no `packages/**`/`docker/**` change → `changes` filter → any_service=false). The first commit that touches service code will trigger the real build + deploy + SHA-parity verify. **The SM-4 fix (changes packages/core) is the natural vehicle to trigger the first real deploy AND unblock extraction.**
+
+**Deploy-pipeline-fix PR-1 status:** structural recovery COMPLETE (deploys work). ACs delivered via PRs #27–#32. Remaining PR-1 verification (AC-6 live) happens on the next service-code deploy. Then PR-2 (Terraform lifecycle + AC-8 lint), PR-3 (version pinning).
 
 What shipped in the code commit (all tested — 9 new tests pass, ruff clean, all workflow YAML validates):
 - `deploy-master.yml`: `job` changes-filter output (broad `packages/core/**`), builds the job image, **deploys the ingest Cloud Run Job** (previously never touched → ran stale pre-entity-expansion code), post-deploy SHA-parity verify step. UI `--port 8501→3000`.
