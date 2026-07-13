@@ -4,7 +4,21 @@ Last updated: 2026-07-12
 
 ## Current Work Focus
 
-**`deploy-pipeline-fix` spec FINALIZED (2026-07-12) — dual-persona review complete, ready for `/constellize:feature:implement` (starting with PR-1 Recovery).**
+**PR-1 Recovery — CODE HALF IMPLEMENTED (2026-07-12), on branch `fix/deploy-pipeline-pr1-recovery` (commit `69bc468`). Blocked on operator setup + one AC-16 decision before it can deploy.**
+
+What shipped in the code commit (all tested — 9 new tests pass, ruff clean, all workflow YAML validates):
+- `deploy-master.yml`: `job` changes-filter output (broad `packages/core/**`), builds the job image, **deploys the ingest Cloud Run Job** (previously never touched → ran stale pre-entity-expansion code), post-deploy SHA-parity verify step. UI `--port 8501→3000`.
+- `worker`→`job` rename across `build-images.yml`, `deploy-branch.yml`, `deploy-tag.yml`; **deleted `docker/Dockerfile.worker`** + the unimplemented compose `worker` service that referenced it.
+- `deploy-branch.yml`: worker step → Cloud Run Job deploy (`jobs deploy`, creates `-dev` job); UI port fix.
+- `scripts/assert_deploy_parity.sh` (verify logic, unit-testable, checks only CHECK_* targets) + `packages/core/tests/test_assert_deploy_parity.py` (9 tests, PATH-stubbed gcloud/curl/jq).
+
+**BLOCKERS before PR-1 can actually deploy:**
+1. **Operator setup (user must run — needs GCP Owner + GitHub admin):** WIF pool + `gh-deploy` SA + IAM (AC-1/2); create `staging` GitHub environment (AC-3); set `GCP_WORKLOAD_IDENTITY_PROVIDER` + `GCP_SERVICE_ACCOUNT` secrets + `GCP_PROJECT_ID` var (AC-4). None of these can be validated until they exist.
+2. **AC-16 decision needed:** `deploy-tag.yml` is a PRODUCTION deploy (`environment: production`, deploys unsuffixed `agentic-kg-api`/`ui`, triggers only on `v*.*.*` tag push — no `workflow_dispatch`). AC-16 "run deploy-tag green once" ⇒ a real prod release, contradicting the staging-only Non-Goal. The worker→job rename in deploy-tag is done (so the Dockerfile deletion doesn't break it), but *running* it is deferred pending a decision: revise AC-16 to accept YAML-validation-only for now, or add a dry-run path. DO NOT trigger deploy-tag without explicit user sign-off (production, hard to reverse).
+
+**Notes / minor pre-existing issue (out of PR-1 scope):** `deploy-master.yml`'s `update-manifest` job references `needs.build.outputs.api_image` but doesn't list `build` in its `needs:` → the manifest's `image:` field is always `not-deployed`. AC-17 only checks the `commit:` field (uses `github.sha` directly, works). Left as-is; note for a follow-up.
+
+**RESUME:** once operator setup lands, push the branch / open PR-1, let `Deploy Master` run, and confirm AC-5 (no startup_failure) + AC-6 (SHA parity across api/ui/job). Then PR-2 (Terraform lifecycle + AC-8 lint), then PR-3 (version pinning).
 
 Session sequence over the past few days:
 
