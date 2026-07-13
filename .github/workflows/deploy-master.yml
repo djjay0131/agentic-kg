@@ -84,12 +84,16 @@ jobs:
 
       - name: Run unit tests
         run: |
-          # Exclude tests needing external resources, matching test.yml /
-          # code-review.yml: knowledge_graph needs Neo4j; e2e hits live APIs
-          # (rate-limited, flaky) and must not gate deploys.
+          # Unit tests only. Exclude tests needing external resources:
+          # knowledge_graph (Neo4j), e2e (live APIs), and integration/costly
+          # markers (live embeddings + Neo4j, "skipped by default"). The .[dev]
+          # install here includes testcontainers, so without the marker filter
+          # those opt-in tests spin up Neo4j and run — failing on the missing
+          # OpenAI key. Matches code-review.yml's `-m "not integration"`.
           python -m pytest packages/core/tests -v \
             --ignore=packages/core/tests/knowledge_graph \
             --ignore=packages/core/tests/e2e \
+            -m "not integration and not costly" \
             -x --tb=short
 
   # Build changed services. build-images parses the services string with grep,
