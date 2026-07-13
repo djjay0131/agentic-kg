@@ -1,3 +1,8 @@
+---
+title: Governance Delta
+nav_exclude: true
+---
+
 # Governance Delta: agentic-kg
 
 Status: Approved (bootstrap)

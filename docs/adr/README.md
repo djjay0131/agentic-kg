@@ -1,3 +1,8 @@
+---
+title: Architecture Decision Records
+nav_exclude: true
+---
+
 # Architecture Decision Records — agentic-kg
 
 ADRs for durable decisions. Lifecycle: Proposed → Accepted →

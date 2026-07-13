@@ -1,3 +1,8 @@
+---
+title: "ADR Template"
+nav_exclude: true
+---
+
 # ADR-0000: Title
 
 Status: Proposed

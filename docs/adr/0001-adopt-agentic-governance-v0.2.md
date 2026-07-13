@@ -1,3 +1,8 @@
+---
+title: "ADR-0001: Adopt agentic-governance v0.2"
+nav_exclude: true
+---
+
 # ADR-0001: Adopt agentic-governance v0.2 and declare interim design authority
 
 Status: Accepted
