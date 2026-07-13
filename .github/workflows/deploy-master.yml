@@ -88,6 +88,14 @@ jobs:
   build:
     needs: [changes, test]
     if: needs.changes.outputs.any_service == 'true'
+    # build-images.yml (reusable) requests id-token: write for WIF auth. The
+    # repo's default GITHUB_TOKEN permission is read-only, and a reusable call
+    # cannot request more than the caller grants — without this block GitHub
+    # rejects the whole workflow at startup (the real cause of 34/34
+    # startup_failure since 2026-02-05).
+    permissions:
+      contents: read
+      id-token: write
     uses: ./.github/workflows/build-images.yml
     with:
       services: >-
