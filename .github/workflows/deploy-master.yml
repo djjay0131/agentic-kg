@@ -84,8 +84,12 @@ jobs:
 
       - name: Run unit tests
         run: |
+          # Exclude tests needing external resources, matching test.yml /
+          # code-review.yml: knowledge_graph needs Neo4j; e2e hits live APIs
+          # (rate-limited, flaky) and must not gate deploys.
           python -m pytest packages/core/tests -v \
             --ignore=packages/core/tests/knowledge_graph \
+            --ignore=packages/core/tests/e2e \
             -x --tb=short
 
   # Build changed services. build-images parses the services string with grep,

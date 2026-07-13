@@ -57,8 +57,10 @@ jobs:
 
       - name: Run tests
         run: |
+          # e2e hits live APIs (flaky/rate-limited); knowledge_graph needs Neo4j
           python -m pytest packages/core/tests -v \
-            --ignore=packages/core/tests/knowledge_graph
+            --ignore=packages/core/tests/knowledge_graph \
+            --ignore=packages/core/tests/e2e
 
   # Build all services with version tags
   build:
