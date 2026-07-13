@@ -33,3 +33,13 @@ output "artifact_registry" {
   description = "Artifact Registry repository path"
   value       = "${var.region}-docker.pkg.dev/${var.project_id}/agentic-kg"
 }
+
+output "cloudbuild_trigger_api" {
+  description = "Cloud Build trigger URL for API"
+  value       = var.enable_build_triggers ? "https://console.cloud.google.com/cloud-build/triggers/edit/${google_cloudbuild_trigger.api[0].trigger_id}?project=${var.project_id}" : null
+}
+
+output "cloudbuild_trigger_ui" {
+  description = "Cloud Build trigger URL for UI"
+  value       = var.enable_build_triggers ? "https://console.cloud.google.com/cloud-build/triggers/edit/${google_cloudbuild_trigger.ui[0].trigger_id}?project=${var.project_id}" : null
+}
