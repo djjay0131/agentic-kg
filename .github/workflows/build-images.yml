@@ -7,7 +7,7 @@ on:
   workflow_call:
     inputs:
       services:
-        description: 'Comma-separated list of services to build (api,ui,worker) or "all"'
+        description: 'Comma-separated list of services to build (api,ui,job) or "all"'
         required: true
         type: string
       image_tag:
@@ -26,9 +26,9 @@ on:
       ui_image:
         description: 'Full UI image reference'
         value: ${{ jobs.build.outputs.ui_image }}
-      worker_image:
-        description: 'Full worker image reference'
-        value: ${{ jobs.build.outputs.worker_image }}
+      job_image:
+        description: 'Full ingest-job image reference'
+        value: ${{ jobs.build.outputs.job_image }}
 
 env:
   REGISTRY: us-central1-docker.pkg.dev
@@ -45,7 +45,7 @@ jobs:
     outputs:
       api_image: ${{ steps.meta.outputs.api_image }}
       ui_image: ${{ steps.meta.outputs.ui_image }}
-      worker_image: ${{ steps.meta.outputs.worker_image }}
+      job_image: ${{ steps.meta.outputs.job_image }}
 
     steps:
       - name: Checkout code
@@ -72,11 +72,11 @@ jobs:
           if [ "$SERVICES" = "all" ]; then
             echo "build_api=true" >> $GITHUB_OUTPUT
             echo "build_ui=true" >> $GITHUB_OUTPUT
-            echo "build_worker=true" >> $GITHUB_OUTPUT
+            echo "build_job=true" >> $GITHUB_OUTPUT
           else
             echo "build_api=$(echo $SERVICES | grep -q 'api' && echo true || echo false)" >> $GITHUB_OUTPUT
             echo "build_ui=$(echo $SERVICES | grep -q 'ui' && echo true || echo false)" >> $GITHUB_OUTPUT
-            echo "build_worker=$(echo $SERVICES | grep -q 'worker' && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "build_job=$(echo $SERVICES | grep -q 'job' && echo true || echo false)" >> $GITHUB_OUTPUT
           fi
 
       - name: Set image metadata
@@ -87,7 +87,7 @@ jobs:
 
           echo "api_image=${REGISTRY}/api:${TAG}" >> $GITHUB_OUTPUT
           echo "ui_image=${REGISTRY}/ui:${TAG}" >> $GITHUB_OUTPUT
-          echo "worker_image=${REGISTRY}/worker:${TAG}" >> $GITHUB_OUTPUT
+          echo "job_image=${REGISTRY}/job:${TAG}" >> $GITHUB_OUTPUT
           echo "registry=${REGISTRY}" >> $GITHUB_OUTPUT
 
       - name: Build API image
@@ -122,16 +122,16 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
 
-      - name: Build Worker image
-        if: steps.parse.outputs.build_worker == 'true'
+      - name: Build Job image
+        if: steps.parse.outputs.build_job == 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: docker/Dockerfile.worker
+          file: docker/Dockerfile.job
           push: ${{ inputs.push }}
           tags: |
-            ${{ steps.meta.outputs.worker_image }}
-            ${{ steps.meta.outputs.registry }}/worker:${{ github.sha }}
+            ${{ steps.meta.outputs.job_image }}
+            ${{ steps.meta.outputs.registry }}/job:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           labels: |
@@ -155,7 +155,7 @@ jobs:
               ${{ steps.meta.outputs.ui_image }} || echo "UI image has vulnerabilities"
           fi
 
-          if [ "${{ steps.parse.outputs.build_worker }}" = "true" ]; then
+          if [ "${{ steps.parse.outputs.build_job }}" = "true" ]; then
             trivy image --exit-code 0 --severity HIGH,CRITICAL \
-              ${{ steps.meta.outputs.worker_image }} || echo "Worker image has vulnerabilities"
+              ${{ steps.meta.outputs.job_image }} || echo "Job image has vulnerabilities"
           fi

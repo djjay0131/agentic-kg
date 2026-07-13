@@ -4,7 +4,39 @@ Last updated: 2026-07-12
 
 ## Current Work Focus
 
-**`deploy-pipeline-fix` spec FINALIZED (2026-07-12) — dual-persona review complete, ready for `/constellize:feature:implement` (starting with PR-1 Recovery).**
+**PR-1 Recovery — CODE HALF IMPLEMENTED (2026-07-12), on branch `fix/deploy-pipeline-pr1-recovery` (commit `69bc468`). Blocked on operator setup + one AC-16 decision before it can deploy.**
+
+What shipped in the code commit (all tested — 9 new tests pass, ruff clean, all workflow YAML validates):
+- `deploy-master.yml`: `job` changes-filter output (broad `packages/core/**`), builds the job image, **deploys the ingest Cloud Run Job** (previously never touched → ran stale pre-entity-expansion code), post-deploy SHA-parity verify step. UI `--port 8501→3000`.
+- `worker`→`job` rename across `build-images.yml`, `deploy-branch.yml`, `deploy-tag.yml`; **deleted `docker/Dockerfile.worker`** + the unimplemented compose `worker` service that referenced it.
+- `deploy-branch.yml`: worker step → Cloud Run Job deploy (`jobs deploy`, creates `-dev` job); UI port fix.
+- `scripts/assert_deploy_parity.sh` (verify logic, unit-testable, checks only CHECK_* targets) + `packages/core/tests/test_assert_deploy_parity.py` (9 tests, PATH-stubbed gcloud/curl/jq).
+
+**BLOCKERS before PR-1 can actually deploy:**
+1. **Operator setup (user must run — needs GCP Owner + GitHub admin):** WIF pool + `gh-deploy` SA + IAM (AC-1/2); create `staging` GitHub environment (AC-3); set `GCP_WORKLOAD_IDENTITY_PROVIDER` + `GCP_SERVICE_ACCOUNT` secrets + `GCP_PROJECT_ID` var (AC-4). None of these can be validated until they exist.
+2. ~~AC-16 decision~~ **RESOLVED (2026-07-12): YAML-validation only.** `deploy-tag.yml` is a PRODUCTION deploy (no `workflow_dispatch`); a live run would be a real prod release, contradicting staging-only scope. AC-16 rewritten to require only the worker→job rename + YAML-parse validation for PR-1; an actual green `deploy-tag` run is deferred to production bring-up (backlog **P-1**). Do NOT trigger deploy-tag in PR-1. (No longer a blocker — only blocker #1, operator setup, remains.)
+
+**Notes / minor pre-existing issue (out of PR-1 scope):** `deploy-master.yml`'s `update-manifest` job references `needs.build.outputs.api_image` but doesn't list `build` in its `needs:` → the manifest's `image:` field is always `not-deployed`. AC-17 only checks the `commit:` field (uses `github.sha` directly, works). Left as-is; note for a follow-up.
+
+**PR-1 OPENED as PR #27 (2026-07-12); operator WIF setup DONE + verified** (staging env + both GCP_* secrets + GCP_PROJECT_ID var all present; `scripts/setup_wif_deploy.sh` committed to the branch, idempotent, DRY_RUN-verified).
+
+**PR #27 CI results:**
+- ✅ PASS: Pre-Check, Lint & Type Check, Tests (3m4s), Unit Tests (2m45s), test 3.12 (3m17s) — the new `test_assert_deploy_parity.py` passes in CI; worker→job changes broke nothing.
+- ❌ `build-preview` — PRE-EXISTING, unrelated: HTML-Proofer flags docs-site `backlog.html` linking to spec `.md` files not published into `_site` (fallout from the docs-consolidation commits already on master). Would be red on any PR. → file as separate docs-generator debt.
+- ❌ `Ingest + Assert` — PRE-EXISTING, unrelated to PR-1 (touches no ingestion code). **NEW ROOT CAUSE FOUND:** the repo has **no GitHub `OPENAI_API_KEY` secret**, so `smoke-ingest.yml`'s `OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}` is empty → `llm_client - WARNING - No API key found for openai` → all LLM extractors short-circuit → papers=23, cites=19 land but topics/concepts/models/methods=0. This refines backlog **SM-1** (previously blamed solely on the OpenAlex normalizer's empty abstracts — the missing key is a dominant, distinct cause for CI smoke).
+  - **IMPORTANT distinction:** GCP **Secret Manager** DOES have `OPENAI_API_KEY` (verified), and the deploy workflows mount it via `--set-secrets=OPENAI_API_KEY=OPENAI_API_KEY:latest`. So the **deployed** Cloud Run job/services HAVE the key at runtime — a real staging ingestion will extract entities. The zero-extraction is a **CI-only** gap. Fix: `gh secret set OPENAI_API_KEY` on the repo (value from the user or copied from Secret Manager).
+- `Integration Tests (Neo4j)` — was still pending at last check; likely also affected by the missing GitHub key.
+
+**`master` is NOT branch-protected** → the two red checks do NOT block merge. Merging PR #27 triggers `Deploy Master` = the actual staging recovery deploy.
+
+**Update 2026-07-13 — OPENAI_API_KEY secret SET by user; smoke re-run peeled the onion to the REAL blocker (SM-4).** After setting the GitHub `OPENAI_API_KEY` secret and re-running Ingest+Assert:
+- Layer 1 (missing key): FIXED — no more "No API key" warning.
+- Layer 2 (SM-1 empty abstract): NOT the blocker — re-run shows abstracts present (178/198 words). SM-1 de-prioritized.
+- Layer 3 (**SM-4, the real blocker**): `problem_extractor - ERROR - Failed to extract ...: instructor package not installed` — but instructor 1.12.0 IS installed. Root cause: floor-only dep pins (`instructor>=1.0.0`, openai unpinned) + heavy denario/cmbagent tree resolve `instructor 1.12.0`/`openai 1.99.9` in CI/Docker where `import instructor` raises ImportError; `llm_client.py:194`/`:311` mask it as "not installed." Local `.venv` resolved instructor 1.14.4/openai 2.30.0 → works, hiding it. **Filed SM-4 (high pri).** Likely affects the DEPLOYED Job too (same unpinned install) → blocks the node-review goal in staging, not just CI.
+
+**CORRECTION to earlier note:** I previously said the deployed runtime would extract fine because Secret Manager has the key — NOT safe to claim; SM-4 would hit the deployed job too. Key was necessary, not sufficient.
+
+**RESUME / decision pending:** (a) merge PR #27 — deploy recovery is sound & independent of SM-4; master unprotected so red checks (docs-link SM-3, smoke SM-4) don't block. Merge = real staging deploy (user go-ahead needed, outward-facing). Then confirm AC-5/AC-6. (b) SM-4 is the true blocker for "larger ingestion + human review of nodes" — needs its own fix (pin instructor/openai/pydantic to a known-good set + fix the masking except-block). Recommend: merge PR-1, then tackle SM-4 as the next feature. Also queued: PR-2 (TF lifecycle + AC-8 lint), PR-3 (version pinning), SM-3 (docs-link).
 
 Session sequence over the past few days:
 
