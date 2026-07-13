@@ -4,7 +4,9 @@ Last updated: 2026-07-12
 
 ## Current Work Focus
 
-**PR-1 Recovery — CODE HALF IMPLEMENTED (2026-07-12), on branch `fix/deploy-pipeline-pr1-recovery` (commit `69bc468`). Blocked on operator setup + one AC-16 decision before it can deploy.**
+**⚠️ ROOT-CAUSE CORRECTION (2026-07-13).** The long-held diagnosis — "Deploy Master broke on 2026-05-19 due to the missing `staging` GitHub environment" — was **WRONG**. Evidence: `deploy-master.yml` has **34/34 `startup_failure` runs since its FIRST run on 2026-02-05** — it never once succeeded. The real startup blocker: the `update-manifest` job references `needs.build.outputs.*` but declared `needs: [deploy-staging, integration-test]` (no `build`) — an undefined-context reference GitHub rejects at compile time, before any job runs. Found via `actionlint` after PR #27's merge STILL produced `startup_failure`. Fix in **PR #28** (`fix/deploy-master-startup-needs`): add `build` to `update-manifest.needs`. The WIF/environment work (PR #27) was still necessary — it lets the deploy AUTHENTICATE once it starts — but was never the startup cause. Both PR #27 (merged) + PR #28 (open) are required for a green run. The spec's Problem section (`deploy-pipeline-fix.md`) is now partially inaccurate on the "since May 19" framing; corrected here.
+
+**PR-1 Recovery — MERGED as PR #27 (commit `4bdfb5b` on master). First post-merge Deploy Master run STILL `startup_failure` → led to the root-cause correction above and PR #28.**
 
 What shipped in the code commit (all tested — 9 new tests pass, ruff clean, all workflow YAML validates):
 - `deploy-master.yml`: `job` changes-filter output (broad `packages/core/**`), builds the job image, **deploys the ingest Cloud Run Job** (previously never touched → ran stale pre-entity-expansion code), post-deploy SHA-parity verify step. UI `--port 8501→3000`.
