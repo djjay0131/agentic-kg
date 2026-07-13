@@ -57,10 +57,12 @@ jobs:
 
       - name: Run tests
         run: |
-          # e2e hits live APIs (flaky/rate-limited); knowledge_graph needs Neo4j
+          # Unit tests only — exclude external-resource tests (Neo4j, live APIs,
+          # integration/costly markers). See deploy-master.yml for rationale.
           python -m pytest packages/core/tests -v \
             --ignore=packages/core/tests/knowledge_graph \
-            --ignore=packages/core/tests/e2e
+            --ignore=packages/core/tests/e2e \
+            -m "not integration and not costly"
 
   # Build all services with version tags
   build:
