@@ -29,7 +29,14 @@ What shipped in the code commit (all tested — 9 new tests pass, ruff clean, al
 
 **`master` is NOT branch-protected** → the two red checks do NOT block merge. Merging PR #27 triggers `Deploy Master` = the actual staging recovery deploy.
 
-**RESUME / decision pending:** merge PR #27 (→ real staging deploy of api/ui/job; confirm AC-5 no-startup_failure + AC-6 SHA parity) is a user go-ahead (merge = deploy, outward-facing). Optional pre-merge fixes: set GitHub `OPENAI_API_KEY` secret (unblocks CI smoke + the user's node-extraction goal); fix docs-link check (separate small PR). Then PR-2 (Terraform lifecycle + AC-8 lint), PR-3 (version pinning).
+**Update 2026-07-13 — OPENAI_API_KEY secret SET by user; smoke re-run peeled the onion to the REAL blocker (SM-4).** After setting the GitHub `OPENAI_API_KEY` secret and re-running Ingest+Assert:
+- Layer 1 (missing key): FIXED — no more "No API key" warning.
+- Layer 2 (SM-1 empty abstract): NOT the blocker — re-run shows abstracts present (178/198 words). SM-1 de-prioritized.
+- Layer 3 (**SM-4, the real blocker**): `problem_extractor - ERROR - Failed to extract ...: instructor package not installed` — but instructor 1.12.0 IS installed. Root cause: floor-only dep pins (`instructor>=1.0.0`, openai unpinned) + heavy denario/cmbagent tree resolve `instructor 1.12.0`/`openai 1.99.9` in CI/Docker where `import instructor` raises ImportError; `llm_client.py:194`/`:311` mask it as "not installed." Local `.venv` resolved instructor 1.14.4/openai 2.30.0 → works, hiding it. **Filed SM-4 (high pri).** Likely affects the DEPLOYED Job too (same unpinned install) → blocks the node-review goal in staging, not just CI.
+
+**CORRECTION to earlier note:** I previously said the deployed runtime would extract fine because Secret Manager has the key — NOT safe to claim; SM-4 would hit the deployed job too. Key was necessary, not sufficient.
+
+**RESUME / decision pending:** (a) merge PR #27 — deploy recovery is sound & independent of SM-4; master unprotected so red checks (docs-link SM-3, smoke SM-4) don't block. Merge = real staging deploy (user go-ahead needed, outward-facing). Then confirm AC-5/AC-6. (b) SM-4 is the true blocker for "larger ingestion + human review of nodes" — needs its own fix (pin instructor/openai/pydantic to a known-good set + fix the masking except-block). Recommend: merge PR-1, then tackle SM-4 as the next feature. Also queued: PR-2 (TF lifecycle + AC-8 lint), PR-3 (version pinning), SM-3 (docs-link).
 
 Session sequence over the past few days:
 
