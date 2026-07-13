@@ -65,6 +65,12 @@ jobs:
   build:
     needs: [test]
     if: always() && (needs.test.result == 'success' || needs.test.result == 'skipped')
+    # Same reason as deploy-master: build-images.yml requests id-token: write,
+    # and a reusable call can't request more than the caller grants (repo
+    # default is read-only). Without this the workflow startup_fails.
+    permissions:
+      contents: read
+      id-token: write
     uses: ./.github/workflows/build-images.yml
     with:
       services: ${{ inputs.services }}
