@@ -29,7 +29,8 @@ jobs:
       core: ${{ steps.filter.outputs.core }}
       api: ${{ steps.filter.outputs.api }}
       ui: ${{ steps.filter.outputs.ui }}
-      any_service: ${{ steps.filter.outputs.api == 'true' || steps.filter.outputs.ui == 'true' }}
+      job: ${{ steps.filter.outputs.job }}
+      any_service: ${{ steps.filter.outputs.api == 'true' || steps.filter.outputs.ui == 'true' || steps.filter.outputs.job == 'true' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -48,6 +49,13 @@ jobs:
               - 'packages/ui/**'
               - 'packages/core/**'
               - 'docker/Dockerfile.ui'
+            # Intentionally broad: the ingest Job is built from core, so any
+            # core change may affect it. Over-triggers rather than risk a stale
+            # Job. See deploy-pipeline-fix.md (QA Q4).
+            job:
+              - 'packages/core/**'
+              - 'pyproject.toml'
+              - 'docker/Dockerfile.job'
 
   # Run full test suite
   test:
@@ -75,14 +83,15 @@ jobs:
             --ignore=packages/core/tests/knowledge_graph \
             -x --tb=short
 
-  # Build changed services
+  # Build changed services. build-images parses the services string with grep,
+  # so trailing commas from skipped services are harmless.
   build:
     needs: [changes, test]
     if: needs.changes.outputs.any_service == 'true'
     uses: ./.github/workflows/build-images.yml
     with:
-      services: |
-        ${{ needs.changes.outputs.api == 'true' && 'api' || '' }}${{ needs.changes.outputs.api == 'true' && needs.changes.outputs.ui == 'true' && ',' || '' }}${{ needs.changes.outputs.ui == 'true' && 'ui' || '' }}
+      services: >-
+        ${{ needs.changes.outputs.api == 'true' && 'api,' || '' }}${{ needs.changes.outputs.ui == 'true' && 'ui,' || '' }}${{ needs.changes.outputs.job == 'true' && 'job' || '' }}
       image_tag: latest
       push: true
     secrets: inherit
@@ -132,7 +141,7 @@ jobs:
             --image=${{ needs.build.outputs.ui_image }} \
             --region=${{ env.REGION }} \
             --platform=managed \
-            --port=8501 \
+            --port=3000 \
             --memory=512Mi \
             --cpu=1 \
             --min-instances=0 \
@@ -140,6 +149,29 @@ jobs:
             --set-secrets=OPENAI_API_KEY=OPENAI_API_KEY:latest \
             --allow-unauthenticated \
             --labels=environment=staging,commit=${{ github.sha }}
+
+      # The ingest Cloud Run Job runs the actual paper-ingestion pipeline.
+      # Before this step the workflow only touched Services, so the Job ran
+      # stale pre-entity-expansion code. `jobs update` re-points it at the
+      # freshly-built image and stamps the commit label for verification.
+      - name: Deploy ingest Job to staging
+        if: needs.changes.outputs.job == 'true'
+        run: |
+          gcloud run jobs update agentic-kg-ingest-staging \
+            --image=${{ needs.build.outputs.job_image }} \
+            --region=${{ env.REGION }} \
+            --update-labels=environment=staging,commit=${{ github.sha }}
+
+      # Assert Cloud Run actually reports the SHA we just deployed. Logic lives
+      # in a unit-tested script (label-only in PR-1; PR-3 adds --check-version).
+      - name: Assert deployed SHA matches
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          REGION: ${{ env.REGION }}
+          CHECK_API: ${{ needs.changes.outputs.api }}
+          CHECK_UI: ${{ needs.changes.outputs.ui }}
+          CHECK_JOB: ${{ needs.changes.outputs.job }}
+        run: ./scripts/assert_deploy_parity.sh
 
       - name: Get staging URLs
         id: urls
