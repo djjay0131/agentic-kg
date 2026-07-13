@@ -411,10 +411,12 @@ Two paired assertions — the `ignore_changes` block plus a lint that keeps HCL 
 - **When** a `workflow_dispatch` on `deploy-branch.yml` is triggered with `environment: dev`
 - **Then** the workflow completes green, deploying to `agentic-kg-api-dev` / `-ui-dev` (isolated from staging — no clobber of master's deploy); it does NOT reference any `worker` image or the deleted `Dockerfile.worker`; NOT `startup_failure`; any real failures fixed in this same PR
 
-### AC-16: `deploy-tag.yml` runs green at least once
-- **Given** WIF setup complete
-- **When** a `workflow_dispatch` on `deploy-tag.yml` is triggered (or a real tag push)
-- **Then** the workflow completes (green OR a substantive failure, NOT `startup_failure`); any real failures fixed in this same PR
+### AC-16: `deploy-tag.yml` is worker→job-renamed and YAML-valid (live run deferred)
+`deploy-tag.yml` is a **production** deploy — `environment: production`, deploys unsuffixed `agentic-kg-api`/`agentic-kg-ui`, and triggers ONLY on a `v*.*.*` tag push (no `workflow_dispatch`). Running it green means a real production release, which contradicts this spec's staging-only Non-Goal. Decision (2026-07-12): **do NOT trigger a live prod run in PR-1.**
+- **Given** the `worker`→`job` rename (forced by the `Dockerfile.worker` deletion) is applied to `deploy-tag.yml`
+- **When** the file is parsed (`yaml.safe_load`) and grepped for `worker` / deleted-Dockerfile references
+- **Then** it parses cleanly, references `Dockerfile.job` (not `.worker`), uses `job_image` outputs, and deploys the UI on `--port=3000`
+- **Deferred:** an actual green `deploy-tag.yml` run is deferred to production bring-up (backlog **P-1**), where a real `v0.x.x` tag release will exercise it end-to-end. Not a PR-1 gate.
 
 ### AC-17: `deployment-manifest.yaml` updates on green deploy
 - **Given** the workflow's existing `update-manifest` job runs after a green deploy
@@ -469,7 +471,7 @@ This spec ships as **three PRs** in strict order to minimize blast radius. Each 
 - `deploy-branch.yml`: `worker`→`job` rename (choice option, parse output, deploy step, image ref) — REQUIRED because deleting `Dockerfile.worker` breaks its worker path; smoke-tested via `environment: dev` (AC-15)
 - UI port cleanup: `--port=8501` → `--port=3000` in `deploy-master.yml` + `deploy-branch.yml` (Streamlit-leftover port; works today but contradicts `Dockerfile.ui`). Low-risk; droppable if it complicates the recovery.
 
-**ACs delivered:** AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-14 (partial — SHA drift detected via `gcloud describe` label parity, not `/version`), AC-15, AC-16, AC-17
+**ACs delivered:** AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-14 (partial — SHA drift detected via `gcloud describe` label parity, not `/version`), AC-15, AC-16 (YAML-validation only; live prod run deferred to P-1), AC-17
 
 **Explicitly NOT in PR-1:** Terraform lifecycle changes, `/version` endpoint, UI badge, Job SHA logging, Docker ARGs, AC-8 lint. The recovery ships as pure workflow/GCP work — no application-code changes, no Next.js risk.
 
