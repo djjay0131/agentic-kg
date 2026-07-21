@@ -7,6 +7,10 @@ baseurl: /agentic-kg
 remote_theme: just-the-docs/just-the-docs
 color_scheme: light
 
+# Mermaid diagrams (loaded from jsDelivr)
+mermaid:
+  version: "10.9.1"
+
 # Search
 search_enabled: true
 search:
