@@ -9,7 +9,7 @@
 
 **Related Components:** C2 (Neo4j Database), C3 (Problem Schema), C4 (KG Repository)
 
-**Requirements Document:** [knowledge-graph-requirements.md](../requirements/knowledge-graph-requirements.md)
+**Requirements Document:** `knowledge-graph-requirements.md` _(historical — superseded 2026-07-07; see `llm/features/`)_
 
 ---
 
@@ -257,5 +257,5 @@ agentic-kg/
 
 ## Notes
 
-- Design document: [phase-1-knowledge-graph.md](../design/phase-1-knowledge-graph.md)
+- Design document: `phase-1-knowledge-graph.md` _(historical — superseded 2026-07-07; see `llm/features/`)_
 - Reference paper: [files/Agentic_Knowledge_Graphs_for_Research_Progression.pdf](../../files/)

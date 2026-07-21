@@ -7,8 +7,8 @@
 **Status:** COMPLETED
 
 **Prerequisites:**
-- Design document complete: [canonical-problem-architecture.md](../design/canonical-problem-architecture.md)
-- Requirements document complete: [canonical-problem-architecture-requirements.md](../requirements/canonical-problem-architecture-requirements.md)
+- Design document complete: `canonical-problem-architecture.md` _(historical — superseded 2026-07-07; see `llm/features/`)_
+- Requirements document complete: `canonical-problem-architecture-requirements.md` _(historical — superseded 2026-07-07; see `llm/features/`)_
 - Phase 8 (current system) operational
 
 ---

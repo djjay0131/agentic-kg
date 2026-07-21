@@ -10,7 +10,7 @@
 
 **Related Components:** C5 (API Clients), C6 (Rate Limiting), C7 (Caching), C8 (Paper Normalization)
 
-**Requirements Document:** [data-acquisition-requirements.md](../requirements/data-acquisition-requirements.md)
+**Requirements Document:** `data-acquisition-requirements.md` _(historical — superseded 2026-07-07; see `llm/features/`)_
 
 ---
 
@@ -341,6 +341,6 @@ agentic-kg/
 ## Notes
 
 - Design document: To be created if complex decisions arise
-- Requirements document: [data-acquisition-requirements.md](../requirements/data-acquisition-requirements.md)
+- Requirements document: `data-acquisition-requirements.md` _(historical — superseded 2026-07-07; see `llm/features/`)_
 - Reference paper: [files/Agentic_Knowledge_Graphs_for_Research_Progression.pdf](../../files/)
 - Sprint 01 deliverables: Knowledge Graph Foundation (models, repository, search)

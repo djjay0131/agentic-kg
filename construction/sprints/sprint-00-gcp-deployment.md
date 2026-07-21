@@ -96,7 +96,7 @@ filename: cloudbuild.yaml
 - **ADR-008**: Use GCP Cloud Build for Container Images
 - **ADR-009**: GitHub-Triggered CI/CD Pipeline
 
-See [architecturalDecisions.md](../../memory-bank/architecturalDecisions.md) for details.
+See [systemPatterns.md](../../llm/memory_bank/systemPatterns.md) for details.
 
 ---
 
@@ -147,5 +147,5 @@ See [architecturalDecisions.md](../../memory-bank/architecturalDecisions.md) for
 ## Notes
 
 - Build time: ~20-30 minutes (TeX Live installation)
-- See [techContext.md](../../memory-bank/techContext.md) for detailed context
+- See [techContext.md](../../llm/memory_bank/techContext.md) for detailed context
 - Secrets managed via GCP Secret Manager (not environment variables)

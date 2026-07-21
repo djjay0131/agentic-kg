@@ -8,8 +8,8 @@
 
 **Prerequisites:**
 - Sprint 09 Phase 1 Complete (Merged): Data Model & Core Matching
-- Design document complete: [canonical-problem-architecture-phase-2.md](../design/canonical-problem-architecture-phase-2.md)
-- Parent design: [canonical-problem-architecture.md](../design/canonical-problem-architecture.md)
+- Design document complete: `canonical-problem-architecture-phase-2.md` _(historical — superseded 2026-07-07; see `llm/features/`)_
+- Parent design: `canonical-problem-architecture.md` _(historical — superseded 2026-07-07; see `llm/features/`)_
 
 **Related ADRs:**
 - ADR-003: Problems as First-Class Entities
