@@ -1,0 +1,285 @@
+<h1 id="ground-truth-curation--importer-validation-set">Ground-Truth Curation — Importer Validation Set</h1>
+
+<p><strong>Owner:</strong> Victoria
+<strong>Status:</strong> Not started
+<strong>Created:</strong> 2026-07-21</p>
+
+<h2 id="why-this-task-exists">Why this task exists</h2>
+
+<p>The entity-expansion importer (<code class="language-plaintext highlighter-rouge">ingest_papers</code> → Topic / ResearchConcept / Model / Method /
+Problem / Citation extraction) is being deployed to staging. Before we trust its output, we need a
+<strong>human-verified ground-truth set</strong> — a small, well-understood collection of papers where we already
+know, by hand, what the importer <em>should</em> produce. When the importer runs live on these same papers,
+we diff its output against this answer key.</p>
+
+<p>We are deliberately choosing papers that <strong>cite each other</strong>, so that a single concept recurs across a
+citation chain and accumulates evidence — letting us watch a concept “build up score” and escalate
+into a full <code class="language-plaintext highlighter-rouge">Problem</code> node. That cross-paper accumulation is a behavior we can only validate with a
+connected set, not with isolated papers.</p>
+
+<h2 id="the-two-outputs-of-this-task">The two outputs of this task</h2>
+
+<ul>
+  <li><strong>Output A — a place to store the results.</strong> Decide and set up where the reviews and the reconciled
+ground truth live (spreadsheet vs. structured files in the repo vs. a separate “gold” Neo4j). See
+<a href="#step-2--decide-storage-output-a">Step 2</a>.</li>
+  <li><strong>Output B — reviewed ground truth for the 5–10 papers.</strong> For each paper, a human review and an
+independent Claude review, reconciled into one agreed answer key. See
+<a href="#step-3--per-paper-dual-review-output-b">Step 3</a> and <a href="#step-4--reconcile">Step 4</a>.</li>
+</ul>
+
+<h2 id="the-review-model-two-reviews-then-reconcile">The review model: two reviews, then reconcile</h2>
+
+<p>Each paper gets <strong>two independent reviews</strong>:</p>
+
+<ol>
+  <li><strong>Human review</strong> — Victoria reads the paper and fills in the field schema below.</li>
+  <li><strong>Claude review</strong> — a Claude session reads the same paper and fills in the same schema, <em>without</em>
+seeing the human review first (independence matters — it’s the whole point of having two).</li>
+</ol>
+
+<p>Then the two are <strong>reconciled</strong>: compare them side by side, resolve every disagreement deliberately,
+and record the agreed ground truth for that paper — plus a short note on anything that was disputed or
+genuinely ambiguous (those notes are valuable; they tell us where the importer’s job is hard).</p>
+
+<hr />
+
+<h2 id="step-0--kick-off">Step 0 — Kick off</h2>
+
+<ol>
+  <li><strong>Start a fresh Claude session</strong> in the <code class="language-plaintext highlighter-rouge">agentic-kg</code> repo. Keep this brief open in that session.</li>
+  <li>Have Claude read the entity model so both reviews use the real schema (not an invented one):
+    <ul>
+      <li><code class="language-plaintext highlighter-rouge">llm/features/topic-research-area-entities.md</code> (E-1) — the <code class="language-plaintext highlighter-rouge">Topic</code> hierarchy
+(<strong>domain → area → subtopic</strong>, <code class="language-plaintext highlighter-rouge">SUBTOPIC_OF</code>), and <code class="language-plaintext highlighter-rouge">BELONGS_TO</code> edges.</li>
+      <li><code class="language-plaintext highlighter-rouge">llm/features/research-concept-entities.md</code> (E-2) — <code class="language-plaintext highlighter-rouge">ResearchConcept</code> nodes and how they attach
+to Topics (<code class="language-plaintext highlighter-rouge">BELONGS_TO</code>), Problems (<code class="language-plaintext highlighter-rouge">INVOLVES_CONCEPT</code>), and Papers (<code class="language-plaintext highlighter-rouge">DISCUSSES</code>).</li>
+      <li><code class="language-plaintext highlighter-rouge">packages/core/src/agentic_kg/extraction/schemas.py</code> — the exact extracted-entity fields
+(name, aliases, <code class="language-plaintext highlighter-rouge">quoted_text</code>, confidence) the importer emits. <strong>Match these field names.</strong></li>
+      <li><code class="language-plaintext highlighter-rouge">packages/core/tests/extraction/fixtures/e8_eval/SELECTION.md</code> — the repo’s <em>existing</em>
+gold-label convention. Prefer to extend this rather than invent a new format.</li>
+    </ul>
+  </li>
+  <li><strong>Materialize the PDFs.</strong> The papers live in OneDrive as online-only placeholders. In Finder,
+select the folder → right-click → <strong>“Always keep on this device”</strong> before reviewing, or Claude/tools
+won’t be able to open them.</li>
+</ol>
+
+<h2 id="step-1--resolve-the-papers-and-verify-the-chain">Step 1 — Resolve the papers and verify the chain</h2>
+
+<p>The shortlist below is identified by <strong>filename</strong> (paraphrased) — resolve each to hard identifiers first:</p>
+
+<ol>
+  <li>Open each PDF, record its <strong>exact title, authors, year, and DOI</strong> (the DOI is usually on page 1 or
+in the references header). Do <strong>not</strong> guess DOIs — read them off the paper.</li>
+  <li>Look each up on <strong>Semantic Scholar</strong> (<code class="language-plaintext highlighter-rouge">https://api.semanticscholar.org/graph/v1/paper/DOI:&lt;doi&gt;</code>)
+to get its <code class="language-plaintext highlighter-rouge">paperId</code>. This is the same source the importer uses to populate <code class="language-plaintext highlighter-rouge">CITES</code>.</li>
+  <li><strong>Verify the citation edges</strong> among the set: for each paper, check its references/citations for the
+other papers in the set. Record which papers actually cite which. This confirms (or corrects) the
+intended chain — if some papers turn out disconnected, swap them for connected ones from the same
+<code class="language-plaintext highlighter-rouge">Knowledge Graphs/</code> folder.</li>
+</ol>
+
+<p>Record the resolved identifiers + edge list wherever you land on storage (Step 2).</p>
+
+<h2 id="step-2--decide-storage-output-a">Step 2 — Decide storage (Output A)</h2>
+
+<p>Discuss the options with Claude in the new session and pick one. Trade-offs:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Option</th>
+      <th>Pros</th>
+      <th>Cons</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Spreadsheet</strong> (Sheets/xlsx) — human &amp; Claude columns side by side</td>
+      <td>Easiest dual-entry + eyeball reconciliation; zero setup</td>
+      <td>Relations (<code class="language-plaintext highlighter-rouge">CITES</code>, hierarchy) are awkward to represent; not directly test-consumable</td>
+    </tr>
+    <tr>
+      <td><strong>Structured files in repo</strong> (YAML/JSON per paper)</td>
+      <td>Version-controlled, diffable, and the eval harness can load them directly; matches the existing <code class="language-plaintext highlighter-rouge">e8_eval</code> gold-YAML pattern</td>
+      <td>Less friendly for freehand human entry</td>
+    </tr>
+    <tr>
+      <td><strong>Separate “gold” Neo4j</strong></td>
+      <td>Mirrors the target graph exactly; enables graph-level diff against importer output</td>
+      <td>Heavy setup; overkill at <em>labeling</em> time for 10 papers</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Recommended split (discuss before committing):</strong> capture the two raw reviews in whatever’s fastest to
+type into (a <strong>spreadsheet</strong> is fine), but commit the <strong>reconciled</strong> ground truth as
+<strong>version-controlled YAML/JSON in the repo</strong>, in/alongside
+<code class="language-plaintext highlighter-rouge">packages/core/tests/extraction/fixtures/e8_eval/</code>, so the existing eval/test harness can consume it.
+Optionally project the reconciled set into a gold Neo4j later if we want graph-level diffing.</p>
+
+<h2 id="step-3--per-paper-dual-review-output-b">Step 3 — Per-paper dual review (Output B)</h2>
+
+<p>For <strong>each</strong> paper, both the human and Claude independently fill this schema. Field names mirror the
+importer’s entity model so the answer key lines up 1:1 with what gets extracted.</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">paper</span><span class="pi">:</span>
+  <span class="na">filename</span><span class="pi">:</span> <span class="s2">"</span><span class="s">&lt;onedrive</span><span class="nv"> </span><span class="s">filename&gt;"</span>
+  <span class="na">title</span><span class="pi">:</span> <span class="s2">"</span><span class="s">&lt;exact</span><span class="nv"> </span><span class="s">title&gt;"</span>
+  <span class="na">doi</span><span class="pi">:</span> <span class="s2">"</span><span class="s">&lt;10.xxxx/...&gt;"</span>
+  <span class="na">s2_paper_id</span><span class="pi">:</span> <span class="s2">"</span><span class="s">&lt;semantic</span><span class="nv"> </span><span class="s">scholar</span><span class="nv"> </span><span class="s">paperId&gt;"</span>
+  <span class="na">year</span><span class="pi">:</span> <span class="s">&lt;yyyy&gt;</span>
+
+<span class="c1"># Topic hierarchy (domain -&gt; area -&gt; subtopic). BELONGS_TO points entities at the deepest applicable Topic.</span>
+<span class="na">topic</span><span class="pi">:</span>
+  <span class="na">domain</span><span class="pi">:</span> <span class="s2">"</span><span class="s">&lt;e.g.</span><span class="nv"> </span><span class="s">Computer</span><span class="nv"> </span><span class="s">Science&gt;"</span>
+  <span class="na">area</span><span class="pi">:</span> <span class="s2">"</span><span class="s">&lt;e.g.</span><span class="nv"> </span><span class="s">Knowledge</span><span class="nv"> </span><span class="s">Representation&gt;"</span>
+  <span class="na">subtopic</span><span class="pi">:</span> <span class="s2">"</span><span class="s">&lt;e.g.</span><span class="nv"> </span><span class="s">Automated</span><span class="nv"> </span><span class="s">Knowledge</span><span class="nv"> </span><span class="s">Graph</span><span class="nv"> </span><span class="s">Construction&gt;"</span>
+
+<span class="c1"># ResearchConcepts the paper discusses (DISCUSSES). These are the recurring "spine" candidates.</span>
+<span class="na">research_concepts</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">&lt;concept&gt;"</span>
+    <span class="na">aliases</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">&lt;alt</span><span class="nv"> </span><span class="s">name&gt;"</span><span class="pi">,</span> <span class="nv">...</span><span class="pi">]</span>
+    <span class="na">quoted_text</span><span class="pi">:</span> <span class="s2">"</span><span class="s">&lt;&gt;=10-char</span><span class="nv"> </span><span class="s">verbatim</span><span class="nv"> </span><span class="s">span</span><span class="nv"> </span><span class="s">grounding</span><span class="nv"> </span><span class="s">it&gt;"</span>
+
+<span class="c1"># Models the paper introduces or uses (USES_MODEL). NOT architectures-in-general.</span>
+<span class="na">models</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">&lt;model&gt;"</span>
+    <span class="na">aliases</span><span class="pi">:</span> <span class="pi">[]</span>
+    <span class="na">quoted_text</span><span class="pi">:</span> <span class="s2">"</span><span class="s">&lt;&gt;"</span>
+
+<span class="c1"># Methods the paper applies (APPLIES_METHOD). NOT generic activities like "training".</span>
+<span class="na">methods</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s2">"</span><span class="s">&lt;method&gt;"</span>
+    <span class="na">aliases</span><span class="pi">:</span> <span class="pi">[]</span>
+    <span class="na">quoted_text</span><span class="pi">:</span> <span class="s2">"</span><span class="s">&lt;&gt;"</span>
+
+<span class="c1"># The core Problem the paper addresses (the escalation target; INVOLVES_CONCEPT -&gt; concepts above).</span>
+<span class="na">problem</span><span class="pi">:</span>
+  <span class="na">statement</span><span class="pi">:</span> <span class="s2">"</span><span class="s">&lt;one-sentence</span><span class="nv"> </span><span class="s">problem</span><span class="nv"> </span><span class="s">this</span><span class="nv"> </span><span class="s">paper</span><span class="nv"> </span><span class="s">tackles&gt;"</span>
+  <span class="na">involves_concepts</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">&lt;concept</span><span class="nv"> </span><span class="s">name&gt;"</span><span class="pi">,</span> <span class="nv">...</span><span class="pi">]</span>
+
+<span class="c1"># CITES targets *within this set only* (from Step 1 verification).</span>
+<span class="na">cites_within_set</span><span class="pi">:</span> <span class="pi">[</span><span class="s2">"</span><span class="s">&lt;filename</span><span class="nv"> </span><span class="s">or</span><span class="nv"> </span><span class="s">s2_paper_id&gt;"</span><span class="pi">,</span> <span class="nv">...</span><span class="pi">]</span>
+
+<span class="na">reviewer</span><span class="pi">:</span> <span class="s2">"</span><span class="s">human"</span> <span class="pi">|</span> <span class="err">"claude"</span>
+<span class="err">n</span><span class="s">otes: "&lt;anything ambiguous, low-confidence, or judgment-call&gt;"</span>
+</code></pre></div></div>
+
+<p><strong>Extraction rules to apply consistently (from the importer’s prompts):</strong></p>
+<ul>
+  <li>A concept must be <strong>grounded in a verbatim quote</strong> — no concept without supporting text.</li>
+  <li><code class="language-plaintext highlighter-rouge">Model</code> ≠ architecture-in-general (“transformer architecture” is not a model instance).</li>
+  <li><code class="language-plaintext highlighter-rouge">Method</code> ≠ generic activity (“training” is not a method).</li>
+  <li>Prefer the paper’s own terminology for names; put paraphrases in <code class="language-plaintext highlighter-rouge">aliases</code>.</li>
+</ul>
+
+<h2 id="step-4--reconcile">Step 4 — Reconcile</h2>
+
+<p>For each paper, put the human and Claude reviews side by side:</p>
+
+<ol>
+  <li><strong>Agreements</strong> → copy straight into the reconciled record.</li>
+  <li><strong>Disagreements</strong> → decide deliberately (re-read the relevant span). Record the resolution.</li>
+  <li><strong>Only-one-caught-it</strong> items → judge whether it’s a real miss or a spurious extraction; keep or drop.</li>
+  <li>Save the reconciled record to the storage chosen in Step 2, and write a one-line <code class="language-plaintext highlighter-rouge">notes</code> on any item
+that was disputed or ambiguous.</li>
+</ol>
+
+<p>The disagreement notes are a deliverable in their own right — they map exactly where the live importer
+is most likely to be wrong, and become targeted assertions for the eval harness.</p>
+
+<h2 id="done-criteria">Done criteria</h2>
+
+<ul class="task-list">
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Output A: storage set up and documented (with the rationale for the choice).</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Step 1: all papers resolved to title + DOI + S2 id; citation edges among the set verified.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Output B: 5–10 papers each have a human review <strong>and</strong> a Claude review <strong>and</strong> a reconciled record.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Disagreement/ambiguity notes captured.</li>
+</ul>
+
+<hr />
+
+<h2 id="the-shortlist-kg-construction-spine">The shortlist (KG-construction spine)</h2>
+
+<p>Concept spine to watch as it recurs and escalates: <strong>“LLM-based scientific entity &amp; relation
+extraction.”</strong> All papers are in
+<code class="language-plaintext highlighter-rouge">OneDrive/.../Research.AI/Literature/Human Selected Literature/Knowledge Graphs/</code> unless noted.
+Ordered as the <em>intended</em> chain — <strong>verify the real edges in Step 1</strong> and reorder/swap as needed.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Paper (folder filename)</th>
+      <th>Intended role in the chain</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td><code class="language-plaintext highlighter-rouge">Public/Large_Scale_KG_CS.pdf</code> (likely CS-KG / AI-KG, Dessì et al.)</td>
+      <td>Foundational hub — earlier automated KG-of-science that later work cites</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><code class="language-plaintext highlighter-rouge">Automated KG construction.pdf</code></td>
+      <td>Core construction method</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td><code class="language-plaintext highlighter-rouge">Constructing KGs with LLMs.pdf</code></td>
+      <td>LLM-based construction (spine anchor)</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td><code class="language-plaintext highlighter-rouge">A_Knowledge_Graph-based_RAG_for_Cross-Document_Information_Extraction.pdf</code></td>
+      <td>Cross-document extraction</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td><code class="language-plaintext highlighter-rouge">Completing_Scientific_Facts_in_Knowledge_Graphs_of_Research_Concepts.pdf</code></td>
+      <td>Fact/relation completion</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td><code class="language-plaintext highlighter-rouge">KG-EmpiRE_...Requirements_Engineering.pdf</code></td>
+      <td>Domain KG application (community-maintainable lit-review KG)</td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td><code class="language-plaintext highlighter-rouge">Personal Research Knowledge Graphs.pdf</code></td>
+      <td>Per-researcher KG application</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td><code class="language-plaintext highlighter-rouge">Assessing Research Papers with Knowlege Graphs.pdf</code></td>
+      <td>Evaluation / downstream use of the KG</td>
+    </tr>
+    <tr>
+      <td>9</td>
+      <td><code class="language-plaintext highlighter-rouge">General Research Automation (idea generation, etc.)/Idea Generation using Knowledge Graphs + LLMs.pdf</code></td>
+      <td>Downstream: KG → new ideas</td>
+    </tr>
+    <tr>
+      <td>10</td>
+      <td><code class="language-plaintext highlighter-rouge">General Research Automation (idea generation, etc.)/Problem-Solution Dataset for Automated Extraction.pdf</code></td>
+      <td>Directly exercises the <code class="language-plaintext highlighter-rouge">Problem</code> node — the escalation target</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Tighter core (if 10 is too many):</strong> #1–#5 form the pure KG-construction chain. #6–#10 add breadth and
+the problem-escalation angle.</p>
+
+<h2 id="gotchas">Gotchas</h2>
+
+<ul>
+  <li><strong>PDFs are OneDrive online-only placeholders</strong> — materialize them (Step 0.3) or nothing can open them.</li>
+  <li><strong>Don’t fabricate DOIs.</strong> Read them off the paper; confirm on Semantic Scholar.</li>
+  <li><strong>Independence of the two reviews is the point</strong> — don’t let the Claude review see the human review (or
+vice versa) until reconciliation.</li>
+  <li>If a shortlisted paper turns out <strong>not</strong> to connect to the others by citation, swap it — a connected
+set is the requirement, not this exact list.</li>
+</ul>
