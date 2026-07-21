@@ -2,7 +2,7 @@
 
 <p>Auto-regenerated from <a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/BACKLOG.md"><code class="language-plaintext highlighter-rouge">llm/features/BACKLOG.md</code></a> on every push.</p>
 
-<p><strong>41</strong> active, <strong>1</strong> resolved.</p>
+<p><strong>42</strong> active, <strong>1</strong> resolved.</p>
 
 <h2 id="active">Active</h2>
 
@@ -877,10 +877,10 @@
       <td>—</td>
     </tr>
     <tr>
-      <td>Extraction dies on <code class="language-plaintext highlighter-rouge">instructor</code> import; misleading error + unpinned deps</td>
+      <td>Extraction dies on <code class="language-plaintext highlighter-rouge">instructor</code> import — root cause: unused <code class="language-plaintext highlighter-rouge">denario</code> dep transitively pins <code class="language-plaintext highlighter-rouge">openai==1.99.9</code></td>
     </tr>
     <tr>
-      <td><code class="language-plaintext highlighter-rouge">Needs Spec (high pri — blocks node-review goal)</code></td>
+      <td>{: .label .label-green }<code class="language-plaintext highlighter-rouge">IMPLEMENTED 2026-07-14 (spec: </code>extraction-dep-pinning.md<code class="language-plaintext highlighter-rouge">) — the floors-first plan hit </code>resolution-too-deep<code class="language-plaintext highlighter-rouge">; </code>uv<code class="language-plaintext highlighter-rouge"> diagnosed the real cause: </code>denario 1.0.1<code class="language-plaintext highlighter-rouge"> → </code>cmbagent-autogen<code class="language-plaintext highlighter-rouge"> hard-pins </code>openai==1.99.9<code class="language-plaintext highlighter-rouge">, and the only instructor accepting that (</code>&lt;1.14<code class="language-plaintext highlighter-rouge">) fails to import, while </code>instructor&gt;=1.14<code class="language-plaintext highlighter-rouge"> needs </code>openai&gt;=2.0<code class="language-plaintext highlighter-rouge"> → unsatisfiable. </code>denario<code class="language-plaintext highlighter-rouge"> is imported NOWHERE in </code>packages/<code class="language-plaintext highlighter-rouge"> (dead weight). Fix: remove </code>denario<code class="language-plaintext highlighter-rouge"> from </code>packages/core/pyproject.toml<code class="language-plaintext highlighter-rouge"> + root </code>pyproject.toml<code class="language-plaintext highlighter-rouge">; add </code>instructor&gt;=1.14<code class="language-plaintext highlighter-rouge"> + </code>openai&gt;=2.0<code class="language-plaintext highlighter-rouge">; fix both </code>_get_instructor_client<code class="language-plaintext highlighter-rouge"> except blocks (</code>ModuleNotFoundError<code class="language-plaintext highlighter-rouge"> vs </code>ImportError<code class="language-plaintext highlighter-rouge">, surface real error). Verified: clean resolve 0.8s → instructor 1.15.4/openai 2.46.0; 32 extraction tests pass in a fresh clean-resolve venv. New </code>test_instructor_import.py<code class="language-plaintext highlighter-rouge">. Next: merge → first real staging build+deploy (verifies deploy AC-6) → smoke-ingest entities&gt;0 (AC-4). If denario is ever actually integrated, wire it as an optional extra so it can't re-pin openai.</code></td>
     </tr>
   </tbody>
 </table>
@@ -892,6 +892,32 @@
     </tr>
     <tr>
       <td>PR #27 smoke (key present, abstract present) fails: <code class="language-plaintext highlighter-rouge">problem_extractor - ERROR - Failed to extract from SectionType.ABSTRACT: instructor package not installed</code> — but instructor IS installed. Root cause: <code class="language-plaintext highlighter-rouge">packages/core/pyproject.toml</code> floor-only pins (<code class="language-plaintext highlighter-rouge">instructor&gt;=1.0.0</code>, <code class="language-plaintext highlighter-rouge">pydantic&gt;=2.0.0</code>, openai unpinned) + the heavy <code class="language-plaintext highlighter-rouge">denario</code>/<code class="language-plaintext highlighter-rouge">cmbagent</code> tree resolve <code class="language-plaintext highlighter-rouge">instructor 1.12.0</code>/<code class="language-plaintext highlighter-rouge">openai 1.99.9</code> in CI/Docker, where <code class="language-plaintext highlighter-rouge">import instructor</code> raises <code class="language-plaintext highlighter-rouge">ImportError</code>; <code class="language-plaintext highlighter-rouge">llm_client.py:194</code> masks it as “not installed.” Two fixes: (1) pin a known-good <code class="language-plaintext highlighter-rouge">instructor</code>+<code class="language-plaintext highlighter-rouge">openai</code>+<code class="language-plaintext highlighter-rouge">pydantic</code> set (or add upper bounds) so CI/Docker resolve the same working versions as a dev <code class="language-plaintext highlighter-rouge">.venv</code>; (2) fix the <code class="language-plaintext highlighter-rouge">except ImportError</code> at <code class="language-plaintext highlighter-rouge">llm_client.py:194</code> + <code class="language-plaintext highlighter-rouge">:311</code> to surface the real import error instead of the misleading “not installed” message. Likely affects the DEPLOYED Cloud Run Job too (same unpinned <code class="language-plaintext highlighter-rouge">pip install ./packages/core</code>), so it blocks node extraction in staging, not just CI.</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>SM-4b</td>
+    </tr>
+    <tr>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Whole-graph lock for extraction deps (<code class="language-plaintext highlighter-rouge">uv.lock</code>)</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Deferred (low priority)</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>With <code class="language-plaintext highlighter-rouge">denario</code> removed (SM-4) pip resolves core in &lt;1s, so a lock is no longer needed for correctness. A committed <code class="language-plaintext highlighter-rouge">uv.lock</code> would still add whole-graph reproducibility against future transitive drift. Only pursue if drift recurs; adds <code class="language-plaintext highlighter-rouge">uv</code> to the critical-path toolchain.</td>
     </tr>
     <tr>
       <td> </td>
