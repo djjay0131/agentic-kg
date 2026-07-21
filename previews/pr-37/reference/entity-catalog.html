@@ -1,0 +1,219 @@
+<h1 id="entity-catalog">Entity Catalog</h1>
+
+<p>The authoritative definition of every <strong>node type</strong> in the knowledge graph.
+Each entry follows a fixed template: <em>Definition</em>, <em>Purpose</em>, <em>Key attributes</em>,
+<em>Relationships</em>, and <em>Notes</em> (vocabulary style, lifecycle, provenance). Downstream
+docs should link here rather than redefine these types.</p>
+
+<p>Source of truth: <code class="language-plaintext highlighter-rouge">packages/core/src/agentic_kg/knowledge_graph/models/entities.py</code>
+and the constraints/indexes in <code class="language-plaintext highlighter-rouge">schema.py</code>. Uniqueness constraints exist for every
+node label below.</p>
+
+<ul>
+  <li><a href="#core-research-nodes">Core research nodes</a> — <code class="language-plaintext highlighter-rouge">Problem</code>, <code class="language-plaintext highlighter-rouge">ProblemMention</code>, <code class="language-plaintext highlighter-rouge">ProblemConcept</code></li>
+  <li><a href="#bibliographic-nodes">Bibliographic nodes</a> — <code class="language-plaintext highlighter-rouge">Paper</code>, <code class="language-plaintext highlighter-rouge">Author</code></li>
+  <li><a href="#classification--concept-nodes">Classification &amp; concept nodes</a> — <code class="language-plaintext highlighter-rouge">Topic</code>, <code class="language-plaintext highlighter-rouge">ResearchConcept</code>, <code class="language-plaintext highlighter-rouge">Model</code>, <code class="language-plaintext highlighter-rouge">Method</code></li>
+  <li><a href="#metadata--operational-nodes">Metadata &amp; operational nodes</a> — <code class="language-plaintext highlighter-rouge">SchemaVersion</code>, review queue</li>
+</ul>
+
+<hr />
+
+<h2 id="core-research-nodes">Core research nodes</h2>
+
+<h3 id="problem"><code class="language-plaintext highlighter-rouge">Problem</code></h3>
+
+<p><strong>Definition.</strong> A research problem as a first-class entity — an open question,
+challenge, or research direction extracted from a paper.</p>
+
+<p><strong>Purpose.</strong> The central modeling bet of the project: problems are nodes, not
+strings. Everything else (papers, concepts, models) exists to describe, source,
+or relate problems.</p>
+
+<p><strong>Key attributes.</strong> <code class="language-plaintext highlighter-rouge">id</code> (UUID); <code class="language-plaintext highlighter-rouge">statement</code> (≥ 20 chars); <code class="language-plaintext highlighter-rouge">status</code>
+(<code class="language-plaintext highlighter-rouge">open</code> / <code class="language-plaintext highlighter-rouge">in_progress</code> / <code class="language-plaintext highlighter-rouge">resolved</code> / <code class="language-plaintext highlighter-rouge">deprecated</code>); structured lists of
+<code class="language-plaintext highlighter-rouge">assumptions</code>, <code class="language-plaintext highlighter-rouge">constraints</code>, <code class="language-plaintext highlighter-rouge">datasets</code>, <code class="language-plaintext highlighter-rouge">metrics</code>, <code class="language-plaintext highlighter-rouge">baselines</code>; <code class="language-plaintext highlighter-rouge">evidence</code>
+(source paper) and <code class="language-plaintext highlighter-rouge">extraction_metadata</code> (provenance); <code class="language-plaintext highlighter-rouge">embedding</code> (1536-dim);
+<code class="language-plaintext highlighter-rouge">version</code> and timestamps.</p>
+
+<p><strong>Relationships.</strong> <code class="language-plaintext highlighter-rouge">EXTRACTED_FROM</code> → <code class="language-plaintext highlighter-rouge">Paper</code>; problem-to-problem edges
+<code class="language-plaintext highlighter-rouge">EXTENDS</code> / <code class="language-plaintext highlighter-rouge">CONTRADICTS</code> / <code class="language-plaintext highlighter-rouge">DEPENDS_ON</code> / <code class="language-plaintext highlighter-rouge">REFRAMES</code> → <code class="language-plaintext highlighter-rouge">Problem</code>;
+<code class="language-plaintext highlighter-rouge">BELONGS_TO</code> → <code class="language-plaintext highlighter-rouge">Topic</code>.</p>
+
+<p><strong>Notes.</strong> A <code class="language-plaintext highlighter-rouge">resolved</code> or <code class="language-plaintext highlighter-rouge">deprecated</code> problem is <em>required</em> to carry
+<code class="language-plaintext highlighter-rouge">evidence</code> with a <code class="language-plaintext highlighter-rouge">source_doi</code> (enforced by a model validator) — you cannot
+close a problem without pointing at the paper that closed it.</p>
+
+<h3 id="problemmention"><code class="language-plaintext highlighter-rouge">ProblemMention</code></h3>
+
+<p><strong>Definition.</strong> A paper-specific mention of a research problem — the problem
+exactly as it appears in one paper.</p>
+
+<p><strong>Purpose.</strong> Preserves original wording and per-paper context (section, quoted
+text, paper DOI) so the canonical layer can deduplicate without losing
+provenance.</p>
+
+<p><strong>Key attributes.</strong> <code class="language-plaintext highlighter-rouge">id</code>; <code class="language-plaintext highlighter-rouge">statement</code> (as stated in this paper); <code class="language-plaintext highlighter-rouge">paper_doi</code>
+(must start with <code class="language-plaintext highlighter-rouge">10.</code>); <code class="language-plaintext highlighter-rouge">section</code>; <code class="language-plaintext highlighter-rouge">quoted_text</code>; the same structured metadata
+lists as <code class="language-plaintext highlighter-rouge">Problem</code>; matching fields (<code class="language-plaintext highlighter-rouge">concept_id</code>, <code class="language-plaintext highlighter-rouge">match_confidence</code>,
+<code class="language-plaintext highlighter-rouge">match_score</code>, <code class="language-plaintext highlighter-rouge">match_method</code>); review-workflow fields (<code class="language-plaintext highlighter-rouge">review_status</code>,
+<code class="language-plaintext highlighter-rouge">reviewed_by</code>, <code class="language-plaintext highlighter-rouge">agent_consensus</code>); <code class="language-plaintext highlighter-rouge">embedding</code>.</p>
+
+<p><strong>Relationships.</strong> <code class="language-plaintext highlighter-rouge">INSTANCE_OF</code> → <code class="language-plaintext highlighter-rouge">ProblemConcept</code> (its canonical concept).
+Its source paper is referenced by the <code class="language-plaintext highlighter-rouge">paper_doi</code> property.</p>
+
+<p><strong>Notes.</strong> Mentions are matched to concepts by vector similarity and routed by
+confidence (HIGH auto-link / MEDIUM single-agent / LOW multi-agent consensus /
+escalation to human review).</p>
+
+<h3 id="problemconcept"><code class="language-plaintext highlighter-rouge">ProblemConcept</code></h3>
+
+<p><strong>Definition.</strong> The canonical representation of a research problem that may be
+mentioned across many papers.</p>
+
+<p><strong>Purpose.</strong> Deduplicates mentions into one durable node with an AI-synthesized
+canonical statement and aggregated metadata, so the graph reflects <em>distinct</em>
+problems rather than every restatement.</p>
+
+<p><strong>Key attributes.</strong> <code class="language-plaintext highlighter-rouge">id</code>; <code class="language-plaintext highlighter-rouge">canonical_statement</code> (≥ 20 chars, LLM-synthesized);
+<code class="language-plaintext highlighter-rouge">status</code>; aggregated <code class="language-plaintext highlighter-rouge">assumptions</code> / <code class="language-plaintext highlighter-rouge">constraints</code> / <code class="language-plaintext highlighter-rouge">datasets</code> / <code class="language-plaintext highlighter-rouge">metrics</code>;
+<code class="language-plaintext highlighter-rouge">verified_baselines</code> vs. <code class="language-plaintext highlighter-rouge">claimed_baselines</code>; synthesis provenance
+(<code class="language-plaintext highlighter-rouge">synthesis_method</code>, <code class="language-plaintext highlighter-rouge">synthesis_model</code>, <code class="language-plaintext highlighter-rouge">synthesized_by</code>, <code class="language-plaintext highlighter-rouge">human_edited</code>);
+aggregation stats (<code class="language-plaintext highlighter-rouge">mention_count</code>, <code class="language-plaintext highlighter-rouge">paper_count</code>, <code class="language-plaintext highlighter-rouge">first/last_mentioned_year</code>);
+<code class="language-plaintext highlighter-rouge">embedding</code>; refinement tracking; <code class="language-plaintext highlighter-rouge">version</code>.</p>
+
+<p><strong>Relationships.</strong> <code class="language-plaintext highlighter-rouge">INSTANCE_OF</code> ← <code class="language-plaintext highlighter-rouge">ProblemMention</code> (inbound); <code class="language-plaintext highlighter-rouge">INVOLVES_CONCEPT</code>
+→ <code class="language-plaintext highlighter-rouge">ResearchConcept</code>; <code class="language-plaintext highlighter-rouge">BELONGS_TO</code> → <code class="language-plaintext highlighter-rouge">Topic</code>.</p>
+
+<p><strong>Notes.</strong> <code class="language-plaintext highlighter-rouge">first_mentioned_year ≤ last_mentioned_year</code> is validated. Baselines
+are split into reproducible (<code class="language-plaintext highlighter-rouge">verified</code>) vs. unverified (<code class="language-plaintext highlighter-rouge">claimed</code>).</p>
+
+<hr />
+
+<h2 id="bibliographic-nodes">Bibliographic nodes</h2>
+
+<h3 id="paper"><code class="language-plaintext highlighter-rouge">Paper</code></h3>
+
+<p><strong>Definition.</strong> A scientific paper — the source node most other entities are
+extracted from.</p>
+
+<p><strong>Purpose.</strong> Anchors provenance for the whole graph and forms the citation
+network.</p>
+
+<p><strong>Key attributes.</strong> <code class="language-plaintext highlighter-rouge">doi</code> (primary key, must start with <code class="language-plaintext highlighter-rouge">10.</code>); <code class="language-plaintext highlighter-rouge">title</code>;
+<code class="language-plaintext highlighter-rouge">authors</code>; <code class="language-plaintext highlighter-rouge">venue</code>; <code class="language-plaintext highlighter-rouge">year</code> (optional); <code class="language-plaintext highlighter-rouge">abstract</code>; external identifiers
+(<code class="language-plaintext highlighter-rouge">arxiv_id</code>, <code class="language-plaintext highlighter-rouge">openalex_id</code>, <code class="language-plaintext highlighter-rouge">semantic_scholar_id</code>); <code class="language-plaintext highlighter-rouge">pdf_url</code>, <code class="language-plaintext highlighter-rouge">full_text</code>;
+<code class="language-plaintext highlighter-rouge">ingested_at</code>. <strong>Citation-graph fields (E-5):</strong> <code class="language-plaintext highlighter-rouge">is_stub</code> (placeholder created
+from another paper’s reference list before ingestion — monotone true → false),
+<code class="language-plaintext highlighter-rouge">citation_count</code> (inbound <code class="language-plaintext highlighter-rouge">CITES</code>), <code class="language-plaintext highlighter-rouge">reference_count</code> (outbound <code class="language-plaintext highlighter-rouge">CITES</code>).</p>
+
+<p><strong>Relationships.</strong> <code class="language-plaintext highlighter-rouge">AUTHORED_BY</code> → <code class="language-plaintext highlighter-rouge">Author</code>; <code class="language-plaintext highlighter-rouge">CITES</code> → <code class="language-plaintext highlighter-rouge">Paper</code> (self-reference);
+<code class="language-plaintext highlighter-rouge">RESEARCHES</code> → <code class="language-plaintext highlighter-rouge">Topic</code>; <code class="language-plaintext highlighter-rouge">DISCUSSES</code> → <code class="language-plaintext highlighter-rouge">ResearchConcept</code>; <code class="language-plaintext highlighter-rouge">USES_MODEL</code> → <code class="language-plaintext highlighter-rouge">Model</code>;
+<code class="language-plaintext highlighter-rouge">APPLIES_METHOD</code> → <code class="language-plaintext highlighter-rouge">Method</code>; <code class="language-plaintext highlighter-rouge">EXTRACTED_FROM</code> ← <code class="language-plaintext highlighter-rouge">Problem</code>.</p>
+
+<p><strong>Notes.</strong> <code class="language-plaintext highlighter-rouge">title</code> min length was relaxed (10 → 2) and <code class="language-plaintext highlighter-rouge">year</code> made optional to
+admit reference-list stubs with partial metadata.</p>
+
+<h3 id="author"><code class="language-plaintext highlighter-rouge">Author</code></h3>
+
+<p><strong>Definition.</strong> A paper author.</p>
+
+<p><strong>Purpose.</strong> Attribution and author-level graph queries.</p>
+
+<p><strong>Key attributes.</strong> <code class="language-plaintext highlighter-rouge">id</code>; <code class="language-plaintext highlighter-rouge">name</code>; <code class="language-plaintext highlighter-rouge">affiliations</code>; <code class="language-plaintext highlighter-rouge">orcid</code> (validated to start
+<code class="language-plaintext highlighter-rouge">0000-</code>); <code class="language-plaintext highlighter-rouge">semantic_scholar_id</code>.</p>
+
+<p><strong>Relationships.</strong> <code class="language-plaintext highlighter-rouge">AUTHORED_BY</code> ← <code class="language-plaintext highlighter-rouge">Paper</code> (carries <code class="language-plaintext highlighter-rouge">author_position</code>).</p>
+
+<hr />
+
+<h2 id="classification--concept-nodes">Classification &amp; concept nodes</h2>
+
+<h3 id="topic--e-1"><code class="language-plaintext highlighter-rouge">Topic</code>  <em>(E-1)</em></h3>
+
+<p><strong>Definition.</strong> A research topic or area, forming a three-level hierarchy
+(<code class="language-plaintext highlighter-rouge">domain → area → subtopic</code>).</p>
+
+<p><strong>Purpose.</strong> The <strong>closed-set controlled vocabulary</strong> for classifying problems
+and papers. See the dedicated <a href="topic-taxonomy">Topic Taxonomy</a> page.</p>
+
+<p><strong>Key attributes.</strong> <code class="language-plaintext highlighter-rouge">id</code>; <code class="language-plaintext highlighter-rouge">name</code>; <code class="language-plaintext highlighter-rouge">description</code> (feeds richer embeddings);
+<code class="language-plaintext highlighter-rouge">level</code> (<code class="language-plaintext highlighter-rouge">domain</code> / <code class="language-plaintext highlighter-rouge">area</code> / <code class="language-plaintext highlighter-rouge">subtopic</code>); <code class="language-plaintext highlighter-rouge">parent_id</code> (None for root domains);
+<code class="language-plaintext highlighter-rouge">source</code> (<code class="language-plaintext highlighter-rouge">manual</code> / <code class="language-plaintext highlighter-rouge">openalex</code> / <code class="language-plaintext highlighter-rouge">migrated</code> / <code class="language-plaintext highlighter-rouge">llm_proposed</code>); <code class="language-plaintext highlighter-rouge">openalex_id</code>;
+<code class="language-plaintext highlighter-rouge">embedding</code>; denormalized <code class="language-plaintext highlighter-rouge">problem_count</code> / <code class="language-plaintext highlighter-rouge">paper_count</code>.</p>
+
+<p><strong>Relationships.</strong> <code class="language-plaintext highlighter-rouge">SUBTOPIC_OF</code> → <code class="language-plaintext highlighter-rouge">Topic</code> (parent); <code class="language-plaintext highlighter-rouge">BELONGS_TO</code> ←
+problem-side nodes; <code class="language-plaintext highlighter-rouge">RESEARCHES</code> ← <code class="language-plaintext highlighter-rouge">Paper</code>.</p>
+
+<p><strong>Notes.</strong> Domain-level topics must not have a parent (validated). New topics
+enter only via the seed taxonomy — extraction cannot invent off-taxonomy topics.</p>
+
+<h3 id="researchconcept--e-2"><code class="language-plaintext highlighter-rouge">ResearchConcept</code>  <em>(E-2)</em></h3>
+
+<p><strong>Definition.</strong> A named intellectual building block — e.g. “attention
+mechanism”, “transfer learning”, “graph neural networks”.</p>
+
+<p><strong>Purpose.</strong> Captures the ideas papers are about, independent of the specific
+problem or model.</p>
+
+<p><strong>Key attributes.</strong> <code class="language-plaintext highlighter-rouge">id</code>; <code class="language-plaintext highlighter-rouge">name</code>; <code class="language-plaintext highlighter-rouge">description</code>; <code class="language-plaintext highlighter-rouge">aliases</code> (surface forms);
+<code class="language-plaintext highlighter-rouge">embedding</code>; denormalized <code class="language-plaintext highlighter-rouge">mention_count</code> (<code class="language-plaintext highlighter-rouge">INVOLVES_CONCEPT</code>) and <code class="language-plaintext highlighter-rouge">paper_count</code>
+(<code class="language-plaintext highlighter-rouge">DISCUSSES</code>).</p>
+
+<p><strong>Relationships.</strong> <code class="language-plaintext highlighter-rouge">INVOLVES_CONCEPT</code> ← <code class="language-plaintext highlighter-rouge">ProblemConcept</code>; <code class="language-plaintext highlighter-rouge">DISCUSSES</code> ← <code class="language-plaintext highlighter-rouge">Paper</code>;
+<code class="language-plaintext highlighter-rouge">BELONGS_TO</code> → <code class="language-plaintext highlighter-rouge">Topic</code> (optional).</p>
+
+<p><strong>Notes.</strong> <em>Open-set</em> vocabulary — any name may become a concept; duplicates are
+merged at <strong>0.90</strong> cosine similarity.</p>
+
+<h3 id="model--e-3"><code class="language-plaintext highlighter-rouge">Model</code>  <em>(E-3)</em></h3>
+
+<p><strong>Definition.</strong> A named ML model / architecture — e.g. “BERT”, “GPT-4”,
+“ResNet-50”.</p>
+
+<p><strong>Purpose.</strong> Tracks the concrete models papers use, benchmark against, or build
+on.</p>
+
+<p><strong>Key attributes.</strong> <code class="language-plaintext highlighter-rouge">id</code>; <code class="language-plaintext highlighter-rouge">name</code>; <code class="language-plaintext highlighter-rouge">description</code>; <code class="language-plaintext highlighter-rouge">aliases</code>; <code class="language-plaintext highlighter-rouge">architecture</code>
+(transformer / cnn / rnn …); <code class="language-plaintext highlighter-rouge">model_type</code> (language_model / vision_model …);
+<code class="language-plaintext highlighter-rouge">year_introduced</code>; <code class="language-plaintext highlighter-rouge">introducing_paper_doi</code>; <strong><code class="language-plaintext highlighter-rouge">is_canonical</code></strong> (curated seed,
+write-protected during merges); <code class="language-plaintext highlighter-rouge">embedding</code>; denormalized <code class="language-plaintext highlighter-rouge">usage_count</code>.</p>
+
+<p><strong>Relationships.</strong> <code class="language-plaintext highlighter-rouge">USES_MODEL</code> ← <code class="language-plaintext highlighter-rouge">Paper</code>.</p>
+
+<p><strong>Notes.</strong> <em>Hybrid</em> vocabulary: open-set, but ~19 seed entries are flagged
+<code class="language-plaintext highlighter-rouge">is_canonical=True</code> and cannot be renamed or downgraded by incoming
+non-canonical names. Dedup threshold <strong>0.95</strong> cosine (+ canonical seed).</p>
+
+<h3 id="method--e-4"><code class="language-plaintext highlighter-rouge">Method</code>  <em>(E-4)</em></h3>
+
+<p><strong>Definition.</strong> A research method / methodology — e.g. “fine-tuning”,
+“contrastive learning”.</p>
+
+<p><strong>Purpose.</strong> Captures <em>how</em> work is done, distinct from the <code class="language-plaintext highlighter-rouge">Model</code> it is done
+with.</p>
+
+<p><strong>Key attributes.</strong> <code class="language-plaintext highlighter-rouge">id</code>; <code class="language-plaintext highlighter-rouge">name</code>; <code class="language-plaintext highlighter-rouge">description</code>; <code class="language-plaintext highlighter-rouge">aliases</code> (max 20);
+<code class="language-plaintext highlighter-rouge">method_type</code> (training / evaluation / data_processing / optimization …);
+<code class="language-plaintext highlighter-rouge">embedding</code>; denormalized <code class="language-plaintext highlighter-rouge">usage_count</code>.</p>
+
+<p><strong>Relationships.</strong> <code class="language-plaintext highlighter-rouge">APPLIES_METHOD</code> ← <code class="language-plaintext highlighter-rouge">Paper</code>.</p>
+
+<p><strong>Notes.</strong> <em>Pure open-set</em> (like <code class="language-plaintext highlighter-rouge">ResearchConcept</code>, not <code class="language-plaintext highlighter-rouge">Model</code>) — method names
+are conceptual phrases, not identities, so no canonical-protection machinery.
+Dedup threshold <strong>0.90</strong> cosine.</p>
+
+<hr />
+
+<h2 id="metadata--operational-nodes">Metadata &amp; operational nodes</h2>
+
+<h3 id="schemaversion"><code class="language-plaintext highlighter-rouge">SchemaVersion</code></h3>
+
+<p>Records the applied Neo4j schema version (unique constraint on <code class="language-plaintext highlighter-rouge">version</code>,
+currently <strong>7</strong>). Managed by <code class="language-plaintext highlighter-rouge">SchemaManager</code>; not part of the research graph.</p>
+
+<h3 id="review-queue-nodes-operational">Review-queue nodes (operational)</h3>
+
+<p><code class="language-plaintext highlighter-rouge">PendingReview</code> and its embedded structures (<code class="language-plaintext highlighter-rouge">SuggestedConceptForReview</code>,
+<code class="language-plaintext highlighter-rouge">AgentContextForReview</code>) back the human review queue for disputed
+mention→concept matches (<code class="language-plaintext highlighter-rouge">review_queue.py</code>). They carry SLA, priority, and
+resolution fields and sit outside the core research schema.</p>

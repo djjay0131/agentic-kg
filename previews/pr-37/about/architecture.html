@@ -1,0 +1,15 @@
+<h1 id="architecture">Architecture</h1>
+
+<!-- TODO(phase-b): replace with full three-layer diagram (ASCII or image) plus layer-by-layer responsibilities and key code pointers. -->
+
+<p>Three-layer architecture (ADR-002), mirroring the Agentic Knowledge Graphs paper:</p>
+
+<ol>
+  <li><strong>Knowledge Representation Layer</strong> — Neo4j 5.x property graph with native vector indexes; research problems modeled as first-class nodes.</li>
+  <li><strong>Automation and Extraction Layer</strong> — PDF ingestion, section segmentation, LLM-based extraction with <code class="language-plaintext highlighter-rouge">instructor</code>.</li>
+  <li><strong>Agentic Orchestration Layer</strong> — LangGraph + AG2 agents operating over the graph (Ranking, Continuation, Evaluation, Synthesis).</li>
+</ol>
+
+<p>The FastAPI backend + Next.js UI sit on top. Infrastructure is GCP (Cloud Run for API, Cloud Run Jobs for ingestion, Compute Engine for Neo4j, Terraform-managed).</p>
+
+<p>For the graph’s node and edge types, see the <a href="/agentic-kg/previews/pr-37/reference/">Reference → Domain Model &amp; Taxonomy</a> section: the <a href="/agentic-kg/previews/pr-37/reference/entity-catalog">Entity Catalog</a>, <a href="/agentic-kg/previews/pr-37/reference/entity-relationships">Entity Relationships</a>, and <a href="/agentic-kg/previews/pr-37/reference/topic-taxonomy">Topic Taxonomy</a>.</p>
