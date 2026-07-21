@@ -877,10 +877,10 @@
       <td>—</td>
     </tr>
     <tr>
-      <td>Extraction dies on <code class="language-plaintext highlighter-rouge">instructor</code> import; misleading error + unpinned deps</td>
+      <td>Extraction dies on <code class="language-plaintext highlighter-rouge">instructor</code> import — root cause: unused <code class="language-plaintext highlighter-rouge">denario</code> dep transitively pins <code class="language-plaintext highlighter-rouge">openai==1.99.9</code></td>
     </tr>
     <tr>
-      <td><code class="language-plaintext highlighter-rouge">IMPLEMENTED 2026-07-14 (spec: </code>extraction-dep-pinning.md<code class="language-plaintext highlighter-rouge">) — floors-first fix: </code>packages/core/pyproject.toml<code class="language-plaintext highlighter-rouge"> now </code>instructor&gt;=1.14<code class="language-plaintext highlighter-rouge"> + explicit </code>openai&gt;=2.0<code class="language-plaintext highlighter-rouge"> (bans the non-importing 1.12/1.99 line; confirmed to co-resolve with denario 1.0.1 → instructor 1.14.5/openai 2.30.0). Both </code>_get_instructor_client<code class="language-plaintext highlighter-rouge"> except blocks (</code>llm_client.py<code class="language-plaintext highlighter-rouge">) now distinguish </code>ModuleNotFoundError<code class="language-plaintext highlighter-rouge"> ("not installed") from </code>ImportError<code class="language-plaintext highlighter-rouge"> ("installed but failed to import — version conflict: &lt;real error&gt;"). New </code>test_instructor_import.py<code class="language-plaintext highlighter-rouge"> (5 tests, hermetic guard + error-path, both clients). Whole-graph </code>uv.lock<code class="language-plaintext highlighter-rouge"> deferred to SM-4b. Next: merge → first real staging build+deploy (also verifies deploy AC-6 SHA parity) → smoke-ingest entities&gt;0 (AC-4).</code></td>
+      <td>{: .label .label-green }<code class="language-plaintext highlighter-rouge">IMPLEMENTED 2026-07-14 (spec: </code>extraction-dep-pinning.md<code class="language-plaintext highlighter-rouge">) — the floors-first plan hit </code>resolution-too-deep<code class="language-plaintext highlighter-rouge">; </code>uv<code class="language-plaintext highlighter-rouge"> diagnosed the real cause: </code>denario 1.0.1<code class="language-plaintext highlighter-rouge"> → </code>cmbagent-autogen<code class="language-plaintext highlighter-rouge"> hard-pins </code>openai==1.99.9<code class="language-plaintext highlighter-rouge">, and the only instructor accepting that (</code>&lt;1.14<code class="language-plaintext highlighter-rouge">) fails to import, while </code>instructor&gt;=1.14<code class="language-plaintext highlighter-rouge"> needs </code>openai&gt;=2.0<code class="language-plaintext highlighter-rouge"> → unsatisfiable. </code>denario<code class="language-plaintext highlighter-rouge"> is imported NOWHERE in </code>packages/<code class="language-plaintext highlighter-rouge"> (dead weight). Fix: remove </code>denario<code class="language-plaintext highlighter-rouge"> from </code>packages/core/pyproject.toml<code class="language-plaintext highlighter-rouge"> + root </code>pyproject.toml<code class="language-plaintext highlighter-rouge">; add </code>instructor&gt;=1.14<code class="language-plaintext highlighter-rouge"> + </code>openai&gt;=2.0<code class="language-plaintext highlighter-rouge">; fix both </code>_get_instructor_client<code class="language-plaintext highlighter-rouge"> except blocks (</code>ModuleNotFoundError<code class="language-plaintext highlighter-rouge"> vs </code>ImportError<code class="language-plaintext highlighter-rouge">, surface real error). Verified: clean resolve 0.8s → instructor 1.15.4/openai 2.46.0; 32 extraction tests pass in a fresh clean-resolve venv. New </code>test_instructor_import.py<code class="language-plaintext highlighter-rouge">. Next: merge → first real staging build+deploy (verifies deploy AC-6) → smoke-ingest entities&gt;0 (AC-4). If denario is ever actually integrated, wire it as an optional extra so it can't re-pin openai.</code></td>
     </tr>
   </tbody>
 </table>
@@ -906,7 +906,7 @@
       <td>Whole-graph lock for extraction deps (<code class="language-plaintext highlighter-rouge">uv.lock</code>)</td>
     </tr>
     <tr>
-      <td><code class="language-plaintext highlighter-rouge">Deferred (fast-follow to SM-4)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">Deferred (low priority)</code></td>
     </tr>
   </tbody>
 </table>
@@ -917,7 +917,7 @@
       <td>—</td>
     </tr>
     <tr>
-      <td>SM-4 raised floors to ban the broken <code class="language-plaintext highlighter-rouge">instructor</code>/<code class="language-plaintext highlighter-rouge">openai</code> line, but the rest of the transitive tree (httpx, pydantic-core, the autogen chain) still re-resolves each build. A committed <code class="language-plaintext highlighter-rouge">packages/core/uv.lock</code> + <code class="language-plaintext highlighter-rouge">uv sync --frozen</code> on the ingest path (Dockerfile.job, deploy-master test job, smoke-ingest) would freeze the entire graph. Deferred per Tech Lead #2 review — only pursue if transitive drift recurs. Adds <code class="language-plaintext highlighter-rouge">uv</code> to the critical-path toolchain.</td>
+      <td>With <code class="language-plaintext highlighter-rouge">denario</code> removed (SM-4) pip resolves core in &lt;1s, so a lock is no longer needed for correctness. A committed <code class="language-plaintext highlighter-rouge">uv.lock</code> would still add whole-graph reproducibility against future transitive drift. Only pursue if drift recurs; adds <code class="language-plaintext highlighter-rouge">uv</code> to the critical-path toolchain.</td>
     </tr>
     <tr>
       <td> </td>
