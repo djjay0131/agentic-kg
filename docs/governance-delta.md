@@ -89,10 +89,17 @@ Path: `llm/features/BACKLOG.md` (live feature catalog) and
 
 ## Governance Check Command
 
-`node ~/code/agentic-governance/governance/scripts/governance-checks.mjs`
-(canonical script from the agentic-governance checkout; CI wiring is a
-later, separate change — this establish PR is docs-only and does not touch
-`.github/workflows/**`.)
+`node ~/code/agentic-governance/governance/scripts/governance-checks.mjs --base origin/master`
+(canonical script from the agentic-governance checkout). **The `--base
+origin/master` flag is required** — this repo's default branch is `master`,
+and the script defaults to `origin/main`; without the flag the `adr-status`
+and `l0-allowlist` checks error out on `fatal: ambiguous argument
+'origin/main'`. With it, all three checks run (see below).
+
+CI wiring is still a later, separate change: the canonical script lives
+outside this repo (`~/code/agentic-governance/…`), so a CI job must first
+vendor or fetch it before it can run in Actions. Until then the check is
+run locally / on demand.
 
 ## L0 Path Allowlist
 

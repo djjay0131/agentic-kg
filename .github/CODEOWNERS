@@ -1,0 +1,14 @@
+# Code owners for agentic-kg
+# Governance: see docs/governance-delta.md. The owner is the default
+# reviewer/approver for all paths; agent sessions authenticate with the
+# owner's token (steward/auditor/architect are procedural roles, not
+# distinct identities — see the delta's Platform Enforcement Reality).
+
+*                       @djjay0131
+
+# Highest-scrutiny surfaces — called out for reviewer attention
+/packages/               @djjay0131
+/infra/                  @djjay0131
+/.github/                @djjay0131
+/docs/governance-delta.md @djjay0131
+/docs/adr/               @djjay0131

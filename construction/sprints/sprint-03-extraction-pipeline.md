@@ -4,7 +4,7 @@
 **Started:** 2026-01-26
 **Target Completion:** TBD
 
-**Requirements:** [extraction-pipeline-requirements.md](../requirements/extraction-pipeline-requirements.md)
+**Requirements:** `extraction-pipeline-requirements.md` _(historical — superseded 2026-07-07; see `llm/features/`)_
 **Related ADRs:** ADR-013 (LLM Extraction Approach)
 
 ---

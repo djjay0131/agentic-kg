@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Governance & contribution rules
+    url: https://github.com/djjay0131/agentic-kg/blob/master/CONTRIBUTING.md
+    about: Read the Issue → Branch → Draft PR → Review → Merge workflow and governance levels before filing.
