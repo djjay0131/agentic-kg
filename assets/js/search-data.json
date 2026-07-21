@@ -92,7 +92,7 @@
   },"13": {
     "doc": "Architecture",
     "title": "Architecture",
-    "content": "Three-layer architecture (ADR-002), mirroring the Agentic Knowledge Graphs paper: . | Knowledge Representation Layer — Neo4j 5.x property graph with native vector indexes; research problems modeled as first-class nodes. | Automation and Extraction Layer — PDF ingestion, section segmentation, LLM-based extraction with instructor. | Agentic Orchestration Layer — LangGraph + AG2 agents operating over the graph (Ranking, Continuation, Evaluation, Synthesis). | . The FastAPI backend + Next.js UI sit on top. Infrastructure is GCP (Cloud Run for API, Cloud Run Jobs for ingestion, Compute Engine for Neo4j, Terraform-managed). ",
+    "content": "Three-layer architecture (ADR-002), mirroring the Agentic Knowledge Graphs paper: . | Knowledge Representation Layer — Neo4j 5.x property graph with native vector indexes; research problems modeled as first-class nodes. | Automation and Extraction Layer — PDF ingestion, section segmentation, LLM-based extraction with instructor. | Agentic Orchestration Layer — LangGraph + AG2 agents operating over the graph (Ranking, Continuation, Evaluation, Synthesis). | . The FastAPI backend + Next.js UI sit on top. Infrastructure is GCP (Cloud Run for API, Cloud Run Jobs for ingestion, Compute Engine for Neo4j, Terraform-managed). For the graph’s node and edge types, see the Reference → Domain Model &amp; Taxonomy section: the Entity Catalog, Entity Relationships, and Topic Taxonomy. ",
     "url": "/agentic-kg/about/architecture.html",
     
     "relUrl": "/about/architecture.html"
@@ -153,228 +153,403 @@
     
     "relUrl": "/about/contributing.html#quick-contact"
   },"22": {
+    "doc": "Entity Catalog",
+    "title": "Entity Catalog",
+    "content": "The authoritative definition of every node type in the knowledge graph. Each entry follows a fixed template: Definition, Purpose, Key attributes, Relationships, and Notes (vocabulary style, lifecycle, provenance). Downstream docs should link here rather than redefine these types. Source of truth: packages/core/src/agentic_kg/knowledge_graph/models/entities.py and the constraints/indexes in schema.py. Uniqueness constraints exist for every node label below. | Core research nodes — Problem, ProblemMention, ProblemConcept | Bibliographic nodes — Paper, Author | Classification &amp; concept nodes — Topic, ResearchConcept, Model, Method | Metadata &amp; operational nodes — SchemaVersion, review queue | . ",
+    "url": "/agentic-kg/reference/entity-catalog.html",
+    
+    "relUrl": "/reference/entity-catalog.html"
+  },"23": {
+    "doc": "Entity Catalog",
+    "title": "Core research nodes",
+    "content": "Problem . Definition. A research problem as a first-class entity — an open question, challenge, or research direction extracted from a paper. Purpose. The central modeling bet of the project: problems are nodes, not strings. Everything else (papers, concepts, models) exists to describe, source, or relate problems. Key attributes. id (UUID); statement (≥ 20 chars); status (open / in_progress / resolved / deprecated); structured lists of assumptions, constraints, datasets, metrics, baselines; evidence (source paper) and extraction_metadata (provenance); embedding (1536-dim); version and timestamps. Relationships. EXTRACTED_FROM → Paper; problem-to-problem edges EXTENDS / CONTRADICTS / DEPENDS_ON / REFRAMES → Problem; BELONGS_TO → Topic. Notes. A resolved or deprecated problem is required to carry evidence with a source_doi (enforced by a model validator) — you cannot close a problem without pointing at the paper that closed it. ProblemMention . Definition. A paper-specific mention of a research problem — the problem exactly as it appears in one paper. Purpose. Preserves original wording and per-paper context (section, quoted text, paper DOI) so the canonical layer can deduplicate without losing provenance. Key attributes. id; statement (as stated in this paper); paper_doi (must start with 10.); section; quoted_text; the same structured metadata lists as Problem; matching fields (concept_id, match_confidence, match_score, match_method); review-workflow fields (review_status, reviewed_by, agent_consensus); embedding. Relationships. INSTANCE_OF → ProblemConcept (its canonical concept). Its source paper is referenced by the paper_doi property. Notes. Mentions are matched to concepts by vector similarity and routed by confidence (HIGH auto-link / MEDIUM single-agent / LOW multi-agent consensus / escalation to human review). ProblemConcept . Definition. The canonical representation of a research problem that may be mentioned across many papers. Purpose. Deduplicates mentions into one durable node with an AI-synthesized canonical statement and aggregated metadata, so the graph reflects distinct problems rather than every restatement. Key attributes. id; canonical_statement (≥ 20 chars, LLM-synthesized); status; aggregated assumptions / constraints / datasets / metrics; verified_baselines vs. claimed_baselines; synthesis provenance (synthesis_method, synthesis_model, synthesized_by, human_edited); aggregation stats (mention_count, paper_count, first/last_mentioned_year); embedding; refinement tracking; version. Relationships. INSTANCE_OF ← ProblemMention (inbound); INVOLVES_CONCEPT → ResearchConcept; BELONGS_TO → Topic. Notes. first_mentioned_year ≤ last_mentioned_year is validated. Baselines are split into reproducible (verified) vs. unverified (claimed). ",
+    "url": "/agentic-kg/reference/entity-catalog.html#core-research-nodes",
+    
+    "relUrl": "/reference/entity-catalog.html#core-research-nodes"
+  },"24": {
+    "doc": "Entity Catalog",
+    "title": "Bibliographic nodes",
+    "content": "Paper . Definition. A scientific paper — the source node most other entities are extracted from. Purpose. Anchors provenance for the whole graph and forms the citation network. Key attributes. doi (primary key, must start with 10.); title; authors; venue; year (optional); abstract; external identifiers (arxiv_id, openalex_id, semantic_scholar_id); pdf_url, full_text; ingested_at. Citation-graph fields (E-5): is_stub (placeholder created from another paper’s reference list before ingestion — monotone true → false), citation_count (inbound CITES), reference_count (outbound CITES). Relationships. AUTHORED_BY → Author; CITES → Paper (self-reference); RESEARCHES → Topic; DISCUSSES → ResearchConcept; USES_MODEL → Model; APPLIES_METHOD → Method; EXTRACTED_FROM ← Problem. Notes. title min length was relaxed (10 → 2) and year made optional to admit reference-list stubs with partial metadata. Author . Definition. A paper author. Purpose. Attribution and author-level graph queries. Key attributes. id; name; affiliations; orcid (validated to start 0000-); semantic_scholar_id. Relationships. AUTHORED_BY ← Paper (carries author_position). ",
+    "url": "/agentic-kg/reference/entity-catalog.html#bibliographic-nodes",
+    
+    "relUrl": "/reference/entity-catalog.html#bibliographic-nodes"
+  },"25": {
+    "doc": "Entity Catalog",
+    "title": "Classification &amp; concept nodes",
+    "content": "Topic (E-1) . Definition. A research topic or area, forming a three-level hierarchy (domain → area → subtopic). Purpose. The closed-set controlled vocabulary for classifying problems and papers. See the dedicated Topic Taxonomy page. Key attributes. id; name; description (feeds richer embeddings); level (domain / area / subtopic); parent_id (None for root domains); source (manual / openalex / migrated / llm_proposed); openalex_id; embedding; denormalized problem_count / paper_count. Relationships. SUBTOPIC_OF → Topic (parent); BELONGS_TO ← problem-side nodes; RESEARCHES ← Paper. Notes. Domain-level topics must not have a parent (validated). New topics enter only via the seed taxonomy — extraction cannot invent off-taxonomy topics. ResearchConcept (E-2) . Definition. A named intellectual building block — e.g. “attention mechanism”, “transfer learning”, “graph neural networks”. Purpose. Captures the ideas papers are about, independent of the specific problem or model. Key attributes. id; name; description; aliases (surface forms); embedding; denormalized mention_count (INVOLVES_CONCEPT) and paper_count (DISCUSSES). Relationships. INVOLVES_CONCEPT ← ProblemConcept; DISCUSSES ← Paper; BELONGS_TO → Topic (optional). Notes. Open-set vocabulary — any name may become a concept; duplicates are merged at 0.90 cosine similarity. Model (E-3) . Definition. A named ML model / architecture — e.g. “BERT”, “GPT-4”, “ResNet-50”. Purpose. Tracks the concrete models papers use, benchmark against, or build on. Key attributes. id; name; description; aliases; architecture (transformer / cnn / rnn …); model_type (language_model / vision_model …); year_introduced; introducing_paper_doi; is_canonical (curated seed, write-protected during merges); embedding; denormalized usage_count. Relationships. USES_MODEL ← Paper. Notes. Hybrid vocabulary: open-set, but ~19 seed entries are flagged is_canonical=True and cannot be renamed or downgraded by incoming non-canonical names. Dedup threshold 0.95 cosine (+ canonical seed). Method (E-4) . Definition. A research method / methodology — e.g. “fine-tuning”, “contrastive learning”. Purpose. Captures how work is done, distinct from the Model it is done with. Key attributes. id; name; description; aliases (max 20); method_type (training / evaluation / data_processing / optimization …); embedding; denormalized usage_count. Relationships. APPLIES_METHOD ← Paper. Notes. Pure open-set (like ResearchConcept, not Model) — method names are conceptual phrases, not identities, so no canonical-protection machinery. Dedup threshold 0.90 cosine. ",
+    "url": "/agentic-kg/reference/entity-catalog.html#classification--concept-nodes",
+    
+    "relUrl": "/reference/entity-catalog.html#classification--concept-nodes"
+  },"26": {
+    "doc": "Entity Catalog",
+    "title": "Metadata &amp; operational nodes",
+    "content": "SchemaVersion . Records the applied Neo4j schema version (unique constraint on version, currently 7). Managed by SchemaManager; not part of the research graph. Review-queue nodes (operational) . PendingReview and its embedded structures (SuggestedConceptForReview, AgentContextForReview) back the human review queue for disputed mention→concept matches (review_queue.py). They carry SLA, priority, and resolution fields and sit outside the core research schema. ",
+    "url": "/agentic-kg/reference/entity-catalog.html#metadata--operational-nodes",
+    
+    "relUrl": "/reference/entity-catalog.html#metadata--operational-nodes"
+  },"27": {
+    "doc": "Entity Relationships",
+    "title": "Entity Relationships",
+    "content": "The authoritative catalog of edge types in the knowledge graph — their endpoints, direction, cardinality, and semantics. Node types are defined in the Entity Catalog. Source of truth: models/relationships.py (typed relations + properties) and the Cypher MERGE (...)-[:EDGE]-&gt;(...) statements in repository.py. ",
+    "url": "/agentic-kg/reference/entity-relationships.html",
+    
+    "relUrl": "/reference/entity-relationships.html"
+  },"28": {
+    "doc": "Entity Relationships",
+    "title": "Graph shape (diagram)",
+    "content": "graph LR Paper --&gt;|AUTHORED_BY| Author Paper --&gt;|CITES| Paper Paper --&gt;|RESEARCHES| Topic Paper --&gt;|DISCUSSES| ResearchConcept Paper --&gt;|USES_MODEL| Model Paper --&gt;|APPLIES_METHOD| Method Problem --&gt;|EXTRACTED_FROM| Paper Problem --&gt;|\"EXTENDS / CONTRADICTS&lt;br/&gt;DEPENDS_ON / REFRAMES\"| Problem ProblemMention --&gt;|INSTANCE_OF| ProblemConcept ProblemConcept --&gt;|INVOLVES_CONCEPT| ResearchConcept ProblemConcept --&gt;|BELONGS_TO| Topic ResearchConcept --&gt;|BELONGS_TO| Topic Topic --&gt;|SUBTOPIC_OF| Topic classDef research fill:#e8f0fe,stroke:#4285f4,color:#111; classDef biblio fill:#fef7e0,stroke:#f9ab00,color:#111; classDef concept fill:#e6f4ea,stroke:#34a853,color:#111; class Problem,ProblemMention,ProblemConcept research; class Paper,Author biblio; class Topic,ResearchConcept,Model,Method concept; . ",
+    "url": "/agentic-kg/reference/entity-relationships.html#graph-shape-diagram",
+    
+    "relUrl": "/reference/entity-relationships.html#graph-shape-diagram"
+  },"29": {
+    "doc": "Entity Relationships",
+    "title": "Research &amp; classification edges",
+    "content": "| Edge | From → To | Cardinality | Semantics | . | EXTRACTED_FROM | Problem → Paper | many-to-one | Problem was extracted from this paper (carries section, extraction_date) | . | INSTANCE_OF | ProblemMention → ProblemConcept | many-to-one | This paper-specific mention is an instance of the canonical concept (carries confidence, match_method, matched_by) | . | INVOLVES_CONCEPT | ProblemConcept → ResearchConcept | many-to-many | The problem involves this research concept | . | BELONGS_TO | ProblemConcept / ResearchConcept → Topic | many-to-one(ish) | The problem-side node is classified under this topic | . | RESEARCHES | Paper → Topic | many-to-many | The paper researches this topic | . | DISCUSSES | Paper → ResearchConcept | many-to-many | The paper discusses this concept | . | USES_MODEL | Paper → Model | many-to-many | The paper uses/benchmarks this model | . | APPLIES_METHOD | Paper → Method | many-to-many | The paper applies this method | . | SUBTOPIC_OF | Topic → Topic | many-to-one | Child topic rolls up into its parent (subtopic → area → domain) | . ",
+    "url": "/agentic-kg/reference/entity-relationships.html#research--classification-edges",
+    
+    "relUrl": "/reference/entity-relationships.html#research--classification-edges"
+  },"30": {
+    "doc": "Entity Relationships",
+    "title": "Bibliographic edges",
+    "content": "| Edge | From → To | Cardinality | Semantics | . | AUTHORED_BY | Paper → Author | many-to-many | Authorship; carries author_position (1 = first author) | . | CITES | Paper → Paper | many-to-many | Citation; populated from Semantic Scholar reference lists (E-5). Denormalized on Paper.citation_count / reference_count | . ",
+    "url": "/agentic-kg/reference/entity-relationships.html#bibliographic-edges",
+    
+    "relUrl": "/reference/entity-relationships.html#bibliographic-edges"
+  },"31": {
+    "doc": "Entity Relationships",
+    "title": "Problem-to-problem edges",
+    "content": "All four are typed ProblemRelations with confidence (default 0.8) and an optional evidence_doi. Source of truth: models/relationships.py, RelationType in enums.py. | Edge | From → To | Extra fields | Semantics | . | EXTENDS | Problem → Problem | inferred_by | B builds on / extends A | . | CONTRADICTS | Problem → Problem | contradiction_type (empirical / theoretical / methodological) | B presents conflicting findings to A | . | DEPENDS_ON | Problem → Problem | dependency_type (prerequisite / data_dependency / methodological) | B requires A to be solved first | . | REFRAMES | Problem → Problem | — | B redefines the problem space of A | . ",
+    "url": "/agentic-kg/reference/entity-relationships.html#problem-to-problem-edges",
+    
+    "relUrl": "/reference/entity-relationships.html#problem-to-problem-edges"
+  },"32": {
+    "doc": "Entity Relationships",
+    "title": "Operational edges (outside the research schema)",
+    "content": "The review workflow uses additional edges (e.g. REVIEWS) that live in review_queue.py / relations.py and are not part of the core research graph. They are intentionally omitted from the diagram above. ",
+    "url": "/agentic-kg/reference/entity-relationships.html#operational-edges-outside-the-research-schema",
+    
+    "relUrl": "/reference/entity-relationships.html#operational-edges-outside-the-research-schema"
+  },"33": {
+    "doc": "Entity Relationships",
+    "title": "The evidence chain (worked example)",
+    "content": "A single ingested paper fans out across many of these edges: . | Paper is created (or a CITES stub is promoted to a full paper). | Author nodes are linked via AUTHORED_BY. | The paper’s references become CITES edges to other Paper nodes. | Extraction produces ProblemMentions (each with paper_doi, section, quoted_text). | Each mention is matched to a ProblemConcept via INSTANCE_OF. | The paper is classified: RESEARCHES → Topic, DISCUSSES → ResearchConcept, USES_MODEL → Model, APPLIES_METHOD → Method. | Concepts roll up to topics via BELONGS_TO; topics roll up via SUBTOPIC_OF. | Cross-problem structure (EXTENDS, DEPENDS_ON, …) is inferred over ProblemConcepts. | . ",
+    "url": "/agentic-kg/reference/entity-relationships.html#the-evidence-chain-worked-example",
+    
+    "relUrl": "/reference/entity-relationships.html#the-evidence-chain-worked-example"
+  },"34": {
     "doc": "How it works",
     "title": "How it works",
     "content": "The ingestion pipeline has four phases: . | Search &amp; Import — fan out to OpenAlex / arXiv / Semantic Scholar; store Paper + Author nodes. | Extraction — PyMuPDF → section segmenter → LLM extraction of problem statements from “Limitations” / “Future Work” sections. | Integration — embed the extracted ProblemMention, vector-match it against existing ProblemConcept nodes, route by confidence (auto-link / agent review / human queue). | Sanity Checks — five automated integrity checks against the live graph. | . Extracted concepts become part of a growing semantic spine that later stages (community detection, RAG retrieval) operate over. ",
     "url": "/agentic-kg/about/how-it-works.html",
     
     "relUrl": "/about/how-it-works.html"
-  },"23": {
+  },"35": {
+    "doc": "Reference",
+    "title": "Domain Model &amp; Taxonomy",
+    "content": "The authoritative, human-readable description of the agentic-kg knowledge graph: the node types (entities), the edge types (relationships), and the Topic taxonomy that classifies research work. Everything here is derived from — and kept in sync with — the Pydantic models and Neo4j schema under packages/core/src/agentic_kg/knowledge_graph/. If the code and this document ever disagree, the code (models/entities.py, models/relationships.py, models/enums.py, schema.py, taxonomy.py) is the source of truth — please open a PR to fix the doc. ",
+    "url": "/agentic-kg/reference/#domain-model--taxonomy",
+    
+    "relUrl": "/reference/#domain-model--taxonomy"
+  },"36": {
+    "doc": "Reference",
+    "title": "Document map",
+    "content": "| Document | What it defines | Source of truth | . | Entity Catalog | Every node type — definition, purpose, key attributes, status | models/entities.py, schema.py | . | Entity Relationships | Every edge type — endpoints, cardinality, semantics, diagram | models/relationships.py, repository.py Cypher | . | Topic Taxonomy | The 3-level research-topic classification (domain → area → subtopic) | taxonomy.py, data/seed_taxonomy.yml | . ",
+    "url": "/agentic-kg/reference/#document-map",
+    
+    "relUrl": "/reference/#document-map"
+  },"37": {
+    "doc": "Reference",
+    "title": "What “taxonomy” means here",
+    "content": "The word is used in two complementary senses, both documented above: . | The Topic taxonomy (the literal one) — a hand-curated, three-level hierarchy of research topics (domain → area → subtopic) that acts as a closed-set controlled vocabulary. Extraction is bound to it so papers can only be classified into known topics. See Topic Taxonomy. | The graph ontology (the implicit one) — the fixed, versioned set of ~9 node labels and ~14 edge types that every ingested paper is decomposed into. See the Entity Catalog and Entity Relationships. | . ",
+    "url": "/agentic-kg/reference/#what-taxonomy-means-here",
+    
+    "relUrl": "/reference/#what-taxonomy-means-here"
+  },"38": {
+    "doc": "Reference",
+    "title": "Modeling principles",
+    "content": "These conventions hold across the whole graph. They are described in prose here and enforced in models/ and schema.py: . | Problems are first-class. A research problem is a node (Problem / ProblemConcept), not a string attached to a paper. This is the central modeling bet of the project (ADR-002). | Mention vs. concept. Paper-specific wording (ProblemMention) is kept separate from the canonical, cross-paper meaning (ProblemConcept), joined by INSTANCE_OF. This preserves provenance while allowing deduplication. | Closed-set vs. open-set vocabularies. Topic is closed-set (only seed taxonomy names). Model is hybrid (open-set + write-protected canonical seeds). ResearchConcept and Method are open-set (any name, deduped by embedding similarity). | Denormalized counts. Nodes cache their own edge counts (mention_count, paper_count, usage_count, citation_count, …) to keep common queries cheap; these are maintained by the repository layer. | Embeddings everywhere. Most nodes carry a 1536-dim embedding backed by a Neo4j vector index for semantic search and dedup. | Provenance is required. Terminal states (a RESOLVED / DEPRECATED problem) require evidence pointing at the paper that justifies them. | Schema is versioned. A SchemaVersion node records the applied schema version (currently 7); SchemaManager applies constraints and indexes idempotently. | . ",
+    "url": "/agentic-kg/reference/#modeling-principles",
+    
+    "relUrl": "/reference/#modeling-principles"
+  },"39": {
+    "doc": "Reference",
+    "title": "Node types at a glance",
+    "content": "| Node label | Role | Vocabulary | Unit | . | Problem | A research problem extracted from a paper | open | core | . | ProblemMention | Paper-specific statement of a problem | open | canonical | . | ProblemConcept | Canonical, cross-paper problem | open | canonical | . | Paper | A scientific paper (source node) | — | core | . | Author | A paper author | — | core | . | Topic | Research topic in the taxonomy | closed-set | E-1 | . | ResearchConcept | Named intellectual building block | open | E-2 | . | Model | Named ML model / architecture | hybrid | E-3 | . | Method | Named research method / methodology | open | E-4 | . Plus SchemaVersion (schema metadata) and operational review-queue nodes (e.g. PendingReview) that live outside the core research graph. ",
+    "url": "/agentic-kg/reference/#node-types-at-a-glance",
+    
+    "relUrl": "/reference/#node-types-at-a-glance"
+  },"40": {
+    "doc": "Reference",
+    "title": "Reference",
+    "content": " ",
+    "url": "/agentic-kg/reference/",
+    
+    "relUrl": "/reference/"
+  },"41": {
     "doc": "About",
     "title": "About Agentic KG",
     "content": "Project overview, architecture, quickstart, and roadmap. Placeholder landing — Phase A. Individual pages in this section carry their own placeholder content. ",
     "url": "/agentic-kg/about/#about-agentic-kg",
     
     "relUrl": "/about/#about-agentic-kg"
-  },"24": {
+  },"42": {
     "doc": "About",
     "title": "About",
     "content": " ",
     "url": "/agentic-kg/about/",
     
     "relUrl": "/about/"
-  },"25": {
+  },"43": {
     "doc": "Status",
     "title": "Status",
     "content": "Live project-state dashboard, auto-regenerated from llm/memory_bank/ and llm/features/ on every push to master. ",
     "url": "/agentic-kg/status/",
     
     "relUrl": "/status/"
-  },"26": {
+  },"44": {
     "doc": "Status",
     "title": "Graph snapshot",
     "content": "| Metric | Value | . | Last updated | 2026-05-20 | . | Graph nodes | 282 | . | Graph edges | 151 | . | Problem mentions | 18 | . | Problem concepts | 18 | . | Sanity checks | 5/5 passing | . | Completed sprints | 11 | . | Tests passing | 1312 | . ",
     "url": "/agentic-kg/status/#graph-snapshot",
     
     "relUrl": "/status/#graph-snapshot"
-  },"27": {
+  },"45": {
     "doc": "Status",
     "title": "Drill-down",
     "content": ". | Backlog → — active and resolved features, auto-regenerated from llm/features/BACKLOG.md | Sprints → — all 11 completed sprints with links to source docs | Changelog → — curated highlights | Service inventory → — deployed endpoints and infra components | . ",
     "url": "/agentic-kg/status/#drill-down",
     
     "relUrl": "/status/#drill-down"
-  },"28": {
+  },"46": {
     "doc": "Home",
     "title": "Agentic KG",
     "content": "A system that builds research knowledge graphs from scientific papers and uses AI agents to identify, deduplicate, and advance open research problems. Placeholder page — Phase A. Prose content is authored during Phase B of the enhance-github-pages feature. The structure, navigation, and data pipeline are already in place. ",
     "url": "/agentic-kg/#agentic-kg",
     
     "relUrl": "/#agentic-kg"
-  },"29": {
+  },"47": {
     "doc": "Home",
     "title": "Sections",
-    "content": ". | About — project overview, architecture, how it works, quickstart, related work, roadmap, screenshots, contributing | Status — live dashboard, backlog, sprints, changelog, service inventory | . ",
+    "content": ". | About — project overview, architecture, how it works, quickstart, related work, roadmap, screenshots, contributing | Status — live dashboard, backlog, sprints, changelog, service inventory | Reference — domain model &amp; taxonomy: entity catalog, entity relationships, Topic taxonomy | . ",
     "url": "/agentic-kg/#sections",
     
     "relUrl": "/#sections"
-  },"30": {
+  },"48": {
     "doc": "Home",
     "title": "Quick links",
     "content": ". | GitHub repository | Project overview → | Current status → | . ",
     "url": "/agentic-kg/#quick-links",
     
     "relUrl": "/#quick-links"
-  },"31": {
+  },"49": {
     "doc": "Home",
     "title": "Home",
     "content": " ",
     "url": "/agentic-kg/",
     
     "relUrl": "/"
-  },"32": {
+  },"50": {
     "doc": "Overview",
     "title": "Project Overview",
     "content": "Agentic KG is a platform for building research knowledge graphs from scientific papers and applying AI agents to identify, deduplicate, and advance open research problems. Research problems are modeled as first-class entities with rich operational context: assumptions, constraints, datasets, metrics, and evidence. Specialized agents operate over the graph to rank problems, propose continuations, execute evaluations, and synthesize results. ",
     "url": "/agentic-kg/about/overview.html#project-overview",
     
     "relUrl": "/about/overview.html#project-overview"
-  },"33": {
+  },"51": {
     "doc": "Overview",
     "title": "Who it’s for",
     "content": ". | Researchers looking for tractable open problems in their field | Research teams tracking problem evolution across papers | Anyone already using the Denario framework | . ",
     "url": "/agentic-kg/about/overview.html#who-its-for",
     
     "relUrl": "/about/overview.html#who-its-for"
-  },"34": {
+  },"52": {
     "doc": "Overview",
     "title": "Learn more",
     "content": ". | Architecture → | How it works → | Quickstart → | . ",
     "url": "/agentic-kg/about/overview.html#learn-more",
     
     "relUrl": "/about/overview.html#learn-more"
-  },"35": {
+  },"53": {
     "doc": "Overview",
     "title": "Overview",
     "content": " ",
     "url": "/agentic-kg/about/overview.html",
     
     "relUrl": "/about/overview.html"
-  },"36": {
+  },"54": {
     "doc": "Quickstart",
     "title": "Quickstart",
     "content": "git clone https://github.com/djjay0131/agentic-kg.git cd agentic-kg # Create virtual environment python3.12 -m venv .venv source .venv/bin/activate # Install uv sync # or: pip install -e '.[dev]' # Run unit tests (excludes live-Neo4j tests) pytest packages/core/tests/ --ignore=packages/core/tests/e2e -q # Local stack docker compose up . See README.md for the full setup guide. ",
     "url": "/agentic-kg/about/quickstart.html",
     
     "relUrl": "/about/quickstart.html"
-  },"37": {
+  },"55": {
     "doc": "Related work",
     "title": "Related work",
     "content": ". | Agentic Knowledge Graphs paper — design inspiration for the three-layer architecture and problem-as-entity modeling. | Denario framework — the underlying agent runtime; Agentic KG extends it. | GraphRAG — hierarchical community summarization technique referenced in gap analysis §4.3. | . A fuller reading list will land here as this page is authored. ",
     "url": "/agentic-kg/about/related-work.html",
     
     "relUrl": "/about/related-work.html"
-  },"38": {
+  },"56": {
     "doc": "Roadmap",
     "title": "Roadmap",
     "content": "A live, data-driven view of the roadmap is maintained on the Status → Backlog page, regenerated from llm/features/BACKLOG.md on every push. ",
     "url": "/agentic-kg/about/roadmap.html",
     
     "relUrl": "/about/roadmap.html"
-  },"39": {
+  },"57": {
     "doc": "Roadmap",
     "title": "Near-term themes",
     "content": ". | Entity ecosystem expansion — Topic, ResearchConcept, Model, Method entities (Category 3 on the backlog) | Community detection — Leiden / Louvain over the graph, with hierarchical summaries (Category 4) | Graph-based RAG retrieval — the “killer feature” — multi-hop, community-aware answering (Category 5) | . ",
     "url": "/agentic-kg/about/roadmap.html#near-term-themes",
     
     "relUrl": "/about/roadmap.html#near-term-themes"
-  },"40": {
+  },"58": {
     "doc": "Roadmap",
     "title": "Ongoing",
     "content": ". | Production deployment readiness (Category 6) | Success-criteria validation (Category 7) | . ",
     "url": "/agentic-kg/about/roadmap.html#ongoing",
     
     "relUrl": "/about/roadmap.html#ongoing"
-  },"41": {
+  },"59": {
     "doc": "Screenshots",
     "title": "Screenshots",
     "content": "Placeholder. Screenshots of the Next.js UI and the Neo4j graph browser will land here during Phase B. For now, see the deployed staging service: . | API: https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app | Neo4j Browser: not publicly published — access via SSH tunnel or VPN (retrieve URI from Secret Manager / Terraform output neo4j_uri) | . ",
     "url": "/agentic-kg/about/screenshots.html",
     
     "relUrl": "/about/screenshots.html"
-  },"42": {
+  },"60": {
     "doc": "Service inventory",
     "title": "Service Inventory",
     "content": "Last Updated: 2026-04-17 . This document provides a comprehensive inventory of all deployed services across the agentic-kg and Denario projects. ",
     "url": "/agentic-kg/status/service-inventory.html#service-inventory",
     
     "relUrl": "/status/service-inventory.html#service-inventory"
-  },"43": {
+  },"61": {
     "doc": "Service inventory",
     "title": "Quick Reference",
     "content": "| Service | Type | Status | Primary URL | . | agentic-kg-api-staging | FastAPI | ✅ Healthy | https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app | . | agentic-kg-ui-staging | Next.js | ⚠️ Fixing | https://agentic-kg-ui-staging-tqpsba7pza-uc.a.run.app | . | denario | Streamlit | ⚠️ Legacy | https://denario-tqpsba7pza-uc.a.run.app | . | denario-app | Streamlit | ✅ Active | https://denario-app-tqpsba7pza-uc.a.run.app | . ",
     "url": "/agentic-kg/status/service-inventory.html#quick-reference",
     
     "relUrl": "/status/service-inventory.html#quick-reference"
-  },"44": {
+  },"62": {
     "doc": "Service inventory",
     "title": "Agentic-KG Services",
     "content": "agentic-kg-api-staging . Type: FastAPI Backend Repository: djjay0131/agentic-kg Status: ✅ Healthy . URLs: . | Primary: https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app | Legacy: https://agentic-kg-api-staging-542888988741.us-central1.run.app | . Purpose: REST API backend for the research problem knowledge graph system. Features: . | Problem CRUD operations | Paper management | Hybrid semantic search | LLM-based extraction pipeline | Agent workflow orchestration | . Health Check: . curl https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app/health # {\"status\":\"ok\",\"version\":\"0.1.0\",\"neo4j_connected\":true} . API Documentation: . | OpenAPI: /docs | ReDoc: /redoc | . Environment Variables: . | NEO4J_URI - Neo4j connection string (from Secret Manager) | NEO4J_PASSWORD - Neo4j password (from Secret Manager) | OPENAI_API_KEY - OpenAI API key (from Secret Manager) | ANTHROPIC_API_KEY - Anthropic API key (from Secret Manager) | . Dependencies: . | Neo4j (bolt URL retrieved from Secret Manager — see NEO4J_URI) | GCP Secret Manager | . agentic-kg-ui-staging . Type: Next.js Frontend Repository: djjay0131/agentic-kg Status: ⚠️ API URL configuration fix in progress . URLs: . | Primary: https://agentic-kg-ui-staging-tqpsba7pza-uc.a.run.app | Legacy: https://agentic-kg-ui-staging-542888988741.us-central1.run.app | . Purpose: Web dashboard for exploring the knowledge graph and managing research problems. Features: . | Dashboard with system stats | Problem browser and detail views | Paper listing | Semantic search interface | Graph visualization (react-force-graph) | Extraction interface | Agent workflow UI | . Pages: . | / - Dashboard | /problems - Problem list | /problems/[id] - Problem details | /papers - Paper list | /graph - Graph visualization | /extract - Extraction interface | /workflows - Agent workflows | /workflows/[id] - Workflow detail | . Build-Time Environment: . | NEXT_PUBLIC_API_URL - API endpoint (required at build time) | . Dependencies: . | agentic-kg-api-staging | . ",
     "url": "/agentic-kg/status/service-inventory.html#agentic-kg-services",
     
     "relUrl": "/status/service-inventory.html#agentic-kg-services"
-  },"45": {
+  },"63": {
     "doc": "Service inventory",
     "title": "Denario Services",
     "content": "denario (Legacy) . Type: Streamlit App Repository: djjay0131/Denario Status: ⚠️ Legacy - Consider deprecating . URLs: . | Primary: https://denario-tqpsba7pza-uc.a.run.app | Legacy: https://denario-542888988741.us-central1.run.app | . Purpose: Original Denario Streamlit interface (older version). Version: Commit 5d5713e Dockerfile: docker/Dockerfile.prod Install: pip install \"denario[app]\" . Environment Variables: . | OPENAI_API_KEY - OpenAI API key (from Secret Manager) | GOOGLE_API_KEY - Google/Gemini API key (from Secret Manager) | ANTHROPIC_API_KEY - Anthropic API key (from Secret Manager) | PERPLEXITY_API_KEY - Perplexity API key (from Secret Manager) | . Issues: . | Older version without recent bug fixes | No file upload restrictions | Missing Vertex AI improvements | . denario-app (Active) . Type: Streamlit App Repository: djjay0131/DenarioApp Status: ✅ Active with improvements . URLs: . | Primary: https://denario-app-tqpsba7pza-uc.a.run.app | Legacy: https://denario-app-542888988741.us-central1.run.app | . Purpose: Enhanced Denario Streamlit interface with production improvements. Version: Commit b5e1270 Dockerfile: Dockerfile (root) Install: pip install denario_app . Improvements over legacy denario: . | File upload restrictions (.md and .txt only) | Better error handling (UnicodeDecodeError) | Vertex AI integration (GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION) | Docker permission fixes | Production warnings | . Environment Variables: . | OPENAI_API_KEY - OpenAI API key (from Secret Manager) | GOOGLE_API_KEY - Google/Gemini API key (from Secret Manager) | ANTHROPIC_API_KEY - Anthropic API key (from Secret Manager) | PERPLEXITY_API_KEY - Perplexity API key (from Secret Manager) | GOOGLE_CLOUD_PROJECT - GCP project ID (vt-gcp-00042) | GOOGLE_CLOUD_LOCATION - GCP region (us-central1) | . Recent Commits: . | b5e1270 - Add GOOGLE_CLOUD_PROJECT env vars for Vertex AI | b9f6b4b - Restrict file uploads to markdown/text files only | 289b1ef - Add PDF text extraction support using PyMuPDF | 06d6def - Fix Docker build permission issue | a6e2c70 - Add Cloud Build configuration for GCP deployment | . ",
     "url": "/agentic-kg/status/service-inventory.html#denario-services",
     
     "relUrl": "/status/service-inventory.html#denario-services"
-  },"46": {
+  },"64": {
     "doc": "Service inventory",
     "title": "Infrastructure",
     "content": "Neo4j Database . Type: Neo4j Graph Database (Compute Engine, staging) Status: ✅ Running . Access: . | Bolt and Browser endpoints are intentionally not published here. Retrieve them at runtime via Secret Manager (NEO4J_URI) or Terraform output (terraform output -raw neo4j_uri). | The Neo4j Browser should not be exposed publicly; access via SSH tunnel or VPN only. | . Purpose: Graph database for storing research problems, papers, and relationships. Credentials: . | Username: neo4j | Password: Stored in GCP Secret Manager (NEO4J_PASSWORD) | . Terraform: . | Configuration: infra/terraform/ | Get password: cd infra &amp;&amp; terraform output -raw neo4j_password | Get URI: cd infra &amp;&amp; terraform output -raw neo4j_uri | . GCP Secret Manager . Secrets: . | OPENAI_API_KEY - 164 bytes | ANTHROPIC_API_KEY - 108 bytes | GOOGLE_API_KEY - 39 bytes | PERPLEXITY_API_KEY - 53 bytes | NEO4J_URI - Connection string | NEO4J_PASSWORD - Database password | . Access: . # List secrets gcloud secrets list # View secret value gcloud secrets versions access latest --secret=\"OPENAI_API_KEY\" . ",
     "url": "/agentic-kg/status/service-inventory.html#infrastructure",
     
     "relUrl": "/status/service-inventory.html#infrastructure"
-  },"47": {
+  },"65": {
     "doc": "Service inventory",
     "title": "URL Formats",
     "content": "Cloud Run provides two URL formats for each service: . | Legacy Format (Project Number): . | Pattern: https://{service}-{project-number}.{region}.run.app | Example: https://denario-542888988741.us-central1.run.app | Shown by: gcloud run services list | . | New Format (Random String): . | Pattern: https://{service}-{random}.{region-code}.a.run.app | Example: https://denario-tqpsba7pza-uc.a.run.app | Shown by: gcloud run services describe | . | . Both URLs point to the same service and are fully functional. ",
     "url": "/agentic-kg/status/service-inventory.html#url-formats",
     
     "relUrl": "/status/service-inventory.html#url-formats"
-  },"48": {
+  },"66": {
     "doc": "Service inventory",
     "title": "Repository Links",
     "content": ". | agentic-kg: https://github.com/djjay0131/agentic-kg | Denario: https://github.com/djjay0131/Denario (fork) | DenarioApp: https://github.com/djjay0131/DenarioApp (fork) | Upstream Denario: https://github.com/AstroPilot-AI/Denario | Upstream DenarioApp: https://github.com/AstroPilot-AI/DenarioApp | . ",
     "url": "/agentic-kg/status/service-inventory.html#repository-links",
     
     "relUrl": "/status/service-inventory.html#repository-links"
-  },"49": {
+  },"67": {
     "doc": "Service inventory",
     "title": "Recommendations",
     "content": "Immediate Actions . | Fix agentic-kg-ui deployment - Rebuild with NEXT_PUBLIC_API_URL (in progress) | Document denario vs denario-app - Clarify which to use | Consider deprecating legacy denario service - Consolidate to denario-app | . Future Improvements . | Set up custom domains for cleaner URLs | Implement monitoring and alerting | Create automated health check dashboard | Document API endpoints with OpenAPI | Set up automated deployment pipelines | . ",
     "url": "/agentic-kg/status/service-inventory.html#recommendations",
     
     "relUrl": "/status/service-inventory.html#recommendations"
-  },"50": {
+  },"68": {
     "doc": "Service inventory",
     "title": "Deployment Commands",
     "content": "List All Services . gcloud run services list --region=us-central1 . Get Service Details . gcloud run services describe {service-name} --region=us-central1 . Check Service Health . # agentic-kg API curl https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app/health # UI (check HTTP status) curl -I https://agentic-kg-ui-staging-tqpsba7pza-uc.a.run.app . View Logs . gcloud run services logs read {service-name} --region=us-central1 --limit=50 . ",
     "url": "/agentic-kg/status/service-inventory.html#deployment-commands",
     
     "relUrl": "/status/service-inventory.html#deployment-commands"
-  },"51": {
+  },"69": {
     "doc": "Service inventory",
     "title": "Support",
     "content": "For issues or questions: . | Check service logs: gcloud run services logs read | Review deployment docs: construction/sprints/ | Contact: djjay0131@gmail.com | . ",
     "url": "/agentic-kg/status/service-inventory.html#support",
     
     "relUrl": "/status/service-inventory.html#support"
-  },"52": {
+  },"70": {
     "doc": "Service inventory",
     "title": "Service inventory",
     "content": " ",
     "url": "/agentic-kg/status/service-inventory.html",
     
     "relUrl": "/status/service-inventory.html"
-  },"53": {
+  },"71": {
     "doc": "Sprints",
     "title": "Sprints",
     "content": "Auto-regenerated from construction/sprints/ on every push. | # | Sprint | Status | Source | . | 0 |   |   |   | . | GCP Deployment |   |   |   | . | {: .label .label-yellow }In Progress |   |   |   | . | sprint-00-gcp-deployment.md | . |   | . | 1 | . | Knowledge Graph Foundation | . | {: .label .label-yellow }In Progress | . | sprint-01-knowledge-graph.md | . |   | . | 2 | . | Data Acquisition Layer | . | {: .label .label-green }Complete | . | sprint-02-data-acquisition.md | . |   | . | 3 | . | Information Extraction Pipeline | . | {: .label .label-yellow }In Progress | . | sprint-03-extraction-pipeline.md | . |   | . | 4 | . | API Service + Production Web UI | . | {: .label .label-yellow }In Progress | . | sprint-04-api-and-ui.md | . |   | . | 5 | . | Agent Implementation | . | {: .label .label-yellow }In Progress | . | sprint-05-agent-implementation.md | . |   | . | 6 | . | Full-Stack Integration | . | {: .label .label-green }Complete | . | sprint-06-integration.md | . |   | . | 7 | . | End-to-End Testing | . | {: .label .label-green }Complete | . | sprint-07-e2e-testing.md | . |   | . | 8 | . | Documentation &amp; Service Cleanup | . | {: .label .label-green }Complete ✅ | . | sprint-08-documentation-and-cleanup.md | . |   | . | 9 | . | Canonical Problem Architecture - Phase 1: Data Model &amp; Core Matching | . | {: .label .label-green }COMPLETED | . | sprint-09-canonical-problem-phase-1.md | . |   | . | 10 | . | Canonical Problem Architecture - Phase 2: Agent Workflows for MEDIUM/LOW Confidence | . | {: .label .label-yellow }In Progress | . | sprint-10-canonical-problem-phase-2.md | . |   | . ",
     "url": "/agentic-kg/status/sprints.html",
     
     "relUrl": "/status/sprints.html"
+  },"72": {
+    "doc": "Topic Taxonomy",
+    "title": "Topic Taxonomy",
+    "content": "The Topic taxonomy is agentic-kg’s controlled vocabulary for classifying research work. It is a hand-curated, three-level hierarchy that behaves as a closed set: extraction can only classify a paper into topics that already exist in the taxonomy — it cannot invent new ones. | Data (source of truth): packages/core/src/agentic_kg/knowledge_graph/data/seed_taxonomy.yml | Loader / validator / exporter: knowledge_graph/taxonomy.py | Node model: Topic in models/entities.py (see Entity Catalog) | Level enum: TopicLevel in models/enums.py | CLI: agentic-kg load-taxonomy | . ",
+    "url": "/agentic-kg/reference/topic-taxonomy.html",
+    
+    "relUrl": "/reference/topic-taxonomy.html"
+  },"73": {
+    "doc": "Topic Taxonomy",
+    "title": "The three levels",
+    "content": "TopicLevel defines exactly three levels; nesting is strict. | Level | Meaning | Example | Parent | . | domain | Broad field | Computer Science | (none — root) | . | area | Sub-field within a domain | Natural Language Processing | a domain | . | subtopic | Specific topic within an area | Information Extraction | an area | . graph TD CS[\"Computer Science&lt;br/&gt;&lt;i&gt;(domain)&lt;/i&gt;\"] --&gt; NLP[\"Natural Language Processing&lt;br/&gt;&lt;i&gt;(area)&lt;/i&gt;\"] NLP --&gt; IE[\"Information Extraction&lt;br/&gt;&lt;i&gt;(subtopic)&lt;/i&gt;\"] NLP --&gt; QA[\"Question Answering&lt;br/&gt;&lt;i&gt;(subtopic)&lt;/i&gt;\"] NLP --&gt; LLM[\"Large Language Models&lt;br/&gt;&lt;i&gt;(subtopic)&lt;/i&gt;\"] CS --&gt; IR[\"Information Retrieval&lt;br/&gt;&lt;i&gt;(area)&lt;/i&gt;\"] IR --&gt; RAG[\"Retrieval-Augmented Generation&lt;br/&gt;&lt;i&gt;(subtopic)&lt;/i&gt;\"] classDef domain fill:#e8f0fe,stroke:#4285f4,color:#111; classDef area fill:#fef7e0,stroke:#f9ab00,color:#111; classDef sub fill:#e6f4ea,stroke:#34a853,color:#111; class CS domain; class NLP,IR area; class IE,QA,LLM,RAG sub; . Edges above are SUBTOPIC_OF in the graph (child → parent). The diagram shows a slice; the full seed set is below. Structural rules (enforced by parse_taxonomy and the Topic model): . | Allowed parent → child transitions: ∅ → domain → area → subtopic. A subtopic cannot nest further; a domain cannot appear as a child. | A domain topic must not have a parent (parent_id is None). | Names must be unique within the same (parent, level). | In the graph, hierarchy is materialized as (child)-[:SUBTOPIC_OF]-&gt;(parent). | . ",
+    "url": "/agentic-kg/reference/topic-taxonomy.html#the-three-levels",
+    
+    "relUrl": "/reference/topic-taxonomy.html#the-three-levels"
+  },"74": {
+    "doc": "Topic Taxonomy",
+    "title": "Current seed taxonomy",
+    "content": "Six areas under a single Computer Science domain, focused on the project’s corpus (graph retrieval, knowledge graphs, NLP, ML, IR). This mirrors seed_taxonomy.yml — edit that file, not this table, to change the taxonomy. Computer Science (domain) . | Area | Subtopics | . | Natural Language Processing | Information Extraction · Question Answering · Machine Translation · Text Summarization · Large Language Models | . | Information Retrieval | Graph-Based Retrieval · Dense Retrieval · Retrieval-Augmented Generation · Hybrid Retrieval | . | Knowledge Representation | Knowledge Graphs · Ontology Engineering · Entity Linking | . | Machine Learning | Deep Learning · Transfer Learning · Graph Neural Networks · Self-Supervised Learning · Reinforcement Learning | . | Data Management | Graph Databases · Vector Databases | . | AI Agents and Reasoning | Multi-Agent Systems · Tool Use · Chain-of-Thought Reasoning | . Each node also carries a one-line description (see the YAML) that feeds a richer embedding for semantic matching. ",
+    "url": "/agentic-kg/reference/topic-taxonomy.html#current-seed-taxonomy",
+    
+    "relUrl": "/reference/topic-taxonomy.html#current-seed-taxonomy"
+  },"75": {
+    "doc": "Topic Taxonomy",
+    "title": "YAML schema",
+    "content": "The taxonomy file is a recursive list of nodes: . - name: str # required, length &gt;= 2 level: str # required, one of domain/area/subtopic description: str # optional — used for richer embeddings source: str # optional, default \"manual\" openalex_id: str # optional children: list # optional, same schema, one level deeper . flatten_taxonomy walks this recursively (no fixed depth assumption), so a future taxonomy deeper than three levels would work without code changes — though the level enum would need extending first. ",
+    "url": "/agentic-kg/reference/topic-taxonomy.html#yaml-schema",
+    
+    "relUrl": "/reference/topic-taxonomy.html#yaml-schema"
+  },"76": {
+    "doc": "Topic Taxonomy",
+    "title": "How the taxonomy is used",
+    "content": ". | Loading (idempotent). load_taxonomy merges each node via repository.merge_topic keyed on (name, level, parent_id), creating SUBTOPIC_OF edges automatically. Re-running is a no-op for unchanged nodes and reports {created, matched} counts. | Closed-set extraction. TopicExtractor snapshots the taxonomy at startup and builds a closed-set Literal schema over its names, so the LLM can only return topics that exist in the taxonomy — off-taxonomy classifications are impossible by construction. | Staleness auditing. extraction/taxonomy_hash.py computes a canonical hash (canonical_taxonomy_hash) over the taxonomy. Papers are stamped with the hash they were ingested under, so when the taxonomy changes, previously ingested papers can be detected as stale and re-classified. | Export / round-trip. export_taxonomy reads the live graph back into the YAML shape (embeddings excluded, regenerated on import), keeping the file human-editable. | . ",
+    "url": "/agentic-kg/reference/topic-taxonomy.html#how-the-taxonomy-is-used",
+    
+    "relUrl": "/reference/topic-taxonomy.html#how-the-taxonomy-is-used"
+  },"77": {
+    "doc": "Topic Taxonomy",
+    "title": "Vocabulary style vs. other entities",
+    "content": "The Topic taxonomy is the graph’s only closed-set vocabulary. The other concept-like nodes are open: . | Node | Vocabulary | New values enter by | . | Topic | closed-set | editing the seed taxonomy + reload | . | Model | hybrid (open + canonical seeds) | extraction; seeds write-protected | . | ResearchConcept | open-set | extraction; deduped at 0.90 cosine | . | Method | open-set | extraction; deduped at 0.90 cosine | . ",
+    "url": "/agentic-kg/reference/topic-taxonomy.html#vocabulary-style-vs-other-entities",
+    
+    "relUrl": "/reference/topic-taxonomy.html#vocabulary-style-vs-other-entities"
+  },"78": {
+    "doc": "Topic Taxonomy",
+    "title": "Known limitations / roadmap",
+    "content": "Scaling the taxonomy is a tracked, open backlog item — T-1 in llm/features/BACKLOG.md: “Taxonomy management at scale — versioned taxonomy with branching + merge + conflict resolution.” Today the taxonomy is a single hand-curated file with no versioning or branching; growing it or reconciling concurrent edits is a manual, re-extract operation. ",
+    "url": "/agentic-kg/reference/topic-taxonomy.html#known-limitations--roadmap",
+    
+    "relUrl": "/reference/topic-taxonomy.html#known-limitations--roadmap"
   }
 }
