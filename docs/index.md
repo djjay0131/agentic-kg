@@ -18,6 +18,7 @@ A system that builds research knowledge graphs from scientific papers and uses A
 
 - [**About**](about/) — project overview, architecture, how it works, quickstart, related work, roadmap, screenshots, contributing
 - [**Status**](status/) — live dashboard, backlog, sprints, changelog, service inventory
+- [**Reference**](reference/) — domain model & taxonomy: entity catalog, entity relationships, Topic taxonomy
 
 ## Quick links
 
