@@ -1,0 +1,15 @@
+# Auto-generated deployment manifest
+# Last updated: 2026-07-21T18:08:34Z
+
+environment: staging
+deployed_at: 2026-07-21T18:08:34Z
+deployed_by: github-actions
+commit: 8d2dac124a132b9acea20a0de6fe8d2dc08d8756
+
+services:
+  api:
+    image: us-central1-docker.pkg.dev/vt-gcp-00042/agentic-kg/api:latest
+    sha: 8d2dac124a132b9acea20a0de6fe8d2dc08d8756
+  ui:
+    image: us-central1-docker.pkg.dev/vt-gcp-00042/agentic-kg/ui:latest
+    sha: 8d2dac124a132b9acea20a0de6fe8d2dc08d8756
