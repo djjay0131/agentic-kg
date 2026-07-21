@@ -1,6 +1,26 @@
 # Active Context
 
-Last updated: 2026-07-12
+Last updated: 2026-07-14
+
+## ✅ SM-4 IMPLEMENTED (2026-07-14) — ROOT CAUSE: unused `denario` dep pins openai==1.99.9
+
+Spec `llm/features/extraction-dep-pinning.md` (IMPLEMENTED). **The floors-first plan FAILED and revealed a deeper root cause.**
+
+**What happened:** raising `instructor>=1.14` + `openai>=2.0` made CI's pip hit `resolution-too-deep` (reproduced locally 3×). `uv pip compile` diagnosed the true cause pip was hiding: **`denario 1.0.1` → `cmbagent >=0.0.1.post63` → `cmbagent-autogen >=0.0.91.post11` hard-pins `openai==1.99.9`** (exact). The only instructor accepting openai 1.99.9 is `<1.14`, and `instructor 1.12` fails to `import instructor` there; `instructor>=1.14` requires `openai>=2.0`. So **with denario present, a working instructor was impossible** — the broken combo was the ONLY resolvable one. (The repo `.venv` has openai 2.30 only because it was force-upgraded post-install into a state a clean resolve never produces — that misled the earlier "co-resolves fine" claim; DISREGARD that.)
+
+**Key fact:** `denario` is imported NOWHERE in `packages/` (`grep -rn 'import denario\|from denario' packages/` → empty). It was dead weight.
+
+**Fix (simpler than floors):**
+- **Removed `denario` from `packages/core/pyproject.toml` AND root `pyproject.toml`.** Dissolves the openai==1.99.9 pin + the whole cmbagent/autogen tree.
+- `instructor>=1.14` + explicit `openai>=2.0` (now satisfiable); root `openai>=1.0.0`→`>=2.0`.
+- `llm_client.py` both `_get_instructor_client` blocks: `ModuleNotFoundError` ("not installed") vs other `ImportError` ("installed but failed to import — version conflict: <real error>", chained `from e`).
+- New `test_instructor_import.py` (hermetic guard + error-path, both clients).
+
+**Verified:** `uv` resolve 0.8s clean → instructor 1.15.4/openai 2.46.0 (was resolution-too-deep); combined root+core resolve clean; **32 extraction tests pass in a FRESH clean-resolve py3.12 venv**. `uv` used only as a diagnostic — NOT added to the project. `uv.lock` now low-priority (SM-4b).
+
+**⚠️ If denario is ever actually integrated (docs call it the core paper-gen lib, but code never uses it), wire it as an OPTIONAL EXTRA in an isolated env/service so it can't re-pin openai on the extraction path.**
+
+**Status:** PR #36 (branch `fix/sm4-extraction-dep-pinning`) — first push had the floors-only version that hit resolution-too-deep in CI; amending with the denario-removal fix and re-pushing. AC-4 (smoke-ingest entities>0) pending first staging deploy. **This is the service-code change that triggers the first real build+deploy → also exercises deploy AC-6 (SHA parity).**
 
 ## Current Work Focus
 

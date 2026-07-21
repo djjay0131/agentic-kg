@@ -11,10 +11,13 @@ license = { text = "MIT" }
 keywords = ["knowledge-graph", "research", "agents", "llm", "scientific-discovery"]
 
 dependencies = [
-    "denario>=1.0.0",
+    # denario removed (SM-4): never imported anywhere in the repo, and it
+    # transitively hard-pins openai==1.99.9 (via cmbagent-autogen), which
+    # conflicts with instructor>=1.14's openai>=2.0 and breaks entity
+    # extraction. See llm/features/extraction-dep-pinning.md.
     "neo4j>=5.0.0",
     "pydantic>=2.0.0",
-    "openai>=1.0.0",
+    "openai>=2.0",
 ]
 
 [project.optional-dependencies]

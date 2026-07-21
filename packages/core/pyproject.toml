@@ -5,7 +5,6 @@ description = "Core knowledge graph and agent logic for Agentic KG"
 requires-python = ">=3.12"
 
 dependencies = [
-    "denario>=1.0.0",
     "neo4j>=5.0.0",
     "pydantic>=2.0.0",
     "PyYAML>=6.0",
@@ -16,7 +15,14 @@ dependencies = [
     "feedparser>=6.0.0",
     # Extraction
     "PyMuPDF>=1.23.0",
-    "instructor>=1.0.0",
+    # instructor <1.14 paired with openai 1.99.9 fails to `import instructor`
+    # (SM-4). instructor>=1.14 requires openai>=2.0. This is only resolvable
+    # because `denario` was removed from this package's deps — denario pulled
+    # cmbagent-autogen, which hard-pins openai==1.99.9, making openai>=2.0
+    # unsatisfiable and blowing up pip's resolver. denario was never imported by
+    # core (verified repo-wide); see SM-4 / extraction-dep-pinning.md.
+    "instructor>=1.14",
+    "openai>=2.0",
     # Agent workflow
     "langgraph>=0.2.0",
     "langchain-core>=0.3.0",
