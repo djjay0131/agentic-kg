@@ -18,31 +18,31 @@ Every spec that has reached SPECIFIED or beyond. Newest first within each theme.
 
 | # | Feature | Status | One-liner |
 |---|---------|--------|-----------|
-| E-1 | [Topic / Research Area entities](topic-research-area-entities.md) | VERIFIED | First-class Topic nodes with hierarchy; replaces flat `domain` string; enables `BELONGS_TO` graph edges. |
-| E-2 | [ResearchConcept entities](research-concept-entities.md) | VERIFIED | Generic research concepts as nodes; `INVOLVES_CONCEPT` / `DISCUSSES` edges; embedding-based dedup. |
-| E-3 | [Model / Architecture entities](model-entity.md) | VERIFIED | ML models as first-class nodes (extracted from Baseline strings); `USES_MODEL`, `VARIANT_OF`. |
-| E-4 | [Method / Methodology entities](method-entity.md) | VERIFIED | Research methods as nodes; `APPLIES_METHOD` edges from papers. |
-| E-5 | [Citation graph](citation-graph.md) | VERIFIED | `CITES` edges from Semantic Scholar reference lists; influence chains + hub analysis. |
-| E-6 | [Entity descriptions at create-time](entity-descriptions.md) | VERIFIED | Backfills `description` on Topic/Concept/Model/Method for richer `{name}: {description}` embeddings. |
-| E-7 | [Cross-entity normalization](cross-entity-normalization.md) | VERIFIED | LLM router disambiguates Concept vs Model vs Method for the same surface form (e.g. "attention mechanism"). |
-| E-8 V1 | [Extraction prompt expansion (Topics + Concepts)](extraction-prompt-expansion.md) | VERIFIED | Extends ingestion extractor to populate Topic + ResearchConcept from paper text. |
-| E-8 V2 | [Extraction prompt expansion V2 (Models + Methods + Citations)](extraction-prompt-expansion-v2.md) | VERIFIED | Adds Model + Method extractors and wires citation population into `PaperImporter`. |
-| — | [Entity pipeline orchestration](entity-pipeline-orchestration.md) | VERIFIED | Wires E-1..E-8 V2 + E-7 into production `ingest_papers`; default-on with skip-check + audit trail. |
+| E-1 | [Topic / Research Area entities](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/topic-research-area-entities.md) | VERIFIED | First-class Topic nodes with hierarchy; replaces flat `domain` string; enables `BELONGS_TO` graph edges. |
+| E-2 | [ResearchConcept entities](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/research-concept-entities.md) | VERIFIED | Generic research concepts as nodes; `INVOLVES_CONCEPT` / `DISCUSSES` edges; embedding-based dedup. |
+| E-3 | [Model / Architecture entities](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/model-entity.md) | VERIFIED | ML models as first-class nodes (extracted from Baseline strings); `USES_MODEL`, `VARIANT_OF`. |
+| E-4 | [Method / Methodology entities](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/method-entity.md) | VERIFIED | Research methods as nodes; `APPLIES_METHOD` edges from papers. |
+| E-5 | [Citation graph](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/citation-graph.md) | VERIFIED | `CITES` edges from Semantic Scholar reference lists; influence chains + hub analysis. |
+| E-6 | [Entity descriptions at create-time](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/entity-descriptions.md) | VERIFIED | Backfills `description` on Topic/Concept/Model/Method for richer `{name}: {description}` embeddings. |
+| E-7 | [Cross-entity normalization](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/cross-entity-normalization.md) | VERIFIED | LLM router disambiguates Concept vs Model vs Method for the same surface form (e.g. "attention mechanism"). |
+| E-8 V1 | [Extraction prompt expansion (Topics + Concepts)](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/extraction-prompt-expansion.md) | VERIFIED | Extends ingestion extractor to populate Topic + ResearchConcept from paper text. |
+| E-8 V2 | [Extraction prompt expansion V2 (Models + Methods + Citations)](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/extraction-prompt-expansion-v2.md) | VERIFIED | Adds Model + Method extractors and wires citation population into `PaperImporter`. |
+| — | [Entity pipeline orchestration](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/entity-pipeline-orchestration.md) | VERIFIED | Wires E-1..E-8 V2 + E-7 into production `ingest_papers`; default-on with skip-check + audit trail. |
 
 ### Ingestion + infra
 
 | # | Feature | Status | One-liner |
 |---|---------|--------|-----------|
-| D-1 | [Ingest real papers into KG](d1-ingest-real-papers.md) | VERIFIED | End-to-end ingestion CLI: search → import metadata → extract Problems → integrate. |
-| D-1a | [Cloud Run Jobs async ingestion](cloud-run-jobs-ingestion.md) | VERIFIED | Terraform-managed Cloud Run Job for durable async ingestion; env-var driven, no in-memory job store. |
-| — | [CI smoke test (ingestion loop)](ci-smoke-test-ingestion.md) | VERIFIED | GHA workflow — daily cron + PR path-filter + `workflow_dispatch` — asserts entity edges land in ephemeral Neo4j. |
-| — | [Deploy pipeline fix + version pinning](deploy-pipeline-fix.md) | SPECIFIED | Fixes 2-month `Deploy Master` startup_failure (missing GH env), adds ingest-Job deploy step, Terraform lifecycle guardrail + HCL-invariant lint, `/version` endpoint + UI badge + Job SHA logging. Ships as 3 PRs (Recovery → TF safety → Version pinning). Review complete; 19 ACs. |
+| D-1 | [Ingest real papers into KG](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/d1-ingest-real-papers.md) | VERIFIED | End-to-end ingestion CLI: search → import metadata → extract Problems → integrate. |
+| D-1a | [Cloud Run Jobs async ingestion](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/cloud-run-jobs-ingestion.md) | VERIFIED | Terraform-managed Cloud Run Job for durable async ingestion; env-var driven, no in-memory job store. |
+| — | [CI smoke test (ingestion loop)](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/ci-smoke-test-ingestion.md) | VERIFIED | GHA workflow — daily cron + PR path-filter + `workflow_dispatch` — asserts entity edges land in ephemeral Neo4j. |
+| — | [Deploy pipeline fix + version pinning](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/deploy-pipeline-fix.md) | SPECIFIED | Fixes 2-month `Deploy Master` startup_failure (missing GH env), adds ingest-Job deploy step, Terraform lifecycle guardrail + HCL-invariant lint, `/version` endpoint + UI badge + Job SHA logging. Ships as 3 PRs (Recovery → TF safety → Version pinning). Review complete; 19 ACs. |
 
 ### Docs / site
 
 | # | Feature | Status | One-liner |
 |---|---------|--------|-----------|
-| — | [Enhance GitHub Pages site](enhance-github-pages.md) | VERIFIED (Phase A) | Rebuilds docs generator to read `llm/memory_bank/`; unified nav; auto-published backlog. |
+| — | [Enhance GitHub Pages site](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/enhance-github-pages.md) | VERIFIED (Phase A) | Rebuilds docs generator to read `llm/memory_bank/`; unified nav; auto-published backlog. |
 
 ---
 
@@ -116,11 +116,11 @@ Require spec of *how* to measure.
 
 | # | Criterion | Source | Status |
 |---|-----------|--------|--------|
-| V-1 | Extraction F1 within 10% of inter-annotator agreement | [productContext](../memory_bank/productContext.md) | Not measured |
-| V-2 | MRR/nDCG improvement over keyword + citation baselines | [productContext](../memory_bank/productContext.md) | Not measured |
-| V-3 | Faster time to actionable continuation | [productContext](../memory_bank/productContext.md) | Not measured |
-| V-4 | Higher user-reported confidence vs. opaque AI | [productContext](../memory_bank/productContext.md) | Not measured |
-| V-5 | Active use by research teams | [productContext](../memory_bank/productContext.md) | Not achieved |
+| V-1 | Extraction F1 within 10% of inter-annotator agreement | [productContext](https://github.com/djjay0131/agentic-kg/blob/master/llm/memory_bank/productContext.md) | Not measured |
+| V-2 | MRR/nDCG improvement over keyword + citation baselines | [productContext](https://github.com/djjay0131/agentic-kg/blob/master/llm/memory_bank/productContext.md) | Not measured |
+| V-3 | Faster time to actionable continuation | [productContext](https://github.com/djjay0131/agentic-kg/blob/master/llm/memory_bank/productContext.md) | Not measured |
+| V-4 | Higher user-reported confidence vs. opaque AI | [productContext](https://github.com/djjay0131/agentic-kg/blob/master/llm/memory_bank/productContext.md) | Not measured |
+| V-5 | Active use by research teams | [productContext](https://github.com/djjay0131/agentic-kg/blob/master/llm/memory_bank/productContext.md) | Not achieved |
 
 ---
 

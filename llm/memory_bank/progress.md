@@ -126,3 +126,7 @@ Each cycle: spec → implement → verify.
 | E-7 Cross-entity normalization | 2026-06-20 | `a3c8586` |
 | entity-pipeline-orchestration | 2026-06-24 | `8ff4195` |
 | ci-smoke-test-ingestion | 2026-07-02 | `330f998` |
+
+## Governance
+
+- 2026-07-13: Adopted agentic-governance v0.2 (`docs/governance-delta.md`, ADR-0001 declares `systemPatterns.md` interim design authority; Steward Activation Status: INACTIVE).
