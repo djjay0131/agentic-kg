@@ -191,9 +191,18 @@ class OpenAIClient(BaseLLMClient[T]):
         if self._instructor_client is None:
             try:
                 import instructor
-            except ImportError as e:
+            except ModuleNotFoundError as e:
+                # instructor truly isn't installed — the original message is correct.
                 raise LLMError(
                     "instructor package not installed. Install with: pip install instructor"
+                ) from e
+            except ImportError as e:
+                # instructor IS installed but its import chain failed — almost
+                # always a resolved-but-untested version conflict (SM-4). Surface
+                # the real error instead of the misleading "not installed".
+                raise LLMError(
+                    f"instructor is installed but failed to import — likely a "
+                    f"dependency version conflict: {e}"
                 ) from e
 
             client = self._get_client()
@@ -309,9 +318,18 @@ class AnthropicClient(BaseLLMClient[T]):
         if self._instructor_client is None:
             try:
                 import instructor
-            except ImportError as e:
+            except ModuleNotFoundError as e:
+                # instructor truly isn't installed — the original message is correct.
                 raise LLMError(
                     "instructor package not installed. Install with: pip install instructor"
+                ) from e
+            except ImportError as e:
+                # instructor IS installed but its import chain failed — almost
+                # always a resolved-but-untested version conflict (SM-4). Surface
+                # the real error instead of the misleading "not installed".
+                raise LLMError(
+                    f"instructor is installed but failed to import — likely a "
+                    f"dependency version conflict: {e}"
                 ) from e
 
             client = self._get_client()

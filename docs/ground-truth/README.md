@@ -1,3 +1,8 @@
+---
+title: Ground-Truth Curation
+nav_exclude: true
+---
+
 # Ground-Truth Curation — Importer Validation Set
 
 **Owner:** Victoria
