@@ -69,40 +69,40 @@
     
     "relUrl": "/about/how-it-works.html"
   },"10": {
-    "doc": "Status",
-    "title": "Status",
-    "content": "Live project-state dashboard, auto-regenerated from llm/memory_bank/ and llm/features/ on every push to master. ",
-    "url": "/agentic-kg/status/",
-    
-    "relUrl": "/status/"
-  },"11": {
-    "doc": "Status",
-    "title": "Graph snapshot",
-    "content": "| Metric | Value | . | Last updated | 2026-05-20 | . | Graph nodes | 282 | . | Graph edges | 151 | . | Problem mentions | 18 | . | Problem concepts | 18 | . | Sanity checks | 5/5 passing | . | Completed sprints | 11 | . | Tests passing | 1312 | . ",
-    "url": "/agentic-kg/status/#graph-snapshot",
-    
-    "relUrl": "/status/#graph-snapshot"
-  },"12": {
-    "doc": "Status",
-    "title": "Drill-down",
-    "content": ". | Backlog → — active and resolved features, auto-regenerated from llm/features/BACKLOG.md | Sprints → — all 11 completed sprints with links to source docs | Changelog → — curated highlights | Service inventory → — deployed endpoints and infra components | . ",
-    "url": "/agentic-kg/status/#drill-down",
-    
-    "relUrl": "/status/#drill-down"
-  },"13": {
     "doc": "About",
     "title": "About Agentic KG",
     "content": "Project overview, architecture, quickstart, and roadmap. Placeholder landing — Phase A. Individual pages in this section carry their own placeholder content. ",
     "url": "/agentic-kg/about/#about-agentic-kg",
     
     "relUrl": "/about/#about-agentic-kg"
-  },"14": {
+  },"11": {
     "doc": "About",
     "title": "About",
     "content": " ",
     "url": "/agentic-kg/about/",
     
     "relUrl": "/about/"
+  },"12": {
+    "doc": "Status",
+    "title": "Status",
+    "content": "Live project-state dashboard, auto-regenerated from llm/memory_bank/ and llm/features/ on every push to master. ",
+    "url": "/agentic-kg/status/",
+    
+    "relUrl": "/status/"
+  },"13": {
+    "doc": "Status",
+    "title": "Graph snapshot",
+    "content": "| Metric | Value | . | Last updated | 2026-05-20 | . | Graph nodes | 282 | . | Graph edges | 151 | . | Problem mentions | 18 | . | Problem concepts | 18 | . | Sanity checks | 5/5 passing | . | Completed sprints | 11 | . | Tests passing | 1312 | . ",
+    "url": "/agentic-kg/status/#graph-snapshot",
+    
+    "relUrl": "/status/#graph-snapshot"
+  },"14": {
+    "doc": "Status",
+    "title": "Drill-down",
+    "content": ". | Backlog → — active and resolved features, auto-regenerated from llm/features/BACKLOG.md | Sprints → — all 11 completed sprints with links to source docs | Changelog → — curated highlights | Service inventory → — deployed endpoints and infra components | . ",
+    "url": "/agentic-kg/status/#drill-down",
+    
+    "relUrl": "/status/#drill-down"
   },"15": {
     "doc": "Home",
     "title": "Agentic KG",
