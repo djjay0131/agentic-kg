@@ -1,0 +1,54 @@
+name: Governance Checks
+
+# Runs the canonical agentic-governance ruleset (delta / ADR / L0-allowlist /
+# doc-link checks) against this repo on every PR and on pushes to master.
+#
+# The checker script lives in the *public* agentic-governance repo, not here,
+# so this job fetches it pinned to a commit SHA for reproducibility (keep the
+# SHA in sync with the governance version pinned in docs/governance-delta.md).
+# It is cloned OUTSIDE the workspace ($RUNNER_TEMP) so the script's own file
+# scan (rooted at `git rev-parse --show-toplevel`) does not walk into it.
+#
+# `--base origin/master` is required: this repo's default branch is master, and
+# the script defaults to origin/main.
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  governance-checks:
+    name: Governance Checks
+    runs-on: ubuntu-latest
+    env:
+      GOVERNANCE_REPO: djjay0131/agentic-governance
+      # agentic-governance v0.2.0 (VERSION 0.2.0). Bump alongside the version
+      # pinned in docs/governance-delta.md when adopting a newer ruleset.
+      GOVERNANCE_REF: 31f2771149bca78acdd8fbcac53f0b4a94f1bb0c
+    steps:
+      - name: Check out repo (full history so origin/master exists for the diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure origin/master ref is present
+        run: git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Fetch pinned canonical governance ruleset (outside the workspace)
+        run: |
+          git clone --filter=blob:none --no-checkout \
+            "https://github.com/${GOVERNANCE_REPO}.git" "${RUNNER_TEMP}/governance-src"
+          git -C "${RUNNER_TEMP}/governance-src" checkout --quiet "${GOVERNANCE_REF}"
+
+      - name: Run governance checks
+        run: node "${RUNNER_TEMP}/governance-src/governance/scripts/governance-checks.mjs" --base origin/master

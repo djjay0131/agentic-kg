@@ -96,10 +96,12 @@ and the script defaults to `origin/main`; without the flag the `adr-status`
 and `l0-allowlist` checks error out on `fatal: ambiguous argument
 'origin/main'`. With it, all three checks run (see below).
 
-CI wiring is still a later, separate change: the canonical script lives
-outside this repo (`~/code/agentic-governance/…`), so a CI job must first
-vendor or fetch it before it can run in Actions. Until then the check is
-run locally / on demand.
+CI wiring: **live** via `.github/workflows/governance-checks.yml` (runs on
+every PR and on pushes to master). Because the canonical script lives
+outside this repo, the workflow fetches the public agentic-governance repo
+pinned to a commit SHA (kept in sync with the governance version above) and
+runs it with `--base origin/master`. Not yet a *required* status check —
+promote it in branch protection once it has run green across a few PRs.
 
 ## L0 Path Allowlist
 
