@@ -1,0 +1,116 @@
+<h1 id="e-3--model--architecture-entities">E-3 · Model / Architecture entities</h1>
+
+<p class="label label-green">VERIFIED</p>
+
+<p><strong>Backlog ID:</strong> E-3 · <strong>Depends on:</strong> none (inherits E-1 / E-2 patterns) ·
+<strong>Enabled:</strong> model-adoption queries, E-8-V2 model extraction · <strong>Spec:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/model-entity.md"><code class="language-plaintext highlighter-rouge">model-entity.md</code></a></p>
+
+<h2 id="why">Why</h2>
+
+<p>ML models used to live only as opaque substrings inside <code class="language-plaintext highlighter-rouge">Baseline.name</code> fields
+embedded in <code class="language-plaintext highlighter-rouge">Problem</code> nodes — <code class="language-plaintext highlighter-rouge">Baseline(name="GPT-4 baseline trained for 100
+epochs", ...)</code>. A researcher asking “which papers in the corpus actually used
+BERT?” got nothing from the graph: the data was there, but it wasn’t searchable,
+wasn’t deduplicated, and wasn’t linked to Papers as real structure. The gap
+analysis flagged Model as the third-most-common entity type in the reference
+paper’s results and the third-highest-priority missing node type.</p>
+
+<h2 id="what-shipped">What shipped</h2>
+
+<p>A first-class <code class="language-plaintext highlighter-rouge">Model</code> node type with a <code class="language-plaintext highlighter-rouge">USES_MODEL</code> edge (Paper → Model), so the
+graph can answer which papers use or benchmark against a given model. Models
+carry <code class="language-plaintext highlighter-rouge">architecture</code>, <code class="language-plaintext highlighter-rouge">model_type</code>, <code class="language-plaintext highlighter-rouge">year_introduced</code>, <code class="language-plaintext highlighter-rouge">introducing_paper_doi</code>,
+<code class="language-plaintext highlighter-rouge">aliases</code>, a 1536-dim embedding, and a denormalized <code class="language-plaintext highlighter-rouge">usage_count</code>. A curated
+seed set of canonical models is loaded from YAML, and every create attempt runs
+embedding-based dedup so surface variants (<code class="language-plaintext highlighter-rouge">bert-base</code>, <code class="language-plaintext highlighter-rouge">BERT-large</code>) collapse
+onto one node. See the
+<a href="/agentic-kg/previews/pr-44/reference/entity-catalog">Entity Catalog</a> for the node in
+context.</p>
+
+<h2 id="design-decisions">Design decisions</h2>
+
+<p><strong>Hybrid open-set, not closed vocabulary.</strong> Unlike E-1’s closed taxonomy, any
+name can become a <code class="language-plaintext highlighter-rouge">Model</code> — the extractor is not bound to a fixed list. But the
+curated seed entries in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/knowledge_graph/data/seed_models.yml"><code class="language-plaintext highlighter-rouge">seed_models.yml</code></a>
+are flagged <code class="language-plaintext highlighter-rouge">is_canonical=True</code> and <strong>write-protected</strong> during merges: an
+incoming non-canonical name can never rename or downgrade a canonical node — it
+is folded into that node’s aliases instead. A canonical seed landing <em>after</em> a
+community near-duplicate promotes the existing node (prior name moves to
+aliases, <code class="language-plaintext highlighter-rouge">usage_count</code> survives). This keeps well-known model names clean and
+governable by PR while still admitting the long tail.</p>
+
+<p><strong>Dedup threshold 0.95 cosine — stricter than E-2.</strong> ResearchConcept dedup runs
+at 0.90; Model runs at <code class="language-plaintext highlighter-rouge">DEFAULT_MODEL_DEDUP_THRESHOLD = 0.95</code> because the
+model-name space is more collision-prone (<code class="language-plaintext highlighter-rouge">BERT</code> vs <code class="language-plaintext highlighter-rouge">DistilBERT</code> must <em>not</em>
+merge). A 10-pair hand-labeled eval gates the threshold against both false
+merges and silent recall loss.</p>
+
+<p><strong>No migration of <code class="language-plaintext highlighter-rouge">Baseline</code> strings.</strong> Existing baseline substrings stay put;
+Model nodes are populated only by the seed loader, the API, and (later) the
+E-8-V2 extractor. Dirty baseline strings would pollute a curated set that never
+recovers — a clean forward path beats backward-compat migration, matching the
+project’s rebuild-over-migrate stance.</p>
+
+<p><strong>One generalized link helper.</strong> Rather than copy E-2’s concept-linking code,
+E-3 generalized <code class="language-plaintext highlighter-rouge">_link_entity_to_concept</code> into <code class="language-plaintext highlighter-rouge">_link_entity_to_node</code> backed by
+<code class="language-plaintext highlighter-rouge">_NODE_LINK_RELATIONSHIPS</code>, which now registers <code class="language-plaintext highlighter-rouge">DISCUSSES</code>, <code class="language-plaintext highlighter-rouge">INVOLVES_CONCEPT</code>,
+and <code class="language-plaintext highlighter-rouge">USES_MODEL</code> (E-4’s <code class="language-plaintext highlighter-rouge">APPLIES_METHOD</code> reuses it). Existing concept call sites
+route through the generalized helper unchanged.</p>
+
+<h2 id="how-it-works">How it works</h2>
+
+<ul>
+  <li><strong>Model:</strong> <code class="language-plaintext highlighter-rouge">Model</code> in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/knowledge_graph/models/entities.py"><code class="language-plaintext highlighter-rouge">models/entities.py</code></a>
+— <code class="language-plaintext highlighter-rouge">name</code>, <code class="language-plaintext highlighter-rouge">description</code>, <code class="language-plaintext highlighter-rouge">aliases</code>, <code class="language-plaintext highlighter-rouge">architecture</code>, <code class="language-plaintext highlighter-rouge">model_type</code>,
+<code class="language-plaintext highlighter-rouge">year_introduced</code>, <code class="language-plaintext highlighter-rouge">introducing_paper_doi</code>, <code class="language-plaintext highlighter-rouge">is_canonical</code>, 1536-dim
+<code class="language-plaintext highlighter-rouge">embedding</code>, and denormalized <code class="language-plaintext highlighter-rouge">usage_count</code>.</li>
+  <li><strong>Schema:</strong> <code class="language-plaintext highlighter-rouge">model_id_unique</code> constraint; <code class="language-plaintext highlighter-rouge">model_name_idx</code> and
+<code class="language-plaintext highlighter-rouge">model_is_canonical_idx</code> indexes; <code class="language-plaintext highlighter-rouge">model_embedding_idx</code> vector index (1536-dim,
+cosine) — all in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/knowledge_graph/schema.py"><code class="language-plaintext highlighter-rouge">schema.py</code></a>.</li>
+  <li><strong>Dedup + canonical protection:</strong> <code class="language-plaintext highlighter-rouge">create_or_merge_model</code> in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/knowledge_graph/repository.py"><code class="language-plaintext highlighter-rouge">repository.py</code></a>
+embeds <code class="language-plaintext highlighter-rouge">"{name}: {description}"</code>, vector-searches at ≥ 0.95, and applies the
+merge-direction rule (non-canonical → canonical allowed; the reverse is not).
+On embedding-service failure it falls back to create-without-embedding, skips
+dedup, and logs a WARN.</li>
+  <li><strong>Edge + counter:</strong> <code class="language-plaintext highlighter-rouge">link_paper_to_model</code> / <code class="language-plaintext highlighter-rouge">unlink_paper_from_model</code> MERGE the
+<code class="language-plaintext highlighter-rouge">USES_MODEL</code> edge idempotently and tick <code class="language-plaintext highlighter-rouge">usage_count</code> transactionally;
+<code class="language-plaintext highlighter-rouge">get_papers_for_model</code> is the inverse traversal.</li>
+  <li><strong>Seed loader:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/knowledge_graph/seed_models.py"><code class="language-plaintext highlighter-rouge">seed_models.py</code></a>
+(<code class="language-plaintext highlighter-rouge">load_seed_models</code>) idempotently loads the canonical YAML — re-running is a
+no-op, reporting <code class="language-plaintext highlighter-rouge">{created, merged}</code>.</li>
+</ul>
+
+<p>For the node’s attributes and its edges in context, see the
+<a href="/agentic-kg/previews/pr-44/reference/entity-catalog#model-e-3">Entity Catalog</a> and
+<a href="/agentic-kg/previews/pr-44/reference/entity-relationships">Entity Relationships</a>.</p>
+
+<h2 id="verification">Verification</h2>
+
+<ul>
+  <li><strong>Tests:</strong> Model model validation, schema init, idempotent seed load,
+canonical-protection merge directions, <code class="language-plaintext highlighter-rouge">USES_MODEL</code> edge + <code class="language-plaintext highlighter-rouge">usage_count</code>
+idempotence, and the CRUD surface.</li>
+  <li><strong>Dedup eval:</strong> a 10-pair hand-labeled fixture gates the 0.95 threshold with a
+10/10 precision requirement plus a 6-of-8 merge tripwire so threshold tuning
+can’t silently trade recall for precision (<code class="language-plaintext highlighter-rouge">@pytest.mark.costly</code>).</li>
+  <li><strong>Integration:</strong> a testcontainers Neo4j test seeds Papers, links them via the
+CLI/repository, and asserts <code class="language-plaintext highlighter-rouge">GET /api/models/{id}/papers</code> returns them.</li>
+  <li><strong>Status:</strong> VERIFIED — Units 1-10 landed and verify gates passed 2026-06-08.</li>
+</ul>
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li>Reference: <a href="/agentic-kg/previews/pr-44/reference/entity-catalog#model-e-3">Entity Catalog</a></li>
+  <li>Reference: <a href="/agentic-kg/previews/pr-44/reference/entity-relationships">Entity Relationships</a></li>
+  <li>Sibling: <strong>E-4</strong> — Method entities (pure open-set; reuses the link helper)</li>
+  <li>Deferred: <strong><code class="language-plaintext highlighter-rouge">VARIANT_OF</code></strong> lineage edges (BERT → RoBERTa → DeBERTa) — specified
+as a v1 non-goal and <strong>not yet shipped</strong>; only <code class="language-plaintext highlighter-rouge">USES_MODEL</code> exists today.</li>
+  <li>Follows: <strong>E-8-V2</strong> — LLM-based Model extraction from paper text</li>
+</ul>

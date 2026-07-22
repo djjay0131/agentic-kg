@@ -1,0 +1,126 @@
+<h1 id="e-5--citation-graph">E-5 · Citation graph</h1>
+
+<p class="label label-green">VERIFIED</p>
+
+<p><strong>Backlog ID:</strong> E-5 · <strong>Depends on:</strong> none (reuses the Semantic Scholar
+client + <code class="language-plaintext highlighter-rouge">PaperImporter</code>) · <strong>Enables:</strong> influence chains, hub/authority
+analysis, community-detection seeding (C-1) · <strong>Spec:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/citation-graph.md"><code class="language-plaintext highlighter-rouge">citation-graph.md</code></a></p>
+
+<h2 id="why">Why</h2>
+
+<p>Every ingested Paper used to be an island. The graph could not answer “what
+does this paper build on”, “who in our corpus cites this seminal work”, “what’s
+the citation chain from X to Y”, or “which papers are most cited overall”. Yet
+Semantic Scholar already hands us a full reference list at ingestion time — the
+data flowed through the pipeline and we discarded it. The gap analysis ranked
+the missing paper-to-paper edge as the highest-priority relationship: without
+it, influence-chain discovery, hub/authority analysis, and community-detection
+seeding were all impossible.</p>
+
+<h2 id="what-shipped">What shipped</h2>
+
+<p>A single self-referential relationship, <code class="language-plaintext highlighter-rouge">(:Paper)-[:CITES]-&gt;(:Paper)</code>,
+populated automatically during ingestion from each paper’s Semantic Scholar
+reference list. Cited papers that aren’t yet in the corpus are materialized as
+<strong>stub Paper nodes</strong> so the graph is dense from day one. Two denormalized
+counters on every Paper — <code class="language-plaintext highlighter-rouge">citation_count</code> (inbound edges) and
+<code class="language-plaintext highlighter-rouge">reference_count</code> (outbound edges) — tick transactionally with edge creation.
+The relationship is exposed through a repository surface, three REST endpoints,
+and an <code class="language-plaintext highlighter-rouge">agentic-kg citation-graph</code> traversal CLI. See the
+<a href="/agentic-kg/previews/pr-44/reference/entity-relationships">Entity Relationships</a>
+reference for the edge in context.</p>
+
+<h2 id="design-decisions">Design decisions</h2>
+
+<p><strong>Stub nodes instead of dropping unknown citations.</strong> A paper’s reference list
+routinely points at work we haven’t ingested. Rather than silently drop those
+edges (losing the citation graph’s density) or block ingestion until every
+cited paper is fetched (unbounded cost), E-5 creates a lightweight placeholder
+Paper carrying just <code class="language-plaintext highlighter-rouge">doi</code>, <code class="language-plaintext highlighter-rouge">title</code>, <code class="language-plaintext highlighter-rouge">year</code>, and <code class="language-plaintext highlighter-rouge">is_stub=True</code>. The <code class="language-plaintext highlighter-rouge">CITES</code>
+edge lands immediately, so influence chains and hub analysis work against the
+full reference structure. When the stub’s real paper is later ingested through
+the normal <code class="language-plaintext highlighter-rouge">PaperImporter</code> flow, the placeholder is <strong>promoted in place</strong> — the
+same node id, its scalar properties overwritten with the full payload,
+<code class="language-plaintext highlighter-rouge">is_stub</code> flipped to <code class="language-plaintext highlighter-rouge">False</code>, and every inbound <code class="language-plaintext highlighter-rouge">CITES</code> edge and accumulated
+<code class="language-plaintext highlighter-rouge">citation_count</code> preserved.</p>
+
+<p><strong><code class="language-plaintext highlighter-rouge">is_stub</code> is monotone.</strong> A node starts as a stub (<code class="language-plaintext highlighter-rouge">true</code>), flips to <code class="language-plaintext highlighter-rouge">false</code>
+on promotion or first full ingestion, and never reverts. There is no demotion
+path. This makes “list all real papers” a simple index filter and guarantees
+promotion is idempotent.</p>
+
+<p><strong>Out-edges only at ingestion.</strong> Only a paper’s outbound references are fetched
+(<code class="language-plaintext highlighter-rouge">get_paper_references</code>). Inbound citations grow organically as the corpus
+grows — fetching “who cites X” per paper would balloon the stub population with
+low-value single-edge nodes and multiply API cost. <code class="language-plaintext highlighter-rouge">citation_count</code> still
+answers the inbound question against whatever’s been ingested.</p>
+
+<p><strong>DOI is the only identifier.</strong> References without a DOI are skipped entirely —
+no stub, no edge. Titles are too noisy for fuzzy dedup, and DOI uniqueness
+(the existing <code class="language-plaintext highlighter-rouge">paper_doi_unique</code> constraint) handles stub deduplication for
+free. No backfill command ships: operators re-ingest older papers to enrich
+them, matching the project’s “rebuild over migrate” stance.</p>
+
+<p><strong>Plain edge, no properties.</strong> Semantic Scholar’s references endpoint doesn’t
+return citation context (intro / methods / related-work), and downstream
+influence measures don’t need it. A future LLM-driven pass could add properties
+without a schema change.</p>
+
+<h2 id="how-it-works">How it works</h2>
+
+<ul>
+  <li><strong>Model:</strong> <code class="language-plaintext highlighter-rouge">Paper</code> in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/knowledge_graph/models/entities.py"><code class="language-plaintext highlighter-rouge">models/entities.py</code></a>
+gains <code class="language-plaintext highlighter-rouge">is_stub</code>, <code class="language-plaintext highlighter-rouge">citation_count</code>, <code class="language-plaintext highlighter-rouge">reference_count</code>; <code class="language-plaintext highlighter-rouge">year</code> was relaxed to
+<code class="language-plaintext highlighter-rouge">Optional</code> and <code class="language-plaintext highlighter-rouge">title.min_length</code> from 10 → 2 so partial-metadata stubs
+validate.</li>
+  <li><strong>Orchestration:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/knowledge_graph/citation_graph.py"><code class="language-plaintext highlighter-rouge">citation_graph.py</code></a>
+— <code class="language-plaintext highlighter-rouge">populate_citations</code> resolves the paper’s Semantic Scholar id, fetches the
+reference list, and for each DOI-bearing reference creates-or-promotes a stub
+then links <code class="language-plaintext highlighter-rouge">CITES</code>. Every failure is logged WARN and absorbed into a
+<code class="language-plaintext highlighter-rouge">CitationPopulationResult</code>; citation enrichment never blocks ingestion.</li>
+  <li><strong>Repository:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/knowledge_graph/repository.py"><code class="language-plaintext highlighter-rouge">repository.py</code></a>
+— <code class="language-plaintext highlighter-rouge">link_paper_cites_paper</code> / <code class="language-plaintext highlighter-rouge">unlink_paper_cites_paper</code> (idempotent edge +
+counter maintenance), <code class="language-plaintext highlighter-rouge">create_or_promote_paper_stub</code>, <code class="language-plaintext highlighter-rouge">_promote_paper_stub</code>,
+<code class="language-plaintext highlighter-rouge">get_references</code>, <code class="language-plaintext highlighter-rouge">get_citing_papers</code>, <code class="language-plaintext highlighter-rouge">count_citations</code>.</li>
+  <li><strong>Schema:</strong> <code class="language-plaintext highlighter-rouge">paper_is_stub_idx</code> index and the <code class="language-plaintext highlighter-rouge">CITES</code> edge, at
+<code class="language-plaintext highlighter-rouge">SCHEMA_VERSION = 7</code>, in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/knowledge_graph/schema.py"><code class="language-plaintext highlighter-rouge">schema.py</code></a>.
+No new constraint — DOI uniqueness already covers stub dedup.</li>
+  <li><strong>Ingestion hook:</strong> <code class="language-plaintext highlighter-rouge">PaperImporter.import_paper</code> calls <code class="language-plaintext highlighter-rouge">populate_citations</code>
+by default and routes existing-stub DOIs through the promotion path.</li>
+  <li><strong>Surfaces:</strong> REST <code class="language-plaintext highlighter-rouge">GET /api/papers/{doi}/references</code>, <code class="language-plaintext highlighter-rouge">/citations</code>,
+<code class="language-plaintext highlighter-rouge">/citation-counts</code>; CLI <code class="language-plaintext highlighter-rouge">agentic-kg citation-graph --paper-doi &lt;doi&gt;
+[--depth N] [--direction in|out|both]</code>.</li>
+</ul>
+
+<p>For the node’s attributes and its edges in context, see the
+<a href="/agentic-kg/previews/pr-44/reference/entity-catalog#paper">Entity Catalog</a> and
+<a href="/agentic-kg/previews/pr-44/reference/entity-relationships">Entity Relationships</a>.</p>
+
+<h2 id="verification">Verification</h2>
+
+<ul>
+  <li><strong>Tests:</strong> Paper stub/entity changes, idempotent edge + counter behavior,
+<code class="language-plaintext highlighter-rouge">create_or_promote_paper_stub</code> idempotency, and a testcontainers integration
+test exercising the full round trip — ingest a paper with mocked references,
+confirm stubs land with the right shape, then ingest a cited paper and
+confirm the stub is promoted with its <code class="language-plaintext highlighter-rouge">CITES</code> edges and <code class="language-plaintext highlighter-rouge">citation_count</code>
+preserved.</li>
+  <li><strong>Sentinel:</strong> a stub-promotion smoke test asserts a repeated
+<code class="language-plaintext highlighter-rouge">create_or_promote_paper_stub</code> returns the existing node unchanged — guarding
+the regression where the stub gets overwritten on every reference pass.</li>
+  <li><strong>Status:</strong> VERIFIED — Units 1-7 landed 2026-06-11; verify gates passed
+2026-06-12.</li>
+</ul>
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li>Reference: <a href="/agentic-kg/previews/pr-44/reference/entity-relationships">Entity Relationships</a> · <a href="/agentic-kg/previews/pr-44/reference/entity-catalog#paper">Entity Catalog</a></li>
+  <li>Enables: community detection (<strong>C-1</strong>) — a dense Paper-to-Paper edge set to seed Leiden/Louvain partitioning</li>
+  <li>Deferred: <code class="language-plaintext highlighter-rouge">get_paper_citations</code> at ingestion, stub GC/TTL, <code class="language-plaintext highlighter-rouge">SIMILAR_TO</code> edges, citation-context properties</li>
+</ul>
