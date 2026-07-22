@@ -1,0 +1,113 @@
+<h1 id="e-4--method--methodology-entities">E-4 · Method / Methodology entities</h1>
+
+<p class="label label-green">VERIFIED</p>
+
+<p><strong>Backlog ID:</strong> E-4 · <strong>Depends on:</strong> E-3 (Model) · <strong>Enabled:</strong> method-adoption
+queries, E-8 V2 extraction · <strong>Spec:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/method-entity.md"><code class="language-plaintext highlighter-rouge">method-entity.md</code></a></p>
+
+<h2 id="why">Why</h2>
+
+<p>The graph couldn’t answer “which papers use fine-tuning?”, “what methods does
+this problem area rely on?”, or trace methodology adoption over time. Methods
+like <em>fine-tuning</em>, <em>transfer learning</em>, <em>contrastive learning</em>, and <em>data
+augmentation</em> existed only as loose strings buried inside <code class="language-plaintext highlighter-rouge">Baseline.name</code> and
+<code class="language-plaintext highlighter-rouge">Constraint.text</code> — unsearchable, undeduplicated, and unlinked. The gap analysis
+flagged Method as the fourth-most-common entity type in the reference corpus
+(~200 nodes), making it the next entity worth promoting to a first-class node.</p>
+
+<h2 id="what-shipped">What shipped</h2>
+
+<p>A first-class <code class="language-plaintext highlighter-rouge">Method</code> node with <code class="language-plaintext highlighter-rouge">name</code>, optional <code class="language-plaintext highlighter-rouge">description</code>, <code class="language-plaintext highlighter-rouge">aliases</code>
+(max 20), an optional free-form <code class="language-plaintext highlighter-rouge">method_type</code>, a 1536-dim embedding, and a
+denormalized <code class="language-plaintext highlighter-rouge">usage_count</code>. Methods connect to the rest of the graph through a
+single new edge — <code class="language-plaintext highlighter-rouge">APPLIES_METHOD</code> (<code class="language-plaintext highlighter-rouge">Paper → Method</code>) — whose write ticks the
+node’s <code class="language-plaintext highlighter-rouge">usage_count</code> transactionally. The full node shape and its place in the
+graph live in the
+<a href="/agentic-kg/previews/pr-43/reference/entity-catalog#method-e-4">Entity Catalog</a> and
+<a href="/agentic-kg/previews/pr-43/reference/entity-relationships">Entity Relationships</a>.</p>
+
+<h2 id="design-decisions">Design decisions</h2>
+
+<p><strong>Pure open-set — not the E-3 hybrid.</strong> This is the defining choice. E-3 Model
+shipped <em>hybrid</em> open-set machinery: an <code class="language-plaintext highlighter-rouge">is_canonical</code> flag, a curated seed YAML,
+a <code class="language-plaintext highlighter-rouge">--canonical</code> CLI flag, and canonical-protection rules that stop an incoming
+name from renaming or downgrading a curated node. All of that exists because
+model names are <em>identities</em> — “BERT”, “GPT-4”, “ResNet-50” — where a clear,
+curator-owned canonical form matters. Method names are not identities; they are
+<em>conceptual phrases</em> (“fine-tuning”, “contrastive learning”) with no single
+authoritative surface form worth protecting. So E-4 deliberately follows the
+<strong>E-2 ResearchConcept</strong> pattern instead: no <code class="language-plaintext highlighter-rouge">is_canonical</code> field, no seed YAML,
+no <code class="language-plaintext highlighter-rouge">load-methods</code> command, no canonical-protection branch, no <code class="language-plaintext highlighter-rouge">--force</code> on
+delete. The hybrid apparatus would have added surface area and earned nothing.</p>
+
+<p><strong>Dedup at 0.90 cosine, not 0.95.</strong> <code class="language-plaintext highlighter-rouge">create_or_merge_method</code> embeds
+<code class="language-plaintext highlighter-rouge">"{name}: {description}"</code>, vector-searches the top-5 neighbours, and merges into
+any candidate scoring ≥ <strong>0.90</strong> — matching E-2’s
+<code class="language-plaintext highlighter-rouge">DEFAULT_CONCEPT_DEDUP_THRESHOLD</code> rather than E-3 Model’s stricter 0.95. Merges
+are a plain alias union (existing name wins; <code class="language-plaintext highlighter-rouge">description</code> / <code class="language-plaintext highlighter-rouge">method_type</code> fill
+from the incoming call only when the existing value is <code class="language-plaintext highlighter-rouge">None</code>). E-3 needed 0.95
+to avoid collapsing distinct model identities; conceptual phrases tolerate the
+looser bound.</p>
+
+<p><strong>One-line relationship absorption.</strong> E-3 generalized edge handling into a
+<code class="language-plaintext highlighter-rouge">_NODE_LINK_RELATIONSHIPS</code> map, so E-4 added <code class="language-plaintext highlighter-rouge">APPLIES_METHOD</code> as a single map
+entry and got <code class="language-plaintext highlighter-rouge">link_paper_to_method</code> / <code class="language-plaintext highlighter-rouge">unlink_paper_from_method</code> for free — no
+new traversal code.</p>
+
+<p><strong>Rebuild over migrate.</strong> Existing <code class="language-plaintext highlighter-rouge">Baseline.name</code> / <code class="language-plaintext highlighter-rouge">Constraint.text</code> strings
+are left alone. Method nodes are populated only via the API, the CLI, and (later)
+the E-8 V2 extractor — the same re-extract-don’t-migrate stance as E-1 and E-3.</p>
+
+<h2 id="how-it-works">How it works</h2>
+
+<ul>
+  <li><strong>Model:</strong> <code class="language-plaintext highlighter-rouge">Method</code> in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/knowledge_graph/models/entities.py"><code class="language-plaintext highlighter-rouge">models/entities.py</code></a>
+— <code class="language-plaintext highlighter-rouge">name</code>, <code class="language-plaintext highlighter-rouge">description</code>, <code class="language-plaintext highlighter-rouge">aliases</code> (max 20), <code class="language-plaintext highlighter-rouge">method_type</code>, 1536-dim
+<code class="language-plaintext highlighter-rouge">embedding</code>, <code class="language-plaintext highlighter-rouge">usage_count</code>, timestamps. Notably <strong>no <code class="language-plaintext highlighter-rouge">is_canonical</code> field</strong>.</li>
+  <li><strong>Repository:</strong> <code class="language-plaintext highlighter-rouge">create_or_merge_method</code> (0.90-cosine dedup), <code class="language-plaintext highlighter-rouge">create_method</code>,
+<code class="language-plaintext highlighter-rouge">get_method</code>, <code class="language-plaintext highlighter-rouge">get_method_by_name</code>, <code class="language-plaintext highlighter-rouge">update_method</code>, <code class="language-plaintext highlighter-rouge">delete_method</code>
+(<code class="language-plaintext highlighter-rouge">DETACH DELETE</code>, no force flag), <code class="language-plaintext highlighter-rouge">search_methods_by_embedding</code>,
+<code class="language-plaintext highlighter-rouge">link_paper_to_method</code>, <code class="language-plaintext highlighter-rouge">unlink_paper_from_method</code>, <code class="language-plaintext highlighter-rouge">get_papers_for_method</code> —
+all in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/knowledge_graph/repository.py"><code class="language-plaintext highlighter-rouge">repository.py</code></a>.
+<code class="language-plaintext highlighter-rouge">APPLIES_METHOD</code> is one entry in <code class="language-plaintext highlighter-rouge">_NODE_LINK_RELATIONSHIPS</code>.</li>
+  <li><strong>Schema:</strong> <code class="language-plaintext highlighter-rouge">method_id_unique</code> constraint, <code class="language-plaintext highlighter-rouge">method_name_idx</code> index, and
+<code class="language-plaintext highlighter-rouge">method_embedding_idx</code> vector index (1536-dim, cosine); schema version bumped
+v5 → v6 — all in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/knowledge_graph/schema.py"><code class="language-plaintext highlighter-rouge">schema.py</code></a>.</li>
+  <li><strong>Operator escape valve:</strong> passing <code class="language-plaintext highlighter-rouge">threshold=1.01</code> (API body or
+<code class="language-plaintext highlighter-rouge">create-method --threshold</code>) forces the dedup search to return no matches
+(cosine ≤ 1.0), so a distinct node is always created.</li>
+  <li><strong>Embedding-service failure:</strong> falls back to create-without-embedding, logs a
+WARN, and skips dedup for that call — the call never raises.</li>
+</ul>
+
+<p>For the node’s attributes and its edges in context, see the
+<a href="/agentic-kg/previews/pr-43/reference/entity-catalog#method-e-4">Entity Catalog</a> and
+<a href="/agentic-kg/previews/pr-43/reference/entity-relationships">Entity Relationships</a>.</p>
+
+<h2 id="verification">Verification</h2>
+
+<ul>
+  <li><strong>Tests:</strong> Method model + alias-cap validation, schema init, embedding dedup,
+and repository CRUD.</li>
+  <li><strong>Done demo (verify gate):</strong> a testcontainers integration test seeds 5
+synthetic Papers, creates 5 well-known methods via <code class="language-plaintext highlighter-rouge">create_or_merge_method</code>
+(asserting the second same-name call <em>merges</em>), links each pair, and confirms
+<code class="language-plaintext highlighter-rouge">get_papers_for_method</code> returns the linked papers with <code class="language-plaintext highlighter-rouge">usage_count</code> matching.</li>
+  <li><strong>Dedup sentinel:</strong> a single smoke test creates “fine-tuning” + “Fine Tuning”
+at the default 0.90 threshold and asserts they merge — a loud regression guard
+against a broken or absurdly-tuned threshold (not a full eval set).</li>
+  <li><strong>Status:</strong> VERIFIED — Units 1-9 landed and all verify gates passed.</li>
+</ul>
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li>Reference: <a href="/agentic-kg/previews/pr-43/reference/entity-catalog#method-e-4">Entity Catalog</a></li>
+  <li>Follows: <a href="/agentic-kg/previews/pr-43/design/e1-topic-entities">E-1 · Topic entities</a> (same first-class-node pattern)</li>
+  <li>Contrast: E-3 Model (hybrid open-set with canonical protection) — E-4 deliberately drops that machinery</li>
+  <li>Deferred to v2: <code class="language-plaintext highlighter-rouge">ADDRESSED_BY</code> (<code class="language-plaintext highlighter-rouge">ProblemConcept → Method</code>), <code class="language-plaintext highlighter-rouge">EXTENDS_METHOD</code> lineage edges, LLM extraction (E-8 V2)</li>
+</ul>

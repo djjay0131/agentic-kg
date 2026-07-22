@@ -1,0 +1,112 @@
+<h1 id="d-1a--cloud-run-jobs-ingestion">D-1a · Cloud Run Jobs ingestion</h1>
+
+<p class="label label-green">VERIFIED</p>
+
+<p><strong>Backlog ID:</strong> D-1a · <strong>Depends on:</strong>
+<a href="/agentic-kg/previews/pr-43/design/d1-ingest-real-papers">D-1 · Ingest real papers</a> ·
+<strong>Spec:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/cloud-run-jobs-ingestion.md"><code class="language-plaintext highlighter-rouge">cloud-run-jobs-ingestion.md</code></a></p>
+
+<h2 id="why">Why</h2>
+
+<p>D-1 ran ingestion with <code class="language-plaintext highlighter-rouge">asyncio.create_task</code> <em>inside</em> the API instance and
+tracked runs in an in-memory <code class="language-plaintext highlighter-rouge">_jobs</code> dict. On Cloud Run that is unsafe: the API
+instance can scale to zero mid-run (killing the background task), the request
+timeout doesn’t protect a detached task, and the job store evaporates on every
+restart — no durable record of what entered the graph. Ingesting 20 papers with
+LLM extraction takes 10-15 minutes, well past what a request-scoped instance can
+reliably hold.</p>
+
+<h2 id="what-shipped">What shipped</h2>
+
+<p>Ingestion now runs as its own <strong>Cloud Run Job</strong> (<code class="language-plaintext highlighter-rouge">agentic-kg-ingest-staging</code>),
+managed by Terraform and triggered by the API over REST. <code class="language-plaintext highlighter-rouge">POST /api/ingest</code>
+generates a <code class="language-plaintext highlighter-rouge">trace_id</code>, kicks off a job execution with the request encoded as
+container env-var overrides, and returns <code class="language-plaintext highlighter-rouge">{"trace_id", "status": "queued"}</code>
+immediately. The job runs to completion independently of the API, then writes a
+durable <code class="language-plaintext highlighter-rouge">IngestionRun</code> node to Neo4j. <code class="language-plaintext highlighter-rouge">GET /api/ingest/{trace_id}</code> reads that
+node for the final counts. The in-memory <code class="language-plaintext highlighter-rouge">_jobs</code> dict and <code class="language-plaintext highlighter-rouge">asyncio.create_task</code>
+are gone.</p>
+
+<h2 id="design-decisions">Design decisions</h2>
+
+<p><strong>Durable Job over in-memory job store.</strong> The core decision: ingestion state
+lives in Neo4j (<code class="language-plaintext highlighter-rouge">IngestionRun</code> node) and Cloud Run execution metadata, never in
+API process memory. A restarted or scaled-to-zero API instance loses nothing —
+the job is a separate container with its own 30-minute lifecycle, and every run
+leaves a permanent provenance record (<code class="language-plaintext highlighter-rouge">trace_id</code>, query, all counts,
+<code class="language-plaintext highlighter-rouge">extraction_errors</code>, <code class="language-plaintext highlighter-rouge">started_at</code>, <code class="language-plaintext highlighter-rouge">completed_at</code>). This directly retires the
+three D-1 failure modes.</p>
+
+<p><strong>Env-var driven entrypoint.</strong> The job takes <em>all</em> configuration from the
+environment, so the API triggers it purely by supplying <code class="language-plaintext highlighter-rouge">containerOverrides</code>.
+<code class="language-plaintext highlighter-rouge">INGEST_QUERY</code> is required (exit code 2 if absent); <code class="language-plaintext highlighter-rouge">INGEST_TRACE_ID</code>,
+<code class="language-plaintext highlighter-rouge">INGEST_LIMIT</code>, <code class="language-plaintext highlighter-rouge">INGEST_SOURCES</code>, <code class="language-plaintext highlighter-rouge">INGEST_AGENT_WORKFLOW</code>, and
+<code class="language-plaintext highlighter-rouge">INGEST_MIN_CONFIDENCE</code> are optional with defaults. Later cycles added
+<code class="language-plaintext highlighter-rouge">POPULATE_CITATIONS</code>, <code class="language-plaintext highlighter-rouge">EXTRACT_ENTITIES</code>, <code class="language-plaintext highlighter-rouge">NORMALIZE_CROSS_ENTITY</code>, and
+<code class="language-plaintext highlighter-rouge">FORCE_REEXTRACT</code> — the same env-var contract absorbed them without touching the
+trigger path.</p>
+
+<p><strong>Terraform-managed, independently deployed.</strong> The job is a first-class
+<code class="language-plaintext highlighter-rouge">google_cloud_run_v2_job</code> resource alongside the API and UI services, with the
+same secrets, <code class="language-plaintext highlighter-rouge">max_retries = 0</code> (partial results already in Neo4j — don’t
+re-run), and 2Gi / 2 CPU / 1800s limits from tfvars. A dedicated lean
+<code class="language-plaintext highlighter-rouge">Dockerfile.job</code> builds only the core package (no FastAPI/uvicorn), and
+<code class="language-plaintext highlighter-rouge">cloudbuild.yaml</code>’s <code class="language-plaintext highlighter-rouge">_SERVICE=job</code> path deploys it via <code class="language-plaintext highlighter-rouge">gcloud run jobs update</code>
+so API and job images ship on separate cadences.</p>
+
+<p><strong>Deliberate exit codes.</strong> <code class="language-plaintext highlighter-rouge">job_runner</code> exits <code class="language-plaintext highlighter-rouge">0</code> complete / <code class="language-plaintext highlighter-rouge">1</code> partial (some
+extraction errors) / <code class="language-plaintext highlighter-rouge">2</code> fatal, so the Cloud Run execution surfaces the outcome.</p>
+
+<h2 id="how-it-works">How it works</h2>
+
+<ul>
+  <li><strong>Job entrypoint:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/job_runner.py"><code class="language-plaintext highlighter-rouge">job_runner.py</code></a>
+— <code class="language-plaintext highlighter-rouge">_parse_env()</code> reads the env-var contract, <code class="language-plaintext highlighter-rouge">main()</code> calls the existing
+<code class="language-plaintext highlighter-rouge">ingest_papers()</code> orchestrator, and <code class="language-plaintext highlighter-rouge">persist_ingestion_run()</code> writes the
+<code class="language-plaintext highlighter-rouge">IngestionRun</code> node. Same function D-1 uses, so the CLI path is unchanged.</li>
+  <li><strong>Terraform resource:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/infra/main.tf"><code class="language-plaintext highlighter-rouge">infra/main.tf</code></a>
+— <code class="language-plaintext highlighter-rouge">google_cloud_run_v2_job.ingest</code> (image <code class="language-plaintext highlighter-rouge">job:latest</code>, command
+<code class="language-plaintext highlighter-rouge">python -m agentic_kg.job_runner</code>, four shared secrets, <code class="language-plaintext highlighter-rouge">max_retries = 0</code>) plus
+a <code class="language-plaintext highlighter-rouge">google_cloud_run_v2_job_iam_member</code> binding scoped to <em>this job only</em>.
+Sizing vars live in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/infra/variables.tf"><code class="language-plaintext highlighter-rouge">variables.tf</code></a>
+/
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/infra/envs/staging.tfvars"><code class="language-plaintext highlighter-rouge">envs/staging.tfvars</code></a>.</li>
+  <li><strong>Lean image:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/docker/Dockerfile.job"><code class="language-plaintext highlighter-rouge">docker/Dockerfile.job</code></a>
+— multi-stage, core-only, non-root, no port, no health check.</li>
+  <li><strong>API trigger + status:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/api/src/agentic_kg_api/routers/ingest.py"><code class="language-plaintext highlighter-rouge">routers/ingest.py</code></a>
+— <code class="language-plaintext highlighter-rouge">_trigger_cloud_run_job()</code> mints a <code class="language-plaintext highlighter-rouge">google-auth</code> token and POSTs
+<code class="language-plaintext highlighter-rouge">…/jobs/{name}:run</code> via <code class="language-plaintext highlighter-rouge">httpx</code> (no heavy SDK); <code class="language-plaintext highlighter-rouge">GET</code> reads the Neo4j
+<code class="language-plaintext highlighter-rouge">IngestionRun</code> node with a 10s in-process status cache.</li>
+  <li><strong>Predecessor:</strong> ingestion orchestration itself is
+<a href="/agentic-kg/previews/pr-43/design/d1-ingest-real-papers">D-1 · Ingest real papers</a>.</li>
+</ul>
+
+<h2 id="verification">Verification</h2>
+
+<ul>
+  <li><strong>Tests:</strong> <code class="language-plaintext highlighter-rouge">packages/api/tests/test_ingest.py</code> covers the REST trigger, the
+status cache, 404 on unknown <code class="language-plaintext highlighter-rouge">trace_id</code>, and 500 on trigger failure;
+<code class="language-plaintext highlighter-rouge">job_runner</code> exit-code and env-parsing behaviour is unit-tested.</li>
+  <li><strong>Infra:</strong> <code class="language-plaintext highlighter-rouge">terraform plan</code> shows <code class="language-plaintext highlighter-rouge">google_cloud_run_v2_job.ingest</code> with the
+correct image, command, secrets, timeout, and job-scoped IAM.</li>
+  <li><strong>Status:</strong> VERIFIED — spec marked VERIFIED (2026-03-31); job resource,
+entrypoint, and independent build path are all present in <code class="language-plaintext highlighter-rouge">master</code>.</li>
+</ul>
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li>Depends on: <a href="/agentic-kg/previews/pr-43/design/d1-ingest-real-papers">D-1 · Ingest real papers</a></li>
+  <li>Deferred (Non-Goals): concurrency guard, job scheduling/queue, and a GCS
+per-paper research log (follow-on <strong>D-1b</strong>)</li>
+  <li>Divergence: the spec’s <code class="language-plaintext highlighter-rouge">GET</code> design also polls the Cloud Run Executions REST
+API; the shipped handler queries only the Neo4j <code class="language-plaintext highlighter-rouge">IngestionRun</code> node
+(<code class="language-plaintext highlighter-rouge">_get_execution_status_from_gcp</code> is intentionally a no-op), so live status for
+a still-running job is “queued/running” from cache until the node lands.</li>
+</ul>
