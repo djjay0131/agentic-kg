@@ -132,7 +132,7 @@ admit reference-list stubs with partial metadata.
 
 ## Classification & concept nodes
 
-### `Topic`  *(E-1)*
+### `Topic` *(E-1)*
 
 **Definition.** A research topic or area, forming a three-level hierarchy
 (`domain → area → subtopic`).
@@ -151,7 +151,7 @@ problem-side nodes; `RESEARCHES` ← `Paper`.
 **Notes.** Domain-level topics must not have a parent (validated). New topics
 enter only via the seed taxonomy — extraction cannot invent off-taxonomy topics.
 
-### `ResearchConcept`  *(E-2)*
+### `ResearchConcept` *(E-2)*
 
 **Definition.** A named intellectual building block — e.g. "attention
 mechanism", "transfer learning", "graph neural networks".
@@ -169,7 +169,7 @@ problem or model.
 **Notes.** *Open-set* vocabulary — any name may become a concept; duplicates are
 merged at **0.90** cosine similarity.
 
-### `Model`  *(E-3)*
+### `Model` *(E-3)*
 
 **Definition.** A named ML model / architecture — e.g. "BERT", "GPT-4",
 "ResNet-50".
@@ -188,7 +188,7 @@ write-protected during merges); `embedding`; denormalized `usage_count`.
 `is_canonical=True` and cannot be renamed or downgraded by incoming
 non-canonical names. Dedup threshold **0.95** cosine (+ canonical seed).
 
-### `Method`  *(E-4)*
+### `Method` *(E-4)*
 
 **Definition.** A research method / methodology — e.g. "fine-tuning",
 "contrastive learning".
