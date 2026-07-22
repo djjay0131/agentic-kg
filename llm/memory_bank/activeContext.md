@@ -1,6 +1,31 @@
 # Active Context
 
-Last updated: 2026-07-14
+Last updated: 2026-07-21
+
+## ✅ GOVERNANCE ENFORCED + DOCS SITE EXPANDED (2026-07-21)
+
+**Governance moved from adopted-but-inert to actually enforced.** Ran `governance:audit` (verdict: DRIFTING) and acted on every should-fix:
+- **PR #39 (merged):** pinned `--base origin/master` in the delta's check command (canonical `governance-checks.mjs` defaults to `origin/main`; this repo is `master` → `adr-status`/`l0-allowlist` errored on `fatal: ambiguous argument`). Fixed the SM-3 broken doc links (README → `status/service-inventory.md`; 6 `construction/sprints/*` files repointed into `llm/memory_bank/` or neutralized as historical). Added `.github/CODEOWNERS` + `.github/ISSUE_TEMPLATE/`.
+- **Branch protection LIVE on `master`** (applied via `gh api`): required status check **`test (3.12)`** — chosen because `integration-tests.yml`'s "Unit Tests" job is path-filtered and would hang on docs-only PRs; PR-required (0 approvals, solo-repo); `enforce_admins:false` so the automated deploy-manifest `[skip ci]` push keeps working; force-push + deletion blocked.
+- **PR #41 (open):** CI-wired the check via `.github/workflows/governance-checks.yml` — fetches the public agentic-governance repo pinned to SHA `31f2771` (v0.2.0) into `$RUNNER_TEMP` (outside the workspace so its own docs aren't scanned), runs `--base origin/master`. **Verified GREEN on its own PR.**
+- Backfilled `gov-L*` labels on #35 (L0) / #36 (L2) / #37 (L1). Steward stays **INACTIVE**.
+
+**Docs site — two new published sections** (Jekyll just-the-docs → GitHub Pages, live):
+- **Reference — Domain Model & Taxonomy** (**PR #37**, merged): `docs/reference/` = entity-catalog, entity-relationships (Mermaid graph), topic-taxonomy. **Mermaid enabled** in `docs/_config.yml` (v10.9.1, jsDelivr). Documents the Topic taxonomy + the node/edge ontology formally.
+- **Design & Architecture** (**PR #38** + Liquid-fix **#40**, merged): `docs/design/` = a design note per completed feature (E-1..E-8, pipeline-orchestration, D-1, D-1a, CI smoke, enhance-github-pages), each reconciled against shipped code (divergences recorded — e.g. E-3 `VARIANT_OF` never shipped, D-1 `BatchProcessor` unused, D-1a GCP status-poll is a no-op).
+- **#40** fixed a Jekyll build break: a literal `{% for %}` in a code span (Jekyll runs Liquid before markdown) → wrapped in `{% raw %}`. Child pages serve at `.html`; section landings (`/reference/`, `/design/`) at trailing-slash.
+
+**⚠️ Delta drift (follow-up):** `docs/governance-delta.md` Platform Enforcement Reality still says "branch protection available, currently unset" — now stale (it's live). Reconcile alongside PR #41's delta edit.
+
+**Next:** merge PR #41; promote `Governance Checks` to a *required* check after a few green PRs; triage the failing `cleanup-preview` GHA job (unrelated). **This file is ~580 lines — a Constellize `memory:revise` is overdue** (delta-flagged).
+
+---
+
+## ✅ DEPLOY AC-6 VERIFIED + SM-4 MERGED & DEPLOYED (2026-07-14)
+
+**PR #36 (SM-4) merged to master** (squash `8d2dac12`) → triggered `Deploy Master` run 29855237461 = **ALL 6 JOBS GREEN** (test, changes, build/build, deploy-staging, integration-test, update-manifest). This was the **first real build+deploy in repo history** (prior green run touched only workflows → build/deploy SKIPPED). The `deploy-staging` job's "Assert deployed SHA matches" step (`assert_deploy_parity.sh`) ran and passed → **deploy-pipeline-fix AC-6 (SHA parity across api/ui/job) VERIFIED**. SM-4's denario-free / instructor-1.15 code is now live in `agentic-kg-{api,ui}-staging` + the `agentic-kg-ingest-staging` Job.
+
+Note: PR #36 was admin-merged with the `Smoke Test — Ingest` check still red (pre-existing; needs SM-1) + a bundled trivial docs-frontmatter fix (`docs/ground-truth/README.md`) so deploy-master's test gate would pass.
 
 ## ✅ SM-4 IMPLEMENTED (2026-07-14) — ROOT CAUSE: unused `denario` dep pins openai==1.99.9
 

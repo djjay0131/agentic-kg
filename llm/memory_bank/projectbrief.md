@@ -36,8 +36,8 @@ Enhance the Denario framework to support agentic knowledge graphs that go beyond
 
 ## Key Constraints
 
-- Python 3.12+ required (Denario dependency)
+- Python 3.12+ required
 - Neo4j 5.x+ for native vector index support (1536-dim OpenAI embeddings)
-- Must integrate with Denario's AG2 and LangGraph agent frameworks
+- Uses AG2 and LangGraph agent frameworks (the `denario` dependency was removed in SM-4, 2026-07-14 — it was unused and pinned an incompatible `openai`)
 - GCP deployment target (Cloud Run for API, Compute Engine for Neo4j)
 - API keys required for OpenAI, Anthropic, and optionally Google Gemini / Perplexity
