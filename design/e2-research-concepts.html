@@ -1,0 +1,119 @@
+<h1 id="e-2--researchconcept-entities">E-2 · ResearchConcept entities</h1>
+
+<p class="label label-green">VERIFIED</p>
+
+<p><strong>Backlog ID:</strong> E-2 · <strong>Depends on:</strong> none (benefits from E-1 Topics for
+<code class="language-plaintext highlighter-rouge">BELONGS_TO</code>, not blocked by them) · <strong>Spec:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/research-concept-entities.md"><code class="language-plaintext highlighter-rouge">research-concept-entities.md</code></a></p>
+
+<h2 id="why">Why</h2>
+
+<p>The graph modelled research <em>problems</em> but not the intellectual building blocks
+that connect them — techniques and ideas like <em>attention mechanism</em>, <em>transfer
+learning</em>, or <em>graph neural networks</em>. Without them a researcher couldn’t ask
+“which problems involve attention mechanisms?”, couldn’t discover that two
+unrelated problems share a common technique, and couldn’t trace how an idea such
+as <em>retrieval-augmented generation</em> travels across research areas. The gap
+analysis flagged this as the second-highest-priority missing entity type, with
+~520 concept nodes seen in the reference paper’s results.</p>
+
+<h2 id="what-shipped">What shipped</h2>
+
+<p>A first-class <code class="language-plaintext highlighter-rouge">ResearchConcept</code> node type with <code class="language-plaintext highlighter-rouge">name</code>, <code class="language-plaintext highlighter-rouge">description</code>, an
+<code class="language-plaintext highlighter-rouge">aliases</code> list, and a 1536-dim semantic embedding. Concepts are an <em>open-set</em>
+vocabulary — any name may become one — with duplicates folded together at create
+time by embedding similarity. They connect to the rest of the graph via two
+edges: <code class="language-plaintext highlighter-rouge">INVOLVES_CONCEPT</code> (from a <code class="language-plaintext highlighter-rouge">ProblemConcept</code>) and <code class="language-plaintext highlighter-rouge">DISCUSSES</code> (from a
+<code class="language-plaintext highlighter-rouge">Paper</code>), plus an optional <code class="language-plaintext highlighter-rouge">BELONGS_TO</code> to a <code class="language-plaintext highlighter-rouge">Topic</code> where E-1 nodes exist. See
+the <a href="/agentic-kg/reference/entity-catalog#researchconcept-e-2">Entity Catalog</a>
+for the full attribute list.</p>
+
+<h2 id="design-decisions">Design decisions</h2>
+
+<h3 id="open-set-vocabulary-governed-by-dedup">Open-set vocabulary, governed by dedup</h3>
+
+<p>Where E-1 Topics are a <em>closed set</em> bound to a curated taxonomy, ResearchConcepts
+are deliberately <em>open</em> — no seed list, any extracted or manually created name can
+become a node. The vocabulary is kept clean not by a fixed enum but by
+<strong>embedding-based deduplication on write</strong>: every create embeds <code class="language-plaintext highlighter-rouge">"{name}:
+{description}"</code>, vector-searches existing concepts, and if the best match scores
+at or above <strong>0.90 cosine</strong> the incoming name is merged into that concept’s
+<code class="language-plaintext highlighter-rouge">aliases</code> rather than creating a duplicate. This matches the reality that
+technique names are unbounded and constantly coined, whereas the topic hierarchy
+is small and auditable.</p>
+
+<h3 id="aliases-capture-surface-forms">Aliases capture surface forms</h3>
+
+<p>A concept carries an <code class="language-plaintext highlighter-rouge">aliases</code> list so that <em>self-attention</em> and <em>scaled
+dot-product attention</em> can resolve to one canonical <em>attention mechanism</em> node.
+Merges append to this list, so aliases accumulate the surface forms the corpus
+actually uses. The threshold is configurable and 0.90 was fixed by a small
+calibration study (29 labelled pairs) rather than guessed.</p>
+
+<h3 id="no-concept_type-enum-no-typed-concept-to-concept-edges">No concept_type enum, no typed concept-to-concept edges</h3>
+
+<p>Concepts are intentionally untyped in v1 — graph structure provides the typing.
+Typed concept-to-concept relationships (<code class="language-plaintext highlighter-rouge">ENABLES</code>, <code class="language-plaintext highlighter-rouge">BUILDS_ON</code>, <code class="language-plaintext highlighter-rouge">ALTERNATIVE_TO</code>,
+…) were deferred because they emerge from LLM extraction (E-8) or community
+detection (C-1), not manual creation. A generic <code class="language-plaintext highlighter-rouge">RELATED_TO</code> was deliberately
+omitted so that edge names always carry meaning.</p>
+
+<h3 id="shared-entity-abstraction-descoped">Shared entity abstraction descoped</h3>
+
+<p>The spec originally scoped a shared <code class="language-plaintext highlighter-rouge">BaseGraphEntity</code> + <code class="language-plaintext highlighter-rouge">EntityService</code> and a
+refactor of Topic and ResearchConcept onto them. This was <strong>descoped during
+verification (AC-7)</strong>: with only two entity types in hand the abstraction wasn’t
+paying for itself, so both shipped with their own boilerplate. The consolidation
+is deferred until a third call site (E-3 Model / E-4 Method) lands — both of
+which have since shipped, following the same per-entity pattern.</p>
+
+<h2 id="how-it-works">How it works</h2>
+
+<ul>
+  <li><strong>Model:</strong> <code class="language-plaintext highlighter-rouge">ResearchConcept</code> in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/knowledge_graph/models/entities.py"><code class="language-plaintext highlighter-rouge">models/entities.py</code></a>
+— <code class="language-plaintext highlighter-rouge">id</code>, <code class="language-plaintext highlighter-rouge">name</code>, <code class="language-plaintext highlighter-rouge">description</code>, <code class="language-plaintext highlighter-rouge">aliases</code>, 1536-dim <code class="language-plaintext highlighter-rouge">embedding</code>, and denormalized
+<code class="language-plaintext highlighter-rouge">mention_count</code> (<code class="language-plaintext highlighter-rouge">INVOLVES_CONCEPT</code>) / <code class="language-plaintext highlighter-rouge">paper_count</code> (<code class="language-plaintext highlighter-rouge">DISCUSSES</code>).</li>
+  <li><strong>Dedup / CRUD:</strong> <code class="language-plaintext highlighter-rouge">create_or_merge_research_concept</code> in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/knowledge_graph/repository.py"><code class="language-plaintext highlighter-rouge">repository.py</code></a>
+embeds, searches, and merges at <code class="language-plaintext highlighter-rouge">DEFAULT_CONCEPT_DEDUP_THRESHOLD = 0.90</code>,
+returning <code class="language-plaintext highlighter-rouge">(concept, created)</code>. Linking flows through a generalized
+<code class="language-plaintext highlighter-rouge">_link_entity_to_node</code> helper that increments the target count only when a new
+edge is created; <code class="language-plaintext highlighter-rouge">INVOLVES_CONCEPT</code> and <code class="language-plaintext highlighter-rouge">DISCUSSES</code> are registered there.</li>
+  <li><strong>Schema:</strong> <code class="language-plaintext highlighter-rouge">research_concept_id_unique</code> constraint, <code class="language-plaintext highlighter-rouge">research_concept_name_idx</code>,
+and the <code class="language-plaintext highlighter-rouge">research_concept_embedding_idx</code> vector index (1536-dim, cosine) — all in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/knowledge_graph/schema.py"><code class="language-plaintext highlighter-rouge">schema.py</code></a>.</li>
+  <li><strong>Counts:</strong> <code class="language-plaintext highlighter-rouge">mention_count</code> and <code class="language-plaintext highlighter-rouge">paper_count</code> are updated transactionally on
+link/unlink, with a periodic reconciliation query correcting any drift — the
+same pattern as E-1 Topic.</li>
+  <li><strong>Extraction:</strong> E-2 shipped the <em>infrastructure</em> (model, dedup, CRUD, API, CLI);
+automatic per-paper concept extraction arrived later with the LLM extractor
+(E-8), and an async description-generating sibling
+(<code class="language-plaintext highlighter-rouge">acreate_or_merge_research_concept</code>) arrived with E-6.</li>
+</ul>
+
+<p>For the node’s attributes and its edges in context, see the
+<a href="/agentic-kg/reference/entity-catalog#researchconcept-e-2">Entity Catalog</a>
+and <a href="/agentic-kg/reference/entity-relationships">Entity Relationships</a>.</p>
+
+<h2 id="verification">Verification</h2>
+
+<ul>
+  <li><strong>Tests:</strong> 99 E-2 unit tests (77 core + 22 API) covering model validation,
+schema init, CRUD, dedup merge/no-merge logic, the calibration harness, and the
+API/CLI surfaces; 22 repository integration tests run against live Neo4j.</li>
+  <li><strong>Calibration:</strong> the 0.90 threshold is backed by a bundled fixture of 29
+labelled pairs (17 same / 12 different) and is overridable.</li>
+  <li><strong>Status:</strong> VERIFIED (2026-04-21) via <code class="language-plaintext highlighter-rouge">/constellize:feature:verify</code> — all four
+gates passed at E-2 scope. Staging graph inspection (AC-13) was left as a
+pending operator check.</li>
+</ul>
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li>Reference: <a href="/agentic-kg/reference/entity-catalog#researchconcept-e-2">Entity Catalog</a></li>
+  <li>Contrast: <a href="/agentic-kg/design/e1-topic-entities">E-1 · Topic entities</a> (closed-set taxonomy vs this open-set vocabulary)</li>
+  <li>Follows: E-8 · Extraction (populates concepts from paper text); E-6 (async description generation)</li>
+  <li>Deferred: typed concept-to-concept edges (E-8 / C-1); shared <code class="language-plaintext highlighter-rouge">BaseGraphEntity</code> / <code class="language-plaintext highlighter-rouge">EntityService</code> (AC-7)</li>
+</ul>

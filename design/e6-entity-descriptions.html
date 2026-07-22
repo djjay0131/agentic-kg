@@ -1,0 +1,121 @@
+<h1 id="e-6--entity-descriptions-at-create-time">E-6 · Entity descriptions at create-time</h1>
+
+<p class="label label-green">VERIFIED</p>
+
+<p><strong>Backlog ID:</strong> E-6 · <strong>Depends on:</strong> E-2 (Concept), E-3 (Model), E-4
+(Method) · <strong>Enabled:</strong> richer vector search / cleaner dedup · <strong>Spec:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/entity-descriptions.md"><code class="language-plaintext highlighter-rouge">entity-descriptions.md</code></a></p>
+
+<h2 id="why">Why</h2>
+
+<p>Concept, Model, and Method nodes all carry a <code class="language-plaintext highlighter-rouge">description</code> field that the
+embedding pipeline folds into the vector as <code class="language-plaintext highlighter-rouge">"{name}: {description}"</code> — but the
+field was almost always NULL. Only hand-curated seed entries had descriptions;
+every node born from ingestion-time dedup-merge persisted with <code class="language-plaintext highlighter-rouge">description=None</code>.
+Bare-name embeddings collide aggressively in similarity search — “fine-tuning”
+and “transfer learning” land close together when neither has a description —
+which pollutes dedup decisions and ranking. The fix is structural: generate a
+description <strong>at create time</strong>, so the field is populated when the embedding is
+computed, not as an afterthought.</p>
+
+<h2 id="what-shipped">What shipped</h2>
+
+<p>An opt-in <code class="language-plaintext highlighter-rouge">generate_description</code> path on the create-or-merge flow for three
+entity types — <code class="language-plaintext highlighter-rouge">ResearchConcept</code>, <code class="language-plaintext highlighter-rouge">Model</code>, <code class="language-plaintext highlighter-rouge">Method</code>. When enabled, the node’s
+description is written by an LLM that <strong>self-validates its own output</strong> in the
+same call, and the validated text flows straight into the embedding. The
+operator-facing CLI commands (<code class="language-plaintext highlighter-rouge">create-concept</code>, <code class="language-plaintext highlighter-rouge">create-model</code>, <code class="language-plaintext highlighter-rouge">create-method</code>)
+turn generation on by default with a <code class="language-plaintext highlighter-rouge">--no-generate-description</code> opt-out. See the
+<a href="/agentic-kg/reference/entity-catalog#classification--concept-nodes">Entity Catalog</a>
+for how <code class="language-plaintext highlighter-rouge">description</code> feeds each node’s embedding.</p>
+
+<h2 id="design-decisions">Design decisions</h2>
+
+<p><strong>Self-validation, not a separate critic.</strong> The LLM returns a
+<code class="language-plaintext highlighter-rouge">DescriptionWithSelfCheck</code> Pydantic model carrying the description <em>and</em> four
+boolean gates it grades itself against — <code class="language-plaintext highlighter-rouge">is_factually_grounded</code>, <code class="language-plaintext highlighter-rouge">is_concise</code>,
+<code class="language-plaintext highlighter-rouge">is_specific</code>, <code class="language-plaintext highlighter-rouge">is_not_tautological</code>. The description is accepted only if all
+four are True; otherwise the helper logs the <code class="language-plaintext highlighter-rouge">rejection_reason</code> and returns None.
+One <code class="language-plaintext highlighter-rouge">instructor.extract()</code> call, no second round-trip, per the project’s
+<code class="language-plaintext highlighter-rouge">feedback_llm_self_validation</code> stance.</p>
+
+<p><strong>Never blocks the create.</strong> On self-validation rejection <em>or</em> any LLM failure,
+the helper returns None, a WARN is logged, and the node still persists with
+<code class="language-plaintext highlighter-rouge">description=None</code>. Generation is a best-effort enrichment, never a gate on
+entity creation.</p>
+
+<p><strong>Async-only for the generating path.</strong> The LLM helper is async, and the
+create-or-merge helpers run inside live FastAPI event loops where <code class="language-plaintext highlighter-rouge">asyncio.run</code>
+would crash. Rather than smuggle a loop into the sync method, the sync
+<code class="language-plaintext highlighter-rouge">create_or_merge_X</code> raises <code class="language-plaintext highlighter-rouge">NotImplementedError</code> if <code class="language-plaintext highlighter-rouge">generate_description=True</code> is
+passed, and callers use the new <code class="language-plaintext highlighter-rouge">acreate_or_merge_X</code> async siblings instead. Sync
+callers with <code class="language-plaintext highlighter-rouge">generate_description=False</code> (all existing ingestion-path call sites)
+are completely unchanged and cost-neutral.</p>
+
+<p><strong>Missing API key degrades quietly.</strong> The CLI builds its LLM client only when
+generation is requested; if <code class="language-plaintext highlighter-rouge">OPENAI_API_KEY</code> is unset it logs one WARN, falls
+back to the plain sync create, and still exits 0. “Create one node by hand”
+never hard-fails for want of credentials.</p>
+
+<p><strong>Topic was left out.</strong> The spec framed E-6 over four types, but <code class="language-plaintext highlighter-rouge">Topic</code> has no
+<code class="language-plaintext highlighter-rouge">create_or_merge_topic</code> — topics are loaded from the curated
+<a href="/agentic-kg/design/e1-topic-entities">seed taxonomy</a>, which already ships
+descriptions. E-6 targets the three open-set types whose nodes are minted at
+ingestion time.</p>
+
+<h2 id="how-it-works">How it works</h2>
+
+<ul>
+  <li><strong>Helper:</strong> <code class="language-plaintext highlighter-rouge">generate_description_with_self_check</code> and the
+<code class="language-plaintext highlighter-rouge">DescriptionWithSelfCheck</code> schema live in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/knowledge_graph/description_generation.py"><code class="language-plaintext highlighter-rouge">description_generation.py</code></a>.
+<code class="language-plaintext highlighter-rouge">passes_self_validation</code> is the <code class="language-plaintext highlighter-rouge">all([...])</code> over the four gates.</li>
+  <li><strong>Async siblings:</strong> <code class="language-plaintext highlighter-rouge">acreate_or_merge_research_concept</code>, <code class="language-plaintext highlighter-rouge">acreate_or_merge_model</code>,
+and <code class="language-plaintext highlighter-rouge">acreate_or_merge_method</code> in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/knowledge_graph/repository.py"><code class="language-plaintext highlighter-rouge">repository.py</code></a>
+resolve the description via <code class="language-plaintext highlighter-rouge">_aresolve_description</code> (explicit description wins →
+skip if disabled / no client → else call the helper), then delegate to the sync
+method with <code class="language-plaintext highlighter-rouge">generate_description=False</code>. The sync methods raise
+<code class="language-plaintext highlighter-rouge">NotImplementedError</code> on <code class="language-plaintext highlighter-rouge">generate_description=True</code>.</li>
+  <li><strong>CLI:</strong> <code class="language-plaintext highlighter-rouge">_llm_client_for_description</code> in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/cli.py"><code class="language-plaintext highlighter-rouge">cli.py</code></a>
+builds the client (or returns None with a WARN), and each <code class="language-plaintext highlighter-rouge">create-*</code> handler
+runs <code class="language-plaintext highlighter-rouge">asyncio.run(repo.acreate_or_merge_X(..., generate_description=True))</code>.</li>
+  <li><strong>Prompts:</strong> <code class="language-plaintext highlighter-rouge">DESCRIPTION_GENERATION_SYSTEM_PROMPT_V1</code> /
+<code class="language-plaintext highlighter-rouge">..._USER_PROMPT_TEMPLATE_V1</code> in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/extraction/prompts/templates.py"><code class="language-plaintext highlighter-rouge">prompts/templates.py</code></a>;
+the user prompt injects an <code class="language-plaintext highlighter-rouge">(also known as: …)</code> hint from up to three aliases.</li>
+  <li><strong>Embeddings unchanged:</strong> whatever description survives — LLM-generated,
+caller-supplied, or None — is what the existing <code class="language-plaintext highlighter-rouge">"{name}: {description}"</code>
+embedding step sees. On a merge into a node with <code class="language-plaintext highlighter-rouge">description=None</code>, the
+generated value fills it in and the embedding is regenerated.</li>
+</ul>
+
+<p>For each node’s attributes and edges, see the
+<a href="/agentic-kg/reference/entity-catalog">Entity Catalog</a>.</p>
+
+<h2 id="verification">Verification</h2>
+
+<ul>
+  <li><strong>Tests:</strong> schema gates, the helper’s happy-path / rejection / exception
+behavior, <code class="language-plaintext highlighter-rouge">_aresolve_description</code> branching, the sync <code class="language-plaintext highlighter-rouge">NotImplementedError</code>
+guard, description-in-embedding, and CLI flag handling
+(<code class="language-plaintext highlighter-rouge">test_description_generation_*.py</code>, <code class="language-plaintext highlighter-rouge">test_aresolve_description.py</code>,
+<code class="language-plaintext highlighter-rouge">test_description_in_embedding.py</code>, <code class="language-plaintext highlighter-rouge">test_cli_descriptions.py</code>).</li>
+  <li><strong>Sentinel:</strong> a mocked failing-gate response asserts the node persists with
+<code class="language-plaintext highlighter-rouge">description IS NULL</code> — pinning that a future refactor can’t accept a weak
+description.</li>
+  <li><strong>Status:</strong> VERIFIED — 2026-06-14.</li>
+</ul>
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li>Reference: <a href="/agentic-kg/reference/entity-catalog#classification--concept-nodes">Entity Catalog</a></li>
+  <li>Enriches: <a href="/agentic-kg/design/e2-research-concepts">E-2 · Research concepts</a>,
+<a href="/agentic-kg/design/e3-model-entities">E-3 · Model entities</a>,
+<a href="/agentic-kg/design/e4-method-entities">E-4 · Method entities</a></li>
+  <li>Not covered: <code class="language-plaintext highlighter-rouge">Topic</code> (seed-taxonomy descriptions, see
+<a href="/agentic-kg/design/e1-topic-entities">E-1</a>); <code class="language-plaintext highlighter-rouge">Author</code> / <code class="language-plaintext highlighter-rouge">Paper</code> /
+<code class="language-plaintext highlighter-rouge">Problem</code> (own field semantics — deferred)</li>
+</ul>

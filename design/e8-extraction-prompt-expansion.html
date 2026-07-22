@@ -1,0 +1,152 @@
+<h1 id="e-8--extraction-prompt-expansion">E-8 · Extraction prompt expansion</h1>
+
+<p class="label label-green">VERIFIED</p>
+
+<p><strong>Backlog ID:</strong> E-8 V1 + V2 · <strong>Depends on:</strong> E-1..E-6 · <strong>Enables:</strong> every
+downstream query over topics / concepts / models / methods · <strong>Specs:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/extraction-prompt-expansion.md"><code class="language-plaintext highlighter-rouge">extraction-prompt-expansion.md</code></a>
+(V1) ·
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/extraction-prompt-expansion-v2.md"><code class="language-plaintext highlighter-rouge">extraction-prompt-expansion-v2.md</code></a>
+(V2)</p>
+
+<h2 id="why">Why</h2>
+
+<p>E-1 through E-5 shipped first-class entity types — <code class="language-plaintext highlighter-rouge">Topic</code>, <code class="language-plaintext highlighter-rouge">ResearchConcept</code>,
+<code class="language-plaintext highlighter-rouge">Model</code>, <code class="language-plaintext highlighter-rouge">Method</code>, and the citation graph — with repository CRUD, APIs, and CLI
+commands. But <strong>nothing populated them from paper text.</strong> Every <code class="language-plaintext highlighter-rouge">Topic</code>
+assignment, every <code class="language-plaintext highlighter-rouge">ResearchConcept</code>, <code class="language-plaintext highlighter-rouge">Model</code>, and <code class="language-plaintext highlighter-rouge">Method</code> node had to be created
+by hand (<code class="language-plaintext highlighter-rouge">assign-topic</code>, <code class="language-plaintext highlighter-rouge">create-concept</code>, <code class="language-plaintext highlighter-rouge">create-model</code>, …), and every
+<code class="language-plaintext highlighter-rouge">Paper -CITES-&gt; Paper</code> edge came from a manual <code class="language-plaintext highlighter-rouge">citation-graph</code> run. The
+ingestion pipeline extracted only <code class="language-plaintext highlighter-rouge">Problem</code> statements; it <em>saw</em> a paper’s topic,
+concepts, models, methods, and references and wrote none of them. As real
+ingestion scaled, that investment sat idle. E-8 is the feature that turns paper
+text into E-1..E-5 graph structure automatically — it is what actually
+<strong>populates</strong> those entity types.</p>
+
+<h2 id="what-shipped">What shipped</h2>
+
+<p><strong>V1 (Topics + Concepts).</strong> Two new paper-level extractors join <code class="language-plaintext highlighter-rouge">ProblemExtractor</code>
+as parallel siblings. <code class="language-plaintext highlighter-rouge">TopicExtractor</code> classifies a paper against the
+<a href="/agentic-kg/reference/topic-taxonomy">Topic Taxonomy</a> and writes
+<code class="language-plaintext highlighter-rouge">BELONGS_TO</code> edges; <code class="language-plaintext highlighter-rouge">ConceptExtractor</code> pulls the concepts a paper discusses and
+writes <code class="language-plaintext highlighter-rouge">DISCUSSES</code> edges (deduping via E-2’s embedding merge). A pure-Python B3
+heuristic then draws <code class="language-plaintext highlighter-rouge">INVOLVES_CONCEPT</code> edges from the paper’s problems to those
+concepts using only the surface forms <em>this paper’s</em> extractor emitted.</p>
+
+<p><strong>V2 (Models + Methods + Citations).</strong> Two more sibling extractors —
+<code class="language-plaintext highlighter-rouge">ModelExtractor</code> and <code class="language-plaintext highlighter-rouge">MethodExtractor</code> — write <code class="language-plaintext highlighter-rouge">USES_MODEL</code> and <code class="language-plaintext highlighter-rouge">APPLIES_METHOD</code>
+edges via E-3/E-4 create-or-merge. Separately, <code class="language-plaintext highlighter-rouge">PaperImporter.import_paper</code> now
+calls E-5’s <code class="language-plaintext highlighter-rouge">populate_citations</code> after persisting a Paper, so citation
+neighbourhoods are non-empty on day one. The orchestrator runs <strong>all five</strong>
+extractors in one <code class="language-plaintext highlighter-rouge">asyncio.gather</code>; one failing extractor never blocks the
+others. See the <a href="/agentic-kg/reference/entity-catalog">Entity Catalog</a> for
+the node shapes these edges connect.</p>
+
+<h2 id="design-decisions">Design decisions</h2>
+
+<p><strong>Topic is closed-set; everything else is open-set.</strong> <code class="language-plaintext highlighter-rouge">TopicExtractor</code> binds the
+LLM to a <code class="language-plaintext highlighter-rouge">Literal</code> over the taxonomy names snapshotted at construction — a paper
+can never be filed under an invented topic; an out-of-taxonomy name fails Pydantic
+validation and is dropped. <code class="language-plaintext highlighter-rouge">Concept</code>, <code class="language-plaintext highlighter-rouge">Model</code>, and <code class="language-plaintext highlighter-rouge">Method</code> extractors are
+deliberately <em>open-set</em>: there is no fixed vocabulary, so they emit free-form
+names and rely on E-2/E-3/E-4 embedding-dedup at write time to converge
+(“bert-base” → canonical <code class="language-plaintext highlighter-rouge">BERT</code>). Mirroring Topic’s closed <code class="language-plaintext highlighter-rouge">Literal</code> for Models
+was explicitly rejected — new models ship weekly.</p>
+
+<p><strong>Per-instance taxonomy snapshot.</strong> Each <code class="language-plaintext highlighter-rouge">TopicExtractor</code> reads
+<code class="language-plaintext highlighter-rouge">seed_taxonomy.yml</code> once in <code class="language-plaintext highlighter-rouge">__init__</code> and builds its <code class="language-plaintext highlighter-rouge">Literal</code> schema and prompt
+from that one snapshot. One Cloud Run Job → one extractor → one consistent
+taxonomy for the whole batch; a mid-flight taxonomy edit only affects the <em>next</em>
+job. <code class="language-plaintext highlighter-rouge">Paper.taxonomy_hash</code> records which snapshot classified each paper.</p>
+
+<p><strong>Silent-degrade-but-accountable.</strong> A known <code class="language-plaintext highlighter-rouge">LLMError</code> inside an extractor returns
+<code class="language-plaintext highlighter-rouge">[]</code> with a WARN — no failure record. Any <em>unexpected</em> exception is caught by the
+orchestrator’s <code class="language-plaintext highlighter-rouge">_run</code> wrapper (which catches <code class="language-plaintext highlighter-rouge">BaseException</code>, including
+<code class="language-plaintext highlighter-rouge">CancelledError</code>), recorded as a structured <code class="language-plaintext highlighter-rouge">ExtractionFailure</code>, and the Paper is
+marked <code class="language-plaintext highlighter-rouge">extraction_incomplete=true</code> for a re-ingestion audit query. Partial
+results are always committed.</p>
+
+<p><strong>B3 uses per-paper aliases only.</strong> The problem↔concept linker matches against the
+surface forms the LLM emitted <em>for this paper</em>, never the merged concept’s
+accumulated alias list — this prevents alias-pollution, where a popular concept
+would match ever more aggressively as papers accrue. A <code class="language-plaintext highlighter-rouge">min_alias_length=4</code> filter
+plus a provenance-carrying <code class="language-plaintext highlighter-rouge">b3_deny_list.yml</code> suppress generic terms. The linker
+was <strong>not</strong> extended to Models/Methods in V2 (those are paper-scope, not
+problem-scope).</p>
+
+<p><strong>Descriptions stay OFF on the ingestion path.</strong> V2’s <code class="language-plaintext highlighter-rouge">create_or_merge_model</code> /
+<code class="language-plaintext highlighter-rouge">create_or_merge_method</code> calls omit <code class="language-plaintext highlighter-rouge">generate_description</code>, defaulting to <code class="language-plaintext highlighter-rouge">False</code>
+(E-6 AC-11) — ~5 LLM calls per paper is the cost ceiling. Description generation
+stays operator-driven via the E-6 CLI flags.</p>
+
+<h2 id="how-it-works">How it works</h2>
+
+<ul>
+  <li><strong>Extractors:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/extraction/topic_extractor.py"><code class="language-plaintext highlighter-rouge">topic_extractor.py</code></a>
+(closed-set <code class="language-plaintext highlighter-rouge">Literal</code>, dynamic <code class="language-plaintext highlighter-rouge">pydantic.create_model</code>),
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/extraction/concept_extractor.py"><code class="language-plaintext highlighter-rouge">concept_extractor.py</code></a>,
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/extraction/model_extractor.py"><code class="language-plaintext highlighter-rouge">model_extractor.py</code></a>,
+and
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/extraction/method_extractor.py"><code class="language-plaintext highlighter-rouge">method_extractor.py</code></a>
+— each a single paper-level call with an empty-section short-circuit and a
+<code class="language-plaintext highlighter-rouge">min_confidence</code> filter.</li>
+  <li><strong>Schemas &amp; prompts:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/extraction/schemas.py"><code class="language-plaintext highlighter-rouge">schemas.py</code></a>
+(<code class="language-plaintext highlighter-rouge">ExtractedResearchConcept</code>, <code class="language-plaintext highlighter-rouge">ExtractedModel</code>, <code class="language-plaintext highlighter-rouge">ExtractedMethod</code>) and
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/extraction/prompts/templates.py"><code class="language-plaintext highlighter-rouge">prompts/templates.py</code></a>
+(an <code class="language-plaintext highlighter-rouge">EntityKind</code>-dispatched <code class="language-plaintext highlighter-rouge">SYSTEM_PROMPT_V1</code> / <code class="language-plaintext highlighter-rouge">USER_PROMPT_TEMPLATE_V1</code>
+family, extensible by duplicate-rename).</li>
+  <li><strong>Orchestrator:</strong> <code class="language-plaintext highlighter-rouge">extract_all_entities</code> in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/extraction/pipeline.py"><code class="language-plaintext highlighter-rouge">pipeline.py</code></a>
+— five awaitables through one <code class="language-plaintext highlighter-rouge">asyncio.gather</code>, returning a
+<code class="language-plaintext highlighter-rouge">PaperExtractionResult</code> with per-extractor <code class="language-plaintext highlighter-rouge">failures</code>.</li>
+  <li><strong>Writers:</strong> <code class="language-plaintext highlighter-rouge">integrate_paper_entities</code> in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/extraction/kg_integration_v2.py"><code class="language-plaintext highlighter-rouge">kg_integration_v2.py</code></a>
+writes <code class="language-plaintext highlighter-rouge">BELONGS_TO</code> / <code class="language-plaintext highlighter-rouge">DISCUSSES</code> / <code class="language-plaintext highlighter-rouge">USES_MODEL</code> / <code class="language-plaintext highlighter-rouge">APPLIES_METHOD</code>, runs the B3
+linker (<code class="language-plaintext highlighter-rouge">b3_linker.py</code>), and pins <code class="language-plaintext highlighter-rouge">taxonomy_hash</code> + <code class="language-plaintext highlighter-rouge">extraction_incomplete</code>.</li>
+  <li><strong>Citations:</strong> <code class="language-plaintext highlighter-rouge">PaperImporter.import_paper</code> in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/data_acquisition/importer.py"><code class="language-plaintext highlighter-rouge">importer.py</code></a>
+calls E-5’s <code class="language-plaintext highlighter-rouge">populate_citations</code> (default-on, best-effort, never propagates) on
+both the create and <code class="language-plaintext highlighter-rouge">update_existing</code> paths.</li>
+  <li><strong>Wired end-to-end:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/ingestion.py"><code class="language-plaintext highlighter-rouge">ingestion.py</code></a>
+constructs all five extractors and calls <code class="language-plaintext highlighter-rouge">extract_all_entities</code> →
+<code class="language-plaintext highlighter-rouge">integrate_paper_entities</code> per paper — this is the live path, not just library
+scaffolding.</li>
+</ul>
+
+<p>For the resulting node attributes and edges in context, see the
+<a href="/agentic-kg/reference/entity-catalog">Entity Catalog</a> and the
+<a href="/agentic-kg/reference/topic-taxonomy">Topic Taxonomy</a>.</p>
+
+<h2 id="verification">Verification</h2>
+
+<ul>
+  <li><strong>Tests:</strong> each extractor’s success path, taxonomy rejection, low-confidence
+filtering, empty-section short-circuit, five-way parallel orchestration,
+per-extractor degradation (known vs. unexpected exceptions), the B3 linker +
+deny-list + pollution-immunity, each integration writer, and the
+<code class="language-plaintext highlighter-rouge">populate_citations</code> default-on / exception-absorbed / update-path contracts.</li>
+  <li><strong>Eval gate (<code class="language-plaintext highlighter-rouge">-m costly</code>):</strong> a 5-paper hand-labeled fixture set (one per area)
+with dual precision floors + an anti-gaming recall tripwire — Topic/Concept
+gates from V1, Model/Method gates added in V2, both checked at
+<code class="language-plaintext highlighter-rouge">/constellize:feature:verify</code>.</li>
+  <li><strong>Status:</strong> VERIFIED — V1 (Units 1-13) and V2 both passed their verify gates;
+the pipeline is the live ingestion path.</li>
+</ul>
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li>Populates: <a href="/agentic-kg/design/e1-topic-entities">E-1</a> ·
+<a href="/agentic-kg/design/e2-research-concepts">E-2</a> ·
+<a href="/agentic-kg/design/e3-model-entities">E-3</a> ·
+<a href="/agentic-kg/design/e4-method-entities">E-4</a></li>
+  <li>Wires in: <a href="/agentic-kg/design/e5-citation-graph">E-5</a> (citation
+population at import time)</li>
+  <li>Orchestration: entity-pipeline-orchestration (the <code class="language-plaintext highlighter-rouge">ingest_papers</code> path that
+runs the five extractors and their writers)</li>
+  <li>Deferred: E-7 (cross-entity normalization), L-1 (low-cost SLM client for
+per-extractor cost routing)</li>
+</ul>
