@@ -1,0 +1,134 @@
+<h1 id="entity-pipeline-orchestration">Entity pipeline orchestration</h1>
+
+<p class="label label-green">VERIFIED</p>
+
+<p><strong>Backlog:</strong> entity-pipeline-orchestration (loop-close; surfaced after E-7 verify) ·
+<strong>Depends on:</strong> <a href="../design/e1-topic-entities">E-1</a> … <a href="../design/e8-extraction-prompt-expansion">E-8</a></p>
+<ul>
+  <li><a href="../design/e7-cross-entity-normalization">E-7</a> · <strong>Spec:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/entity-pipeline-orchestration.md"><code class="language-plaintext highlighter-rouge">entity-pipeline-orchestration.md</code></a></li>
+</ul>
+
+<h2 id="why">Why</h2>
+
+<p>The entity-expansion arc built a lot of machinery — four new extractors
+(Topic / ResearchConcept / Model / Method), a five-way parallel orchestrator, the
+E-7 cross-entity router, and a V2 entity integrator with audit trails — and
+<strong>none of it ran in production.</strong> <code class="language-plaintext highlighter-rouge">ingest_papers</code>, the single entry point behind
+both <code class="language-plaintext highlighter-rouge">agentic-kg ingest</code> and the Cloud Run Job, still did only V1: import
+metadata, extract <em>problems</em> from the PDF, route ProblemMentions. After ingesting
+N papers the graph had Paper / Author / CITES / ProblemMention — and zero Topic
+edges, ResearchConcept nodes, <code class="language-plaintext highlighter-rouge">USES_MODEL</code>, <code class="language-plaintext highlighter-rouge">APPLIES_METHOD</code>, or the Paper audit
+fields. This is the capstone: it wires the whole dormant arc into the production
+ingestion path, default-on, so an ordinary ingest run finally produces the richly
+typed graph the arc was built for.</p>
+
+<h2 id="what-shipped">What shipped</h2>
+
+<p>One refactor of <code class="language-plaintext highlighter-rouge">ingest_papers</code> Phase 2/3 into a <strong>single per-paper loop</strong> that
+runs, for every paper: problem extraction (V1), the four entity extractors in
+parallel via <code class="language-plaintext highlighter-rouge">extract_all_entities</code>, E-7 cross-entity normalization, V1
+mention/concept integration, then V2 entity integration via
+<code class="language-plaintext highlighter-rouge">integrate_paper_entities</code>. It is <strong>on by default</strong> (<code class="language-plaintext highlighter-rouge">extract_entities=True</code>,
+<code class="language-plaintext highlighter-rouge">normalize_cross_entity_collisions=True</code>), guarded by a <strong>per-paper skip check</strong>
+so re-running the same query is near-free, and it writes an <strong>audit trail</strong> onto
+each Paper node (<code class="language-plaintext highlighter-rouge">taxonomy_hash</code>, <code class="language-plaintext highlighter-rouge">extraction_incomplete</code>, <code class="language-plaintext highlighter-rouge">normalization_audit</code>)
+plus additive counters on <code class="language-plaintext highlighter-rouge">IngestionResult</code>. No new entity types, extractors,
+prompts, schema, or repository methods — pure orchestration of existing parts.</p>
+
+<h2 id="design-decisions">Design decisions</h2>
+
+<p><strong>Default-on — the cost is the point.</strong> Shipping with the extractors defaulted
+<em>off</em> would have left the pipeline dormant indefinitely (E-6’s
+<code class="language-plaintext highlighter-rouge">generate_description=False</code> default never got flipped in months). So this is a
+deliberate <strong>breaking change</strong> for operators: every ingest now runs ~5-6 extra LLM
+calls per new paper. The skip check and the two opt-out flags are the mitigations.</p>
+
+<p><strong>Universal extraction scope, with abstract fallback.</strong> All four entity
+extractors run on <em>every</em> paper. Papers with a PDF use the rich
+<code class="language-plaintext highlighter-rouge">abstract + introduction + methods + experiments</code> text; PDF-less papers fall back
+to the abstract alone; truly empty papers hit each extractor’s empty-input
+short-circuit (zero LLM cost) and persist as metadata only.</p>
+
+<p><strong>A skip check, not a migration.</strong> Rather than a one-off backfill, re-ingestion is
+made cheap: a paper already extracted under the current taxonomy snapshot and not
+flagged incomplete is skipped end-to-end for the LLM-touching body. Only <em>new</em>
+papers pay the extraction bill. This composes for free with the AC-13 purge path,
+which clears <code class="language-plaintext highlighter-rouge">taxonomy_hash</code> and so forces re-extraction on the next run.</p>
+
+<p><strong>One LLM client per batch — the L-1 swap point.</strong> <code class="language-plaintext highlighter-rouge">get_openai_client()</code> is called
+once and threaded into all four extractors <em>and</em> the normalizer. Swapping that one
+factory for a local-SLM factory flips the entire pipeline’s model with no other
+code change.</p>
+
+<h2 id="how-it-works">How it works</h2>
+
+<ul>
+  <li><strong>Orchestrator:</strong> <code class="language-plaintext highlighter-rouge">ingest_papers</code> in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/ingestion.py"><code class="language-plaintext highlighter-rouge">ingestion.py</code></a>
+— per-batch deps (<code class="language-plaintext highlighter-rouge">TopicExtractor</code>/<code class="language-plaintext highlighter-rouge">ConceptExtractor</code>/<code class="language-plaintext highlighter-rouge">ModelExtractor</code>/<code class="language-plaintext highlighter-rouge">MethodExtractor</code>,
+one <code class="language-plaintext highlighter-rouge">EmbeddingService</code>, one LLM client) build once inside the <code class="language-plaintext highlighter-rouge">if extract_entities</code>
+block; the per-paper loop then does purge-guard → skip-check → text resolution →
+<code class="language-plaintext highlighter-rouge">extract_all_entities</code> → <code class="language-plaintext highlighter-rouge">normalize_cross_entity</code> → V1 <code class="language-plaintext highlighter-rouge">integrate_extracted_problems</code>
+→ V2 <code class="language-plaintext highlighter-rouge">integrate_paper_entities</code>, all inside one <code class="language-plaintext highlighter-rouge">try/except</code> for per-paper failure
+isolation.</li>
+  <li><strong>Text resolution:</strong> <code class="language-plaintext highlighter-rouge">_build_extractor_section_text</code> joins the wanted
+<code class="language-plaintext highlighter-rouge">SegmentedDocument</code> sections; returns <code class="language-plaintext highlighter-rouge">""</code> (safe short-circuit) when a PDF has
+none of them.</li>
+  <li><strong>Skip check:</strong> <code class="language-plaintext highlighter-rouge">_can_skip_entity_extraction</code> reads the Paper node and returns
+<code class="language-plaintext highlighter-rouge">True</code> only when <code class="language-plaintext highlighter-rouge">taxonomy_hash</code> matches the batch hash <strong>and</strong>
+<code class="language-plaintext highlighter-rouge">extraction_incomplete</code> is not <code class="language-plaintext highlighter-rouge">True</code>; increments <code class="language-plaintext highlighter-rouge">result.papers_skipped_complete</code>.</li>
+  <li><strong>V1 → V2 sequencing:</strong> V1 runs first (its <code class="language-plaintext highlighter-rouge">ProblemMention[]</code> feed the V2 B3
+problem↔concept linker); V2 gates on <em>any</em> successful extraction or a V1 result.</li>
+  <li><strong>Audit trail:</strong> <code class="language-plaintext highlighter-rouge">integrate_paper_entities</code> (from
+<a href="../design/e8-extraction-prompt-expansion">E-8</a>) writes <code class="language-plaintext highlighter-rouge">taxonomy_hash</code>,
+<code class="language-plaintext highlighter-rouge">extraction_incomplete</code>, and the E-7 <code class="language-plaintext highlighter-rouge">normalization_audit</code> JSON onto Paper;
+new counters (<code class="language-plaintext highlighter-rouge">topics_linked</code>, <code class="language-plaintext highlighter-rouge">concepts_v2_linked</code>, <code class="language-plaintext highlighter-rouge">models_linked</code>,
+<code class="language-plaintext highlighter-rouge">methods_linked</code>, <code class="language-plaintext highlighter-rouge">papers_marked_incomplete</code>, <code class="language-plaintext highlighter-rouge">papers_with_normalization_audit</code>,
+<code class="language-plaintext highlighter-rouge">papers_skipped_complete</code>) land on <code class="language-plaintext highlighter-rouge">IngestionResult</code>.</li>
+  <li><strong>CLI + Job parity:</strong> three flags on
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/cli.py"><code class="language-plaintext highlighter-rouge">cli.py</code></a>
+(<code class="language-plaintext highlighter-rouge">--no-extract-entities</code>, <code class="language-plaintext highlighter-rouge">--no-normalize-cross-entity</code>, <code class="language-plaintext highlighter-rouge">--force-reextract</code>)
+mirror three env vars in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/job_runner.py"><code class="language-plaintext highlighter-rouge">job_runner.py</code></a>
+(<code class="language-plaintext highlighter-rouge">EXTRACT_ENTITIES</code>, <code class="language-plaintext highlighter-rouge">NORMALIZE_CROSS_ENTITY</code>, <code class="language-plaintext highlighter-rouge">FORCE_REEXTRACT</code>), all defaulting on.</li>
+</ul>
+
+<p>This note ties together the whole arc — <a href="/agentic-kg/previews/pr-45/design/e1-topic-entities">E-1</a>,
+<a href="/agentic-kg/previews/pr-45/design/e2-research-concepts">E-2</a>,
+<a href="/agentic-kg/previews/pr-45/design/e3-model-entities">E-3</a>,
+<a href="/agentic-kg/previews/pr-45/design/e4-method-entities">E-4</a>,
+<a href="/agentic-kg/previews/pr-45/design/e5-citation-graph">E-5</a>,
+<a href="/agentic-kg/previews/pr-45/design/e6-entity-descriptions">E-6</a>,
+<a href="/agentic-kg/previews/pr-45/design/e7-cross-entity-normalization">E-7</a>,
+and <a href="/agentic-kg/previews/pr-45/design/e8-extraction-prompt-expansion">E-8</a> — into one
+production path. For the nodes and edges it populates, see the
+<a href="/agentic-kg/previews/pr-45/reference/entity-catalog">Entity Catalog</a> and
+<a href="/agentic-kg/previews/pr-45/reference/entity-relationships">Entity Relationships</a>.</p>
+
+<h2 id="verification">Verification</h2>
+
+<ul>
+  <li><strong>Tests:</strong> 31 mocked orchestration tests in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/tests/test_ingestion_v2_orchestration.py"><code class="language-plaintext highlighter-rouge">test_ingestion_v2_orchestration.py</code></a>
+— flag combinatorics (both-on happy path, <code class="language-plaintext highlighter-rouge">extract_entities=False</code>,
+<code class="language-plaintext highlighter-rouge">normalize=False</code>, both-off V1 baseline), the skip check (skip / <code class="language-plaintext highlighter-rouge">--force-reextract</code>
+bypass / <code class="language-plaintext highlighter-rouge">extraction_incomplete</code> re-extraction), per-stage error injection, and the
+PDF-less / abstract-less / DOI-less edge cases. No testcontainers, no live LLM.</li>
+  <li><strong>CI smoke:</strong> the <a href="/agentic-kg/previews/pr-45/design/ci-smoke-test">CI smoke test</a> is what
+exercises this loop against an ephemeral Neo4j — a default-flags ingest is what
+lands the Topic / Concept / Model / Method edges the smoke test asserts.</li>
+  <li><strong>Status:</strong> VERIFIED — orchestration is the cycle that flipped every E-1…E-8
+entity type from “built and unit-tested” to “written on every ingest.”</li>
+</ul>
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li>Reference: <a href="/agentic-kg/previews/pr-45/reference/entity-catalog">Entity Catalog</a> ·
+<a href="/agentic-kg/previews/pr-45/reference/entity-relationships">Entity Relationships</a></li>
+  <li>Wires: <a href="/agentic-kg/previews/pr-45/design/e8-extraction-prompt-expansion">E-1 … E-8</a> +
+<a href="/agentic-kg/previews/pr-45/design/e7-cross-entity-normalization">E-7 cross-entity normalization</a></li>
+  <li>Deferred: across-paper parallelism · per-batch cost/token telemetry
+(<code class="language-plaintext highlighter-rouge">result.llm_calls_made</code>) · full-pipeline calibration run</li>
+</ul>

@@ -1,0 +1,98 @@
+<h1 id="e-1--topic--research-area-entities">E-1 · Topic / Research Area entities</h1>
+
+<p class="label label-green">VERIFIED</p>
+
+<p><strong>Backlog ID:</strong> E-1 · <strong>Depends on:</strong> none · <strong>Enabled:</strong> community detection
+(C-1), RAG retrieval (R-1) · <strong>Spec:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/topic-research-area-entities.md"><code class="language-plaintext highlighter-rouge">topic-research-area-entities.md</code></a></p>
+
+<h2 id="why">Why</h2>
+
+<p>Research topics used to live as flat <code class="language-plaintext highlighter-rouge">domain</code> strings (<code class="language-plaintext highlighter-rouge">"NLP"</code>,
+<code class="language-plaintext highlighter-rouge">"Computer Vision"</code>) attached to problems. Strings can’t be traversed, can’t be
+searched by similarity, and can’t express that <em>Machine Translation</em> sits under
+<em>Natural Language Processing</em> under <em>Computer Science</em>. A researcher couldn’t ask
+“show me every open problem in NLP” as a graph query, and topic-based navigation,
+community detection, and retrieval were all blocked. The gap analysis flagged
+this as the highest-priority missing entity type.</p>
+
+<h2 id="what-shipped">What shipped</h2>
+
+<p>A first-class <code class="language-plaintext highlighter-rouge">Topic</code> node type forming a three-level hierarchy
+(<code class="language-plaintext highlighter-rouge">domain → area → subtopic</code>), with a hand-curated seed taxonomy loaded into
+Neo4j and semantic embeddings on every node. Topics connect to the rest of the
+graph via three edges — <code class="language-plaintext highlighter-rouge">SUBTOPIC_OF</code> (hierarchy), <code class="language-plaintext highlighter-rouge">BELONGS_TO</code> (problem-side
+classification), and <code class="language-plaintext highlighter-rouge">RESEARCHES</code> (papers). See the
+<a href="/agentic-kg/previews/pr-45/reference/topic-taxonomy">Topic Taxonomy</a> reference for the
+full shipped hierarchy.</p>
+
+<h2 id="design-decisions">Design decisions</h2>
+
+<p><strong>Closed-set taxonomy, not open string migration.</strong> The original spec proposed
+migrating existing <code class="language-plaintext highlighter-rouge">domain</code> strings into <code class="language-plaintext highlighter-rouge">Topic</code> nodes. What shipped instead is a
+<em>closed-set</em> taxonomy: topics exist only if they are in the curated
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/knowledge_graph/data/seed_taxonomy.yml"><code class="language-plaintext highlighter-rouge">seed_taxonomy.yml</code></a>,
+loaded fresh rather than migrated. This keeps the vocabulary clean and makes
+classification auditable — extraction (E-8) binds the LLM to a <code class="language-plaintext highlighter-rouge">Literal</code> over
+these names, so a paper can never be filed under an invented topic. It also
+matches the project’s “re-extract over migrate” stance.</p>
+
+<p><strong>Three fixed levels, enforced structurally.</strong> <code class="language-plaintext highlighter-rouge">TopicLevel</code> is an enum of exactly
+<code class="language-plaintext highlighter-rouge">domain</code> / <code class="language-plaintext highlighter-rouge">area</code> / <code class="language-plaintext highlighter-rouge">subtopic</code>, and the loader validates parent→child transitions
+(<code class="language-plaintext highlighter-rouge">∅ → domain → area → subtopic</code>). Domain nodes may not have a parent. This makes
+the hierarchy predictable for both queries and the extractor.</p>
+
+<p><strong>Curated, not exhaustive.</strong> Rather than importing all ~65k OpenAlex concepts,
+the taxonomy is ~30 nodes hand-focused on the project’s corpus (graph retrieval,
+knowledge graphs, NLP, ML, IR). Scaling it — versioning, branching, merge — is
+deliberately deferred to backlog item <strong>T-1</strong>.</p>
+
+<p><strong>Idempotent loading.</strong> <code class="language-plaintext highlighter-rouge">load_taxonomy</code> merges each node on
+<code class="language-plaintext highlighter-rouge">(name, level, parent_id)</code> and reports <code class="language-plaintext highlighter-rouge">{created, matched}</code>, so re-running against
+an existing graph is a no-op. The taxonomy round-trips: <code class="language-plaintext highlighter-rouge">export_taxonomy</code> reads
+the live graph back to the YAML shape (embeddings regenerated on import to keep
+the file human-readable).</p>
+
+<h2 id="how-it-works">How it works</h2>
+
+<ul>
+  <li><strong>Model:</strong> <code class="language-plaintext highlighter-rouge">Topic</code> in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/knowledge_graph/models/entities.py"><code class="language-plaintext highlighter-rouge">models/entities.py</code></a>
+— <code class="language-plaintext highlighter-rouge">name</code>, <code class="language-plaintext highlighter-rouge">description</code>, <code class="language-plaintext highlighter-rouge">level</code>, <code class="language-plaintext highlighter-rouge">parent_id</code>, <code class="language-plaintext highlighter-rouge">source</code>, <code class="language-plaintext highlighter-rouge">openalex_id</code>,
+1536-dim <code class="language-plaintext highlighter-rouge">embedding</code>, and denormalized <code class="language-plaintext highlighter-rouge">problem_count</code> / <code class="language-plaintext highlighter-rouge">paper_count</code>.</li>
+  <li><strong>Loader / validator / exporter:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/knowledge_graph/taxonomy.py"><code class="language-plaintext highlighter-rouge">taxonomy.py</code></a>
+(<code class="language-plaintext highlighter-rouge">parse_taxonomy</code>, <code class="language-plaintext highlighter-rouge">load_taxonomy</code>, <code class="language-plaintext highlighter-rouge">export_taxonomy</code>, <code class="language-plaintext highlighter-rouge">flatten_taxonomy</code>).</li>
+  <li><strong>Schema:</strong> <code class="language-plaintext highlighter-rouge">topic_id_unique</code> constraint; <code class="language-plaintext highlighter-rouge">topic_name/level/source</code> indexes;
+<code class="language-plaintext highlighter-rouge">topic_embedding_idx</code> vector index (1536-dim, cosine) — all in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/knowledge_graph/schema.py"><code class="language-plaintext highlighter-rouge">schema.py</code></a>.</li>
+  <li><strong>Embedding strategy:</strong> each node embeds <code class="language-plaintext highlighter-rouge">"{name}: {description}"</code>, so the
+one-line description in the YAML directly enriches semantic matching.</li>
+  <li><strong>Assignment:</strong> E-1 shipped the <em>infrastructure</em>; automatic per-paper topic
+assignment during ingestion arrived with the closed-set extractor in
+<a href="/agentic-kg/previews/pr-45/design/e8-extraction-prompt-expansion">E-8</a>.</li>
+</ul>
+
+<p>For the node’s attributes and its edges in context, see the
+<a href="/agentic-kg/previews/pr-45/reference/entity-catalog#topic-e-1">Entity Catalog</a> and
+<a href="/agentic-kg/previews/pr-45/reference/entity-relationships">Entity Relationships</a>.</p>
+
+<h2 id="verification">Verification</h2>
+
+<ul>
+  <li><strong>Tests:</strong> Topic model validation, schema init, idempotent taxonomy load,
+export round-trip, and CRUD.</li>
+  <li><strong>CI smoke:</strong> the <a href="/agentic-kg/previews/pr-45/design/ci-smoke-test">CI smoke test</a>
+asserts <code class="language-plaintext highlighter-rouge">Topic</code> nodes and <code class="language-plaintext highlighter-rouge">BELONGS_TO</code> / <code class="language-plaintext highlighter-rouge">RESEARCHES</code> edges land in an
+ephemeral Neo4j on every ingestion run.</li>
+  <li><strong>Status:</strong> VERIFIED — shipped via the E-8 V1 extractor and
+entity-pipeline-orchestration cycles.</li>
+</ul>
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li>Reference: <a href="/agentic-kg/previews/pr-45/reference/topic-taxonomy">Topic Taxonomy</a></li>
+  <li>Follows: <a href="/agentic-kg/previews/pr-45/design/e8-extraction-prompt-expansion">E-8 · Extraction prompt expansion</a> (populates topics from text)</li>
+  <li>Deferred: <strong>T-1</strong> — taxonomy management at scale (versioning / branching / merge)</li>
+</ul>

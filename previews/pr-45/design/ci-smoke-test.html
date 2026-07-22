@@ -1,0 +1,105 @@
+<h1 id="ci-smoke-test--end-to-end-ingestion">CI smoke test — end-to-end ingestion</h1>
+
+<p class="label label-green">VERIFIED</p>
+
+<p><strong>Backlog:</strong> ci-smoke-test-ingestion · <strong>Depends on:</strong>
+entity-pipeline-orchestration + E-1..E-8 (all VERIFIED) · <strong>Spec:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/ci-smoke-test-ingestion.md"><code class="language-plaintext highlighter-rouge">ci-smoke-test-ingestion.md</code></a></p>
+
+<h2 id="why">Why</h2>
+
+<p>Entity-pipeline-orchestration made full V2 extraction default-on in
+<code class="language-plaintext highlighter-rouge">ingest_papers</code>: every commit on <code class="language-plaintext highlighter-rouge">master</code> now runs V2 entity extraction,
+cross-entity normalization, and the V1/V2 integration loop in production. Unit
+tests pin contracts <em>at each seam</em> with mocked LLM clients — so a refactor can
+silently break the wiring <em>across</em> seams and every unit test still passes. A
+broken failure-isolation path, a skipped <code class="language-plaintext highlighter-rouge">taxonomy_hash</code> write, an upstream
+OpenAI prompt shift returning empty concept lists — none of those show up until
+someone hits them on a Tuesday morning. There was no automated check that the
+wired-up pipeline actually writes edges to the graph.</p>
+
+<h2 id="what-shipped">What shipped</h2>
+
+<p>One GitHub Actions workflow,
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/.github/workflows/smoke-ingest.yml"><code class="language-plaintext highlighter-rouge">smoke-ingest.yml</code></a>,
+that stands up an <strong>ephemeral Neo4j service container</strong> inside the runner,
+ingests 3 real papers end-to-end with extraction default-on, and asserts the
+resulting graph has the expected shape. It fires on three triggers: <code class="language-plaintext highlighter-rouge">pull_request</code>
+against <code class="language-plaintext highlighter-rouge">master</code> (path-filtered to <code class="language-plaintext highlighter-rouge">packages/core/**</code>, <code class="language-plaintext highlighter-rouge">pyproject.toml</code>, the
+workflow file, and the assertion script), a daily <code class="language-plaintext highlighter-rouge">cron</code> at <code class="language-plaintext highlighter-rouge">17 6 * * *</code> UTC, and
+<code class="language-plaintext highlighter-rouge">workflow_dispatch</code> with <code class="language-plaintext highlighter-rouge">query</code>/<code class="language-plaintext highlighter-rouge">limit</code> inputs for developer self-service. The
+<code class="language-plaintext highlighter-rouge">ingest_result.json</code> is uploaded as an artifact on every run, pass or fail.</p>
+
+<h2 id="design-decisions">Design decisions</h2>
+
+<p><strong>Assert on real graph edges, not mocks.</strong> The whole point is to catch what unit
+tests can’t. The assertion runs a single Cypher query against the just-populated
+Neo4j and checks six batch-level conditions — this is a genuine integration
+check against a live database, not a re-assertion of a mocked contract. If the
+orchestrator writes zero <code class="language-plaintext highlighter-rouge">BELONGS_TO</code> edges, the smoke test goes red where every
+unit test stayed green.</p>
+
+<p><strong>Ephemeral Neo4j, zero GCP secrets.</strong> A <code class="language-plaintext highlighter-rouge">neo4j:5.26-community</code> service container
+(APOC enabled, healthcheck-gated) gives a clean slate every run. Nothing touches
+staging Neo4j, the Cloud Run Job, or any GCP project — <code class="language-plaintext highlighter-rouge">NEO4J_URI</code> always points
+at <code class="language-plaintext highlighter-rouge">localhost</code>. The only secret referenced is <code class="language-plaintext highlighter-rouge">OPENAI_API_KEY</code>. Production deploy
+verification is a deliberately separate (deferred) workflow.</p>
+
+<p><strong>Real data, accepted nondeterminism.</strong> The test ingests live arXiv/Semantic
+Scholar results rather than pinned fixtures. Red is treated as a real signal —
+either a wiring regression or genuine upstream drift — so a single automatic
+retry (30s sleep) absorbs transient OpenAI flake, and the daily cron surfaces API
+drift before a developer hits it. The check is informational, not a required
+merge gate.</p>
+
+<p><strong>Batch-level, <code class="language-plaintext highlighter-rouge">≥ 1</code> per entity type.</strong> Assertions are <code class="language-plaintext highlighter-rouge">Model OR Method</code> (a
+3-paper batch may not produce both) rather than exhaustive per-paper checks —
+strict enough to prove wiring, loose enough to survive real-corpus variance.</p>
+
+<h2 id="how-it-works">How it works</h2>
+
+<ul>
+  <li><strong>Workflow:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/.github/workflows/smoke-ingest.yml"><code class="language-plaintext highlighter-rouge">smoke-ingest.yml</code></a>
+— checkout → install <code class="language-plaintext highlighter-rouge">packages/core</code> → <code class="language-plaintext highlighter-rouge">initialize_schema(force=True)</code> →
+ingest (bash single-retry loop, max 2 attempts) → assert → upload artifact.
+A <code class="language-plaintext highlighter-rouge">concurrency</code> group cancels stale runs on rapid pushes, saving LLM calls.</li>
+  <li><strong>Assertion:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/scripts/smoke_assert.py"><code class="language-plaintext highlighter-rouge">scripts/smoke_assert.py</code></a>
+first checks <code class="language-plaintext highlighter-rouge">IngestionResult.status == "completed"</code> (early-exit before touching
+Neo4j), then runs one chained-<code class="language-plaintext highlighter-rouge">OPTIONAL MATCH</code> Cypher query for six counts and
+reports a <code class="language-plaintext highlighter-rouge">PASS:</code>/<code class="language-plaintext highlighter-rouge">FAIL:</code> table plus raw counts to stdout. It lives under
+<code class="language-plaintext highlighter-rouge">scripts/</code> (not <code class="language-plaintext highlighter-rouge">tests/</code>) because it runs against a live DB, not under pytest.</li>
+  <li><strong>The six edges/counts asserted:</strong> <code class="language-plaintext highlighter-rouge">Paper ≥ 1</code>; <code class="language-plaintext highlighter-rouge">BELONGS_TO</code> topic edges <code class="language-plaintext highlighter-rouge">≥ 1</code>;
+<code class="language-plaintext highlighter-rouge">ResearchConcept ≥ 1</code>; <code class="language-plaintext highlighter-rouge">Model + Method ≥ 1</code>; <code class="language-plaintext highlighter-rouge">CITES ≥ 1</code>; Papers with non-null
+<code class="language-plaintext highlighter-rouge">taxonomy_hash ≥ 1</code> (proves V2 integration ran to its audit-metadata write).</li>
+  <li><strong>Local mirror:</strong> <code class="language-plaintext highlighter-rouge">make smoke-local</code> reproduces the workflow step-for-step
+against a local Docker Neo4j, so a green local run predicts a green CI run.</li>
+</ul>
+
+<p>This smoke test is the runtime guard on the pipeline described in
+<a href="/agentic-kg/previews/pr-45/design/entity-pipeline-orchestration">Entity pipeline orchestration</a>.
+For the node types and edges it asserts on, see
+<a href="/agentic-kg/previews/pr-45/reference/entity-relationships">Entity Relationships</a>.</p>
+
+<h2 id="verification">Verification</h2>
+
+<ul>
+  <li><strong>AC coverage:</strong> all 15 acceptance criteria (triggers, path filter, ephemeral
+Neo4j + schema init, default-on ingest, single-retry, six assertions, status
+pre-check, artifact upload, concurrency, <code class="language-plaintext highlighter-rouge">make smoke-local</code>).</li>
+  <li><strong>Tests:</strong> <code class="language-plaintext highlighter-rouge">smoke_assert.py</code> is split into <code class="language-plaintext highlighter-rouge">_load_result</code> / <code class="language-plaintext highlighter-rouge">_run_graph_checks</code>
+/ <code class="language-plaintext highlighter-rouge">_evaluate_checks</code> so its status pre-check, count logic, and error paths are
+unit-testable with an injected mock session (no live Neo4j needed).</li>
+  <li><strong>Status:</strong> VERIFIED — workflow live on <code class="language-plaintext highlighter-rouge">master</code> with PR + daily-cron +
+dispatch triggers.</li>
+</ul>
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li>Guards: <a href="/agentic-kg/previews/pr-45/design/entity-pipeline-orchestration">Entity pipeline orchestration</a></li>
+  <li>Asserts on: <a href="/agentic-kg/previews/pr-45/design/e1-topic-entities">E-1 · Topic entities</a>, <a href="/agentic-kg/previews/pr-45/design/e5-citation-graph">E-5 · Citation graph</a></li>
+  <li>Reference: <a href="/agentic-kg/previews/pr-45/reference/entity-relationships">Entity Relationships</a></li>
+  <li>Deferred: production deploy-verification smoke (Cloud Run Job vs staging Neo4j)</li>
+</ul>

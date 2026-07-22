@@ -1,0 +1,117 @@
+<h1 id="d-1--ingest-real-papers">D-1 · Ingest real papers</h1>
+
+<p class="label label-green">VERIFIED</p>
+
+<p><strong>Backlog ID:</strong> D-1 · <strong>Depends on:</strong> data-acquisition clients, extraction
+pipeline, KGIntegratorV2 · <strong>Enables:</strong> every populated-graph feature
+(community detection, RAG retrieval, visualization) · <strong>Spec:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/d1-ingest-real-papers.md"><code class="language-plaintext highlighter-rouge">d1-ingest-real-papers.md</code></a></p>
+
+<h2 id="why">Why</h2>
+
+<p>Every piece of the machine existed independently — clients that could search
+Semantic Scholar / arXiv / OpenAlex, a pipeline that could turn a PDF into
+problems, and a canonical integrator that could deduplicate them — but nothing
+chained them together. The graph held only test data, so the visualization was
+empty and the core value proposition (“point at a topic, get a navigable
+knowledge graph”) was untested. D-1 is the end-to-end backbone: one orchestration
+function that turns a search query into a populated, provenance-complete graph,
+exposed as both a CLI command and an API job. Everything else in the project
+rides on it.</p>
+
+<h2 id="what-shipped">What shipped</h2>
+
+<p>A single <code class="language-plaintext highlighter-rouge">ingest_papers()</code> orchestrator with four phases — <strong>search &amp; import →
+extract → integrate → sanity-check</strong> — plus the <code class="language-plaintext highlighter-rouge">ingest</code> CLI subcommand and a
+<code class="language-plaintext highlighter-rouge">POST /api/ingest</code> endpoint that both call it. Papers are found across three
+sources, deduplicated by DOI, imported as <code class="language-plaintext highlighter-rouge">Paper</code>/<code class="language-plaintext highlighter-rouge">Author</code> nodes, run through a
+5-way parallel extraction, and integrated into the canonical architecture with a
+full provenance chain (<code class="language-plaintext highlighter-rouge">ProblemMention -[:EXTRACTED_FROM]-&gt; Paper
+-[:AUTHORED_BY]-&gt; Author</code>). A run ends with five structural sanity checks and a
+counted <code class="language-plaintext highlighter-rouge">IngestionResult</code>.</p>
+
+<h2 id="design-decisions">Design decisions</h2>
+
+<p><strong>Per-paper loop, not BatchProcessor.</strong> The spec proposed reusing
+<code class="language-plaintext highlighter-rouge">BatchProcessor</code>’s SQLite job queue for the extract phase. What shipped is a
+plain per-paper <code class="language-plaintext highlighter-rouge">for</code> loop over <code class="language-plaintext highlighter-rouge">PaperProcessingPipeline.process_pdf_url()</code>,
+wrapped in per-paper <code class="language-plaintext highlighter-rouge">try/except</code> so one bad PDF never sinks the batch (AC-14).
+Resume/queue durability moved to the API layer’s Cloud Run Job instead of an
+in-loop SQLite queue.</p>
+
+<p><strong>Grew into the entity pipeline.</strong> D-1 began as problem-only (Paper → Problem).
+As later features landed it became the orchestration seam that runs all five
+extractors in parallel — problems (V1) plus Topic / ResearchConcept / Model /
+Method (V2) — then E-7 cross-entity normalization, then E-5 citation-graph
+population. Each is gated by a flag (<code class="language-plaintext highlighter-rouge">--no-extract-entities</code>,
+<code class="language-plaintext highlighter-rouge">--no-normalize-cross-entity</code>, <code class="language-plaintext highlighter-rouge">--no-populate-citations</code>) so a V1-only caller
+pays zero extra LLM cost.</p>
+
+<p><strong>Re-ingest is safe by construction.</strong> Two guards protect existing work. The
+AC-13 purge guardrail refuses to clobber a paper that carries non-extraction
+edges (manual <code class="language-plaintext highlighter-rouge">SOLVED_BY</code>, curated tags) unless <code class="language-plaintext highlighter-rouge">--force-rewrite</code> is passed. The
+AC-21 cost guard skips any paper already extracted under the current taxonomy
+hash unless <code class="language-plaintext highlighter-rouge">--force-reextract</code> is passed — so re-running a query is cheap and
+idempotent rather than a full re-spend.</p>
+
+<p><strong>Fix, don’t crash, on missing provenance.</strong> The required EXTRACTED_FROM fix
+shipped in <code class="language-plaintext highlighter-rouge">_store_mention_node</code>, but as an <code class="language-plaintext highlighter-rouge">OPTIONAL MATCH</code> + <code class="language-plaintext highlighter-rouge">FOREACH</code> guard:
+a mention still writes even if its Paper isn’t present, and the missing-edge case
+surfaces through sanity check #2 instead of an exception.</p>
+
+<h2 id="how-it-works">How it works</h2>
+
+<ul>
+  <li><strong>Orchestrator:</strong> <code class="language-plaintext highlighter-rouge">ingest_papers()</code> and <code class="language-plaintext highlighter-rouge">run_sanity_checks()</code> in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/ingestion.py"><code class="language-plaintext highlighter-rouge">ingestion.py</code></a>
+— the four-phase pipeline and its five sanity checks.</li>
+  <li><strong>Phase 1 (search + import):</strong> <code class="language-plaintext highlighter-rouge">PaperAggregator.search_papers()</code> in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/data_acquisition/aggregator.py"><code class="language-plaintext highlighter-rouge">aggregator.py</code></a>
+fans out over Semantic Scholar / arXiv / OpenAlex and dedups by DOI;
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/data_acquisition/importer.py"><code class="language-plaintext highlighter-rouge">importer.py</code></a>
+normalizes each result (<code class="language-plaintext highlighter-rouge">normalized_to_kg_paper</code> / <code class="language-plaintext highlighter-rouge">normalized_to_kg_author</code>)
+and merges <code class="language-plaintext highlighter-rouge">Paper</code> + <code class="language-plaintext highlighter-rouge">Author</code> nodes.</li>
+  <li><strong>Phase 2/3 (extract + integrate):</strong> the per-paper loop resolves text
+(PDF sections, else abstract), runs <code class="language-plaintext highlighter-rouge">extract_all_entities()</code>, routes problems
+through <code class="language-plaintext highlighter-rouge">KGIntegratorV2.integrate_extracted_problems()</code> and entities through
+<code class="language-plaintext highlighter-rouge">integrate_paper_entities()</code>. The entity path is documented in
+<a href="/agentic-kg/previews/pr-45/design/e8-extraction-prompt-expansion">E-8</a> and
+<a href="/agentic-kg/previews/pr-45/design/entity-pipeline-orchestration">entity-pipeline-orchestration</a>.</li>
+  <li><strong>CLI:</strong> the <code class="language-plaintext highlighter-rouge">ingest</code> subcommand in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/cli.py"><code class="language-plaintext highlighter-rouge">cli.py</code></a>
+runs synchronously (<code class="language-plaintext highlighter-rouge">--query</code>, <code class="language-plaintext highlighter-rouge">--limit</code>, <code class="language-plaintext highlighter-rouge">--sources</code>, <code class="language-plaintext highlighter-rouge">--dry-run</code>,
+<code class="language-plaintext highlighter-rouge">--sanity-check-only</code>, <code class="language-plaintext highlighter-rouge">--json</code>, plus the re-ingest flags above).</li>
+  <li><strong>API:</strong> <code class="language-plaintext highlighter-rouge">POST /api/ingest</code> in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/api/src/agentic_kg_api/routers/ingest.py"><code class="language-plaintext highlighter-rouge">routers/ingest.py</code></a>
+triggers a Cloud Run <strong>Job</strong> whose entrypoint is
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/job_runner.py"><code class="language-plaintext highlighter-rouge">job_runner.py</code></a>;
+it returns a <code class="language-plaintext highlighter-rouge">trace_id</code> immediately, persists an <code class="language-plaintext highlighter-rouge">IngestionRun</code> node, and
+<code class="language-plaintext highlighter-rouge">GET /api/ingest/{trace_id}</code> polls status from Neo4j.</li>
+</ul>
+
+<p>For the nodes and edges this pipeline writes, see the
+<a href="/agentic-kg/previews/pr-45/reference/entity-catalog">Entity Catalog</a> and
+<a href="/agentic-kg/previews/pr-45/reference/entity-relationships">Entity Relationships</a>.</p>
+
+<h2 id="verification">Verification</h2>
+
+<ul>
+  <li><strong>Tests:</strong> orchestration flow, CLI wiring, force-rewrite / force-reextract
+guards, V2 entity orchestration, purge, and sanity checks
+(<code class="language-plaintext highlighter-rouge">test_ingestion*.py</code>, <code class="language-plaintext highlighter-rouge">test_cli_ingest.py</code>, <code class="language-plaintext highlighter-rouge">test_smoke_assert.py</code>).</li>
+  <li><strong>CI smoke:</strong> an ingestion run against ephemeral Neo4j asserts the expected
+node and edge types land — the same gate referenced by the entity design notes.</li>
+  <li><strong>Status:</strong> VERIFIED — proved on a “graph-based retrieval” corpus; all five
+sanity checks pass and the provenance chain is complete end to end.</li>
+</ul>
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li>Reference: <a href="/agentic-kg/previews/pr-45/reference/entity-catalog">Entity Catalog</a> ·
+<a href="/agentic-kg/previews/pr-45/reference/entity-relationships">Entity Relationships</a></li>
+  <li>Feeds: <a href="/agentic-kg/previews/pr-45/design/e8-extraction-prompt-expansion">E-8 · Extraction prompt expansion</a>
+and <a href="/agentic-kg/previews/pr-45/design/entity-pipeline-orchestration">entity-pipeline-orchestration</a>
+(what runs inside Phase 2/3)</li>
+  <li>Deferred: scale ingestion (hundreds+ papers) and richer resume/progress</li>
+</ul>

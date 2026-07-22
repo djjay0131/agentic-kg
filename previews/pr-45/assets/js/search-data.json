@@ -1,0 +1,1255 @@
+{"0": {
+    "doc": "Ground-Truth Curation",
+    "title": "Ground-Truth Curation — Importer Validation Set",
+    "content": "Owner: Victoria Status: Not started Created: 2026-07-21 . ",
+    "url": "/agentic-kg/previews/pr-45/ground-truth/README.html#ground-truth-curation--importer-validation-set",
+    
+    "relUrl": "/ground-truth/README.html#ground-truth-curation--importer-validation-set"
+  },"1": {
+    "doc": "Ground-Truth Curation",
+    "title": "Why this task exists",
+    "content": "The entity-expansion importer (ingest_papers → Topic / ResearchConcept / Model / Method / Problem / Citation extraction) is being deployed to staging. Before we trust its output, we need a human-verified ground-truth set — a small, well-understood collection of papers where we already know, by hand, what the importer should produce. When the importer runs live on these same papers, we diff its output against this answer key. We are deliberately choosing papers that cite each other, so that a single concept recurs across a citation chain and accumulates evidence — letting us watch a concept “build up score” and escalate into a full Problem node. That cross-paper accumulation is a behavior we can only validate with a connected set, not with isolated papers. ",
+    "url": "/agentic-kg/previews/pr-45/ground-truth/README.html#why-this-task-exists",
+    
+    "relUrl": "/ground-truth/README.html#why-this-task-exists"
+  },"2": {
+    "doc": "Ground-Truth Curation",
+    "title": "The two outputs of this task",
+    "content": ". | Output A — a place to store the results. Decide and set up where the reviews and the reconciled ground truth live (spreadsheet vs. structured files in the repo vs. a separate “gold” Neo4j). See Step 2. | Output B — reviewed ground truth for the 5–10 papers. For each paper, a human review and an independent Claude review, reconciled into one agreed answer key. See Step 3 and Step 4. | . ",
+    "url": "/agentic-kg/previews/pr-45/ground-truth/README.html#the-two-outputs-of-this-task",
+    
+    "relUrl": "/ground-truth/README.html#the-two-outputs-of-this-task"
+  },"3": {
+    "doc": "Ground-Truth Curation",
+    "title": "The review model: two reviews, then reconcile",
+    "content": "Each paper gets two independent reviews: . | Human review — Victoria reads the paper and fills in the field schema below. | Claude review — a Claude session reads the same paper and fills in the same schema, without seeing the human review first (independence matters — it’s the whole point of having two). | . Then the two are reconciled: compare them side by side, resolve every disagreement deliberately, and record the agreed ground truth for that paper — plus a short note on anything that was disputed or genuinely ambiguous (those notes are valuable; they tell us where the importer’s job is hard). ",
+    "url": "/agentic-kg/previews/pr-45/ground-truth/README.html#the-review-model-two-reviews-then-reconcile",
+    
+    "relUrl": "/ground-truth/README.html#the-review-model-two-reviews-then-reconcile"
+  },"4": {
+    "doc": "Ground-Truth Curation",
+    "title": "Step 0 — Kick off",
+    "content": ". | Start a fresh Claude session in the agentic-kg repo. Keep this brief open in that session. | Have Claude read the entity model so both reviews use the real schema (not an invented one): . | llm/features/topic-research-area-entities.md (E-1) — the Topic hierarchy (domain → area → subtopic, SUBTOPIC_OF), and BELONGS_TO edges. | llm/features/research-concept-entities.md (E-2) — ResearchConcept nodes and how they attach to Topics (BELONGS_TO), Problems (INVOLVES_CONCEPT), and Papers (DISCUSSES). | packages/core/src/agentic_kg/extraction/schemas.py — the exact extracted-entity fields (name, aliases, quoted_text, confidence) the importer emits. Match these field names. | packages/core/tests/extraction/fixtures/e8_eval/SELECTION.md — the repo’s existing gold-label convention. Prefer to extend this rather than invent a new format. | . | Materialize the PDFs. The papers live in OneDrive as online-only placeholders. In Finder, select the folder → right-click → “Always keep on this device” before reviewing, or Claude/tools won’t be able to open them. | . ",
+    "url": "/agentic-kg/previews/pr-45/ground-truth/README.html#step-0--kick-off",
+    
+    "relUrl": "/ground-truth/README.html#step-0--kick-off"
+  },"5": {
+    "doc": "Ground-Truth Curation",
+    "title": "Step 1 — Resolve the papers and verify the chain",
+    "content": "The shortlist below is identified by filename (paraphrased) — resolve each to hard identifiers first: . | Open each PDF, record its exact title, authors, year, and DOI (the DOI is usually on page 1 or in the references header). Do not guess DOIs — read them off the paper. | Look each up on Semantic Scholar (https://api.semanticscholar.org/graph/v1/paper/DOI:&lt;doi&gt;) to get its paperId. This is the same source the importer uses to populate CITES. | Verify the citation edges among the set: for each paper, check its references/citations for the other papers in the set. Record which papers actually cite which. This confirms (or corrects) the intended chain — if some papers turn out disconnected, swap them for connected ones from the same Knowledge Graphs/ folder. | . Record the resolved identifiers + edge list wherever you land on storage (Step 2). ",
+    "url": "/agentic-kg/previews/pr-45/ground-truth/README.html#step-1--resolve-the-papers-and-verify-the-chain",
+    
+    "relUrl": "/ground-truth/README.html#step-1--resolve-the-papers-and-verify-the-chain"
+  },"6": {
+    "doc": "Ground-Truth Curation",
+    "title": "Step 2 — Decide storage (Output A)",
+    "content": "Discuss the options with Claude in the new session and pick one. Trade-offs: . | Option | Pros | Cons | . | Spreadsheet (Sheets/xlsx) — human &amp; Claude columns side by side | Easiest dual-entry + eyeball reconciliation; zero setup | Relations (CITES, hierarchy) are awkward to represent; not directly test-consumable | . | Structured files in repo (YAML/JSON per paper) | Version-controlled, diffable, and the eval harness can load them directly; matches the existing e8_eval gold-YAML pattern | Less friendly for freehand human entry | . | Separate “gold” Neo4j | Mirrors the target graph exactly; enables graph-level diff against importer output | Heavy setup; overkill at labeling time for 10 papers | . Recommended split (discuss before committing): capture the two raw reviews in whatever’s fastest to type into (a spreadsheet is fine), but commit the reconciled ground truth as version-controlled YAML/JSON in the repo, in/alongside packages/core/tests/extraction/fixtures/e8_eval/, so the existing eval/test harness can consume it. Optionally project the reconciled set into a gold Neo4j later if we want graph-level diffing. ",
+    "url": "/agentic-kg/previews/pr-45/ground-truth/README.html#step-2--decide-storage-output-a",
+    
+    "relUrl": "/ground-truth/README.html#step-2--decide-storage-output-a"
+  },"7": {
+    "doc": "Ground-Truth Curation",
+    "title": "Step 3 — Per-paper dual review (Output B)",
+    "content": "For each paper, both the human and Claude independently fill this schema. Field names mirror the importer’s entity model so the answer key lines up 1:1 with what gets extracted. paper: filename: \"&lt;onedrive filename&gt;\" title: \"&lt;exact title&gt;\" doi: \"&lt;10.xxxx/...&gt;\" s2_paper_id: \"&lt;semantic scholar paperId&gt;\" year: &lt;yyyy&gt; # Topic hierarchy (domain -&gt; area -&gt; subtopic). BELONGS_TO points entities at the deepest applicable Topic. topic: domain: \"&lt;e.g. Computer Science&gt;\" area: \"&lt;e.g. Knowledge Representation&gt;\" subtopic: \"&lt;e.g. Automated Knowledge Graph Construction&gt;\" # ResearchConcepts the paper discusses (DISCUSSES). These are the recurring \"spine\" candidates. research_concepts: - name: \"&lt;concept&gt;\" aliases: [\"&lt;alt name&gt;\", ...] quoted_text: \"&lt;&gt;=10-char verbatim span grounding it&gt;\" # Models the paper introduces or uses (USES_MODEL). NOT architectures-in-general. models: - name: \"&lt;model&gt;\" aliases: [] quoted_text: \"&lt;&gt;\" # Methods the paper applies (APPLIES_METHOD). NOT generic activities like \"training\". methods: - name: \"&lt;method&gt;\" aliases: [] quoted_text: \"&lt;&gt;\" # The core Problem the paper addresses (the escalation target; INVOLVES_CONCEPT -&gt; concepts above). problem: statement: \"&lt;one-sentence problem this paper tackles&gt;\" involves_concepts: [\"&lt;concept name&gt;\", ...] # CITES targets *within this set only* (from Step 1 verification). cites_within_set: [\"&lt;filename or s2_paper_id&gt;\", ...] reviewer: \"human\" | \"claude\" notes: \"&lt;anything ambiguous, low-confidence, or judgment-call&gt;\" . Extraction rules to apply consistently (from the importer’s prompts): . | A concept must be grounded in a verbatim quote — no concept without supporting text. | Model ≠ architecture-in-general (“transformer architecture” is not a model instance). | Method ≠ generic activity (“training” is not a method). | Prefer the paper’s own terminology for names; put paraphrases in aliases. | . ",
+    "url": "/agentic-kg/previews/pr-45/ground-truth/README.html#step-3--per-paper-dual-review-output-b",
+    
+    "relUrl": "/ground-truth/README.html#step-3--per-paper-dual-review-output-b"
+  },"8": {
+    "doc": "Ground-Truth Curation",
+    "title": "Step 4 — Reconcile",
+    "content": "For each paper, put the human and Claude reviews side by side: . | Agreements → copy straight into the reconciled record. | Disagreements → decide deliberately (re-read the relevant span). Record the resolution. | Only-one-caught-it items → judge whether it’s a real miss or a spurious extraction; keep or drop. | Save the reconciled record to the storage chosen in Step 2, and write a one-line notes on any item that was disputed or ambiguous. | . The disagreement notes are a deliverable in their own right — they map exactly where the live importer is most likely to be wrong, and become targeted assertions for the eval harness. ",
+    "url": "/agentic-kg/previews/pr-45/ground-truth/README.html#step-4--reconcile",
+    
+    "relUrl": "/ground-truth/README.html#step-4--reconcile"
+  },"9": {
+    "doc": "Ground-Truth Curation",
+    "title": "Done criteria",
+    "content": ". | Output A: storage set up and documented (with the rationale for the choice). | Step 1: all papers resolved to title + DOI + S2 id; citation edges among the set verified. | Output B: 5–10 papers each have a human review and a Claude review and a reconciled record. | Disagreement/ambiguity notes captured. | . ",
+    "url": "/agentic-kg/previews/pr-45/ground-truth/README.html#done-criteria",
+    
+    "relUrl": "/ground-truth/README.html#done-criteria"
+  },"10": {
+    "doc": "Ground-Truth Curation",
+    "title": "The shortlist (KG-construction spine)",
+    "content": "Concept spine to watch as it recurs and escalates: “LLM-based scientific entity &amp; relation extraction.” All papers are in OneDrive/.../Research.AI/Literature/Human Selected Literature/Knowledge Graphs/ unless noted. Ordered as the intended chain — verify the real edges in Step 1 and reorder/swap as needed. | # | Paper (folder filename) | Intended role in the chain | . | 1 | Public/Large_Scale_KG_CS.pdf (likely CS-KG / AI-KG, Dessì et al.) | Foundational hub — earlier automated KG-of-science that later work cites | . | 2 | Automated KG construction.pdf | Core construction method | . | 3 | Constructing KGs with LLMs.pdf | LLM-based construction (spine anchor) | . | 4 | A_Knowledge_Graph-based_RAG_for_Cross-Document_Information_Extraction.pdf | Cross-document extraction | . | 5 | Completing_Scientific_Facts_in_Knowledge_Graphs_of_Research_Concepts.pdf | Fact/relation completion | . | 6 | KG-EmpiRE_...Requirements_Engineering.pdf | Domain KG application (community-maintainable lit-review KG) | . | 7 | Personal Research Knowledge Graphs.pdf | Per-researcher KG application | . | 8 | Assessing Research Papers with Knowlege Graphs.pdf | Evaluation / downstream use of the KG | . | 9 | General Research Automation (idea generation, etc.)/Idea Generation using Knowledge Graphs + LLMs.pdf | Downstream: KG → new ideas | . | 10 | General Research Automation (idea generation, etc.)/Problem-Solution Dataset for Automated Extraction.pdf | Directly exercises the Problem node — the escalation target | . Tighter core (if 10 is too many): #1–#5 form the pure KG-construction chain. #6–#10 add breadth and the problem-escalation angle. ",
+    "url": "/agentic-kg/previews/pr-45/ground-truth/README.html#the-shortlist-kg-construction-spine",
+    
+    "relUrl": "/ground-truth/README.html#the-shortlist-kg-construction-spine"
+  },"11": {
+    "doc": "Ground-Truth Curation",
+    "title": "Gotchas",
+    "content": ". | PDFs are OneDrive online-only placeholders — materialize them (Step 0.3) or nothing can open them. | Don’t fabricate DOIs. Read them off the paper; confirm on Semantic Scholar. | Independence of the two reviews is the point — don’t let the Claude review see the human review (or vice versa) until reconciliation. | If a shortlisted paper turns out not to connect to the others by citation, swap it — a connected set is the requirement, not this exact list. | . ",
+    "url": "/agentic-kg/previews/pr-45/ground-truth/README.html#gotchas",
+    
+    "relUrl": "/ground-truth/README.html#gotchas"
+  },"12": {
+    "doc": "Ground-Truth Curation",
+    "title": "Ground-Truth Curation",
+    "content": " ",
+    "url": "/agentic-kg/previews/pr-45/ground-truth/README.html",
+    
+    "relUrl": "/ground-truth/README.html"
+  },"13": {
+    "doc": "Architecture",
+    "title": "Architecture",
+    "content": "Three-layer architecture (ADR-002), mirroring the Agentic Knowledge Graphs paper: . | Knowledge Representation Layer — Neo4j 5.x property graph with native vector indexes; research problems modeled as first-class nodes. | Automation and Extraction Layer — PDF ingestion, section segmentation, LLM-based extraction with instructor. | Agentic Orchestration Layer — LangGraph + AG2 agents operating over the graph (Ranking, Continuation, Evaluation, Synthesis). | . The FastAPI backend + Next.js UI sit on top. Infrastructure is GCP (Cloud Run for API, Cloud Run Jobs for ingestion, Compute Engine for Neo4j, Terraform-managed). For the graph’s node and edge types, see the Reference → Domain Model &amp; Taxonomy section: the Entity Catalog, Entity Relationships, and Topic Taxonomy. ",
+    "url": "/agentic-kg/previews/pr-45/about/architecture.html",
+    
+    "relUrl": "/about/architecture.html"
+  },"14": {
+    "doc": "Backlog",
+    "title": "Feature Backlog",
+    "content": "Auto-regenerated from llm/features/BACKLOG.md on every push. 43 active, 1 resolved. ",
+    "url": "/agentic-kg/previews/pr-45/status/backlog.html#feature-backlog",
+    
+    "relUrl": "/status/backlog.html#feature-backlog"
+  },"15": {
+    "doc": "Backlog",
+    "title": "Active",
+    "content": "| ID | Category | Title | Status | Priority | Notes | . | E-1 |   |   |   |   |   | . | — |   |   |   |   |   | . | Topic / Research Area entities |   |   |   |   |   | . | {: .label .label-green }VERIFIED |   |   |   |   |   | . | — | . |   | . |   | . | E-2 | . | — | . | ResearchConcept entities | . | {: .label .label-green }VERIFIED | . | — | . |   | . |   | . | E-3 | . | — | . | Model / Architecture entities | . | {: .label .label-green }VERIFIED | . | — | . |   | . |   | . | E-4 | . | — | . | Method / Methodology entities | . | {: .label .label-green }VERIFIED | . | — | . |   | . |   | . | E-5 | . | — | . | Citation graph | . | {: .label .label-green }VERIFIED | . | — | . |   | . |   | . | E-6 | . | — | . | Entity descriptions at create-time | . | {: .label .label-green }VERIFIED | . | — | . |   | . |   | . | E-7 | . | — | . | Cross-entity normalization | . | {: .label .label-green }VERIFIED | . | — | . |   | . |   | . | D-1 | . | — | . | Ingest real papers into KG | . | {: .label .label-green }VERIFIED | . | — | . |   | . |   | . | D-1a | . | — | . | Cloud Run Jobs async ingestion | . | {: .label .label-green }VERIFIED | . | — | . |   | . |   | . | D-1b | . | — | . | GCS ingestion research log | . | Needs Spec | . | — | . | Per-paper markdown progress files to GCS; durable provenance surviving crashes. Follow-on to D-1a. | . |   | . | D-2 | . | — | . | Extraction reliability metrics | . | Needs Spec | . | — | . | F1 vs. inter-annotator agreement — success criterion from productContext. | . |   | . | D-3 | . | — | . | Retrieval quality benchmarks | . | Needs Spec | . | — | . | MRR / nDCG vs. keyword + citation baselines. | . |   | . | D-4 | . | — | . | Agent decision accuracy validation | . | Needs Spec | . | — | . | EvaluatorAgent &gt;90% human agreement; consensus workflow &gt;85%. | . |   | . | S-3 | . | — | . | Sprint 10 integration tests (golden dataset) | . | Partial Spec | . | — | . | Golden dataset benchmarks against live Neo4j not yet run. | . |   | . | C-1 | . | — | . | Community detection | . | Partial Spec | . | — | . | Leiden/Louvain over full graph; Community nodes at multiple levels; incremental updates. | . |   | . | C-2 | . | — | . | Hierarchical graph summarization | . | Partial Spec | . | — | . | LLM summaries per community at multiple resolutions (domain → topic → concept). | . |   | . | C-3 | . | — | . | Community browsing API + UI | . | Needs Spec | . | — | . | Endpoints and frontend for exploring landscape by community. | . |   | . | R-1 | . | — | . | Query-facing vector search | . | Partial Spec | . | — | . | Expose vector search across all entity types for user queries (currently internal). | . |   | . | R-2 | . | — | . | Graph neighbor expansion | . | Partial Spec | . | — | . | Configurable-depth traversal from vector hits; context assembly from graph paths. | . |   | . | R-3 | . | — | . | LLM synthesis endpoint | . | Partial Spec | . | — | . | POST /api/query — NL question → answer with provenance from graph. | . |   | . | R-4 | . | — | . | Community-aware retrieval | . | Partial Spec | . | — | . | Include community summaries in retrieval context for global/thematic questions. | . |   | . | R-5 | . | — | . | RAG evaluation &amp; benchmarks | . | Needs Spec | . | — | . | Improvement vs. vector-only for multi-hop questions. | . |   | . | P-1 | . | — | . | Production deployment | . | Needs Spec | . | — | . | terraform apply -var-file=envs/prod.tfvars; needs runbook + monitoring + alerting. | . |   | . | P-2 | . | — | . | Neo4j production hosting docs | . | Needs Spec | . | — | . | Aura vs. self-managed decision; backup + failover procedures. | . |   | . | P-3 | . | — | . | Multi-hop graph traversal | . | Needs Spec | . | — | . | FR-2.3.4 from Sprint 01; max_depth on get_related_problems(). | . |   | . | P-4 | . | — | . | Referential integrity on delete | . | Needs Spec | . | — | . | Check EXTRACTED_FROM before paper delete; prefer soft delete. | . |   | . | P-5 | . | — | . | Scalability testing | . | Needs Spec | . | — | . | Validate at 100+ papers; current system untested beyond small datasets. | . |   | . | P-6 | . | — | . | Auto-publish backlog to Pages | . | Has Spec | . | — | . | Extend .github/scripts/generate_docs.py to regenerate from this file on every push. | . |   | . | P-8 | . | — | . | Tighten deploy SA to least-privilege | . | Needs Spec | . | — | . | Follow-up to deploy-pipeline-fix. Replace roles/run.admin on gh-deploy@vt-gcp-00042 with roles/run.developer + resource-level roles/run.invoker on the 3 known Cloud Run targets. Ships after PR-3 lands and staging is stable. | . |   | . | T-1 | . | — | . | Taxonomy management at scale | . | Needs Spec | . | — | . | Versioned taxonomy with branching + merge + conflict resolution; flagged by E-1. | . |   | . | L-1 | . | — | . | Local / low-cost SLM client | . | Needs Spec | . | — | . | Third BaseLLMClient backed by Llama 3.x / Gemma / Phi-3 for narrow tasks (description-gen, dedup tie-breaking, routing). | . |   | . | SM-1 | . | — | . | PDF acquisition reliability (source selection + fetch hardening) | . | {: .label .label-blue }SPECIFIED 2026-07-14 (spec: content-acquisition-resilience.md) | . | — | . | Post-SM-4 smoke (papers=3, entities=0) root-caused: PDF download failed (“Server disconnected” — publisher ojs.aaai.org blocks CI IPs) and the pipeline never tried the paper’s arXiv PDF though the normalizer captures the arXiv ID. Spec: published/openAccessPdf source first, arXiv PDF fallback when unreachable (published is authoritative; breadth-first latency guard); request headers + bounded transient retry on PDF fetch; S2 429 bounded retry (no silent drops); NO abstract fallback — full text or the paper fails loudly (user decision); failures categorized by reason (failed_blocked/failed_404/failed_thin/failed_no_pdf_source) in run metrics. 7 ACs. Next: /constellize:feature:implement. | . |   | . | SM-4 | . | — | . | Extraction dies on instructor import — root cause: unused denario dep transitively pins openai==1.99.9 | . | {: .label .label-green }DONE — merged (#36) &amp; deployed 2026-07-14 (spec: extraction-dep-pinning.md; AC-6 SHA-parity verified on this deploy) — the floors-first plan hit resolution-too-deep; uv diagnosed the real cause: denario 1.0.1 → cmbagent-autogen hard-pins openai==1.99.9, and the only instructor accepting that (&lt;1.14) fails to import, while instructor&gt;=1.14 needs openai&gt;=2.0 → unsatisfiable. denario is imported NOWHERE in packages/ (dead weight). Fix: remove denario from packages/core/pyproject.toml + root pyproject.toml; add instructor&gt;=1.14 + openai&gt;=2.0; fix both _get_instructor_client except blocks (ModuleNotFoundError vs ImportError, surface real error). Verified: clean resolve 0.8s → instructor 1.15.4/openai 2.46.0; 32 extraction tests pass in a fresh clean-resolve venv. New test_instructor_import.py. Next: merge → first real staging build+deploy (verifies deploy AC-6) → smoke-ingest entities&gt;0 (AC-4). If denario is ever actually integrated, wire it as an optional extra so it can't re-pin openai. | . | — | . | PR #27 smoke (key present, abstract present) fails: problem_extractor - ERROR - Failed to extract from SectionType.ABSTRACT: instructor package not installed — but instructor IS installed. Root cause: packages/core/pyproject.toml floor-only pins (instructor&gt;=1.0.0, pydantic&gt;=2.0.0, openai unpinned) + the heavy denario/cmbagent tree resolve instructor 1.12.0/openai 1.99.9 in CI/Docker, where import instructor raises ImportError; llm_client.py:194 masks it as “not installed.” Two fixes: (1) pin a known-good instructor+openai+pydantic set (or add upper bounds) so CI/Docker resolve the same working versions as a dev .venv; (2) fix the except ImportError at llm_client.py:194 + :311 to surface the real import error instead of the misleading “not installed” message. Likely affects the DEPLOYED Cloud Run Job too (same unpinned pip install ./packages/core), so it blocks node extraction in staging, not just CI. | . |   | . | SM-1b | . | — | . | Broader open-access PDF resolution (Unpaywall) for non-arXiv papers | . | Deferred (fast-follow to SM-1) | . | — | . | SM-1 covers arXiv-backed papers (published-first, arXiv fallback). Papers with a blocked published URL and no arXiv ID still failed_blocked/failed_no_pdf_source. Add Unpaywall (DOI → best OA PDF, often a CI-reachable repo) as an additional candidate source. Prioritize based on SM-1’s categorized failure metrics (only worth it if the non-arXiv tail is large). | . |   | . | SM-4b | . | — | . | Whole-graph lock for extraction deps (uv.lock) | . | Deferred (low priority) | . | — | . | With denario removed (SM-4) pip resolves core in &lt;1s, so a lock is no longer needed for correctness. A committed uv.lock would still add whole-graph reproducibility against future transitive drift. Only pursue if drift recurs; adds uv to the critical-path toolchain. | . |   | . | SM-3 | . | — | . | Docs-site link check fails on backlog.html | . | Needs Spec | . | — | . | build-preview (HTML-Proofer) red: generated backlog.html links to spec .md files + ../memory_bank/productContext.md not published into _site. Fix the Pages generator link rewriting or the BACKLOG relative links. Pre-existing since the docs-consolidation commits. | . |   | . | SM-5 | . | — | . | Lint debt in packages/core/tests (172 ruff violations) | . | Needs Spec | . | — | . | Surfaced when deploy-master’s test job first ran (2026-07-13): ruff check packages/core/tests → 172 errors (71 F401, 49 E501, 44 I001, 8 F841); 115 auto-fixable via ruff check --fix. The deploy workflows were narrowed to src-only (matching code-review.yml) to unblock deploys. Clean up the test tree, then re-add packages/core/tests to the deploy-master/deploy-tag lint step so test-file quality is gated too. | . |   | . | SM-2 | . | — | . | Preflight WARN on empty section_text | . | Needs Spec | . | — | . | When 100% of imported papers have empty section_text, log ERROR / fail batch loudly; current behavior is silent zero counters. Small fix-forward. | . |   | . | V-1 | . | — | . | Extraction F1 within 10% of inter-annotator agreement | . | Not measured | . | — | . | productContext | . |   | . | V-2 | . | — | . | MRR/nDCG improvement over keyword + citation baselines | . | Not measured | . | — | . | productContext | . |   | . | V-3 | . | — | . | Faster time to actionable continuation | . | Not measured | . | — | . | productContext | . |   | . | V-4 | . | — | . | Higher user-reported confidence vs. opaque AI | . | Not measured | . | — | . | productContext | . |   | . | V-5 | . | — | . | Active use by research teams | . | Not achieved | . | — | . | productContext | . |   | . Resolved (1) | ID | Category | Title | Status | Priority | Notes |---|---|---|---|---|---| ~~P-7~~ | — | Migrate `update-docs.yml` trigger paths | {: .label .label-green }`Resolved` | — | Workflows already watch `llm/memory_bank/`. Verified 2026-07-07. | ",
+    "url": "/agentic-kg/previews/pr-45/status/backlog.html#active",
+    
+    "relUrl": "/status/backlog.html#active"
+  },"16": {
+    "doc": "Backlog",
+    "title": "Backlog",
+    "content": " ",
+    "url": "/agentic-kg/previews/pr-45/status/backlog.html",
+    
+    "relUrl": "/status/backlog.html"
+  },"17": {
+    "doc": "Changelog",
+    "title": "Changelog",
+    "content": " ",
+    "url": "/agentic-kg/previews/pr-45/status/changelog.html",
+    
+    "relUrl": "/status/changelog.html"
+  },"18": {
+    "doc": "Changelog",
+    "title": "Unreleased",
+    "content": ". | docs: Rebuild GitHub Pages site on just-the-docs theme with dynamic navigation, search, and data-driven status pages (enhance-github-pages). | graph: E-2 ResearchConcept entities with embedding-based dedup, INVOLVES_CONCEPT / DISCUSSES edges, and calibration harness. | graph: E-1 Topic entities with 3-level hierarchy, seeded taxonomy, and domain-string migration. | . ",
+    "url": "/agentic-kg/previews/pr-45/status/changelog.html#unreleased",
+    
+    "relUrl": "/status/changelog.html#unreleased"
+  },"19": {
+    "doc": "Changelog",
+    "title": "2026-03-28",
+    "content": ". | First real-paper ingestion end-to-end. 18 ProblemMentions linked to ProblemConcepts; 5/5 sanity checks passing. | . ",
+    "url": "/agentic-kg/previews/pr-45/status/changelog.html#2026-03-28",
+    
+    "relUrl": "/status/changelog.html#2026-03-28"
+  },"20": {
+    "doc": "CI smoke test",
+    "title": "CI smoke test — end-to-end ingestion",
+    "content": "VERIFIED . Backlog: ci-smoke-test-ingestion · Depends on: entity-pipeline-orchestration + E-1..E-8 (all VERIFIED) · Spec: ci-smoke-test-ingestion.md . ",
+    "url": "/agentic-kg/previews/pr-45/design/ci-smoke-test.html#ci-smoke-test--end-to-end-ingestion",
+    
+    "relUrl": "/design/ci-smoke-test.html#ci-smoke-test--end-to-end-ingestion"
+  },"21": {
+    "doc": "CI smoke test",
+    "title": "Why",
+    "content": "Entity-pipeline-orchestration made full V2 extraction default-on in ingest_papers: every commit on master now runs V2 entity extraction, cross-entity normalization, and the V1/V2 integration loop in production. Unit tests pin contracts at each seam with mocked LLM clients — so a refactor can silently break the wiring across seams and every unit test still passes. A broken failure-isolation path, a skipped taxonomy_hash write, an upstream OpenAI prompt shift returning empty concept lists — none of those show up until someone hits them on a Tuesday morning. There was no automated check that the wired-up pipeline actually writes edges to the graph. ",
+    "url": "/agentic-kg/previews/pr-45/design/ci-smoke-test.html#why",
+    
+    "relUrl": "/design/ci-smoke-test.html#why"
+  },"22": {
+    "doc": "CI smoke test",
+    "title": "What shipped",
+    "content": "One GitHub Actions workflow, smoke-ingest.yml, that stands up an ephemeral Neo4j service container inside the runner, ingests 3 real papers end-to-end with extraction default-on, and asserts the resulting graph has the expected shape. It fires on three triggers: pull_request against master (path-filtered to packages/core/**, pyproject.toml, the workflow file, and the assertion script), a daily cron at 17 6 * * * UTC, and workflow_dispatch with query/limit inputs for developer self-service. The ingest_result.json is uploaded as an artifact on every run, pass or fail. ",
+    "url": "/agentic-kg/previews/pr-45/design/ci-smoke-test.html#what-shipped",
+    
+    "relUrl": "/design/ci-smoke-test.html#what-shipped"
+  },"23": {
+    "doc": "CI smoke test",
+    "title": "Design decisions",
+    "content": "Assert on real graph edges, not mocks. The whole point is to catch what unit tests can’t. The assertion runs a single Cypher query against the just-populated Neo4j and checks six batch-level conditions — this is a genuine integration check against a live database, not a re-assertion of a mocked contract. If the orchestrator writes zero BELONGS_TO edges, the smoke test goes red where every unit test stayed green. Ephemeral Neo4j, zero GCP secrets. A neo4j:5.26-community service container (APOC enabled, healthcheck-gated) gives a clean slate every run. Nothing touches staging Neo4j, the Cloud Run Job, or any GCP project — NEO4J_URI always points at localhost. The only secret referenced is OPENAI_API_KEY. Production deploy verification is a deliberately separate (deferred) workflow. Real data, accepted nondeterminism. The test ingests live arXiv/Semantic Scholar results rather than pinned fixtures. Red is treated as a real signal — either a wiring regression or genuine upstream drift — so a single automatic retry (30s sleep) absorbs transient OpenAI flake, and the daily cron surfaces API drift before a developer hits it. The check is informational, not a required merge gate. Batch-level, ≥ 1 per entity type. Assertions are Model OR Method (a 3-paper batch may not produce both) rather than exhaustive per-paper checks — strict enough to prove wiring, loose enough to survive real-corpus variance. ",
+    "url": "/agentic-kg/previews/pr-45/design/ci-smoke-test.html#design-decisions",
+    
+    "relUrl": "/design/ci-smoke-test.html#design-decisions"
+  },"24": {
+    "doc": "CI smoke test",
+    "title": "How it works",
+    "content": ". | Workflow: smoke-ingest.yml — checkout → install packages/core → initialize_schema(force=True) → ingest (bash single-retry loop, max 2 attempts) → assert → upload artifact. A concurrency group cancels stale runs on rapid pushes, saving LLM calls. | Assertion: scripts/smoke_assert.py first checks IngestionResult.status == \"completed\" (early-exit before touching Neo4j), then runs one chained-OPTIONAL MATCH Cypher query for six counts and reports a PASS:/FAIL: table plus raw counts to stdout. It lives under scripts/ (not tests/) because it runs against a live DB, not under pytest. | The six edges/counts asserted: Paper ≥ 1; BELONGS_TO topic edges ≥ 1; ResearchConcept ≥ 1; Model + Method ≥ 1; CITES ≥ 1; Papers with non-null taxonomy_hash ≥ 1 (proves V2 integration ran to its audit-metadata write). | Local mirror: make smoke-local reproduces the workflow step-for-step against a local Docker Neo4j, so a green local run predicts a green CI run. | . This smoke test is the runtime guard on the pipeline described in Entity pipeline orchestration. For the node types and edges it asserts on, see Entity Relationships. ",
+    "url": "/agentic-kg/previews/pr-45/design/ci-smoke-test.html#how-it-works",
+    
+    "relUrl": "/design/ci-smoke-test.html#how-it-works"
+  },"25": {
+    "doc": "CI smoke test",
+    "title": "Verification",
+    "content": ". | AC coverage: all 15 acceptance criteria (triggers, path filter, ephemeral Neo4j + schema init, default-on ingest, single-retry, six assertions, status pre-check, artifact upload, concurrency, make smoke-local). | Tests: smoke_assert.py is split into _load_result / _run_graph_checks / _evaluate_checks so its status pre-check, count logic, and error paths are unit-testable with an injected mock session (no live Neo4j needed). | Status: VERIFIED — workflow live on master with PR + daily-cron + dispatch triggers. | . ",
+    "url": "/agentic-kg/previews/pr-45/design/ci-smoke-test.html#verification",
+    
+    "relUrl": "/design/ci-smoke-test.html#verification"
+  },"26": {
+    "doc": "CI smoke test",
+    "title": "Related",
+    "content": ". | Guards: Entity pipeline orchestration | Asserts on: E-1 · Topic entities, E-5 · Citation graph | Reference: Entity Relationships | Deferred: production deploy-verification smoke (Cloud Run Job vs staging Neo4j) | . ",
+    "url": "/agentic-kg/previews/pr-45/design/ci-smoke-test.html#related",
+    
+    "relUrl": "/design/ci-smoke-test.html#related"
+  },"27": {
+    "doc": "CI smoke test",
+    "title": "CI smoke test",
+    "content": " ",
+    "url": "/agentic-kg/previews/pr-45/design/ci-smoke-test.html",
+    
+    "relUrl": "/design/ci-smoke-test.html"
+  },"28": {
+    "doc": "Contributing",
+    "title": "Contributing",
+    "content": "The project follows a design-first workflow powered by Constellize. | /constellize:feature:specify — build a feature spec before writing code | /constellize:feature:implement — implement from spec, unit-by-unit | /constellize:feature:verify — gate against test integrity, health checks, deployment readiness, and maintainability | . All public-facing collaboration flows through GitHub issues and PRs. ",
+    "url": "/agentic-kg/previews/pr-45/about/contributing.html",
+    
+    "relUrl": "/about/contributing.html"
+  },"29": {
+    "doc": "Contributing",
+    "title": "Quick contact",
+    "content": ". | GitHub Issues: bug reports, feature requests | Email: djjay@vt.edu | . ",
+    "url": "/agentic-kg/previews/pr-45/about/contributing.html#quick-contact",
+    
+    "relUrl": "/about/contributing.html#quick-contact"
+  },"30": {
+    "doc": "D-1 · Ingest real papers",
+    "title": "D-1 · Ingest real papers",
+    "content": "VERIFIED . Backlog ID: D-1 · Depends on: data-acquisition clients, extraction pipeline, KGIntegratorV2 · Enables: every populated-graph feature (community detection, RAG retrieval, visualization) · Spec: d1-ingest-real-papers.md . ",
+    "url": "/agentic-kg/previews/pr-45/design/d1-ingest-real-papers.html",
+    
+    "relUrl": "/design/d1-ingest-real-papers.html"
+  },"31": {
+    "doc": "D-1 · Ingest real papers",
+    "title": "Why",
+    "content": "Every piece of the machine existed independently — clients that could search Semantic Scholar / arXiv / OpenAlex, a pipeline that could turn a PDF into problems, and a canonical integrator that could deduplicate them — but nothing chained them together. The graph held only test data, so the visualization was empty and the core value proposition (“point at a topic, get a navigable knowledge graph”) was untested. D-1 is the end-to-end backbone: one orchestration function that turns a search query into a populated, provenance-complete graph, exposed as both a CLI command and an API job. Everything else in the project rides on it. ",
+    "url": "/agentic-kg/previews/pr-45/design/d1-ingest-real-papers.html#why",
+    
+    "relUrl": "/design/d1-ingest-real-papers.html#why"
+  },"32": {
+    "doc": "D-1 · Ingest real papers",
+    "title": "What shipped",
+    "content": "A single ingest_papers() orchestrator with four phases — search &amp; import → extract → integrate → sanity-check — plus the ingest CLI subcommand and a POST /api/ingest endpoint that both call it. Papers are found across three sources, deduplicated by DOI, imported as Paper/Author nodes, run through a 5-way parallel extraction, and integrated into the canonical architecture with a full provenance chain (ProblemMention -[:EXTRACTED_FROM]-&gt; Paper -[:AUTHORED_BY]-&gt; Author). A run ends with five structural sanity checks and a counted IngestionResult. ",
+    "url": "/agentic-kg/previews/pr-45/design/d1-ingest-real-papers.html#what-shipped",
+    
+    "relUrl": "/design/d1-ingest-real-papers.html#what-shipped"
+  },"33": {
+    "doc": "D-1 · Ingest real papers",
+    "title": "Design decisions",
+    "content": "Per-paper loop, not BatchProcessor. The spec proposed reusing BatchProcessor’s SQLite job queue for the extract phase. What shipped is a plain per-paper for loop over PaperProcessingPipeline.process_pdf_url(), wrapped in per-paper try/except so one bad PDF never sinks the batch (AC-14). Resume/queue durability moved to the API layer’s Cloud Run Job instead of an in-loop SQLite queue. Grew into the entity pipeline. D-1 began as problem-only (Paper → Problem). As later features landed it became the orchestration seam that runs all five extractors in parallel — problems (V1) plus Topic / ResearchConcept / Model / Method (V2) — then E-7 cross-entity normalization, then E-5 citation-graph population. Each is gated by a flag (--no-extract-entities, --no-normalize-cross-entity, --no-populate-citations) so a V1-only caller pays zero extra LLM cost. Re-ingest is safe by construction. Two guards protect existing work. The AC-13 purge guardrail refuses to clobber a paper that carries non-extraction edges (manual SOLVED_BY, curated tags) unless --force-rewrite is passed. The AC-21 cost guard skips any paper already extracted under the current taxonomy hash unless --force-reextract is passed — so re-running a query is cheap and idempotent rather than a full re-spend. Fix, don’t crash, on missing provenance. The required EXTRACTED_FROM fix shipped in _store_mention_node, but as an OPTIONAL MATCH + FOREACH guard: a mention still writes even if its Paper isn’t present, and the missing-edge case surfaces through sanity check #2 instead of an exception. ",
+    "url": "/agentic-kg/previews/pr-45/design/d1-ingest-real-papers.html#design-decisions",
+    
+    "relUrl": "/design/d1-ingest-real-papers.html#design-decisions"
+  },"34": {
+    "doc": "D-1 · Ingest real papers",
+    "title": "How it works",
+    "content": ". | Orchestrator: ingest_papers() and run_sanity_checks() in ingestion.py — the four-phase pipeline and its five sanity checks. | Phase 1 (search + import): PaperAggregator.search_papers() in aggregator.py fans out over Semantic Scholar / arXiv / OpenAlex and dedups by DOI; importer.py normalizes each result (normalized_to_kg_paper / normalized_to_kg_author) and merges Paper + Author nodes. | Phase 2/3 (extract + integrate): the per-paper loop resolves text (PDF sections, else abstract), runs extract_all_entities(), routes problems through KGIntegratorV2.integrate_extracted_problems() and entities through integrate_paper_entities(). The entity path is documented in E-8 and entity-pipeline-orchestration. | CLI: the ingest subcommand in cli.py runs synchronously (--query, --limit, --sources, --dry-run, --sanity-check-only, --json, plus the re-ingest flags above). | API: POST /api/ingest in routers/ingest.py triggers a Cloud Run Job whose entrypoint is job_runner.py; it returns a trace_id immediately, persists an IngestionRun node, and GET /api/ingest/{trace_id} polls status from Neo4j. | . For the nodes and edges this pipeline writes, see the Entity Catalog and Entity Relationships. ",
+    "url": "/agentic-kg/previews/pr-45/design/d1-ingest-real-papers.html#how-it-works",
+    
+    "relUrl": "/design/d1-ingest-real-papers.html#how-it-works"
+  },"35": {
+    "doc": "D-1 · Ingest real papers",
+    "title": "Verification",
+    "content": ". | Tests: orchestration flow, CLI wiring, force-rewrite / force-reextract guards, V2 entity orchestration, purge, and sanity checks (test_ingestion*.py, test_cli_ingest.py, test_smoke_assert.py). | CI smoke: an ingestion run against ephemeral Neo4j asserts the expected node and edge types land — the same gate referenced by the entity design notes. | Status: VERIFIED — proved on a “graph-based retrieval” corpus; all five sanity checks pass and the provenance chain is complete end to end. | . ",
+    "url": "/agentic-kg/previews/pr-45/design/d1-ingest-real-papers.html#verification",
+    
+    "relUrl": "/design/d1-ingest-real-papers.html#verification"
+  },"36": {
+    "doc": "D-1 · Ingest real papers",
+    "title": "Related",
+    "content": ". | Reference: Entity Catalog · Entity Relationships | Feeds: E-8 · Extraction prompt expansion and entity-pipeline-orchestration (what runs inside Phase 2/3) | Deferred: scale ingestion (hundreds+ papers) and richer resume/progress | . ",
+    "url": "/agentic-kg/previews/pr-45/design/d1-ingest-real-papers.html#related",
+    
+    "relUrl": "/design/d1-ingest-real-papers.html#related"
+  },"37": {
+    "doc": "D-1a · Cloud Run Jobs ingestion",
+    "title": "D-1a · Cloud Run Jobs ingestion",
+    "content": "VERIFIED . Backlog ID: D-1a · Depends on: D-1 · Ingest real papers · Spec: cloud-run-jobs-ingestion.md . ",
+    "url": "/agentic-kg/previews/pr-45/design/d1a-cloud-run-jobs.html",
+    
+    "relUrl": "/design/d1a-cloud-run-jobs.html"
+  },"38": {
+    "doc": "D-1a · Cloud Run Jobs ingestion",
+    "title": "Why",
+    "content": "D-1 ran ingestion with asyncio.create_task inside the API instance and tracked runs in an in-memory _jobs dict. On Cloud Run that is unsafe: the API instance can scale to zero mid-run (killing the background task), the request timeout doesn’t protect a detached task, and the job store evaporates on every restart — no durable record of what entered the graph. Ingesting 20 papers with LLM extraction takes 10-15 minutes, well past what a request-scoped instance can reliably hold. ",
+    "url": "/agentic-kg/previews/pr-45/design/d1a-cloud-run-jobs.html#why",
+    
+    "relUrl": "/design/d1a-cloud-run-jobs.html#why"
+  },"39": {
+    "doc": "D-1a · Cloud Run Jobs ingestion",
+    "title": "What shipped",
+    "content": "Ingestion now runs as its own Cloud Run Job (agentic-kg-ingest-staging), managed by Terraform and triggered by the API over REST. POST /api/ingest generates a trace_id, kicks off a job execution with the request encoded as container env-var overrides, and returns {\"trace_id\", \"status\": \"queued\"} immediately. The job runs to completion independently of the API, then writes a durable IngestionRun node to Neo4j. GET /api/ingest/{trace_id} reads that node for the final counts. The in-memory _jobs dict and asyncio.create_task are gone. ",
+    "url": "/agentic-kg/previews/pr-45/design/d1a-cloud-run-jobs.html#what-shipped",
+    
+    "relUrl": "/design/d1a-cloud-run-jobs.html#what-shipped"
+  },"40": {
+    "doc": "D-1a · Cloud Run Jobs ingestion",
+    "title": "Design decisions",
+    "content": "Durable Job over in-memory job store. The core decision: ingestion state lives in Neo4j (IngestionRun node) and Cloud Run execution metadata, never in API process memory. A restarted or scaled-to-zero API instance loses nothing — the job is a separate container with its own 30-minute lifecycle, and every run leaves a permanent provenance record (trace_id, query, all counts, extraction_errors, started_at, completed_at). This directly retires the three D-1 failure modes. Env-var driven entrypoint. The job takes all configuration from the environment, so the API triggers it purely by supplying containerOverrides. INGEST_QUERY is required (exit code 2 if absent); INGEST_TRACE_ID, INGEST_LIMIT, INGEST_SOURCES, INGEST_AGENT_WORKFLOW, and INGEST_MIN_CONFIDENCE are optional with defaults. Later cycles added POPULATE_CITATIONS, EXTRACT_ENTITIES, NORMALIZE_CROSS_ENTITY, and FORCE_REEXTRACT — the same env-var contract absorbed them without touching the trigger path. Terraform-managed, independently deployed. The job is a first-class google_cloud_run_v2_job resource alongside the API and UI services, with the same secrets, max_retries = 0 (partial results already in Neo4j — don’t re-run), and 2Gi / 2 CPU / 1800s limits from tfvars. A dedicated lean Dockerfile.job builds only the core package (no FastAPI/uvicorn), and cloudbuild.yaml’s _SERVICE=job path deploys it via gcloud run jobs update so API and job images ship on separate cadences. Deliberate exit codes. job_runner exits 0 complete / 1 partial (some extraction errors) / 2 fatal, so the Cloud Run execution surfaces the outcome. ",
+    "url": "/agentic-kg/previews/pr-45/design/d1a-cloud-run-jobs.html#design-decisions",
+    
+    "relUrl": "/design/d1a-cloud-run-jobs.html#design-decisions"
+  },"41": {
+    "doc": "D-1a · Cloud Run Jobs ingestion",
+    "title": "How it works",
+    "content": ". | Job entrypoint: job_runner.py — _parse_env() reads the env-var contract, main() calls the existing ingest_papers() orchestrator, and persist_ingestion_run() writes the IngestionRun node. Same function D-1 uses, so the CLI path is unchanged. | Terraform resource: infra/main.tf — google_cloud_run_v2_job.ingest (image job:latest, command python -m agentic_kg.job_runner, four shared secrets, max_retries = 0) plus a google_cloud_run_v2_job_iam_member binding scoped to this job only. Sizing vars live in variables.tf / envs/staging.tfvars. | Lean image: docker/Dockerfile.job — multi-stage, core-only, non-root, no port, no health check. | API trigger + status: routers/ingest.py — _trigger_cloud_run_job() mints a google-auth token and POSTs …/jobs/{name}:run via httpx (no heavy SDK); GET reads the Neo4j IngestionRun node with a 10s in-process status cache. | Predecessor: ingestion orchestration itself is D-1 · Ingest real papers. | . ",
+    "url": "/agentic-kg/previews/pr-45/design/d1a-cloud-run-jobs.html#how-it-works",
+    
+    "relUrl": "/design/d1a-cloud-run-jobs.html#how-it-works"
+  },"42": {
+    "doc": "D-1a · Cloud Run Jobs ingestion",
+    "title": "Verification",
+    "content": ". | Tests: packages/api/tests/test_ingest.py covers the REST trigger, the status cache, 404 on unknown trace_id, and 500 on trigger failure; job_runner exit-code and env-parsing behaviour is unit-tested. | Infra: terraform plan shows google_cloud_run_v2_job.ingest with the correct image, command, secrets, timeout, and job-scoped IAM. | Status: VERIFIED — spec marked VERIFIED (2026-03-31); job resource, entrypoint, and independent build path are all present in master. | . ",
+    "url": "/agentic-kg/previews/pr-45/design/d1a-cloud-run-jobs.html#verification",
+    
+    "relUrl": "/design/d1a-cloud-run-jobs.html#verification"
+  },"43": {
+    "doc": "D-1a · Cloud Run Jobs ingestion",
+    "title": "Related",
+    "content": ". | Depends on: D-1 · Ingest real papers | Deferred (Non-Goals): concurrency guard, job scheduling/queue, and a GCS per-paper research log (follow-on D-1b) | Divergence: the spec’s GET design also polls the Cloud Run Executions REST API; the shipped handler queries only the Neo4j IngestionRun node (_get_execution_status_from_gcp is intentionally a no-op), so live status for a still-running job is “queued/running” from cache until the node lands. | . ",
+    "url": "/agentic-kg/previews/pr-45/design/d1a-cloud-run-jobs.html#related",
+    
+    "relUrl": "/design/d1a-cloud-run-jobs.html#related"
+  },"44": {
+    "doc": "E-1 · Topic entities",
+    "title": "E-1 · Topic / Research Area entities",
+    "content": "VERIFIED . Backlog ID: E-1 · Depends on: none · Enabled: community detection (C-1), RAG retrieval (R-1) · Spec: topic-research-area-entities.md . ",
+    "url": "/agentic-kg/previews/pr-45/design/e1-topic-entities.html#e-1--topic--research-area-entities",
+    
+    "relUrl": "/design/e1-topic-entities.html#e-1--topic--research-area-entities"
+  },"45": {
+    "doc": "E-1 · Topic entities",
+    "title": "Why",
+    "content": "Research topics used to live as flat domain strings (\"NLP\", \"Computer Vision\") attached to problems. Strings can’t be traversed, can’t be searched by similarity, and can’t express that Machine Translation sits under Natural Language Processing under Computer Science. A researcher couldn’t ask “show me every open problem in NLP” as a graph query, and topic-based navigation, community detection, and retrieval were all blocked. The gap analysis flagged this as the highest-priority missing entity type. ",
+    "url": "/agentic-kg/previews/pr-45/design/e1-topic-entities.html#why",
+    
+    "relUrl": "/design/e1-topic-entities.html#why"
+  },"46": {
+    "doc": "E-1 · Topic entities",
+    "title": "What shipped",
+    "content": "A first-class Topic node type forming a three-level hierarchy (domain → area → subtopic), with a hand-curated seed taxonomy loaded into Neo4j and semantic embeddings on every node. Topics connect to the rest of the graph via three edges — SUBTOPIC_OF (hierarchy), BELONGS_TO (problem-side classification), and RESEARCHES (papers). See the Topic Taxonomy reference for the full shipped hierarchy. ",
+    "url": "/agentic-kg/previews/pr-45/design/e1-topic-entities.html#what-shipped",
+    
+    "relUrl": "/design/e1-topic-entities.html#what-shipped"
+  },"47": {
+    "doc": "E-1 · Topic entities",
+    "title": "Design decisions",
+    "content": "Closed-set taxonomy, not open string migration. The original spec proposed migrating existing domain strings into Topic nodes. What shipped instead is a closed-set taxonomy: topics exist only if they are in the curated seed_taxonomy.yml, loaded fresh rather than migrated. This keeps the vocabulary clean and makes classification auditable — extraction (E-8) binds the LLM to a Literal over these names, so a paper can never be filed under an invented topic. It also matches the project’s “re-extract over migrate” stance. Three fixed levels, enforced structurally. TopicLevel is an enum of exactly domain / area / subtopic, and the loader validates parent→child transitions (∅ → domain → area → subtopic). Domain nodes may not have a parent. This makes the hierarchy predictable for both queries and the extractor. Curated, not exhaustive. Rather than importing all ~65k OpenAlex concepts, the taxonomy is ~30 nodes hand-focused on the project’s corpus (graph retrieval, knowledge graphs, NLP, ML, IR). Scaling it — versioning, branching, merge — is deliberately deferred to backlog item T-1. Idempotent loading. load_taxonomy merges each node on (name, level, parent_id) and reports {created, matched}, so re-running against an existing graph is a no-op. The taxonomy round-trips: export_taxonomy reads the live graph back to the YAML shape (embeddings regenerated on import to keep the file human-readable). ",
+    "url": "/agentic-kg/previews/pr-45/design/e1-topic-entities.html#design-decisions",
+    
+    "relUrl": "/design/e1-topic-entities.html#design-decisions"
+  },"48": {
+    "doc": "E-1 · Topic entities",
+    "title": "How it works",
+    "content": ". | Model: Topic in models/entities.py — name, description, level, parent_id, source, openalex_id, 1536-dim embedding, and denormalized problem_count / paper_count. | Loader / validator / exporter: taxonomy.py (parse_taxonomy, load_taxonomy, export_taxonomy, flatten_taxonomy). | Schema: topic_id_unique constraint; topic_name/level/source indexes; topic_embedding_idx vector index (1536-dim, cosine) — all in schema.py. | Embedding strategy: each node embeds \"{name}: {description}\", so the one-line description in the YAML directly enriches semantic matching. | Assignment: E-1 shipped the infrastructure; automatic per-paper topic assignment during ingestion arrived with the closed-set extractor in E-8. | . For the node’s attributes and its edges in context, see the Entity Catalog and Entity Relationships. ",
+    "url": "/agentic-kg/previews/pr-45/design/e1-topic-entities.html#how-it-works",
+    
+    "relUrl": "/design/e1-topic-entities.html#how-it-works"
+  },"49": {
+    "doc": "E-1 · Topic entities",
+    "title": "Verification",
+    "content": ". | Tests: Topic model validation, schema init, idempotent taxonomy load, export round-trip, and CRUD. | CI smoke: the CI smoke test asserts Topic nodes and BELONGS_TO / RESEARCHES edges land in an ephemeral Neo4j on every ingestion run. | Status: VERIFIED — shipped via the E-8 V1 extractor and entity-pipeline-orchestration cycles. | . ",
+    "url": "/agentic-kg/previews/pr-45/design/e1-topic-entities.html#verification",
+    
+    "relUrl": "/design/e1-topic-entities.html#verification"
+  },"50": {
+    "doc": "E-1 · Topic entities",
+    "title": "Related",
+    "content": ". | Reference: Topic Taxonomy | Follows: E-8 · Extraction prompt expansion (populates topics from text) | Deferred: T-1 — taxonomy management at scale (versioning / branching / merge) | . ",
+    "url": "/agentic-kg/previews/pr-45/design/e1-topic-entities.html#related",
+    
+    "relUrl": "/design/e1-topic-entities.html#related"
+  },"51": {
+    "doc": "E-1 · Topic entities",
+    "title": "E-1 · Topic entities",
+    "content": " ",
+    "url": "/agentic-kg/previews/pr-45/design/e1-topic-entities.html",
+    
+    "relUrl": "/design/e1-topic-entities.html"
+  },"52": {
+    "doc": "E-2 · ResearchConcept entities",
+    "title": "E-2 · ResearchConcept entities",
+    "content": "VERIFIED . Backlog ID: E-2 · Depends on: none (benefits from E-1 Topics for BELONGS_TO, not blocked by them) · Spec: research-concept-entities.md . ",
+    "url": "/agentic-kg/previews/pr-45/design/e2-research-concepts.html",
+    
+    "relUrl": "/design/e2-research-concepts.html"
+  },"53": {
+    "doc": "E-2 · ResearchConcept entities",
+    "title": "Why",
+    "content": "The graph modelled research problems but not the intellectual building blocks that connect them — techniques and ideas like attention mechanism, transfer learning, or graph neural networks. Without them a researcher couldn’t ask “which problems involve attention mechanisms?”, couldn’t discover that two unrelated problems share a common technique, and couldn’t trace how an idea such as retrieval-augmented generation travels across research areas. The gap analysis flagged this as the second-highest-priority missing entity type, with ~520 concept nodes seen in the reference paper’s results. ",
+    "url": "/agentic-kg/previews/pr-45/design/e2-research-concepts.html#why",
+    
+    "relUrl": "/design/e2-research-concepts.html#why"
+  },"54": {
+    "doc": "E-2 · ResearchConcept entities",
+    "title": "What shipped",
+    "content": "A first-class ResearchConcept node type with name, description, an aliases list, and a 1536-dim semantic embedding. Concepts are an open-set vocabulary — any name may become one — with duplicates folded together at create time by embedding similarity. They connect to the rest of the graph via two edges: INVOLVES_CONCEPT (from a ProblemConcept) and DISCUSSES (from a Paper), plus an optional BELONGS_TO to a Topic where E-1 nodes exist. See the Entity Catalog for the full attribute list. ",
+    "url": "/agentic-kg/previews/pr-45/design/e2-research-concepts.html#what-shipped",
+    
+    "relUrl": "/design/e2-research-concepts.html#what-shipped"
+  },"55": {
+    "doc": "E-2 · ResearchConcept entities",
+    "title": "Design decisions",
+    "content": "Open-set vocabulary, governed by dedup . Where E-1 Topics are a closed set bound to a curated taxonomy, ResearchConcepts are deliberately open — no seed list, any extracted or manually created name can become a node. The vocabulary is kept clean not by a fixed enum but by embedding-based deduplication on write: every create embeds \"{name}: {description}\", vector-searches existing concepts, and if the best match scores at or above 0.90 cosine the incoming name is merged into that concept’s aliases rather than creating a duplicate. This matches the reality that technique names are unbounded and constantly coined, whereas the topic hierarchy is small and auditable. Aliases capture surface forms . A concept carries an aliases list so that self-attention and scaled dot-product attention can resolve to one canonical attention mechanism node. Merges append to this list, so aliases accumulate the surface forms the corpus actually uses. The threshold is configurable and 0.90 was fixed by a small calibration study (29 labelled pairs) rather than guessed. No concept_type enum, no typed concept-to-concept edges . Concepts are intentionally untyped in v1 — graph structure provides the typing. Typed concept-to-concept relationships (ENABLES, BUILDS_ON, ALTERNATIVE_TO, …) were deferred because they emerge from LLM extraction (E-8) or community detection (C-1), not manual creation. A generic RELATED_TO was deliberately omitted so that edge names always carry meaning. Shared entity abstraction descoped . The spec originally scoped a shared BaseGraphEntity + EntityService and a refactor of Topic and ResearchConcept onto them. This was descoped during verification (AC-7): with only two entity types in hand the abstraction wasn’t paying for itself, so both shipped with their own boilerplate. The consolidation is deferred until a third call site (E-3 Model / E-4 Method) lands — both of which have since shipped, following the same per-entity pattern. ",
+    "url": "/agentic-kg/previews/pr-45/design/e2-research-concepts.html#design-decisions",
+    
+    "relUrl": "/design/e2-research-concepts.html#design-decisions"
+  },"56": {
+    "doc": "E-2 · ResearchConcept entities",
+    "title": "How it works",
+    "content": ". | Model: ResearchConcept in models/entities.py — id, name, description, aliases, 1536-dim embedding, and denormalized mention_count (INVOLVES_CONCEPT) / paper_count (DISCUSSES). | Dedup / CRUD: create_or_merge_research_concept in repository.py embeds, searches, and merges at DEFAULT_CONCEPT_DEDUP_THRESHOLD = 0.90, returning (concept, created). Linking flows through a generalized _link_entity_to_node helper that increments the target count only when a new edge is created; INVOLVES_CONCEPT and DISCUSSES are registered there. | Schema: research_concept_id_unique constraint, research_concept_name_idx, and the research_concept_embedding_idx vector index (1536-dim, cosine) — all in schema.py. | Counts: mention_count and paper_count are updated transactionally on link/unlink, with a periodic reconciliation query correcting any drift — the same pattern as E-1 Topic. | Extraction: E-2 shipped the infrastructure (model, dedup, CRUD, API, CLI); automatic per-paper concept extraction arrived later with the LLM extractor (E-8), and an async description-generating sibling (acreate_or_merge_research_concept) arrived with E-6. | . For the node’s attributes and its edges in context, see the Entity Catalog and Entity Relationships. ",
+    "url": "/agentic-kg/previews/pr-45/design/e2-research-concepts.html#how-it-works",
+    
+    "relUrl": "/design/e2-research-concepts.html#how-it-works"
+  },"57": {
+    "doc": "E-2 · ResearchConcept entities",
+    "title": "Verification",
+    "content": ". | Tests: 99 E-2 unit tests (77 core + 22 API) covering model validation, schema init, CRUD, dedup merge/no-merge logic, the calibration harness, and the API/CLI surfaces; 22 repository integration tests run against live Neo4j. | Calibration: the 0.90 threshold is backed by a bundled fixture of 29 labelled pairs (17 same / 12 different) and is overridable. | Status: VERIFIED (2026-04-21) via /constellize:feature:verify — all four gates passed at E-2 scope. Staging graph inspection (AC-13) was left as a pending operator check. | . ",
+    "url": "/agentic-kg/previews/pr-45/design/e2-research-concepts.html#verification",
+    
+    "relUrl": "/design/e2-research-concepts.html#verification"
+  },"58": {
+    "doc": "E-2 · ResearchConcept entities",
+    "title": "Related",
+    "content": ". | Reference: Entity Catalog | Contrast: E-1 · Topic entities (closed-set taxonomy vs this open-set vocabulary) | Follows: E-8 · Extraction (populates concepts from paper text); E-6 (async description generation) | Deferred: typed concept-to-concept edges (E-8 / C-1); shared BaseGraphEntity / EntityService (AC-7) | . ",
+    "url": "/agentic-kg/previews/pr-45/design/e2-research-concepts.html#related",
+    
+    "relUrl": "/design/e2-research-concepts.html#related"
+  },"59": {
+    "doc": "E-3 · Model entities",
+    "title": "E-3 · Model / Architecture entities",
+    "content": "VERIFIED . Backlog ID: E-3 · Depends on: none (inherits E-1 / E-2 patterns) · Enabled: model-adoption queries, E-8-V2 model extraction · Spec: model-entity.md . ",
+    "url": "/agentic-kg/previews/pr-45/design/e3-model-entities.html#e-3--model--architecture-entities",
+    
+    "relUrl": "/design/e3-model-entities.html#e-3--model--architecture-entities"
+  },"60": {
+    "doc": "E-3 · Model entities",
+    "title": "Why",
+    "content": "ML models used to live only as opaque substrings inside Baseline.name fields embedded in Problem nodes — Baseline(name=\"GPT-4 baseline trained for 100 epochs\", ...). A researcher asking “which papers in the corpus actually used BERT?” got nothing from the graph: the data was there, but it wasn’t searchable, wasn’t deduplicated, and wasn’t linked to Papers as real structure. The gap analysis flagged Model as the third-most-common entity type in the reference paper’s results and the third-highest-priority missing node type. ",
+    "url": "/agentic-kg/previews/pr-45/design/e3-model-entities.html#why",
+    
+    "relUrl": "/design/e3-model-entities.html#why"
+  },"61": {
+    "doc": "E-3 · Model entities",
+    "title": "What shipped",
+    "content": "A first-class Model node type with a USES_MODEL edge (Paper → Model), so the graph can answer which papers use or benchmark against a given model. Models carry architecture, model_type, year_introduced, introducing_paper_doi, aliases, a 1536-dim embedding, and a denormalized usage_count. A curated seed set of canonical models is loaded from YAML, and every create attempt runs embedding-based dedup so surface variants (bert-base, BERT-large) collapse onto one node. See the Entity Catalog for the node in context. ",
+    "url": "/agentic-kg/previews/pr-45/design/e3-model-entities.html#what-shipped",
+    
+    "relUrl": "/design/e3-model-entities.html#what-shipped"
+  },"62": {
+    "doc": "E-3 · Model entities",
+    "title": "Design decisions",
+    "content": "Hybrid open-set, not closed vocabulary. Unlike E-1’s closed taxonomy, any name can become a Model — the extractor is not bound to a fixed list. But the curated seed entries in seed_models.yml are flagged is_canonical=True and write-protected during merges: an incoming non-canonical name can never rename or downgrade a canonical node — it is folded into that node’s aliases instead. A canonical seed landing after a community near-duplicate promotes the existing node (prior name moves to aliases, usage_count survives). This keeps well-known model names clean and governable by PR while still admitting the long tail. Dedup threshold 0.95 cosine — stricter than E-2. ResearchConcept dedup runs at 0.90; Model runs at DEFAULT_MODEL_DEDUP_THRESHOLD = 0.95 because the model-name space is more collision-prone (BERT vs DistilBERT must not merge). A 10-pair hand-labeled eval gates the threshold against both false merges and silent recall loss. No migration of Baseline strings. Existing baseline substrings stay put; Model nodes are populated only by the seed loader, the API, and (later) the E-8-V2 extractor. Dirty baseline strings would pollute a curated set that never recovers — a clean forward path beats backward-compat migration, matching the project’s rebuild-over-migrate stance. One generalized link helper. Rather than copy E-2’s concept-linking code, E-3 generalized _link_entity_to_concept into _link_entity_to_node backed by _NODE_LINK_RELATIONSHIPS, which now registers DISCUSSES, INVOLVES_CONCEPT, and USES_MODEL (E-4’s APPLIES_METHOD reuses it). Existing concept call sites route through the generalized helper unchanged. ",
+    "url": "/agentic-kg/previews/pr-45/design/e3-model-entities.html#design-decisions",
+    
+    "relUrl": "/design/e3-model-entities.html#design-decisions"
+  },"63": {
+    "doc": "E-3 · Model entities",
+    "title": "How it works",
+    "content": ". | Model: Model in models/entities.py — name, description, aliases, architecture, model_type, year_introduced, introducing_paper_doi, is_canonical, 1536-dim embedding, and denormalized usage_count. | Schema: model_id_unique constraint; model_name_idx and model_is_canonical_idx indexes; model_embedding_idx vector index (1536-dim, cosine) — all in schema.py. | Dedup + canonical protection: create_or_merge_model in repository.py embeds \"{name}: {description}\", vector-searches at ≥ 0.95, and applies the merge-direction rule (non-canonical → canonical allowed; the reverse is not). On embedding-service failure it falls back to create-without-embedding, skips dedup, and logs a WARN. | Edge + counter: link_paper_to_model / unlink_paper_from_model MERGE the USES_MODEL edge idempotently and tick usage_count transactionally; get_papers_for_model is the inverse traversal. | Seed loader: seed_models.py (load_seed_models) idempotently loads the canonical YAML — re-running is a no-op, reporting {created, merged}. | . For the node’s attributes and its edges in context, see the Entity Catalog and Entity Relationships. ",
+    "url": "/agentic-kg/previews/pr-45/design/e3-model-entities.html#how-it-works",
+    
+    "relUrl": "/design/e3-model-entities.html#how-it-works"
+  },"64": {
+    "doc": "E-3 · Model entities",
+    "title": "Verification",
+    "content": ". | Tests: Model model validation, schema init, idempotent seed load, canonical-protection merge directions, USES_MODEL edge + usage_count idempotence, and the CRUD surface. | Dedup eval: a 10-pair hand-labeled fixture gates the 0.95 threshold with a 10/10 precision requirement plus a 6-of-8 merge tripwire so threshold tuning can’t silently trade recall for precision (@pytest.mark.costly). | Integration: a testcontainers Neo4j test seeds Papers, links them via the CLI/repository, and asserts GET /api/models/{id}/papers returns them. | Status: VERIFIED — Units 1-10 landed and verify gates passed 2026-06-08. | . ",
+    "url": "/agentic-kg/previews/pr-45/design/e3-model-entities.html#verification",
+    
+    "relUrl": "/design/e3-model-entities.html#verification"
+  },"65": {
+    "doc": "E-3 · Model entities",
+    "title": "Related",
+    "content": ". | Reference: Entity Catalog | Reference: Entity Relationships | Sibling: E-4 — Method entities (pure open-set; reuses the link helper) | Deferred: VARIANT_OF lineage edges (BERT → RoBERTa → DeBERTa) — specified as a v1 non-goal and not yet shipped; only USES_MODEL exists today. | Follows: E-8-V2 — LLM-based Model extraction from paper text | . ",
+    "url": "/agentic-kg/previews/pr-45/design/e3-model-entities.html#related",
+    
+    "relUrl": "/design/e3-model-entities.html#related"
+  },"66": {
+    "doc": "E-3 · Model entities",
+    "title": "E-3 · Model entities",
+    "content": " ",
+    "url": "/agentic-kg/previews/pr-45/design/e3-model-entities.html",
+    
+    "relUrl": "/design/e3-model-entities.html"
+  },"67": {
+    "doc": "E-4 · Method entities",
+    "title": "E-4 · Method / Methodology entities",
+    "content": "VERIFIED . Backlog ID: E-4 · Depends on: E-3 (Model) · Enabled: method-adoption queries, E-8 V2 extraction · Spec: method-entity.md . ",
+    "url": "/agentic-kg/previews/pr-45/design/e4-method-entities.html#e-4--method--methodology-entities",
+    
+    "relUrl": "/design/e4-method-entities.html#e-4--method--methodology-entities"
+  },"68": {
+    "doc": "E-4 · Method entities",
+    "title": "Why",
+    "content": "The graph couldn’t answer “which papers use fine-tuning?”, “what methods does this problem area rely on?”, or trace methodology adoption over time. Methods like fine-tuning, transfer learning, contrastive learning, and data augmentation existed only as loose strings buried inside Baseline.name and Constraint.text — unsearchable, undeduplicated, and unlinked. The gap analysis flagged Method as the fourth-most-common entity type in the reference corpus (~200 nodes), making it the next entity worth promoting to a first-class node. ",
+    "url": "/agentic-kg/previews/pr-45/design/e4-method-entities.html#why",
+    
+    "relUrl": "/design/e4-method-entities.html#why"
+  },"69": {
+    "doc": "E-4 · Method entities",
+    "title": "What shipped",
+    "content": "A first-class Method node with name, optional description, aliases (max 20), an optional free-form method_type, a 1536-dim embedding, and a denormalized usage_count. Methods connect to the rest of the graph through a single new edge — APPLIES_METHOD (Paper → Method) — whose write ticks the node’s usage_count transactionally. The full node shape and its place in the graph live in the Entity Catalog and Entity Relationships. ",
+    "url": "/agentic-kg/previews/pr-45/design/e4-method-entities.html#what-shipped",
+    
+    "relUrl": "/design/e4-method-entities.html#what-shipped"
+  },"70": {
+    "doc": "E-4 · Method entities",
+    "title": "Design decisions",
+    "content": "Pure open-set — not the E-3 hybrid. This is the defining choice. E-3 Model shipped hybrid open-set machinery: an is_canonical flag, a curated seed YAML, a --canonical CLI flag, and canonical-protection rules that stop an incoming name from renaming or downgrading a curated node. All of that exists because model names are identities — “BERT”, “GPT-4”, “ResNet-50” — where a clear, curator-owned canonical form matters. Method names are not identities; they are conceptual phrases (“fine-tuning”, “contrastive learning”) with no single authoritative surface form worth protecting. So E-4 deliberately follows the E-2 ResearchConcept pattern instead: no is_canonical field, no seed YAML, no load-methods command, no canonical-protection branch, no --force on delete. The hybrid apparatus would have added surface area and earned nothing. Dedup at 0.90 cosine, not 0.95. create_or_merge_method embeds \"{name}: {description}\", vector-searches the top-5 neighbours, and merges into any candidate scoring ≥ 0.90 — matching E-2’s DEFAULT_CONCEPT_DEDUP_THRESHOLD rather than E-3 Model’s stricter 0.95. Merges are a plain alias union (existing name wins; description / method_type fill from the incoming call only when the existing value is None). E-3 needed 0.95 to avoid collapsing distinct model identities; conceptual phrases tolerate the looser bound. One-line relationship absorption. E-3 generalized edge handling into a _NODE_LINK_RELATIONSHIPS map, so E-4 added APPLIES_METHOD as a single map entry and got link_paper_to_method / unlink_paper_from_method for free — no new traversal code. Rebuild over migrate. Existing Baseline.name / Constraint.text strings are left alone. Method nodes are populated only via the API, the CLI, and (later) the E-8 V2 extractor — the same re-extract-don’t-migrate stance as E-1 and E-3. ",
+    "url": "/agentic-kg/previews/pr-45/design/e4-method-entities.html#design-decisions",
+    
+    "relUrl": "/design/e4-method-entities.html#design-decisions"
+  },"71": {
+    "doc": "E-4 · Method entities",
+    "title": "How it works",
+    "content": ". | Model: Method in models/entities.py — name, description, aliases (max 20), method_type, 1536-dim embedding, usage_count, timestamps. Notably no is_canonical field. | Repository: create_or_merge_method (0.90-cosine dedup), create_method, get_method, get_method_by_name, update_method, delete_method (DETACH DELETE, no force flag), search_methods_by_embedding, link_paper_to_method, unlink_paper_from_method, get_papers_for_method — all in repository.py. APPLIES_METHOD is one entry in _NODE_LINK_RELATIONSHIPS. | Schema: method_id_unique constraint, method_name_idx index, and method_embedding_idx vector index (1536-dim, cosine); schema version bumped v5 → v6 — all in schema.py. | Operator escape valve: passing threshold=1.01 (API body or create-method --threshold) forces the dedup search to return no matches (cosine ≤ 1.0), so a distinct node is always created. | Embedding-service failure: falls back to create-without-embedding, logs a WARN, and skips dedup for that call — the call never raises. | . For the node’s attributes and its edges in context, see the Entity Catalog and Entity Relationships. ",
+    "url": "/agentic-kg/previews/pr-45/design/e4-method-entities.html#how-it-works",
+    
+    "relUrl": "/design/e4-method-entities.html#how-it-works"
+  },"72": {
+    "doc": "E-4 · Method entities",
+    "title": "Verification",
+    "content": ". | Tests: Method model + alias-cap validation, schema init, embedding dedup, and repository CRUD. | Done demo (verify gate): a testcontainers integration test seeds 5 synthetic Papers, creates 5 well-known methods via create_or_merge_method (asserting the second same-name call merges), links each pair, and confirms get_papers_for_method returns the linked papers with usage_count matching. | Dedup sentinel: a single smoke test creates “fine-tuning” + “Fine Tuning” at the default 0.90 threshold and asserts they merge — a loud regression guard against a broken or absurdly-tuned threshold (not a full eval set). | Status: VERIFIED — Units 1-9 landed and all verify gates passed. | . ",
+    "url": "/agentic-kg/previews/pr-45/design/e4-method-entities.html#verification",
+    
+    "relUrl": "/design/e4-method-entities.html#verification"
+  },"73": {
+    "doc": "E-4 · Method entities",
+    "title": "Related",
+    "content": ". | Reference: Entity Catalog | Follows: E-1 · Topic entities (same first-class-node pattern) | Contrast: E-3 Model (hybrid open-set with canonical protection) — E-4 deliberately drops that machinery | Deferred to v2: ADDRESSED_BY (ProblemConcept → Method), EXTENDS_METHOD lineage edges, LLM extraction (E-8 V2) | . ",
+    "url": "/agentic-kg/previews/pr-45/design/e4-method-entities.html#related",
+    
+    "relUrl": "/design/e4-method-entities.html#related"
+  },"74": {
+    "doc": "E-4 · Method entities",
+    "title": "E-4 · Method entities",
+    "content": " ",
+    "url": "/agentic-kg/previews/pr-45/design/e4-method-entities.html",
+    
+    "relUrl": "/design/e4-method-entities.html"
+  },"75": {
+    "doc": "E-5 · Citation graph",
+    "title": "E-5 · Citation graph",
+    "content": "VERIFIED . Backlog ID: E-5 · Depends on: none (reuses the Semantic Scholar client + PaperImporter) · Enables: influence chains, hub/authority analysis, community-detection seeding (C-1) · Spec: citation-graph.md . ",
+    "url": "/agentic-kg/previews/pr-45/design/e5-citation-graph.html",
+    
+    "relUrl": "/design/e5-citation-graph.html"
+  },"76": {
+    "doc": "E-5 · Citation graph",
+    "title": "Why",
+    "content": "Every ingested Paper used to be an island. The graph could not answer “what does this paper build on”, “who in our corpus cites this seminal work”, “what’s the citation chain from X to Y”, or “which papers are most cited overall”. Yet Semantic Scholar already hands us a full reference list at ingestion time — the data flowed through the pipeline and we discarded it. The gap analysis ranked the missing paper-to-paper edge as the highest-priority relationship: without it, influence-chain discovery, hub/authority analysis, and community-detection seeding were all impossible. ",
+    "url": "/agentic-kg/previews/pr-45/design/e5-citation-graph.html#why",
+    
+    "relUrl": "/design/e5-citation-graph.html#why"
+  },"77": {
+    "doc": "E-5 · Citation graph",
+    "title": "What shipped",
+    "content": "A single self-referential relationship, (:Paper)-[:CITES]-&gt;(:Paper), populated automatically during ingestion from each paper’s Semantic Scholar reference list. Cited papers that aren’t yet in the corpus are materialized as stub Paper nodes so the graph is dense from day one. Two denormalized counters on every Paper — citation_count (inbound edges) and reference_count (outbound edges) — tick transactionally with edge creation. The relationship is exposed through a repository surface, three REST endpoints, and an agentic-kg citation-graph traversal CLI. See the Entity Relationships reference for the edge in context. ",
+    "url": "/agentic-kg/previews/pr-45/design/e5-citation-graph.html#what-shipped",
+    
+    "relUrl": "/design/e5-citation-graph.html#what-shipped"
+  },"78": {
+    "doc": "E-5 · Citation graph",
+    "title": "Design decisions",
+    "content": "Stub nodes instead of dropping unknown citations. A paper’s reference list routinely points at work we haven’t ingested. Rather than silently drop those edges (losing the citation graph’s density) or block ingestion until every cited paper is fetched (unbounded cost), E-5 creates a lightweight placeholder Paper carrying just doi, title, year, and is_stub=True. The CITES edge lands immediately, so influence chains and hub analysis work against the full reference structure. When the stub’s real paper is later ingested through the normal PaperImporter flow, the placeholder is promoted in place — the same node id, its scalar properties overwritten with the full payload, is_stub flipped to False, and every inbound CITES edge and accumulated citation_count preserved. is_stub is monotone. A node starts as a stub (true), flips to false on promotion or first full ingestion, and never reverts. There is no demotion path. This makes “list all real papers” a simple index filter and guarantees promotion is idempotent. Out-edges only at ingestion. Only a paper’s outbound references are fetched (get_paper_references). Inbound citations grow organically as the corpus grows — fetching “who cites X” per paper would balloon the stub population with low-value single-edge nodes and multiply API cost. citation_count still answers the inbound question against whatever’s been ingested. DOI is the only identifier. References without a DOI are skipped entirely — no stub, no edge. Titles are too noisy for fuzzy dedup, and DOI uniqueness (the existing paper_doi_unique constraint) handles stub deduplication for free. No backfill command ships: operators re-ingest older papers to enrich them, matching the project’s “rebuild over migrate” stance. Plain edge, no properties. Semantic Scholar’s references endpoint doesn’t return citation context (intro / methods / related-work), and downstream influence measures don’t need it. A future LLM-driven pass could add properties without a schema change. ",
+    "url": "/agentic-kg/previews/pr-45/design/e5-citation-graph.html#design-decisions",
+    
+    "relUrl": "/design/e5-citation-graph.html#design-decisions"
+  },"79": {
+    "doc": "E-5 · Citation graph",
+    "title": "How it works",
+    "content": ". | Model: Paper in models/entities.py gains is_stub, citation_count, reference_count; year was relaxed to Optional and title.min_length from 10 → 2 so partial-metadata stubs validate. | Orchestration: citation_graph.py — populate_citations resolves the paper’s Semantic Scholar id, fetches the reference list, and for each DOI-bearing reference creates-or-promotes a stub then links CITES. Every failure is logged WARN and absorbed into a CitationPopulationResult; citation enrichment never blocks ingestion. | Repository: repository.py — link_paper_cites_paper / unlink_paper_cites_paper (idempotent edge + counter maintenance), create_or_promote_paper_stub, _promote_paper_stub, get_references, get_citing_papers, count_citations. | Schema: paper_is_stub_idx index and the CITES edge, at SCHEMA_VERSION = 7, in schema.py. No new constraint — DOI uniqueness already covers stub dedup. | Ingestion hook: PaperImporter.import_paper calls populate_citations by default and routes existing-stub DOIs through the promotion path. | Surfaces: REST GET /api/papers/{doi}/references, /citations, /citation-counts; CLI agentic-kg citation-graph --paper-doi &lt;doi&gt; [--depth N] [--direction in|out|both]. | . For the node’s attributes and its edges in context, see the Entity Catalog and Entity Relationships. ",
+    "url": "/agentic-kg/previews/pr-45/design/e5-citation-graph.html#how-it-works",
+    
+    "relUrl": "/design/e5-citation-graph.html#how-it-works"
+  },"80": {
+    "doc": "E-5 · Citation graph",
+    "title": "Verification",
+    "content": ". | Tests: Paper stub/entity changes, idempotent edge + counter behavior, create_or_promote_paper_stub idempotency, and a testcontainers integration test exercising the full round trip — ingest a paper with mocked references, confirm stubs land with the right shape, then ingest a cited paper and confirm the stub is promoted with its CITES edges and citation_count preserved. | Sentinel: a stub-promotion smoke test asserts a repeated create_or_promote_paper_stub returns the existing node unchanged — guarding the regression where the stub gets overwritten on every reference pass. | Status: VERIFIED — Units 1-7 landed 2026-06-11; verify gates passed 2026-06-12. | . ",
+    "url": "/agentic-kg/previews/pr-45/design/e5-citation-graph.html#verification",
+    
+    "relUrl": "/design/e5-citation-graph.html#verification"
+  },"81": {
+    "doc": "E-5 · Citation graph",
+    "title": "Related",
+    "content": ". | Reference: Entity Relationships · Entity Catalog | Enables: community detection (C-1) — a dense Paper-to-Paper edge set to seed Leiden/Louvain partitioning | Deferred: get_paper_citations at ingestion, stub GC/TTL, SIMILAR_TO edges, citation-context properties | . ",
+    "url": "/agentic-kg/previews/pr-45/design/e5-citation-graph.html#related",
+    
+    "relUrl": "/design/e5-citation-graph.html#related"
+  },"82": {
+    "doc": "E-6 · Entity descriptions",
+    "title": "E-6 · Entity descriptions at create-time",
+    "content": "VERIFIED . Backlog ID: E-6 · Depends on: E-2 (Concept), E-3 (Model), E-4 (Method) · Enabled: richer vector search / cleaner dedup · Spec: entity-descriptions.md . ",
+    "url": "/agentic-kg/previews/pr-45/design/e6-entity-descriptions.html#e-6--entity-descriptions-at-create-time",
+    
+    "relUrl": "/design/e6-entity-descriptions.html#e-6--entity-descriptions-at-create-time"
+  },"83": {
+    "doc": "E-6 · Entity descriptions",
+    "title": "Why",
+    "content": "Concept, Model, and Method nodes all carry a description field that the embedding pipeline folds into the vector as \"{name}: {description}\" — but the field was almost always NULL. Only hand-curated seed entries had descriptions; every node born from ingestion-time dedup-merge persisted with description=None. Bare-name embeddings collide aggressively in similarity search — “fine-tuning” and “transfer learning” land close together when neither has a description — which pollutes dedup decisions and ranking. The fix is structural: generate a description at create time, so the field is populated when the embedding is computed, not as an afterthought. ",
+    "url": "/agentic-kg/previews/pr-45/design/e6-entity-descriptions.html#why",
+    
+    "relUrl": "/design/e6-entity-descriptions.html#why"
+  },"84": {
+    "doc": "E-6 · Entity descriptions",
+    "title": "What shipped",
+    "content": "An opt-in generate_description path on the create-or-merge flow for three entity types — ResearchConcept, Model, Method. When enabled, the node’s description is written by an LLM that self-validates its own output in the same call, and the validated text flows straight into the embedding. The operator-facing CLI commands (create-concept, create-model, create-method) turn generation on by default with a --no-generate-description opt-out. See the Entity Catalog for how description feeds each node’s embedding. ",
+    "url": "/agentic-kg/previews/pr-45/design/e6-entity-descriptions.html#what-shipped",
+    
+    "relUrl": "/design/e6-entity-descriptions.html#what-shipped"
+  },"85": {
+    "doc": "E-6 · Entity descriptions",
+    "title": "Design decisions",
+    "content": "Self-validation, not a separate critic. The LLM returns a DescriptionWithSelfCheck Pydantic model carrying the description and four boolean gates it grades itself against — is_factually_grounded, is_concise, is_specific, is_not_tautological. The description is accepted only if all four are True; otherwise the helper logs the rejection_reason and returns None. One instructor.extract() call, no second round-trip, per the project’s feedback_llm_self_validation stance. Never blocks the create. On self-validation rejection or any LLM failure, the helper returns None, a WARN is logged, and the node still persists with description=None. Generation is a best-effort enrichment, never a gate on entity creation. Async-only for the generating path. The LLM helper is async, and the create-or-merge helpers run inside live FastAPI event loops where asyncio.run would crash. Rather than smuggle a loop into the sync method, the sync create_or_merge_X raises NotImplementedError if generate_description=True is passed, and callers use the new acreate_or_merge_X async siblings instead. Sync callers with generate_description=False (all existing ingestion-path call sites) are completely unchanged and cost-neutral. Missing API key degrades quietly. The CLI builds its LLM client only when generation is requested; if OPENAI_API_KEY is unset it logs one WARN, falls back to the plain sync create, and still exits 0. “Create one node by hand” never hard-fails for want of credentials. Topic was left out. The spec framed E-6 over four types, but Topic has no create_or_merge_topic — topics are loaded from the curated seed taxonomy, which already ships descriptions. E-6 targets the three open-set types whose nodes are minted at ingestion time. ",
+    "url": "/agentic-kg/previews/pr-45/design/e6-entity-descriptions.html#design-decisions",
+    
+    "relUrl": "/design/e6-entity-descriptions.html#design-decisions"
+  },"86": {
+    "doc": "E-6 · Entity descriptions",
+    "title": "How it works",
+    "content": ". | Helper: generate_description_with_self_check and the DescriptionWithSelfCheck schema live in description_generation.py. passes_self_validation is the all([...]) over the four gates. | Async siblings: acreate_or_merge_research_concept, acreate_or_merge_model, and acreate_or_merge_method in repository.py resolve the description via _aresolve_description (explicit description wins → skip if disabled / no client → else call the helper), then delegate to the sync method with generate_description=False. The sync methods raise NotImplementedError on generate_description=True. | CLI: _llm_client_for_description in cli.py builds the client (or returns None with a WARN), and each create-* handler runs asyncio.run(repo.acreate_or_merge_X(..., generate_description=True)). | Prompts: DESCRIPTION_GENERATION_SYSTEM_PROMPT_V1 / ..._USER_PROMPT_TEMPLATE_V1 in prompts/templates.py; the user prompt injects an (also known as: …) hint from up to three aliases. | Embeddings unchanged: whatever description survives — LLM-generated, caller-supplied, or None — is what the existing \"{name}: {description}\" embedding step sees. On a merge into a node with description=None, the generated value fills it in and the embedding is regenerated. | . For each node’s attributes and edges, see the Entity Catalog. ",
+    "url": "/agentic-kg/previews/pr-45/design/e6-entity-descriptions.html#how-it-works",
+    
+    "relUrl": "/design/e6-entity-descriptions.html#how-it-works"
+  },"87": {
+    "doc": "E-6 · Entity descriptions",
+    "title": "Verification",
+    "content": ". | Tests: schema gates, the helper’s happy-path / rejection / exception behavior, _aresolve_description branching, the sync NotImplementedError guard, description-in-embedding, and CLI flag handling (test_description_generation_*.py, test_aresolve_description.py, test_description_in_embedding.py, test_cli_descriptions.py). | Sentinel: a mocked failing-gate response asserts the node persists with description IS NULL — pinning that a future refactor can’t accept a weak description. | Status: VERIFIED — 2026-06-14. | . ",
+    "url": "/agentic-kg/previews/pr-45/design/e6-entity-descriptions.html#verification",
+    
+    "relUrl": "/design/e6-entity-descriptions.html#verification"
+  },"88": {
+    "doc": "E-6 · Entity descriptions",
+    "title": "Related",
+    "content": ". | Reference: Entity Catalog | Enriches: E-2 · Research concepts, E-3 · Model entities, E-4 · Method entities | Not covered: Topic (seed-taxonomy descriptions, see E-1); Author / Paper / Problem (own field semantics — deferred) | . ",
+    "url": "/agentic-kg/previews/pr-45/design/e6-entity-descriptions.html#related",
+    
+    "relUrl": "/design/e6-entity-descriptions.html#related"
+  },"89": {
+    "doc": "E-6 · Entity descriptions",
+    "title": "E-6 · Entity descriptions",
+    "content": " ",
+    "url": "/agentic-kg/previews/pr-45/design/e6-entity-descriptions.html",
+    
+    "relUrl": "/design/e6-entity-descriptions.html"
+  },"90": {
+    "doc": "E-7 · Cross-entity normalization",
+    "title": "E-7 · Cross-entity normalization",
+    "content": "VERIFIED . Backlog ID: E-7 · Depends on: E-2/E-3/E-4 (Concept/Model/Method), E-6 (self-validation pattern), E-8 V1+V2 (extractors) · Spec: cross-entity-normalization.md . ",
+    "url": "/agentic-kg/previews/pr-45/design/e7-cross-entity-normalization.html",
+    
+    "relUrl": "/design/e7-cross-entity-normalization.html"
+  },"91": {
+    "doc": "E-7 · Cross-entity normalization",
+    "title": "Why",
+    "content": "The E-8 V2 extractors run the Concept, Model, and Method extractors against the same paper text in parallel. Their prompts try to stay in lane (“a Method is not a Model”), but real papers blur the lines. The same surface form — the canonical example is “attention mechanism” — lands as both a ResearchConcept and a Method, and the integrator writes both. That gives the graph two nodes for one idea, with separate DISCUSSES / APPLIES_METHOD edges from the same paper. It pollutes vector search and breaks queries like “papers that use attention mechanism,” which return only half the matches because the rest are filed under the other kind. E-7 collapses the collision per paper, before write. ",
+    "url": "/agentic-kg/previews/pr-45/design/e7-cross-entity-normalization.html#why",
+    
+    "relUrl": "/design/e7-cross-entity-normalization.html#why"
+  },"92": {
+    "doc": "E-7 · Cross-entity normalization",
+    "title": "What shipped",
+    "content": "A normalization step that runs between extraction and integration. For each paper it detects cross-kind surface collisions across Concept / Model / Method, routes each one through a single self-validating LLM call, and drops the losing kind(s) so only the surviving extraction reaches the writers. Every collision is recorded in a normalization_audit JSON property on the Paper node. Topic is deliberately excluded — it is closed-set (E-1) and connects via BELONGS_TO, so it never collides with the free-text kinds. ",
+    "url": "/agentic-kg/previews/pr-45/design/e7-cross-entity-normalization.html#what-shipped",
+    
+    "relUrl": "/design/e7-cross-entity-normalization.html#what-shipped"
+  },"93": {
+    "doc": "E-7 · Cross-entity normalization",
+    "title": "Design decisions",
+    "content": "Self-validation gates baked into the response — no critic call. The routing LLM returns a single DisambiguationDecision that carries both the pick (picked_kind, confidence) and its own two-gate self-evaluation (is_grounded_in_paper_context, is_specific_to_one_kind). Acceptance requires both gates True AND confidence ≥ 0.7 — one instructor.extract() call, no second adversarial pass. This follows the saved feedback_llm_self_validation memory (from E-6): quality gating rides inside the structured response rather than a separate critic request, keeping cost at ≤1 LLM call per ambiguous pair. Reject keeps BOTH extractions — recall over eager merging. When the router can’t confidently decide (a gate returns False, confidence is below 0.7, the LLM raises, or it picks a kind that wasn’t in the pair) the normalizer changes nothing — both extractions survive and the integrator writes both nodes exactly as it did pre-E-7. The reasoning (spec TL Q1 review): the router only fires on already-suspicious cases, so when it also can’t decide, discarding a real extraction throws away signal. The audit row marks the case unresolved (picked=null, dropped_kinds=[]) so an operator can re-ingest later or merge by hand. Drops happen only on a clean accept. All-in trigger, cheap signals first. A pair is flagged ambiguous if ANY of: exact name match (case-insensitive), alias overlap (canonical-in-aliases or alias-vs-alias), or embedding cosine ≥ 0.85. The two cheap signals run first with no I/O; the embedding scan runs only over extractions the cheap pass didn’t already pair, and caches each name’s vector per paper. Most papers have zero or one collision, so the expensive layer rarely fires. Untrusted-data prompt hardening. Paper text is treated as untrusted. Quoted snippets and the wider excerpt are wrapped in pseudo-XML &lt;paper-excerpt&gt; / &lt;quote-{kind}&gt; delimiters, and the system prompt carries an explicit security clause telling the model to treat everything inside those blocks as data, never instructions. Combined with the Literal[\"concept\",\"model\",\"method\"] on picked_kind, this bounds the blast radius of an obvious injection. Documented as mitigation, not prevention. ",
+    "url": "/agentic-kg/previews/pr-45/design/e7-cross-entity-normalization.html#design-decisions",
+    
+    "relUrl": "/design/e7-cross-entity-normalization.html#design-decisions"
+  },"94": {
+    "doc": "E-7 · Cross-entity normalization",
+    "title": "How it works",
+    "content": ". | Normalizer module: cross_entity_normalizer.py — DisambiguationDecision (Pydantic response model with the passes_self_validation property), detect_ambiguous_pairs (_cheap_collisions → _embedding_collisions), disambiguate_pair (one routing call), and the async entry point normalize_cross_entity. | Prompts: DISAMBIGUATION_SYSTEM_PROMPT_V1 (definitions + rules + the untrusted-data security clause) and DISAMBIGUATION_USER_PROMPT_TEMPLATE_V1 in prompts/templates.py. | Where it runs: the ingestion loop in ingestion.py calls normalize_cross_entity(...) right after extraction and before integrate_paper_entities. It mutates extraction_result.concepts/.models/ .methods in place, so the integrator’s existing writer blocks simply loop over whatever survives — no writer change needed. | Audit persistence: kg_integration_v2.py receives the NormalizationResult, serializes it with audit_to_json, and writes SET p.normalization_audit = $audit_json only when non-empty. Clean papers leave the property NULL, so the operator query MATCH (p:Paper) WHERE p.normalization_audit IS NOT NULL returns exactly the papers that hit a collision. | Injected clients — the L-1 swap point: both the EmbeddingService and the BaseLLMClient are constructed once per ingestion run and injected. When L-1 (low-cost SLM) lands, swapping in a cheaper client is a one-line change at the construction site — no normalizer code touched. | Operator toggle: a normalize_cross_entity_collisions flag (default True) threads through the CLI / ingestion so a run can opt out. | . For the colliding node types in context, see the Entity Catalog and Entity Relationships. ",
+    "url": "/agentic-kg/previews/pr-45/design/e7-cross-entity-normalization.html#how-it-works",
+    
+    "relUrl": "/design/e7-cross-entity-normalization.html#how-it-works"
+  },"95": {
+    "doc": "E-7 · Cross-entity normalization",
+    "title": "Verification",
+    "content": ". | Tests: seven test_cross_entity_* modules under packages/core/tests/extraction/ — schemas, cheap detection, embedding detection, the excerpt composer, prompts, routing, and end-to-end normalize + integrator wiring (accept-drops-loser, reject-keeps-both, triple collision = one call, zero-collision = no call, embedder-failure degrades only the fuzzy layer, audit lands on the Paper node). | Calibration caveat: per the spec’s Open Questions, no hand-labeled cross-entity eval set exists yet, so routing precision/recall is unverified beyond mocked unit tests. First real-data shakedown is the deferred follow-up. | Status: VERIFIED. | . Spec-vs-shipped divergences . | Call site moved up a level. The spec diagram had the integrator call normalize_cross_entity as its first step. Shipped, the ingestion loop makes the call and passes the NormalizationResult into integrate_paper_entities purely for audit persistence. Same net effect (the in-place mutation lands before any write), one level higher. | disambiguate_pair returns (kind, reason). The spec sample returned a bare Optional[EntityKind]; the shipped helper returns a tuple so the real rejection reason (LLM error text, which gate failed, the confidence value, or “picked kind not in pair”) is threaded into the audit instead of a fixed string. | AC-18 resolved toward keep-both. The spec’s AC-18 body says an out-of-pair pick should drop “both kinds,” which contradicts the governing TL Q1 “keep both on reject” decision. Shipped code follows keep-both (dropped_kinds=[]), resolving the spec’s internal inconsistency. | Per-kind quotes folded into the detected-as block. The user prompt renders each kind’s quoted_text inside its &lt;quote-{kind}&gt; tag within the kinds block, rather than as a separate “excerpts grounding each extraction” section. The pseudo-XML delimiters and security contract are preserved. | . ",
+    "url": "/agentic-kg/previews/pr-45/design/e7-cross-entity-normalization.html#verification",
+    
+    "relUrl": "/design/e7-cross-entity-normalization.html#verification"
+  },"96": {
+    "doc": "E-7 · Cross-entity normalization",
+    "title": "Related",
+    "content": ". | Reference: Entity Catalog · Entity Relationships | Builds on: E-2 · E-3 · E-4 | Deferred: cross-paper canonicalization, a labeled eval set, and an audit retention/TTL policy (spec Open Questions) | . ",
+    "url": "/agentic-kg/previews/pr-45/design/e7-cross-entity-normalization.html#related",
+    
+    "relUrl": "/design/e7-cross-entity-normalization.html#related"
+  },"97": {
+    "doc": "E-8 · Extraction prompt expansion",
+    "title": "E-8 · Extraction prompt expansion",
+    "content": "VERIFIED . Backlog ID: E-8 V1 + V2 · Depends on: E-1..E-6 · Enables: every downstream query over topics / concepts / models / methods · Specs: extraction-prompt-expansion.md (V1) · extraction-prompt-expansion-v2.md (V2) . ",
+    "url": "/agentic-kg/previews/pr-45/design/e8-extraction-prompt-expansion.html",
+    
+    "relUrl": "/design/e8-extraction-prompt-expansion.html"
+  },"98": {
+    "doc": "E-8 · Extraction prompt expansion",
+    "title": "Why",
+    "content": "E-1 through E-5 shipped first-class entity types — Topic, ResearchConcept, Model, Method, and the citation graph — with repository CRUD, APIs, and CLI commands. But nothing populated them from paper text. Every Topic assignment, every ResearchConcept, Model, and Method node had to be created by hand (assign-topic, create-concept, create-model, …), and every Paper -CITES-&gt; Paper edge came from a manual citation-graph run. The ingestion pipeline extracted only Problem statements; it saw a paper’s topic, concepts, models, methods, and references and wrote none of them. As real ingestion scaled, that investment sat idle. E-8 is the feature that turns paper text into E-1..E-5 graph structure automatically — it is what actually populates those entity types. ",
+    "url": "/agentic-kg/previews/pr-45/design/e8-extraction-prompt-expansion.html#why",
+    
+    "relUrl": "/design/e8-extraction-prompt-expansion.html#why"
+  },"99": {
+    "doc": "E-8 · Extraction prompt expansion",
+    "title": "What shipped",
+    "content": "V1 (Topics + Concepts). Two new paper-level extractors join ProblemExtractor as parallel siblings. TopicExtractor classifies a paper against the Topic Taxonomy and writes BELONGS_TO edges; ConceptExtractor pulls the concepts a paper discusses and writes DISCUSSES edges (deduping via E-2’s embedding merge). A pure-Python B3 heuristic then draws INVOLVES_CONCEPT edges from the paper’s problems to those concepts using only the surface forms this paper’s extractor emitted. V2 (Models + Methods + Citations). Two more sibling extractors — ModelExtractor and MethodExtractor — write USES_MODEL and APPLIES_METHOD edges via E-3/E-4 create-or-merge. Separately, PaperImporter.import_paper now calls E-5’s populate_citations after persisting a Paper, so citation neighbourhoods are non-empty on day one. The orchestrator runs all five extractors in one asyncio.gather; one failing extractor never blocks the others. See the Entity Catalog for the node shapes these edges connect. ",
+    "url": "/agentic-kg/previews/pr-45/design/e8-extraction-prompt-expansion.html#what-shipped",
+    
+    "relUrl": "/design/e8-extraction-prompt-expansion.html#what-shipped"
+  },"100": {
+    "doc": "E-8 · Extraction prompt expansion",
+    "title": "Design decisions",
+    "content": "Topic is closed-set; everything else is open-set. TopicExtractor binds the LLM to a Literal over the taxonomy names snapshotted at construction — a paper can never be filed under an invented topic; an out-of-taxonomy name fails Pydantic validation and is dropped. Concept, Model, and Method extractors are deliberately open-set: there is no fixed vocabulary, so they emit free-form names and rely on E-2/E-3/E-4 embedding-dedup at write time to converge (“bert-base” → canonical BERT). Mirroring Topic’s closed Literal for Models was explicitly rejected — new models ship weekly. Per-instance taxonomy snapshot. Each TopicExtractor reads seed_taxonomy.yml once in __init__ and builds its Literal schema and prompt from that one snapshot. One Cloud Run Job → one extractor → one consistent taxonomy for the whole batch; a mid-flight taxonomy edit only affects the next job. Paper.taxonomy_hash records which snapshot classified each paper. Silent-degrade-but-accountable. A known LLMError inside an extractor returns [] with a WARN — no failure record. Any unexpected exception is caught by the orchestrator’s _run wrapper (which catches BaseException, including CancelledError), recorded as a structured ExtractionFailure, and the Paper is marked extraction_incomplete=true for a re-ingestion audit query. Partial results are always committed. B3 uses per-paper aliases only. The problem↔concept linker matches against the surface forms the LLM emitted for this paper, never the merged concept’s accumulated alias list — this prevents alias-pollution, where a popular concept would match ever more aggressively as papers accrue. A min_alias_length=4 filter plus a provenance-carrying b3_deny_list.yml suppress generic terms. The linker was not extended to Models/Methods in V2 (those are paper-scope, not problem-scope). Descriptions stay OFF on the ingestion path. V2’s create_or_merge_model / create_or_merge_method calls omit generate_description, defaulting to False (E-6 AC-11) — ~5 LLM calls per paper is the cost ceiling. Description generation stays operator-driven via the E-6 CLI flags. ",
+    "url": "/agentic-kg/previews/pr-45/design/e8-extraction-prompt-expansion.html#design-decisions",
+    
+    "relUrl": "/design/e8-extraction-prompt-expansion.html#design-decisions"
+  },"101": {
+    "doc": "E-8 · Extraction prompt expansion",
+    "title": "How it works",
+    "content": ". | Extractors: topic_extractor.py (closed-set Literal, dynamic pydantic.create_model), concept_extractor.py, model_extractor.py, and method_extractor.py — each a single paper-level call with an empty-section short-circuit and a min_confidence filter. | Schemas &amp; prompts: schemas.py (ExtractedResearchConcept, ExtractedModel, ExtractedMethod) and prompts/templates.py (an EntityKind-dispatched SYSTEM_PROMPT_V1 / USER_PROMPT_TEMPLATE_V1 family, extensible by duplicate-rename). | Orchestrator: extract_all_entities in pipeline.py — five awaitables through one asyncio.gather, returning a PaperExtractionResult with per-extractor failures. | Writers: integrate_paper_entities in kg_integration_v2.py writes BELONGS_TO / DISCUSSES / USES_MODEL / APPLIES_METHOD, runs the B3 linker (b3_linker.py), and pins taxonomy_hash + extraction_incomplete. | Citations: PaperImporter.import_paper in importer.py calls E-5’s populate_citations (default-on, best-effort, never propagates) on both the create and update_existing paths. | Wired end-to-end: ingestion.py constructs all five extractors and calls extract_all_entities → integrate_paper_entities per paper — this is the live path, not just library scaffolding. | . For the resulting node attributes and edges in context, see the Entity Catalog and the Topic Taxonomy. ",
+    "url": "/agentic-kg/previews/pr-45/design/e8-extraction-prompt-expansion.html#how-it-works",
+    
+    "relUrl": "/design/e8-extraction-prompt-expansion.html#how-it-works"
+  },"102": {
+    "doc": "E-8 · Extraction prompt expansion",
+    "title": "Verification",
+    "content": ". | Tests: each extractor’s success path, taxonomy rejection, low-confidence filtering, empty-section short-circuit, five-way parallel orchestration, per-extractor degradation (known vs. unexpected exceptions), the B3 linker + deny-list + pollution-immunity, each integration writer, and the populate_citations default-on / exception-absorbed / update-path contracts. | Eval gate (-m costly): a 5-paper hand-labeled fixture set (one per area) with dual precision floors + an anti-gaming recall tripwire — Topic/Concept gates from V1, Model/Method gates added in V2, both checked at /constellize:feature:verify. | Status: VERIFIED — V1 (Units 1-13) and V2 both passed their verify gates; the pipeline is the live ingestion path. | . ",
+    "url": "/agentic-kg/previews/pr-45/design/e8-extraction-prompt-expansion.html#verification",
+    
+    "relUrl": "/design/e8-extraction-prompt-expansion.html#verification"
+  },"103": {
+    "doc": "E-8 · Extraction prompt expansion",
+    "title": "Related",
+    "content": ". | Populates: E-1 · E-2 · E-3 · E-4 | Wires in: E-5 (citation population at import time) | Orchestration: entity-pipeline-orchestration (the ingest_papers path that runs the five extractors and their writers) | Deferred: E-7 (cross-entity normalization), L-1 (low-cost SLM client for per-extractor cost routing) | . ",
+    "url": "/agentic-kg/previews/pr-45/design/e8-extraction-prompt-expansion.html#related",
+    
+    "relUrl": "/design/e8-extraction-prompt-expansion.html#related"
+  },"104": {
+    "doc": "Enhance GitHub Pages",
+    "title": "Enhance GitHub Pages",
+    "content": "VERIFIED (Phase A) . Backlog: enhance-github-pages · Spec: enhance-github-pages.md . ",
+    "url": "/agentic-kg/previews/pr-45/design/enhance-github-pages.html",
+    
+    "relUrl": "/design/enhance-github-pages.html"
+  },"105": {
+    "doc": "Enhance GitHub Pages",
+    "title": "Why",
+    "content": "The old Pages site was a narrow, partly broken showcase. Its generator was a ~300-line regex script that emitted inline HTML by hand, with parsers that had drifted out of sync with the source: the milestone regex expected ### M1: name ✅ while progress.md had moved to tables, and it still read the stale memory-bank/ path instead of the authoritative llm/memory_bank/. There was no unified navigation, no search, no public project overview, and the backlog page was a hand-maintained snapshot that went stale the moment anything changed. Nobody — researcher, collaborator, or the team itself — could discover what the system does or how far along it is without reading raw markdown in the repo. ",
+    "url": "/agentic-kg/previews/pr-45/design/enhance-github-pages.html#why",
+    
+    "relUrl": "/design/enhance-github-pages.html#why"
+  },"106": {
+    "doc": "Enhance GitHub Pages",
+    "title": "What shipped",
+    "content": "A Jekyll just-the-docs site with a single dynamic sidebar, search, and breadcrumbs, plus a lean data pipeline that keeps the status pages honest. A new Python emitter reads the project’s source-of-truth files and writes three YAML data files that Liquid templates render — so the backlog, sprint list, and status dashboard regenerate on every push instead of being copy-pasted. Two workflows drive it: production deploys on merge to master, and per-PR preview deploys with a bot comment. HTMLProofer gates both builds against broken links and malformed HTML. This is Phase A — the structure, navigation, and data pipeline. Every public page exists and is reachable from the sidebar, but the prose is still one-paragraph placeholder with a &lt;!-- TODO(phase-b): --&gt; marker; authoring real content is Phase B and has not shipped. The Reference and Design sections you are reading now — including this note — are later hand-authored content built on top of the Phase A structure. ",
+    "url": "/agentic-kg/previews/pr-45/design/enhance-github-pages.html#what-shipped",
+    
+    "relUrl": "/design/enhance-github-pages.html#what-shipped"
+  },"107": {
+    "doc": "Enhance GitHub Pages",
+    "title": "Design decisions",
+    "content": "Data emitter, not HTML string-slinging. The replacement generator emits _data/*.yml only — never HTML. Templates own presentation; the script owns parsing. This is the core reversal from the old approach and the reason the dashboard can no longer render wrong-but-confident numbers. Structured stats block, not regex on prose. Dashboard numbers come from a fenced # docs-stats YAML block in activeContext.md, validated against a Pydantic DocsStats model. Prose around it can be reworded freely without breaking the dashboard; a missing block or a bad field fails the build loudly (exit 2) rather than silently emitting null. The extractor deliberately keys on the block’s first content line being # docs-stats, so a prose mention of the marker elsewhere is ignored. Fail visibly on parse drift. If fewer than 50% of BACKLOG.md’s detected table rows parse into feature records, the generator exits non-zero (exit 3) and fails CI — the format having drifted out from under the parser is treated as a bug, not a warning to bury. Individual malformed rows are skipped with a stderr warning so one bad row can’t blank the whole table. Nav is emergent, not configured. just-the-docs builds the sidebar from each page’s parent / nav_order frontmatter. Adding a page is creating a markdown file — no menu YAML or template edits. --strict_front_matter fails the build if a page ships without valid frontmatter. ",
+    "url": "/agentic-kg/previews/pr-45/design/enhance-github-pages.html#design-decisions",
+    
+    "relUrl": "/design/enhance-github-pages.html#design-decisions"
+  },"108": {
+    "doc": "Enhance GitHub Pages",
+    "title": "How it works",
+    "content": ". | Generator: generate_site_data.py reads llm/memory_bank/activeContext.md (the # docs-stats block), llm/features/BACKLOG.md, and construction/sprints/sprint-*.md, and writes docs/_data/{status,backlog,sprints}.yml. | Templates: docs/status/*.md render those data files via Liquid ({% for item in site.data.backlog.items %}) and the partials in docs/_includes/ (backlog-table.html, sprint-list.html, status-badge.html). | Config: docs/_config.yml sets the remote just-the-docs theme, search, breadcrumbs, and GitHub edit links. | Production workflow: update-docs.yml — on push to master under the watched paths, regenerates data, runs jekyll build --strict_front_matter, HTMLProofs the output, and deploys to gh-pages (with keep_files so it doesn’t clobber the previews subtree). | Preview workflow: preview-docs.yml — on each PR touching those paths, builds under /agentic-kg/previews/pr-&lt;N&gt;/, comments the URL, and removes the preview when the PR closes. | Sections built on this structure: the domain model lives under Reference and the completed-feature notes under Design. | . ",
+    "url": "/agentic-kg/previews/pr-45/design/enhance-github-pages.html#how-it-works",
+    
+    "relUrl": "/design/enhance-github-pages.html#how-it-works"
+  },"109": {
+    "doc": "Enhance GitHub Pages",
+    "title": "Verification",
+    "content": ". | Tests: two suites under packages/core/tests/docs/ — test_generate_site_data.py (generator behavior: docs-stats extraction, Pydantic validation, backlog parsing, parse-ratio gate, sprint parsing) and test_site_structure.py (static assertions on the site + workflow YAML), with fixture and golden files for snapshot comparison. | CI gates: --strict_front_matter blocks pages without frontmatter; HTMLProofer blocks broken internal links and malformed HTML on both preview and production builds; concurrency groups cancel superseded runs. | Status: VERIFIED for Phase A only — structure, navigation, and the data pipeline. Real prose (Phase B, AC-3), Lighthouse thresholds (AC-13), and the optional Playwright smoke test (AC-14) are deferred and not yet shipped. | . ",
+    "url": "/agentic-kg/previews/pr-45/design/enhance-github-pages.html#verification",
+    
+    "relUrl": "/design/enhance-github-pages.html#verification"
+  },"110": {
+    "doc": "Enhance GitHub Pages",
+    "title": "Related",
+    "content": ". | Spec: enhance-github-pages.md (full acceptance criteria and Phase A verification record) | Builds on this structure: Reference and Design sections | Deferred: Phase B — real content for every about/* and status/* page, plus Lighthouse and Playwright quality gates | . ",
+    "url": "/agentic-kg/previews/pr-45/design/enhance-github-pages.html#related",
+    
+    "relUrl": "/design/enhance-github-pages.html#related"
+  },"111": {
+    "doc": "Entity Catalog",
+    "title": "Entity Catalog",
+    "content": "The authoritative definition of every node type in the knowledge graph. Each entry follows a fixed template: Definition, Purpose, Key attributes, Relationships, and Notes (vocabulary style, lifecycle, provenance). Downstream docs should link here rather than redefine these types. Source of truth: packages/core/src/agentic_kg/knowledge_graph/models/entities.py and the constraints/indexes in schema.py. Uniqueness constraints exist for every node label below. | Core research nodes — Problem, ProblemMention, ProblemConcept | Bibliographic nodes — Paper, Author | Classification &amp; concept nodes — Topic, ResearchConcept, Model, Method | Metadata &amp; operational nodes — SchemaVersion, review queue | . ",
+    "url": "/agentic-kg/previews/pr-45/reference/entity-catalog.html",
+    
+    "relUrl": "/reference/entity-catalog.html"
+  },"112": {
+    "doc": "Entity Catalog",
+    "title": "Core research nodes",
+    "content": "Problem . Definition. A research problem as a first-class entity — an open question, challenge, or research direction extracted from a paper. Purpose. The central modeling bet of the project: problems are nodes, not strings. Everything else (papers, concepts, models) exists to describe, source, or relate problems. Key attributes. id (UUID); statement (≥ 20 chars); status (open / in_progress / resolved / deprecated); structured lists of assumptions, constraints, datasets, metrics, baselines; evidence (source paper) and extraction_metadata (provenance); embedding (1536-dim); version and timestamps. Relationships. EXTRACTED_FROM → Paper; problem-to-problem edges EXTENDS / CONTRADICTS / DEPENDS_ON / REFRAMES → Problem; BELONGS_TO → Topic. Notes. A resolved or deprecated problem is required to carry evidence with a source_doi (enforced by a model validator) — you cannot close a problem without pointing at the paper that closed it. ProblemMention . Definition. A paper-specific mention of a research problem — the problem exactly as it appears in one paper. Purpose. Preserves original wording and per-paper context (section, quoted text, paper DOI) so the canonical layer can deduplicate without losing provenance. Key attributes. id; statement (as stated in this paper); paper_doi (must start with 10.); section; quoted_text; the same structured metadata lists as Problem; matching fields (concept_id, match_confidence, match_score, match_method); review-workflow fields (review_status, reviewed_by, agent_consensus); embedding. Relationships. INSTANCE_OF → ProblemConcept (its canonical concept). Its source paper is referenced by the paper_doi property. Notes. Mentions are matched to concepts by vector similarity and routed by confidence (HIGH auto-link / MEDIUM single-agent / LOW multi-agent consensus / escalation to human review). ProblemConcept . Definition. The canonical representation of a research problem that may be mentioned across many papers. Purpose. Deduplicates mentions into one durable node with an AI-synthesized canonical statement and aggregated metadata, so the graph reflects distinct problems rather than every restatement. Key attributes. id; canonical_statement (≥ 20 chars, LLM-synthesized); status; aggregated assumptions / constraints / datasets / metrics; verified_baselines vs. claimed_baselines; synthesis provenance (synthesis_method, synthesis_model, synthesized_by, human_edited); aggregation stats (mention_count, paper_count, first/last_mentioned_year); embedding; refinement tracking; version. Relationships. INSTANCE_OF ← ProblemMention (inbound); INVOLVES_CONCEPT → ResearchConcept; BELONGS_TO → Topic. Notes. first_mentioned_year ≤ last_mentioned_year is validated. Baselines are split into reproducible (verified) vs. unverified (claimed). ",
+    "url": "/agentic-kg/previews/pr-45/reference/entity-catalog.html#core-research-nodes",
+    
+    "relUrl": "/reference/entity-catalog.html#core-research-nodes"
+  },"113": {
+    "doc": "Entity Catalog",
+    "title": "Bibliographic nodes",
+    "content": "Paper . Definition. A scientific paper — the source node most other entities are extracted from. Purpose. Anchors provenance for the whole graph and forms the citation network. Key attributes. doi (primary key, must start with 10.); title; authors; venue; year (optional); abstract; external identifiers (arxiv_id, openalex_id, semantic_scholar_id); pdf_url, full_text; ingested_at. Citation-graph fields (E-5): is_stub (placeholder created from another paper’s reference list before ingestion — monotone true → false), citation_count (inbound CITES), reference_count (outbound CITES). Relationships. AUTHORED_BY → Author; CITES → Paper (self-reference); RESEARCHES → Topic; DISCUSSES → ResearchConcept; USES_MODEL → Model; APPLIES_METHOD → Method; EXTRACTED_FROM ← Problem. Notes. title min length was relaxed (10 → 2) and year made optional to admit reference-list stubs with partial metadata. Author . Definition. A paper author. Purpose. Attribution and author-level graph queries. Key attributes. id; name; affiliations; orcid (validated to start 0000-); semantic_scholar_id. Relationships. AUTHORED_BY ← Paper (carries author_position). ",
+    "url": "/agentic-kg/previews/pr-45/reference/entity-catalog.html#bibliographic-nodes",
+    
+    "relUrl": "/reference/entity-catalog.html#bibliographic-nodes"
+  },"114": {
+    "doc": "Entity Catalog",
+    "title": "Classification &amp; concept nodes",
+    "content": "Topic (E-1) . Definition. A research topic or area, forming a three-level hierarchy (domain → area → subtopic). Purpose. The closed-set controlled vocabulary for classifying problems and papers. See the dedicated Topic Taxonomy page. Key attributes. id; name; description (feeds richer embeddings); level (domain / area / subtopic); parent_id (None for root domains); source (manual / openalex / migrated / llm_proposed); openalex_id; embedding; denormalized problem_count / paper_count. Relationships. SUBTOPIC_OF → Topic (parent); BELONGS_TO ← problem-side nodes; RESEARCHES ← Paper. Notes. Domain-level topics must not have a parent (validated). New topics enter only via the seed taxonomy — extraction cannot invent off-taxonomy topics. ResearchConcept (E-2) . Definition. A named intellectual building block — e.g. “attention mechanism”, “transfer learning”, “graph neural networks”. Purpose. Captures the ideas papers are about, independent of the specific problem or model. Key attributes. id; name; description; aliases (surface forms); embedding; denormalized mention_count (INVOLVES_CONCEPT) and paper_count (DISCUSSES). Relationships. INVOLVES_CONCEPT ← ProblemConcept; DISCUSSES ← Paper; BELONGS_TO → Topic (optional). Notes. Open-set vocabulary — any name may become a concept; duplicates are merged at 0.90 cosine similarity. Model (E-3) . Definition. A named ML model / architecture — e.g. “BERT”, “GPT-4”, “ResNet-50”. Purpose. Tracks the concrete models papers use, benchmark against, or build on. Key attributes. id; name; description; aliases; architecture (transformer / cnn / rnn …); model_type (language_model / vision_model …); year_introduced; introducing_paper_doi; is_canonical (curated seed, write-protected during merges); embedding; denormalized usage_count. Relationships. USES_MODEL ← Paper. Notes. Hybrid vocabulary: open-set, but ~19 seed entries are flagged is_canonical=True and cannot be renamed or downgraded by incoming non-canonical names. Dedup threshold 0.95 cosine (+ canonical seed). Method (E-4) . Definition. A research method / methodology — e.g. “fine-tuning”, “contrastive learning”. Purpose. Captures how work is done, distinct from the Model it is done with. Key attributes. id; name; description; aliases (max 20); method_type (training / evaluation / data_processing / optimization …); embedding; denormalized usage_count. Relationships. APPLIES_METHOD ← Paper. Notes. Pure open-set (like ResearchConcept, not Model) — method names are conceptual phrases, not identities, so no canonical-protection machinery. Dedup threshold 0.90 cosine. ",
+    "url": "/agentic-kg/previews/pr-45/reference/entity-catalog.html#classification--concept-nodes",
+    
+    "relUrl": "/reference/entity-catalog.html#classification--concept-nodes"
+  },"115": {
+    "doc": "Entity Catalog",
+    "title": "Metadata &amp; operational nodes",
+    "content": "SchemaVersion . Records the applied Neo4j schema version (unique constraint on version, currently 7). Managed by SchemaManager; not part of the research graph. Review-queue nodes (operational) . PendingReview and its embedded structures (SuggestedConceptForReview, AgentContextForReview) back the human review queue for disputed mention→concept matches (review_queue.py). They carry SLA, priority, and resolution fields and sit outside the core research schema. ",
+    "url": "/agentic-kg/previews/pr-45/reference/entity-catalog.html#metadata--operational-nodes",
+    
+    "relUrl": "/reference/entity-catalog.html#metadata--operational-nodes"
+  },"116": {
+    "doc": "Entity pipeline orchestration",
+    "title": "Entity pipeline orchestration",
+    "content": "VERIFIED . Backlog: entity-pipeline-orchestration (loop-close; surfaced after E-7 verify) · Depends on: E-1 … E-8 . | E-7 · Spec: entity-pipeline-orchestration.md | . ",
+    "url": "/agentic-kg/previews/pr-45/design/entity-pipeline-orchestration.html",
+    
+    "relUrl": "/design/entity-pipeline-orchestration.html"
+  },"117": {
+    "doc": "Entity pipeline orchestration",
+    "title": "Why",
+    "content": "The entity-expansion arc built a lot of machinery — four new extractors (Topic / ResearchConcept / Model / Method), a five-way parallel orchestrator, the E-7 cross-entity router, and a V2 entity integrator with audit trails — and none of it ran in production. ingest_papers, the single entry point behind both agentic-kg ingest and the Cloud Run Job, still did only V1: import metadata, extract problems from the PDF, route ProblemMentions. After ingesting N papers the graph had Paper / Author / CITES / ProblemMention — and zero Topic edges, ResearchConcept nodes, USES_MODEL, APPLIES_METHOD, or the Paper audit fields. This is the capstone: it wires the whole dormant arc into the production ingestion path, default-on, so an ordinary ingest run finally produces the richly typed graph the arc was built for. ",
+    "url": "/agentic-kg/previews/pr-45/design/entity-pipeline-orchestration.html#why",
+    
+    "relUrl": "/design/entity-pipeline-orchestration.html#why"
+  },"118": {
+    "doc": "Entity pipeline orchestration",
+    "title": "What shipped",
+    "content": "One refactor of ingest_papers Phase 2/3 into a single per-paper loop that runs, for every paper: problem extraction (V1), the four entity extractors in parallel via extract_all_entities, E-7 cross-entity normalization, V1 mention/concept integration, then V2 entity integration via integrate_paper_entities. It is on by default (extract_entities=True, normalize_cross_entity_collisions=True), guarded by a per-paper skip check so re-running the same query is near-free, and it writes an audit trail onto each Paper node (taxonomy_hash, extraction_incomplete, normalization_audit) plus additive counters on IngestionResult. No new entity types, extractors, prompts, schema, or repository methods — pure orchestration of existing parts. ",
+    "url": "/agentic-kg/previews/pr-45/design/entity-pipeline-orchestration.html#what-shipped",
+    
+    "relUrl": "/design/entity-pipeline-orchestration.html#what-shipped"
+  },"119": {
+    "doc": "Entity pipeline orchestration",
+    "title": "Design decisions",
+    "content": "Default-on — the cost is the point. Shipping with the extractors defaulted off would have left the pipeline dormant indefinitely (E-6’s generate_description=False default never got flipped in months). So this is a deliberate breaking change for operators: every ingest now runs ~5-6 extra LLM calls per new paper. The skip check and the two opt-out flags are the mitigations. Universal extraction scope, with abstract fallback. All four entity extractors run on every paper. Papers with a PDF use the rich abstract + introduction + methods + experiments text; PDF-less papers fall back to the abstract alone; truly empty papers hit each extractor’s empty-input short-circuit (zero LLM cost) and persist as metadata only. A skip check, not a migration. Rather than a one-off backfill, re-ingestion is made cheap: a paper already extracted under the current taxonomy snapshot and not flagged incomplete is skipped end-to-end for the LLM-touching body. Only new papers pay the extraction bill. This composes for free with the AC-13 purge path, which clears taxonomy_hash and so forces re-extraction on the next run. One LLM client per batch — the L-1 swap point. get_openai_client() is called once and threaded into all four extractors and the normalizer. Swapping that one factory for a local-SLM factory flips the entire pipeline’s model with no other code change. ",
+    "url": "/agentic-kg/previews/pr-45/design/entity-pipeline-orchestration.html#design-decisions",
+    
+    "relUrl": "/design/entity-pipeline-orchestration.html#design-decisions"
+  },"120": {
+    "doc": "Entity pipeline orchestration",
+    "title": "How it works",
+    "content": ". | Orchestrator: ingest_papers in ingestion.py — per-batch deps (TopicExtractor/ConceptExtractor/ModelExtractor/MethodExtractor, one EmbeddingService, one LLM client) build once inside the if extract_entities block; the per-paper loop then does purge-guard → skip-check → text resolution → extract_all_entities → normalize_cross_entity → V1 integrate_extracted_problems → V2 integrate_paper_entities, all inside one try/except for per-paper failure isolation. | Text resolution: _build_extractor_section_text joins the wanted SegmentedDocument sections; returns \"\" (safe short-circuit) when a PDF has none of them. | Skip check: _can_skip_entity_extraction reads the Paper node and returns True only when taxonomy_hash matches the batch hash and extraction_incomplete is not True; increments result.papers_skipped_complete. | V1 → V2 sequencing: V1 runs first (its ProblemMention[] feed the V2 B3 problem↔concept linker); V2 gates on any successful extraction or a V1 result. | Audit trail: integrate_paper_entities (from E-8) writes taxonomy_hash, extraction_incomplete, and the E-7 normalization_audit JSON onto Paper; new counters (topics_linked, concepts_v2_linked, models_linked, methods_linked, papers_marked_incomplete, papers_with_normalization_audit, papers_skipped_complete) land on IngestionResult. | CLI + Job parity: three flags on cli.py (--no-extract-entities, --no-normalize-cross-entity, --force-reextract) mirror three env vars in job_runner.py (EXTRACT_ENTITIES, NORMALIZE_CROSS_ENTITY, FORCE_REEXTRACT), all defaulting on. | . This note ties together the whole arc — E-1, E-2, E-3, E-4, E-5, E-6, E-7, and E-8 — into one production path. For the nodes and edges it populates, see the Entity Catalog and Entity Relationships. ",
+    "url": "/agentic-kg/previews/pr-45/design/entity-pipeline-orchestration.html#how-it-works",
+    
+    "relUrl": "/design/entity-pipeline-orchestration.html#how-it-works"
+  },"121": {
+    "doc": "Entity pipeline orchestration",
+    "title": "Verification",
+    "content": ". | Tests: 31 mocked orchestration tests in test_ingestion_v2_orchestration.py — flag combinatorics (both-on happy path, extract_entities=False, normalize=False, both-off V1 baseline), the skip check (skip / --force-reextract bypass / extraction_incomplete re-extraction), per-stage error injection, and the PDF-less / abstract-less / DOI-less edge cases. No testcontainers, no live LLM. | CI smoke: the CI smoke test is what exercises this loop against an ephemeral Neo4j — a default-flags ingest is what lands the Topic / Concept / Model / Method edges the smoke test asserts. | Status: VERIFIED — orchestration is the cycle that flipped every E-1…E-8 entity type from “built and unit-tested” to “written on every ingest.” | . ",
+    "url": "/agentic-kg/previews/pr-45/design/entity-pipeline-orchestration.html#verification",
+    
+    "relUrl": "/design/entity-pipeline-orchestration.html#verification"
+  },"122": {
+    "doc": "Entity pipeline orchestration",
+    "title": "Related",
+    "content": ". | Reference: Entity Catalog · Entity Relationships | Wires: E-1 … E-8 + E-7 cross-entity normalization | Deferred: across-paper parallelism · per-batch cost/token telemetry (result.llm_calls_made) · full-pipeline calibration run | . ",
+    "url": "/agentic-kg/previews/pr-45/design/entity-pipeline-orchestration.html#related",
+    
+    "relUrl": "/design/entity-pipeline-orchestration.html#related"
+  },"123": {
+    "doc": "Entity Relationships",
+    "title": "Entity Relationships",
+    "content": "The authoritative catalog of edge types in the knowledge graph — their endpoints, direction, cardinality, and semantics. Node types are defined in the Entity Catalog. Source of truth: models/relationships.py (typed relations + properties) and the Cypher MERGE (...)-[:EDGE]-&gt;(...) statements in repository.py. ",
+    "url": "/agentic-kg/previews/pr-45/reference/entity-relationships.html",
+    
+    "relUrl": "/reference/entity-relationships.html"
+  },"124": {
+    "doc": "Entity Relationships",
+    "title": "Graph shape (diagram)",
+    "content": "graph LR Paper --&gt;|AUTHORED_BY| Author Paper --&gt;|CITES| Paper Paper --&gt;|RESEARCHES| Topic Paper --&gt;|DISCUSSES| ResearchConcept Paper --&gt;|USES_MODEL| Model Paper --&gt;|APPLIES_METHOD| Method Problem --&gt;|EXTRACTED_FROM| Paper Problem --&gt;|\"EXTENDS / CONTRADICTS&lt;br/&gt;DEPENDS_ON / REFRAMES\"| Problem ProblemMention --&gt;|INSTANCE_OF| ProblemConcept ProblemConcept --&gt;|INVOLVES_CONCEPT| ResearchConcept ProblemConcept --&gt;|BELONGS_TO| Topic ResearchConcept --&gt;|BELONGS_TO| Topic Topic --&gt;|SUBTOPIC_OF| Topic classDef research fill:#e8f0fe,stroke:#4285f4,color:#111; classDef biblio fill:#fef7e0,stroke:#f9ab00,color:#111; classDef concept fill:#e6f4ea,stroke:#34a853,color:#111; class Problem,ProblemMention,ProblemConcept research; class Paper,Author biblio; class Topic,ResearchConcept,Model,Method concept; . ",
+    "url": "/agentic-kg/previews/pr-45/reference/entity-relationships.html#graph-shape-diagram",
+    
+    "relUrl": "/reference/entity-relationships.html#graph-shape-diagram"
+  },"125": {
+    "doc": "Entity Relationships",
+    "title": "Research &amp; classification edges",
+    "content": "| Edge | From → To | Cardinality | Semantics | . | EXTRACTED_FROM | Problem → Paper | many-to-one | Problem was extracted from this paper (carries section, extraction_date) | . | INSTANCE_OF | ProblemMention → ProblemConcept | many-to-one | This paper-specific mention is an instance of the canonical concept (carries confidence, match_method, matched_by) | . | INVOLVES_CONCEPT | ProblemConcept → ResearchConcept | many-to-many | The problem involves this research concept | . | BELONGS_TO | ProblemConcept / ResearchConcept → Topic | many-to-one(ish) | The problem-side node is classified under this topic | . | RESEARCHES | Paper → Topic | many-to-many | The paper researches this topic | . | DISCUSSES | Paper → ResearchConcept | many-to-many | The paper discusses this concept | . | USES_MODEL | Paper → Model | many-to-many | The paper uses/benchmarks this model | . | APPLIES_METHOD | Paper → Method | many-to-many | The paper applies this method | . | SUBTOPIC_OF | Topic → Topic | many-to-one | Child topic rolls up into its parent (subtopic → area → domain) | . ",
+    "url": "/agentic-kg/previews/pr-45/reference/entity-relationships.html#research--classification-edges",
+    
+    "relUrl": "/reference/entity-relationships.html#research--classification-edges"
+  },"126": {
+    "doc": "Entity Relationships",
+    "title": "Bibliographic edges",
+    "content": "| Edge | From → To | Cardinality | Semantics | . | AUTHORED_BY | Paper → Author | many-to-many | Authorship; carries author_position (1 = first author) | . | CITES | Paper → Paper | many-to-many | Citation; populated from Semantic Scholar reference lists (E-5). Denormalized on Paper.citation_count / reference_count | . ",
+    "url": "/agentic-kg/previews/pr-45/reference/entity-relationships.html#bibliographic-edges",
+    
+    "relUrl": "/reference/entity-relationships.html#bibliographic-edges"
+  },"127": {
+    "doc": "Entity Relationships",
+    "title": "Problem-to-problem edges",
+    "content": "All four are typed ProblemRelations with confidence (default 0.8) and an optional evidence_doi. Source of truth: models/relationships.py, RelationType in enums.py. | Edge | From → To | Extra fields | Semantics | . | EXTENDS | Problem → Problem | inferred_by | B builds on / extends A | . | CONTRADICTS | Problem → Problem | contradiction_type (empirical / theoretical / methodological) | B presents conflicting findings to A | . | DEPENDS_ON | Problem → Problem | dependency_type (prerequisite / data_dependency / methodological) | B requires A to be solved first | . | REFRAMES | Problem → Problem | — | B redefines the problem space of A | . ",
+    "url": "/agentic-kg/previews/pr-45/reference/entity-relationships.html#problem-to-problem-edges",
+    
+    "relUrl": "/reference/entity-relationships.html#problem-to-problem-edges"
+  },"128": {
+    "doc": "Entity Relationships",
+    "title": "Operational edges (outside the research schema)",
+    "content": "The review workflow uses additional edges (e.g. REVIEWS) that live in review_queue.py / relations.py and are not part of the core research graph. They are intentionally omitted from the diagram above. ",
+    "url": "/agentic-kg/previews/pr-45/reference/entity-relationships.html#operational-edges-outside-the-research-schema",
+    
+    "relUrl": "/reference/entity-relationships.html#operational-edges-outside-the-research-schema"
+  },"129": {
+    "doc": "Entity Relationships",
+    "title": "The evidence chain (worked example)",
+    "content": "A single ingested paper fans out across many of these edges: . | Paper is created (or a CITES stub is promoted to a full paper). | Author nodes are linked via AUTHORED_BY. | The paper’s references become CITES edges to other Paper nodes. | Extraction produces ProblemMentions (each with paper_doi, section, quoted_text). | Each mention is matched to a ProblemConcept via INSTANCE_OF. | The paper is classified: RESEARCHES → Topic, DISCUSSES → ResearchConcept, USES_MODEL → Model, APPLIES_METHOD → Method. | Concepts roll up to topics via BELONGS_TO; topics roll up via SUBTOPIC_OF. | Cross-problem structure (EXTENDS, DEPENDS_ON, …) is inferred over ProblemConcepts. | . ",
+    "url": "/agentic-kg/previews/pr-45/reference/entity-relationships.html#the-evidence-chain-worked-example",
+    
+    "relUrl": "/reference/entity-relationships.html#the-evidence-chain-worked-example"
+  },"130": {
+    "doc": "How it works",
+    "title": "How it works",
+    "content": "The ingestion pipeline has four phases: . | Search &amp; Import — fan out to OpenAlex / arXiv / Semantic Scholar; store Paper + Author nodes. | Extraction — PyMuPDF → section segmenter → LLM extraction of problem statements from “Limitations” / “Future Work” sections. | Integration — embed the extracted ProblemMention, vector-match it against existing ProblemConcept nodes, route by confidence (auto-link / agent review / human queue). | Sanity Checks — five automated integrity checks against the live graph. | . Extracted concepts become part of a growing semantic spine that later stages (community detection, RAG retrieval) operate over. ",
+    "url": "/agentic-kg/previews/pr-45/about/how-it-works.html",
+    
+    "relUrl": "/about/how-it-works.html"
+  },"131": {
+    "doc": "Reference",
+    "title": "Domain Model &amp; Taxonomy",
+    "content": "The authoritative, human-readable description of the agentic-kg knowledge graph: the node types (entities), the edge types (relationships), and the Topic taxonomy that classifies research work. Everything here is derived from — and kept in sync with — the Pydantic models and Neo4j schema under packages/core/src/agentic_kg/knowledge_graph/. If the code and this document ever disagree, the code (models/entities.py, models/relationships.py, models/enums.py, schema.py, taxonomy.py) is the source of truth — please open a PR to fix the doc. ",
+    "url": "/agentic-kg/previews/pr-45/reference/#domain-model--taxonomy",
+    
+    "relUrl": "/reference/#domain-model--taxonomy"
+  },"132": {
+    "doc": "Reference",
+    "title": "Document map",
+    "content": "| Document | What it defines | Source of truth | . | Entity Catalog | Every node type — definition, purpose, key attributes, status | models/entities.py, schema.py | . | Entity Relationships | Every edge type — endpoints, cardinality, semantics, diagram | models/relationships.py, repository.py Cypher | . | Topic Taxonomy | The 3-level research-topic classification (domain → area → subtopic) | taxonomy.py, data/seed_taxonomy.yml | . ",
+    "url": "/agentic-kg/previews/pr-45/reference/#document-map",
+    
+    "relUrl": "/reference/#document-map"
+  },"133": {
+    "doc": "Reference",
+    "title": "What “taxonomy” means here",
+    "content": "The word is used in two complementary senses, both documented above: . | The Topic taxonomy (the literal one) — a hand-curated, three-level hierarchy of research topics (domain → area → subtopic) that acts as a closed-set controlled vocabulary. Extraction is bound to it so papers can only be classified into known topics. See Topic Taxonomy. | The graph ontology (the implicit one) — the fixed, versioned set of ~9 node labels and ~14 edge types that every ingested paper is decomposed into. See the Entity Catalog and Entity Relationships. | . ",
+    "url": "/agentic-kg/previews/pr-45/reference/#what-taxonomy-means-here",
+    
+    "relUrl": "/reference/#what-taxonomy-means-here"
+  },"134": {
+    "doc": "Reference",
+    "title": "Modeling principles",
+    "content": "These conventions hold across the whole graph. They are described in prose here and enforced in models/ and schema.py: . | Problems are first-class. A research problem is a node (Problem / ProblemConcept), not a string attached to a paper. This is the central modeling bet of the project (ADR-002). | Mention vs. concept. Paper-specific wording (ProblemMention) is kept separate from the canonical, cross-paper meaning (ProblemConcept), joined by INSTANCE_OF. This preserves provenance while allowing deduplication. | Closed-set vs. open-set vocabularies. Topic is closed-set (only seed taxonomy names). Model is hybrid (open-set + write-protected canonical seeds). ResearchConcept and Method are open-set (any name, deduped by embedding similarity). | Denormalized counts. Nodes cache their own edge counts (mention_count, paper_count, usage_count, citation_count, …) to keep common queries cheap; these are maintained by the repository layer. | Embeddings everywhere. Most nodes carry a 1536-dim embedding backed by a Neo4j vector index for semantic search and dedup. | Provenance is required. Terminal states (a RESOLVED / DEPRECATED problem) require evidence pointing at the paper that justifies them. | Schema is versioned. A SchemaVersion node records the applied schema version (currently 7); SchemaManager applies constraints and indexes idempotently. | . ",
+    "url": "/agentic-kg/previews/pr-45/reference/#modeling-principles",
+    
+    "relUrl": "/reference/#modeling-principles"
+  },"135": {
+    "doc": "Reference",
+    "title": "Node types at a glance",
+    "content": "| Node label | Role | Vocabulary | Unit | . | Problem | A research problem extracted from a paper | open | core | . | ProblemMention | Paper-specific statement of a problem | open | canonical | . | ProblemConcept | Canonical, cross-paper problem | open | canonical | . | Paper | A scientific paper (source node) | — | core | . | Author | A paper author | — | core | . | Topic | Research topic in the taxonomy | closed-set | E-1 | . | ResearchConcept | Named intellectual building block | open | E-2 | . | Model | Named ML model / architecture | hybrid | E-3 | . | Method | Named research method / methodology | open | E-4 | . Plus SchemaVersion (schema metadata) and operational review-queue nodes (e.g. PendingReview) that live outside the core research graph. ",
+    "url": "/agentic-kg/previews/pr-45/reference/#node-types-at-a-glance",
+    
+    "relUrl": "/reference/#node-types-at-a-glance"
+  },"136": {
+    "doc": "Reference",
+    "title": "Reference",
+    "content": " ",
+    "url": "/agentic-kg/previews/pr-45/reference/",
+    
+    "relUrl": "/reference/"
+  },"137": {
+    "doc": "Design",
+    "title": "Design &amp; Architecture",
+    "content": "Human-readable design notes for every completed feature in the project — the why, the key decisions, and how the shipped system actually works. These are distilled from the full engineering specs in llm/features/ and reconciled against the code that shipped, so where the implementation diverged from the original plan, these notes describe what was built, not what was proposed. For the graph’s node/edge definitions these features produced, see the Reference → Domain Model &amp; Taxonomy section. ",
+    "url": "/agentic-kg/previews/pr-45/design/#design--architecture",
+    
+    "relUrl": "/design/#design--architecture"
+  },"138": {
+    "doc": "Design",
+    "title": "How to read these",
+    "content": "Each page follows the same shape: . | Why — the gap it closed. | What shipped — the outcome now in the system. | Design decisions — the choices that mattered, with rationale. | How it works — data model, edges, and flow, with code pointers. | Verification — how we know it’s done (tests, CI smoke, acceptance). | . Status key: VERIFIED = shipped and all quality gates pass. ",
+    "url": "/agentic-kg/previews/pr-45/design/#how-to-read-these",
+    
+    "relUrl": "/design/#how-to-read-these"
+  },"139": {
+    "doc": "Design",
+    "title": "Completed features",
+    "content": "Entity-expansion arc . The arc that turned the graph from problems + papers into a richly typed research graph. Each entity type is a first-class node with embeddings and dedup. | Feature | What it added | . | E-1 · Topic entities | First-class Topic hierarchy; closed-set taxonomy; BELONGS_TO / RESEARCHES | . | E-2 · ResearchConcept entities | Named concepts as nodes; INVOLVES_CONCEPT / DISCUSSES; embedding dedup | . | E-3 · Model entities | ML models as nodes; hybrid open-set + canonical seeds; USES_MODEL | . | E-4 · Method entities | Research methods as nodes; pure open-set; APPLIES_METHOD | . | E-5 · Citation graph | CITES edges from reference lists; stub papers; influence analysis | . | E-6 · Entity descriptions | Create-time descriptions for richer {name}: {description} embeddings | . | E-7 · Cross-entity normalization | LLM router disambiguates Concept vs Model vs Method | . | E-8 · Extraction prompt expansion | Extractors that populate the new entity types from paper text (V1 + V2) | . | Entity pipeline orchestration | Wires the whole arc into production ingestion, default-on with audit | . Ingestion &amp; infrastructure . | Feature | What it added | . | D-1 · Ingest real papers | End-to-end ingestion CLI: search → import → extract → integrate | . | D-1a · Cloud Run Jobs ingestion | Durable async ingestion as a Terraform-managed Cloud Run Job | . | CI smoke test | GHA workflow asserting entity edges land in an ephemeral Neo4j | . Docs &amp; site . | Feature | What it added | . | Enhance GitHub Pages | Docs generator reading llm/memory_bank/; unified nav; auto-published backlog | . ",
+    "url": "/agentic-kg/previews/pr-45/design/#completed-features",
+    
+    "relUrl": "/design/#completed-features"
+  },"140": {
+    "doc": "Design",
+    "title": "Design",
+    "content": " ",
+    "url": "/agentic-kg/previews/pr-45/design/",
+    
+    "relUrl": "/design/"
+  },"141": {
+    "doc": "About",
+    "title": "About Agentic KG",
+    "content": "Project overview, architecture, quickstart, and roadmap. Placeholder landing — Phase A. Individual pages in this section carry their own placeholder content. ",
+    "url": "/agentic-kg/previews/pr-45/about/#about-agentic-kg",
+    
+    "relUrl": "/about/#about-agentic-kg"
+  },"142": {
+    "doc": "About",
+    "title": "About",
+    "content": " ",
+    "url": "/agentic-kg/previews/pr-45/about/",
+    
+    "relUrl": "/about/"
+  },"143": {
+    "doc": "Status",
+    "title": "Status",
+    "content": "Live project-state dashboard, auto-regenerated from llm/memory_bank/ and llm/features/ on every push to master. ",
+    "url": "/agentic-kg/previews/pr-45/status/",
+    
+    "relUrl": "/status/"
+  },"144": {
+    "doc": "Status",
+    "title": "Graph snapshot",
+    "content": "| Metric | Value | . | Last updated | 2026-05-20 | . | Graph nodes | 282 | . | Graph edges | 151 | . | Problem mentions | 18 | . | Problem concepts | 18 | . | Sanity checks | 5/5 passing | . | Completed sprints | 11 | . | Tests passing | 1312 | . ",
+    "url": "/agentic-kg/previews/pr-45/status/#graph-snapshot",
+    
+    "relUrl": "/status/#graph-snapshot"
+  },"145": {
+    "doc": "Status",
+    "title": "Drill-down",
+    "content": ". | Backlog → — active and resolved features, auto-regenerated from llm/features/BACKLOG.md | Sprints → — all 11 completed sprints with links to source docs | Changelog → — curated highlights | Service inventory → — deployed endpoints and infra components | . ",
+    "url": "/agentic-kg/previews/pr-45/status/#drill-down",
+    
+    "relUrl": "/status/#drill-down"
+  },"146": {
+    "doc": "Home",
+    "title": "Agentic KG",
+    "content": "A system that builds research knowledge graphs from scientific papers and uses AI agents to identify, deduplicate, and advance open research problems. Placeholder page — Phase A. Prose content is authored during Phase B of the enhance-github-pages feature. The structure, navigation, and data pipeline are already in place. ",
+    "url": "/agentic-kg/previews/pr-45/#agentic-kg",
+    
+    "relUrl": "/#agentic-kg"
+  },"147": {
+    "doc": "Home",
+    "title": "Sections",
+    "content": ". | About — project overview, architecture, how it works, quickstart, related work, roadmap, screenshots, contributing | Status — live dashboard, backlog, sprints, changelog, service inventory | Reference — domain model &amp; taxonomy: entity catalog, entity relationships, Topic taxonomy | . ",
+    "url": "/agentic-kg/previews/pr-45/#sections",
+    
+    "relUrl": "/#sections"
+  },"148": {
+    "doc": "Home",
+    "title": "Quick links",
+    "content": ". | GitHub repository | Project overview → | Current status → | . ",
+    "url": "/agentic-kg/previews/pr-45/#quick-links",
+    
+    "relUrl": "/#quick-links"
+  },"149": {
+    "doc": "Home",
+    "title": "Home",
+    "content": " ",
+    "url": "/agentic-kg/previews/pr-45/",
+    
+    "relUrl": "/"
+  },"150": {
+    "doc": "Overview",
+    "title": "Project Overview",
+    "content": "Agentic KG is a platform for building research knowledge graphs from scientific papers and applying AI agents to identify, deduplicate, and advance open research problems. Research problems are modeled as first-class entities with rich operational context: assumptions, constraints, datasets, metrics, and evidence. Specialized agents operate over the graph to rank problems, propose continuations, execute evaluations, and synthesize results. ",
+    "url": "/agentic-kg/previews/pr-45/about/overview.html#project-overview",
+    
+    "relUrl": "/about/overview.html#project-overview"
+  },"151": {
+    "doc": "Overview",
+    "title": "Who it’s for",
+    "content": ". | Researchers looking for tractable open problems in their field | Research teams tracking problem evolution across papers | Anyone already using the Denario framework | . ",
+    "url": "/agentic-kg/previews/pr-45/about/overview.html#who-its-for",
+    
+    "relUrl": "/about/overview.html#who-its-for"
+  },"152": {
+    "doc": "Overview",
+    "title": "Learn more",
+    "content": ". | Architecture → | How it works → | Quickstart → | . ",
+    "url": "/agentic-kg/previews/pr-45/about/overview.html#learn-more",
+    
+    "relUrl": "/about/overview.html#learn-more"
+  },"153": {
+    "doc": "Overview",
+    "title": "Overview",
+    "content": " ",
+    "url": "/agentic-kg/previews/pr-45/about/overview.html",
+    
+    "relUrl": "/about/overview.html"
+  },"154": {
+    "doc": "Quickstart",
+    "title": "Quickstart",
+    "content": "git clone https://github.com/djjay0131/agentic-kg.git cd agentic-kg # Create virtual environment python3.12 -m venv .venv source .venv/bin/activate # Install uv sync # or: pip install -e '.[dev]' # Run unit tests (excludes live-Neo4j tests) pytest packages/core/tests/ --ignore=packages/core/tests/e2e -q # Local stack docker compose up . See README.md for the full setup guide. ",
+    "url": "/agentic-kg/previews/pr-45/about/quickstart.html",
+    
+    "relUrl": "/about/quickstart.html"
+  },"155": {
+    "doc": "Related work",
+    "title": "Related work",
+    "content": ". | Agentic Knowledge Graphs paper — design inspiration for the three-layer architecture and problem-as-entity modeling. | Denario framework — the underlying agent runtime; Agentic KG extends it. | GraphRAG — hierarchical community summarization technique referenced in gap analysis §4.3. | . A fuller reading list will land here as this page is authored. ",
+    "url": "/agentic-kg/previews/pr-45/about/related-work.html",
+    
+    "relUrl": "/about/related-work.html"
+  },"156": {
+    "doc": "Roadmap",
+    "title": "Roadmap",
+    "content": "A live, data-driven view of the roadmap is maintained on the Status → Backlog page, regenerated from llm/features/BACKLOG.md on every push. ",
+    "url": "/agentic-kg/previews/pr-45/about/roadmap.html",
+    
+    "relUrl": "/about/roadmap.html"
+  },"157": {
+    "doc": "Roadmap",
+    "title": "Near-term themes",
+    "content": ". | Entity ecosystem expansion — Topic, ResearchConcept, Model, Method entities (Category 3 on the backlog) | Community detection — Leiden / Louvain over the graph, with hierarchical summaries (Category 4) | Graph-based RAG retrieval — the “killer feature” — multi-hop, community-aware answering (Category 5) | . ",
+    "url": "/agentic-kg/previews/pr-45/about/roadmap.html#near-term-themes",
+    
+    "relUrl": "/about/roadmap.html#near-term-themes"
+  },"158": {
+    "doc": "Roadmap",
+    "title": "Ongoing",
+    "content": ". | Production deployment readiness (Category 6) | Success-criteria validation (Category 7) | . ",
+    "url": "/agentic-kg/previews/pr-45/about/roadmap.html#ongoing",
+    
+    "relUrl": "/about/roadmap.html#ongoing"
+  },"159": {
+    "doc": "Screenshots",
+    "title": "Screenshots",
+    "content": "Placeholder. Screenshots of the Next.js UI and the Neo4j graph browser will land here during Phase B. For now, see the deployed staging service: . | API: https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app | Neo4j Browser: not publicly published — access via SSH tunnel or VPN (retrieve URI from Secret Manager / Terraform output neo4j_uri) | . ",
+    "url": "/agentic-kg/previews/pr-45/about/screenshots.html",
+    
+    "relUrl": "/about/screenshots.html"
+  },"160": {
+    "doc": "Service inventory",
+    "title": "Service Inventory",
+    "content": "Last Updated: 2026-04-17 . This document provides a comprehensive inventory of all deployed services across the agentic-kg and Denario projects. ",
+    "url": "/agentic-kg/previews/pr-45/status/service-inventory.html#service-inventory",
+    
+    "relUrl": "/status/service-inventory.html#service-inventory"
+  },"161": {
+    "doc": "Service inventory",
+    "title": "Quick Reference",
+    "content": "| Service | Type | Status | Primary URL | . | agentic-kg-api-staging | FastAPI | ✅ Healthy | https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app | . | agentic-kg-ui-staging | Next.js | ⚠️ Fixing | https://agentic-kg-ui-staging-tqpsba7pza-uc.a.run.app | . | denario | Streamlit | ⚠️ Legacy | https://denario-tqpsba7pza-uc.a.run.app | . | denario-app | Streamlit | ✅ Active | https://denario-app-tqpsba7pza-uc.a.run.app | . ",
+    "url": "/agentic-kg/previews/pr-45/status/service-inventory.html#quick-reference",
+    
+    "relUrl": "/status/service-inventory.html#quick-reference"
+  },"162": {
+    "doc": "Service inventory",
+    "title": "Agentic-KG Services",
+    "content": "agentic-kg-api-staging . Type: FastAPI Backend Repository: djjay0131/agentic-kg Status: ✅ Healthy . URLs: . | Primary: https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app | Legacy: https://agentic-kg-api-staging-542888988741.us-central1.run.app | . Purpose: REST API backend for the research problem knowledge graph system. Features: . | Problem CRUD operations | Paper management | Hybrid semantic search | LLM-based extraction pipeline | Agent workflow orchestration | . Health Check: . curl https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app/health # {\"status\":\"ok\",\"version\":\"0.1.0\",\"neo4j_connected\":true} . API Documentation: . | OpenAPI: /docs | ReDoc: /redoc | . Environment Variables: . | NEO4J_URI - Neo4j connection string (from Secret Manager) | NEO4J_PASSWORD - Neo4j password (from Secret Manager) | OPENAI_API_KEY - OpenAI API key (from Secret Manager) | ANTHROPIC_API_KEY - Anthropic API key (from Secret Manager) | . Dependencies: . | Neo4j (bolt URL retrieved from Secret Manager — see NEO4J_URI) | GCP Secret Manager | . agentic-kg-ui-staging . Type: Next.js Frontend Repository: djjay0131/agentic-kg Status: ⚠️ API URL configuration fix in progress . URLs: . | Primary: https://agentic-kg-ui-staging-tqpsba7pza-uc.a.run.app | Legacy: https://agentic-kg-ui-staging-542888988741.us-central1.run.app | . Purpose: Web dashboard for exploring the knowledge graph and managing research problems. Features: . | Dashboard with system stats | Problem browser and detail views | Paper listing | Semantic search interface | Graph visualization (react-force-graph) | Extraction interface | Agent workflow UI | . Pages: . | / - Dashboard | /problems - Problem list | /problems/[id] - Problem details | /papers - Paper list | /graph - Graph visualization | /extract - Extraction interface | /workflows - Agent workflows | /workflows/[id] - Workflow detail | . Build-Time Environment: . | NEXT_PUBLIC_API_URL - API endpoint (required at build time) | . Dependencies: . | agentic-kg-api-staging | . ",
+    "url": "/agentic-kg/previews/pr-45/status/service-inventory.html#agentic-kg-services",
+    
+    "relUrl": "/status/service-inventory.html#agentic-kg-services"
+  },"163": {
+    "doc": "Service inventory",
+    "title": "Denario Services",
+    "content": "denario (Legacy) . Type: Streamlit App Repository: djjay0131/Denario Status: ⚠️ Legacy - Consider deprecating . URLs: . | Primary: https://denario-tqpsba7pza-uc.a.run.app | Legacy: https://denario-542888988741.us-central1.run.app | . Purpose: Original Denario Streamlit interface (older version). Version: Commit 5d5713e Dockerfile: docker/Dockerfile.prod Install: pip install \"denario[app]\" . Environment Variables: . | OPENAI_API_KEY - OpenAI API key (from Secret Manager) | GOOGLE_API_KEY - Google/Gemini API key (from Secret Manager) | ANTHROPIC_API_KEY - Anthropic API key (from Secret Manager) | PERPLEXITY_API_KEY - Perplexity API key (from Secret Manager) | . Issues: . | Older version without recent bug fixes | No file upload restrictions | Missing Vertex AI improvements | . denario-app (Active) . Type: Streamlit App Repository: djjay0131/DenarioApp Status: ✅ Active with improvements . URLs: . | Primary: https://denario-app-tqpsba7pza-uc.a.run.app | Legacy: https://denario-app-542888988741.us-central1.run.app | . Purpose: Enhanced Denario Streamlit interface with production improvements. Version: Commit b5e1270 Dockerfile: Dockerfile (root) Install: pip install denario_app . Improvements over legacy denario: . | File upload restrictions (.md and .txt only) | Better error handling (UnicodeDecodeError) | Vertex AI integration (GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION) | Docker permission fixes | Production warnings | . Environment Variables: . | OPENAI_API_KEY - OpenAI API key (from Secret Manager) | GOOGLE_API_KEY - Google/Gemini API key (from Secret Manager) | ANTHROPIC_API_KEY - Anthropic API key (from Secret Manager) | PERPLEXITY_API_KEY - Perplexity API key (from Secret Manager) | GOOGLE_CLOUD_PROJECT - GCP project ID (vt-gcp-00042) | GOOGLE_CLOUD_LOCATION - GCP region (us-central1) | . Recent Commits: . | b5e1270 - Add GOOGLE_CLOUD_PROJECT env vars for Vertex AI | b9f6b4b - Restrict file uploads to markdown/text files only | 289b1ef - Add PDF text extraction support using PyMuPDF | 06d6def - Fix Docker build permission issue | a6e2c70 - Add Cloud Build configuration for GCP deployment | . ",
+    "url": "/agentic-kg/previews/pr-45/status/service-inventory.html#denario-services",
+    
+    "relUrl": "/status/service-inventory.html#denario-services"
+  },"164": {
+    "doc": "Service inventory",
+    "title": "Infrastructure",
+    "content": "Neo4j Database . Type: Neo4j Graph Database (Compute Engine, staging) Status: ✅ Running . Access: . | Bolt and Browser endpoints are intentionally not published here. Retrieve them at runtime via Secret Manager (NEO4J_URI) or Terraform output (terraform output -raw neo4j_uri). | The Neo4j Browser should not be exposed publicly; access via SSH tunnel or VPN only. | . Purpose: Graph database for storing research problems, papers, and relationships. Credentials: . | Username: neo4j | Password: Stored in GCP Secret Manager (NEO4J_PASSWORD) | . Terraform: . | Configuration: infra/terraform/ | Get password: cd infra &amp;&amp; terraform output -raw neo4j_password | Get URI: cd infra &amp;&amp; terraform output -raw neo4j_uri | . GCP Secret Manager . Secrets: . | OPENAI_API_KEY - 164 bytes | ANTHROPIC_API_KEY - 108 bytes | GOOGLE_API_KEY - 39 bytes | PERPLEXITY_API_KEY - 53 bytes | NEO4J_URI - Connection string | NEO4J_PASSWORD - Database password | . Access: . # List secrets gcloud secrets list # View secret value gcloud secrets versions access latest --secret=\"OPENAI_API_KEY\" . ",
+    "url": "/agentic-kg/previews/pr-45/status/service-inventory.html#infrastructure",
+    
+    "relUrl": "/status/service-inventory.html#infrastructure"
+  },"165": {
+    "doc": "Service inventory",
+    "title": "URL Formats",
+    "content": "Cloud Run provides two URL formats for each service: . | Legacy Format (Project Number): . | Pattern: https://{service}-{project-number}.{region}.run.app | Example: https://denario-542888988741.us-central1.run.app | Shown by: gcloud run services list | . | New Format (Random String): . | Pattern: https://{service}-{random}.{region-code}.a.run.app | Example: https://denario-tqpsba7pza-uc.a.run.app | Shown by: gcloud run services describe | . | . Both URLs point to the same service and are fully functional. ",
+    "url": "/agentic-kg/previews/pr-45/status/service-inventory.html#url-formats",
+    
+    "relUrl": "/status/service-inventory.html#url-formats"
+  },"166": {
+    "doc": "Service inventory",
+    "title": "Repository Links",
+    "content": ". | agentic-kg: https://github.com/djjay0131/agentic-kg | Denario: https://github.com/djjay0131/Denario (fork) | DenarioApp: https://github.com/djjay0131/DenarioApp (fork) | Upstream Denario: https://github.com/AstroPilot-AI/Denario | Upstream DenarioApp: https://github.com/AstroPilot-AI/DenarioApp | . ",
+    "url": "/agentic-kg/previews/pr-45/status/service-inventory.html#repository-links",
+    
+    "relUrl": "/status/service-inventory.html#repository-links"
+  },"167": {
+    "doc": "Service inventory",
+    "title": "Recommendations",
+    "content": "Immediate Actions . | Fix agentic-kg-ui deployment - Rebuild with NEXT_PUBLIC_API_URL (in progress) | Document denario vs denario-app - Clarify which to use | Consider deprecating legacy denario service - Consolidate to denario-app | . Future Improvements . | Set up custom domains for cleaner URLs | Implement monitoring and alerting | Create automated health check dashboard | Document API endpoints with OpenAPI | Set up automated deployment pipelines | . ",
+    "url": "/agentic-kg/previews/pr-45/status/service-inventory.html#recommendations",
+    
+    "relUrl": "/status/service-inventory.html#recommendations"
+  },"168": {
+    "doc": "Service inventory",
+    "title": "Deployment Commands",
+    "content": "List All Services . gcloud run services list --region=us-central1 . Get Service Details . gcloud run services describe {service-name} --region=us-central1 . Check Service Health . # agentic-kg API curl https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app/health # UI (check HTTP status) curl -I https://agentic-kg-ui-staging-tqpsba7pza-uc.a.run.app . View Logs . gcloud run services logs read {service-name} --region=us-central1 --limit=50 . ",
+    "url": "/agentic-kg/previews/pr-45/status/service-inventory.html#deployment-commands",
+    
+    "relUrl": "/status/service-inventory.html#deployment-commands"
+  },"169": {
+    "doc": "Service inventory",
+    "title": "Support",
+    "content": "For issues or questions: . | Check service logs: gcloud run services logs read | Review deployment docs: construction/sprints/ | Contact: djjay0131@gmail.com | . ",
+    "url": "/agentic-kg/previews/pr-45/status/service-inventory.html#support",
+    
+    "relUrl": "/status/service-inventory.html#support"
+  },"170": {
+    "doc": "Service inventory",
+    "title": "Service inventory",
+    "content": " ",
+    "url": "/agentic-kg/previews/pr-45/status/service-inventory.html",
+    
+    "relUrl": "/status/service-inventory.html"
+  },"171": {
+    "doc": "Sprints",
+    "title": "Sprints",
+    "content": "Auto-regenerated from construction/sprints/ on every push. | # | Sprint | Status | Source | . | 0 |   |   |   | . | GCP Deployment |   |   |   | . | {: .label .label-yellow }In Progress |   |   |   | . | sprint-00-gcp-deployment.md | . |   | . | 1 | . | Knowledge Graph Foundation | . | {: .label .label-yellow }In Progress | . | sprint-01-knowledge-graph.md | . |   | . | 2 | . | Data Acquisition Layer | . | {: .label .label-green }Complete | . | sprint-02-data-acquisition.md | . |   | . | 3 | . | Information Extraction Pipeline | . | {: .label .label-yellow }In Progress | . | sprint-03-extraction-pipeline.md | . |   | . | 4 | . | API Service + Production Web UI | . | {: .label .label-yellow }In Progress | . | sprint-04-api-and-ui.md | . |   | . | 5 | . | Agent Implementation | . | {: .label .label-yellow }In Progress | . | sprint-05-agent-implementation.md | . |   | . | 6 | . | Full-Stack Integration | . | {: .label .label-green }Complete | . | sprint-06-integration.md | . |   | . | 7 | . | End-to-End Testing | . | {: .label .label-green }Complete | . | sprint-07-e2e-testing.md | . |   | . | 8 | . | Documentation &amp; Service Cleanup | . | {: .label .label-green }Complete ✅ | . | sprint-08-documentation-and-cleanup.md | . |   | . | 9 | . | Canonical Problem Architecture - Phase 1: Data Model &amp; Core Matching | . | {: .label .label-green }COMPLETED | . | sprint-09-canonical-problem-phase-1.md | . |   | . | 10 | . | Canonical Problem Architecture - Phase 2: Agent Workflows for MEDIUM/LOW Confidence | . | {: .label .label-yellow }In Progress | . | sprint-10-canonical-problem-phase-2.md | . |   | . ",
+    "url": "/agentic-kg/previews/pr-45/status/sprints.html",
+    
+    "relUrl": "/status/sprints.html"
+  },"172": {
+    "doc": "Topic Taxonomy",
+    "title": "Topic Taxonomy",
+    "content": "The Topic taxonomy is agentic-kg’s controlled vocabulary for classifying research work. It is a hand-curated, three-level hierarchy that behaves as a closed set: extraction can only classify a paper into topics that already exist in the taxonomy — it cannot invent new ones. | Data (source of truth): packages/core/src/agentic_kg/knowledge_graph/data/seed_taxonomy.yml | Loader / validator / exporter: knowledge_graph/taxonomy.py | Node model: Topic in models/entities.py (see Entity Catalog) | Level enum: TopicLevel in models/enums.py | CLI: agentic-kg load-taxonomy | . ",
+    "url": "/agentic-kg/previews/pr-45/reference/topic-taxonomy.html",
+    
+    "relUrl": "/reference/topic-taxonomy.html"
+  },"173": {
+    "doc": "Topic Taxonomy",
+    "title": "The three levels",
+    "content": "TopicLevel defines exactly three levels; nesting is strict. | Level | Meaning | Example | Parent | . | domain | Broad field | Computer Science | (none — root) | . | area | Sub-field within a domain | Natural Language Processing | a domain | . | subtopic | Specific topic within an area | Information Extraction | an area | . graph TD CS[\"Computer Science&lt;br/&gt;&lt;i&gt;(domain)&lt;/i&gt;\"] --&gt; NLP[\"Natural Language Processing&lt;br/&gt;&lt;i&gt;(area)&lt;/i&gt;\"] NLP --&gt; IE[\"Information Extraction&lt;br/&gt;&lt;i&gt;(subtopic)&lt;/i&gt;\"] NLP --&gt; QA[\"Question Answering&lt;br/&gt;&lt;i&gt;(subtopic)&lt;/i&gt;\"] NLP --&gt; LLM[\"Large Language Models&lt;br/&gt;&lt;i&gt;(subtopic)&lt;/i&gt;\"] CS --&gt; IR[\"Information Retrieval&lt;br/&gt;&lt;i&gt;(area)&lt;/i&gt;\"] IR --&gt; RAG[\"Retrieval-Augmented Generation&lt;br/&gt;&lt;i&gt;(subtopic)&lt;/i&gt;\"] classDef domain fill:#e8f0fe,stroke:#4285f4,color:#111; classDef area fill:#fef7e0,stroke:#f9ab00,color:#111; classDef sub fill:#e6f4ea,stroke:#34a853,color:#111; class CS domain; class NLP,IR area; class IE,QA,LLM,RAG sub; . Edges above are SUBTOPIC_OF in the graph (child → parent). The diagram shows a slice; the full seed set is below. Structural rules (enforced by parse_taxonomy and the Topic model): . | Allowed parent → child transitions: ∅ → domain → area → subtopic. A subtopic cannot nest further; a domain cannot appear as a child. | A domain topic must not have a parent (parent_id is None). | Names must be unique within the same (parent, level). | In the graph, hierarchy is materialized as (child)-[:SUBTOPIC_OF]-&gt;(parent). | . ",
+    "url": "/agentic-kg/previews/pr-45/reference/topic-taxonomy.html#the-three-levels",
+    
+    "relUrl": "/reference/topic-taxonomy.html#the-three-levels"
+  },"174": {
+    "doc": "Topic Taxonomy",
+    "title": "Current seed taxonomy",
+    "content": "Six areas under a single Computer Science domain, focused on the project’s corpus (graph retrieval, knowledge graphs, NLP, ML, IR). This mirrors seed_taxonomy.yml — edit that file, not this table, to change the taxonomy. Computer Science (domain) . | Area | Subtopics | . | Natural Language Processing | Information Extraction · Question Answering · Machine Translation · Text Summarization · Large Language Models | . | Information Retrieval | Graph-Based Retrieval · Dense Retrieval · Retrieval-Augmented Generation · Hybrid Retrieval | . | Knowledge Representation | Knowledge Graphs · Ontology Engineering · Entity Linking | . | Machine Learning | Deep Learning · Transfer Learning · Graph Neural Networks · Self-Supervised Learning · Reinforcement Learning | . | Data Management | Graph Databases · Vector Databases | . | AI Agents and Reasoning | Multi-Agent Systems · Tool Use · Chain-of-Thought Reasoning | . Each node also carries a one-line description (see the YAML) that feeds a richer embedding for semantic matching. ",
+    "url": "/agentic-kg/previews/pr-45/reference/topic-taxonomy.html#current-seed-taxonomy",
+    
+    "relUrl": "/reference/topic-taxonomy.html#current-seed-taxonomy"
+  },"175": {
+    "doc": "Topic Taxonomy",
+    "title": "YAML schema",
+    "content": "The taxonomy file is a recursive list of nodes: . - name: str # required, length &gt;= 2 level: str # required, one of domain/area/subtopic description: str # optional — used for richer embeddings source: str # optional, default \"manual\" openalex_id: str # optional children: list # optional, same schema, one level deeper . flatten_taxonomy walks this recursively (no fixed depth assumption), so a future taxonomy deeper than three levels would work without code changes — though the level enum would need extending first. ",
+    "url": "/agentic-kg/previews/pr-45/reference/topic-taxonomy.html#yaml-schema",
+    
+    "relUrl": "/reference/topic-taxonomy.html#yaml-schema"
+  },"176": {
+    "doc": "Topic Taxonomy",
+    "title": "How the taxonomy is used",
+    "content": ". | Loading (idempotent). load_taxonomy merges each node via repository.merge_topic keyed on (name, level, parent_id), creating SUBTOPIC_OF edges automatically. Re-running is a no-op for unchanged nodes and reports {created, matched} counts. | Closed-set extraction. TopicExtractor snapshots the taxonomy at startup and builds a closed-set Literal schema over its names, so the LLM can only return topics that exist in the taxonomy — off-taxonomy classifications are impossible by construction. | Staleness auditing. extraction/taxonomy_hash.py computes a canonical hash (canonical_taxonomy_hash) over the taxonomy. Papers are stamped with the hash they were ingested under, so when the taxonomy changes, previously ingested papers can be detected as stale and re-classified. | Export / round-trip. export_taxonomy reads the live graph back into the YAML shape (embeddings excluded, regenerated on import), keeping the file human-editable. | . ",
+    "url": "/agentic-kg/previews/pr-45/reference/topic-taxonomy.html#how-the-taxonomy-is-used",
+    
+    "relUrl": "/reference/topic-taxonomy.html#how-the-taxonomy-is-used"
+  },"177": {
+    "doc": "Topic Taxonomy",
+    "title": "Vocabulary style vs. other entities",
+    "content": "The Topic taxonomy is the graph’s only closed-set vocabulary. The other concept-like nodes are open: . | Node | Vocabulary | New values enter by | . | Topic | closed-set | editing the seed taxonomy + reload | . | Model | hybrid (open + canonical seeds) | extraction; seeds write-protected | . | ResearchConcept | open-set | extraction; deduped at 0.90 cosine | . | Method | open-set | extraction; deduped at 0.90 cosine | . ",
+    "url": "/agentic-kg/previews/pr-45/reference/topic-taxonomy.html#vocabulary-style-vs-other-entities",
+    
+    "relUrl": "/reference/topic-taxonomy.html#vocabulary-style-vs-other-entities"
+  },"178": {
+    "doc": "Topic Taxonomy",
+    "title": "Known limitations / roadmap",
+    "content": "Scaling the taxonomy is a tracked, open backlog item — T-1 in llm/features/BACKLOG.md: “Taxonomy management at scale — versioned taxonomy with branching + merge + conflict resolution.” Today the taxonomy is a single hand-curated file with no versioning or branching; growing it or reconciling concurrent edits is a manual, re-extract operation. ",
+    "url": "/agentic-kg/previews/pr-45/reference/topic-taxonomy.html#known-limitations--roadmap",
+    
+    "relUrl": "/reference/topic-taxonomy.html#known-limitations--roadmap"
+  }
+}
