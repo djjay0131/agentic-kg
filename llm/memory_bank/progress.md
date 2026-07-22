@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-07-21
+Last updated: 2026-07-22
 
 ## What Is Built and Working
 
@@ -72,7 +72,7 @@ Last updated: 2026-07-21
 
 - **(RESOLVED 2026-07-13/14) `Deploy Master` never worked** — root cause was NOT the "missing staging env" story but a reusable-workflow `id-token` permissions gap (PR #29) plus an undefined `needs.build` reference (PR #28). Fixed across PRs #27–#32; **first green run in repo history 2026-07-13**, and **AC-6 (SHA parity across api/ui/job) VERIFIED 2026-07-14** on the SM-4 service-code deploy. Entity-expansion code (E-3..E-8 V2, E-7, orchestration) + the ingest Cloud Run Job now deploy on every service-code push. `deploy-master.yml` deploys the ingest Job; `docker/Dockerfile.worker` deleted; `/version` shipped — all via `deploy-pipeline-fix` PR-1.
 - **`cleanup-preview` GHA job failing** on recent PRs (e.g. #40) — unrelated to feature work; needs triage.
-- **`docs/governance-delta.md` Platform Enforcement Reality is stale** — still says branch protection is "available, currently unset"; it went **live** on `master` 2026-07-21. Reconcile with PR #41's delta edit.
+- (RESOLVED 2026-07-22) `docs/governance-delta.md` Platform Enforcement Reality reconciled — now records branch protection LIVE + the `test (3.12)` / `Governance Checks` split.
 - `docs/status/service-inventory.html` exposes the staging Neo4j browser endpoint (still open)
 - Denario core: `arXiv_pdf` variable scope bug in `literature.py:114` (external)
 - Legacy `memory-bank/` and `construction/{design,requirements,backlog}` deleted 2026-07-07 — content superseded by `llm/memory_bank/` + `llm/features/`
@@ -135,4 +135,5 @@ Each cycle: spec → implement → verify.
   - **Branch protection LIVE on `master`** — required check `test (3.12)`; PR-required (0 approvals); `enforce_admins:false`; force-push/deletion blocked.
   - PR #41 (open) — CI-wired the check (`.github/workflows/governance-checks.yml`, canonical ruleset pinned to SHA `31f2771`); verified green on its own PR.
   - `gov-L*` labels backfilled on #35/#36/#37. Steward stays INACTIVE.
-  - **Follow-ups:** promote `Governance Checks` to a *required* check after a few green PRs; reconcile the delta's stale "branch protection unset" line; a `memory:revise` on the oversized `activeContext.md`.
+  - 2026-07-22: **delta reconciled** (branch protection LIVE recorded); **PR #41 merged** (`Governance Checks` green on every PR + push); doc fixes #40 (Liquid) + #43 (entity-catalog anchors) merged.
+  - **Follow-ups:** promote `Governance Checks` to a *required* check after a few green PRs; a `memory:revise` on the oversized `activeContext.md`; triage the failing `cleanup-preview` job.
