@@ -1,6 +1,15 @@
 # System Patterns
 
-Last updated: 2026-07-02
+Last updated: 2026-07-21
+
+> **Published design docs (2026-07-21):** the node/edge ontology and per-feature
+> design rationale now live on the docs site, not only here.
+> `docs/reference/` = Domain Model & Taxonomy (entity-catalog, entity-relationships,
+> topic-taxonomy). `docs/design/` = one design note per completed feature
+> (E-1..E-8, orchestration, D-1, D-1a, CI smoke, enhance-github-pages), each
+> reconciled against shipped code. This file remains the interim design authority
+> (per the governance delta / ADR-0001); the published docs are the human-facing
+> companion.
 
 ## High-Level Architecture
 
@@ -41,7 +50,7 @@ agentic-kg/
 │   │   │   └── prompts/templates.py  # System + user prompt templates (V1 + V2 + description-gen + disambiguation)
 │   │   └── knowledge_graph/          # Graph operations
 │   │       ├── models/entities.py    # Pydantic entity models with to_neo4j_properties()
-│   │       ├── schema.py             # SchemaManager (6 constraints, 25 indexes, 3 vector)
+│   │       ├── schema.py             # SchemaManager — SCHEMA_VERSION=7 (10 constraints, 7 vector indexes)
 │   │       ├── repository.py         # Neo4jRepository: CRUD + create_or_merge_X + acreate_or_merge_X
 │   │       ├── citation_graph.py     # E-5: populate_citations() async helper
 │   │       ├── description_generation.py  # E-6: LLM description-gen with self-validation gates
@@ -75,8 +84,14 @@ agentic-kg/
 │   └── Dockerfile.job                # Core-only image for Cloud Run Job (no API deps)
 ├── infra/                            # Terraform IaC (includes google_cloud_run_v2_job.ingest)
 ├── llm/                              # LLM-related project files
-│   ├── features/                     # Feature specs (BACKLOG.md + 15 spec files)
+│   ├── features/                     # Feature specs (BACKLOG.md + 16 spec files)
 │   └── memory_bank/                  # Authoritative project context (this directory)
+├── docs/                             # Jekyll just-the-docs site → GitHub Pages
+│   ├── reference/                    # Domain Model & Taxonomy (entity-catalog, entity-relationships, topic-taxonomy; Mermaid)
+│   ├── design/                       # Per-completed-feature design notes (E-1..E-8, D-1/D-1a, CI smoke, ...)
+│   ├── adr/                          # Architecture Decision Records (ADR-0001 = governance adoption)
+│   ├── about/ · status/             # Overview + auto-generated dashboards
+│   └── governance-delta.md           # agentic-governance v0.2 localization
 ├── construction/sprints/             # Sprint history archive (read by GitHub Pages generator)
 ├── .claude/                          # Claude Code config
 │   ├── agents/                       # Project agent definitions

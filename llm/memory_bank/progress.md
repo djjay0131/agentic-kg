@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-07-12
+Last updated: 2026-07-21
 
 ## What Is Built and Working
 
@@ -10,7 +10,7 @@ Last updated: 2026-07-12
 - **Data Acquisition**: Semantic Scholar, arXiv, OpenAlex API clients with rate limiting, caching, circuit breakers
 - **API**: FastAPI with Problem/Paper CRUD, hybrid search, extraction triggers, review queue endpoints
 - **Frontend**: Next.js 14 with dashboard, problem/paper views, graph visualization (react-force-graph)
-- **Documentation**: Jekyll `just-the-docs` site with PR previews, HTMLProofer link validation, data-driven dashboards
+- **Documentation**: Jekyll `just-the-docs` site (GitHub Pages) with PR previews, data-driven dashboards, and — new 2026-07-21 — a **Reference** section (Domain Model & Taxonomy: entity-catalog, entity-relationships, topic-taxonomy; **Mermaid** diagrams) and a **Design** section (a design note per completed feature, reconciled against shipped code)
 
 ### Extraction + Integration Pipeline
 - **Problem extraction** (V1): PDF → text → sections → LLM extraction → KG integration; batch processing with SQLite queue
@@ -44,7 +44,7 @@ Last updated: 2026-07-12
 ## What Remains to Be Built
 
 ### Immediate / actionable
-- **`deploy-pipeline-fix` SPECIFIED, mid-review (2026-07-12)**: 18 ACs, 6 units. Paused during Phase 7/8 dual-persona review, TL Q1 asked. Fixes 2-month `Deploy Master` startup_failure (missing `staging` GitHub env) + adds ingest-Job deploy step (currently untouched by workflow) + Terraform lifecycle guardrail + `/version` endpoint + UI `<VersionBadge />` + Job SHA logging. **This is the current front-line ticket — everything else blocks on it.**
+- **`deploy-pipeline-fix` — PR-1 DONE (2026-07-14).** Structural recovery complete: Deploy Master green, ingest-Job deploy step live, `/version` shipped, SHA-parity verified (AC-6). **Remaining: PR-2** (Terraform lifecycle guardrail + AC-8 lint) and **PR-3** (version pinning). No longer blocking other work.
 - **`human-review-ui` (not spec'd yet)**: `/api/reviews` backend exists (`packages/api/src/agentic_kg_api/routers/reviews.py`), no Next.js page. Needed for user's stated goal of human-reviewing extracted nodes + testing review-queue action items. Spec after deploy-pipeline-fix ships.
 - **SM-1 (Investigate aggregator normalizer)** + **SM-2 (Preflight WARN on empty section_text)** — carried forward from 2026-07-02 smoke run finding
 - **Real-data eval calibration** (E-7 AC-21 + E-8 V2 AC-17 + entity-pipeline-orchestration follow-up): hand-labeled 5-10 collision-pair fixture set + precision/recall floors for the routing LLM
@@ -70,10 +70,9 @@ Last updated: 2026-07-12
 
 ## Known Bugs / Tech Debt
 
-- **CRITICAL: `Deploy Master` workflow broken since 2026-05-19** — `deploy-staging` job references nonexistent `staging` GitHub environment → `startup_failure` on every push. **No entity-expansion code (E-3..E-8 V2, E-7, entity-pipeline-orchestration) is deployed to Cloud Run.** Being fixed by `deploy-pipeline-fix` spec.
-- **`deploy-master.yml` never touches the ingest Cloud Run Job** — only Services. Even with startup fixed, ingest would keep running stale code. Also being fixed by `deploy-pipeline-fix`.
-- **No version visibility** — `/health` returns hardcoded `"0.1.0"`, no `/version` endpoint, UI has no build info. Also being fixed by `deploy-pipeline-fix`.
-- **`docker/Dockerfile.worker` is orphaned January 2026 legacy** — `build-images.yml` references it, `cloudbuild.yaml` uses `Dockerfile.job` instead. Deleted by `deploy-pipeline-fix`.
+- **(RESOLVED 2026-07-13/14) `Deploy Master` never worked** — root cause was NOT the "missing staging env" story but a reusable-workflow `id-token` permissions gap (PR #29) plus an undefined `needs.build` reference (PR #28). Fixed across PRs #27–#32; **first green run in repo history 2026-07-13**, and **AC-6 (SHA parity across api/ui/job) VERIFIED 2026-07-14** on the SM-4 service-code deploy. Entity-expansion code (E-3..E-8 V2, E-7, orchestration) + the ingest Cloud Run Job now deploy on every service-code push. `deploy-master.yml` deploys the ingest Job; `docker/Dockerfile.worker` deleted; `/version` shipped — all via `deploy-pipeline-fix` PR-1.
+- **`cleanup-preview` GHA job failing** on recent PRs (e.g. #40) — unrelated to feature work; needs triage.
+- **`docs/governance-delta.md` Platform Enforcement Reality is stale** — still says branch protection is "available, currently unset"; it went **live** on `master` 2026-07-21. Reconcile with PR #41's delta edit.
 - `docs/status/service-inventory.html` exposes the staging Neo4j browser endpoint (still open)
 - Denario core: `arXiv_pdf` variable scope bug in `literature.py:114` (external)
 - Legacy `memory-bank/` and `construction/{design,requirements,backlog}` deleted 2026-07-07 — content superseded by `llm/memory_bank/` + `llm/features/`
@@ -102,6 +101,7 @@ Last updated: 2026-07-12
 | M11: Full Entity Coverage | 2026-06-15 | E-3 Model, E-4 Method, E-5 Citation graph, E-6 descriptions, E-8 V2 extractors all VERIFIED; every entity type + citation edge has automated creation |
 | M12: Loop Closed | 2026-06-24 | E-7 Cross-entity normalization + entity-pipeline-orchestration VERIFIED; every entity-expansion feature (E-1..E-8 V2 + E-7) is invoked from production `ingest_papers` |
 | M13: CI Smoke | 2026-07-02 | `ci-smoke-test-ingestion` VERIFIED; GHA workflow ingests 3 real papers end-to-end against testcontainers Neo4j on every PR + daily cron |
+| M13.5: Deploy Green + Governance + Design Docs | 2026-07-21 | Deploy Master first green in repo history (AC-6 SHA-parity verified on the SM-4 deploy); agentic-governance v0.2 **enforced** (branch protection + CI-wired check); docs **Reference** + **Design** sections published to Pages |
 | M14: Production Ready | Not started | All tests passing, real data ingested at scale, R-1..R-5 (graph-RAG) shipped |
 
 ## Completed Sprints (11 total)
@@ -129,4 +129,10 @@ Each cycle: spec → implement → verify.
 
 ## Governance
 
-- 2026-07-13: Adopted agentic-governance v0.2 (`docs/governance-delta.md`, ADR-0001 declares `systemPatterns.md` interim design authority; Steward Activation Status: INACTIVE).
+- 2026-07-13: **Adopted** agentic-governance v0.2 (`docs/governance-delta.md`, ADR-0001 declares `systemPatterns.md` interim design authority; Steward: INACTIVE).
+- 2026-07-21: **Enforced.** Audit (`governance:audit`, verdict DRIFTING) acted on:
+  - PR #39 — pinned `--base origin/master` (fixes the `main`/`master` check blocker); fixed SM-3 broken doc links; added CODEOWNERS + issue templates.
+  - **Branch protection LIVE on `master`** — required check `test (3.12)`; PR-required (0 approvals); `enforce_admins:false`; force-push/deletion blocked.
+  - PR #41 (open) — CI-wired the check (`.github/workflows/governance-checks.yml`, canonical ruleset pinned to SHA `31f2771`); verified green on its own PR.
+  - `gov-L*` labels backfilled on #35/#36/#37. Steward stays INACTIVE.
+  - **Follow-ups:** promote `Governance Checks` to a *required* check after a few green PRs; reconcile the delta's stale "branch protection unset" line; a `memory:revise` on the oversized `activeContext.md`.
