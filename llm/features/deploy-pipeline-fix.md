@@ -1,6 +1,6 @@
 # Feature: Deploy Pipeline Fix + Version Pinning
 
-**Status:** SPECIFIED
+**Status:** IMPLEMENTED (PR-1 of 3) — PR-1 (recovery) DONE 2026-07-14: Deploy Master green, ingest-Job deploy, `/version`, AC-6 SHA-parity verified. Remaining: PR-2 (TF lifecycle + AC-8 lint), PR-3 (version pinning). NOTE: the "root cause: missing `staging` env" framing below was later corrected — the real startup blocker was a reusable-workflow `id-token` permissions gap (see `activeContext.md`).
 **Date:** 2026-07-12
 **Author:** Feature Architect (AI-assisted)
 **Review:** Dual-persona adversarial review complete (2026-07-12) — 4 Tech Lead + 4 QA/Ops questions resolved. See "Review Log" at the end.

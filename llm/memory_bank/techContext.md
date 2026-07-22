@@ -1,17 +1,18 @@
 # Technical Context
 
-Last updated: 2026-07-02
+Last updated: 2026-07-21
 
 ## Languages and Frameworks
 
 - **Python 3.12+** — primary language
-- **Denario >=1.0** — core agent/document processing framework (fork of AstroPilot-AI/Denario)
 - **FastAPI** — REST API backend (`packages/api/`)
 - **Next.js 14** (App Router) — frontend UI (`packages/ui/`)
 - **LangGraph** — stateful agent workflow orchestration
 - **AG2** (formerly AutoGen) — multi-agent conversation framework
 - **Pydantic >=2.0** — data validation and models
-- **instructor** — structured LLM output extraction (declared in `pyproject.toml` since commit `8fb6756`)
+- **instructor >=1.14** — structured LLM output extraction (requires `openai>=2.0`)
+
+> **Denario removed (SM-4, 2026-07-14).** `denario` was a declared dep but imported nowhere in `packages/`; via `cmbagent-autogen` it hard-pinned `openai==1.99.9`, which made a working `instructor` unresolvable. Removed from both `pyproject.toml` files. If ever actually integrated, wire it as an **isolated optional extra** so it can't re-pin `openai` on the extraction path.
 
 ## Knowledge Graph Stack
 
@@ -63,10 +64,9 @@ docker compose up
 |---------|---------|
 | `neo4j>=5.0.0` | Graph database driver |
 | `pydantic>=2.0.0` | Data models and validation |
-| `openai>=1.0.0` | LLM API client |
-| `denario>=1.0.0` | Core framework |
+| `openai>=2.0` | LLM API client (floor raised by SM-4) |
+| `instructor>=1.14` | Structured LLM output (needs `openai>=2.0`) |
 | `langgraph` | Agent workflow graphs |
-| `instructor` | Structured LLM output (declared in `pyproject.toml`) |
 | `fitz` (PyMuPDF) | PDF text extraction |
 | `cachetools` | TTL response caching |
 | `httpx` | HTTP client for data acquisition |
@@ -80,7 +80,7 @@ docker compose up
 - **API (staging)**: Cloud Run Service at `https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app`
 - **Ingestion Job (staging)**: Cloud Run Job `agentic-kg-ingest-staging` (Terraform-managed)
 - **Neo4j (staging)**: Compute Engine at `bolt://34.173.74.125:7687` (Browser: `http://34.173.74.125:7474`)
-- **Neo4j Schema**: Initialized via `SchemaManager` — 6 constraints, 25 indexes (3 vector), version 2
+- **Neo4j Schema**: Initialized via `SchemaManager` — `SCHEMA_VERSION = 7` (10 uniqueness constraints, property indexes, 7 vector indexes across Problem / ProblemMention / ProblemConcept / Topic / ResearchConcept / Model / Method). Full node/edge catalog: `docs/reference/` (published).
 - **Terraform IaC**: `infra/` directory — API service, ingest job, IAM, env vars
 - **CI/CD**: Cloud Build (`cloudbuild.yaml`) with `_SERVICE=api|job` substitution
 - **GitHub Actions workflows**:
@@ -88,7 +88,10 @@ docker compose up
   - `integration-tests.yml` — integration suite against staging Neo4j
   - `test.yml` — unit tests
   - `deploy-branch.yml` / `deploy-master.yml` / `deploy-tag.yml` — Cloud Build triggers
+  - `governance-checks.yml` — runs the pinned agentic-governance ruleset (Node 20) on every PR + push to master (PR #41)
   - `build-images.yml`, `code-review.yml`, `preview-docs.yml`, `update-docs.yml`
+- **Branch protection** (`master`, live 2026-07-21): required check `test (3.12)`; PR required; force-push/deletion blocked; `enforce_admins:false`
+- **Docs site**: Jekyll `just-the-docs` (remote theme); **Mermaid** enabled in `docs/_config.yml` (v10.9.1, jsDelivr) — diagrams in `docs/reference/`
 - **Secrets**:
   - **GCP Secret Manager** (for staging + production deploys): `OPENAI_API_KEY`, `NEO4J_PASSWORD`
   - **GitHub Actions Secrets** (for smoke-ingest workflow): `OPENAI_API_KEY` (added 2026-07-02)
