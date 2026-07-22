@@ -1,0 +1,122 @@
+<h1 id="design--architecture">Design &amp; Architecture</h1>
+
+<p>Human-readable design notes for every <strong>completed</strong> feature in the project — the
+<em>why</em>, the key decisions, and how the shipped system actually works. These are
+distilled from the full engineering specs in
+<a href="https://github.com/djjay0131/agentic-kg/tree/master/llm/features"><code class="language-plaintext highlighter-rouge">llm/features/</code></a>
+and reconciled against the code that shipped, so where the implementation
+diverged from the original plan, these notes describe <strong>what was built</strong>, not
+what was proposed.</p>
+
+<p>For the graph’s node/edge definitions these features produced, see the
+<a href="/agentic-kg/previews/pr-42/reference/">Reference → Domain Model &amp; Taxonomy</a> section.</p>
+
+<h2 id="how-to-read-these">How to read these</h2>
+
+<p>Each page follows the same shape:</p>
+
+<ul>
+  <li><strong>Why</strong> — the gap it closed.</li>
+  <li><strong>What shipped</strong> — the outcome now in the system.</li>
+  <li><strong>Design decisions</strong> — the choices that mattered, with rationale.</li>
+  <li><strong>How it works</strong> — data model, edges, and flow, with code pointers.</li>
+  <li><strong>Verification</strong> — how we know it’s done (tests, CI smoke, acceptance).</li>
+</ul>
+
+<p>Status key: <strong>VERIFIED</strong> = shipped and all quality gates pass.</p>
+
+<h2 id="completed-features">Completed features</h2>
+
+<h3 id="entity-expansion-arc">Entity-expansion arc</h3>
+
+<p>The arc that turned the graph from <em>problems + papers</em> into a richly typed
+research graph. Each entity type is a first-class node with embeddings and dedup.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>What it added</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><a href="/agentic-kg/previews/pr-42/design/e1-topic-entities">E-1 · Topic entities</a></td>
+      <td>First-class <code class="language-plaintext highlighter-rouge">Topic</code> hierarchy; closed-set taxonomy; <code class="language-plaintext highlighter-rouge">BELONGS_TO</code> / <code class="language-plaintext highlighter-rouge">RESEARCHES</code></td>
+    </tr>
+    <tr>
+      <td><a href="/agentic-kg/previews/pr-42/design/e2-research-concepts">E-2 · ResearchConcept entities</a></td>
+      <td>Named concepts as nodes; <code class="language-plaintext highlighter-rouge">INVOLVES_CONCEPT</code> / <code class="language-plaintext highlighter-rouge">DISCUSSES</code>; embedding dedup</td>
+    </tr>
+    <tr>
+      <td><a href="/agentic-kg/previews/pr-42/design/e3-model-entities">E-3 · Model entities</a></td>
+      <td>ML models as nodes; hybrid open-set + canonical seeds; <code class="language-plaintext highlighter-rouge">USES_MODEL</code></td>
+    </tr>
+    <tr>
+      <td><a href="/agentic-kg/previews/pr-42/design/e4-method-entities">E-4 · Method entities</a></td>
+      <td>Research methods as nodes; pure open-set; <code class="language-plaintext highlighter-rouge">APPLIES_METHOD</code></td>
+    </tr>
+    <tr>
+      <td><a href="/agentic-kg/previews/pr-42/design/e5-citation-graph">E-5 · Citation graph</a></td>
+      <td><code class="language-plaintext highlighter-rouge">CITES</code> edges from reference lists; stub papers; influence analysis</td>
+    </tr>
+    <tr>
+      <td><a href="/agentic-kg/previews/pr-42/design/e6-entity-descriptions">E-6 · Entity descriptions</a></td>
+      <td>Create-time descriptions for richer <code class="language-plaintext highlighter-rouge">{name}: {description}</code> embeddings</td>
+    </tr>
+    <tr>
+      <td><a href="/agentic-kg/previews/pr-42/design/e7-cross-entity-normalization">E-7 · Cross-entity normalization</a></td>
+      <td>LLM router disambiguates Concept vs Model vs Method</td>
+    </tr>
+    <tr>
+      <td><a href="/agentic-kg/previews/pr-42/design/e8-extraction-prompt-expansion">E-8 · Extraction prompt expansion</a></td>
+      <td>Extractors that populate the new entity types from paper text (V1 + V2)</td>
+    </tr>
+    <tr>
+      <td><a href="/agentic-kg/previews/pr-42/design/entity-pipeline-orchestration">Entity pipeline orchestration</a></td>
+      <td>Wires the whole arc into production ingestion, default-on with audit</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="ingestion--infrastructure">Ingestion &amp; infrastructure</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>What it added</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><a href="/agentic-kg/previews/pr-42/design/d1-ingest-real-papers">D-1 · Ingest real papers</a></td>
+      <td>End-to-end ingestion CLI: search → import → extract → integrate</td>
+    </tr>
+    <tr>
+      <td><a href="/agentic-kg/previews/pr-42/design/d1a-cloud-run-jobs">D-1a · Cloud Run Jobs ingestion</a></td>
+      <td>Durable async ingestion as a Terraform-managed Cloud Run Job</td>
+    </tr>
+    <tr>
+      <td><a href="/agentic-kg/previews/pr-42/design/ci-smoke-test">CI smoke test</a></td>
+      <td>GHA workflow asserting entity edges land in an ephemeral Neo4j</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="docs--site">Docs &amp; site</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Feature</th>
+      <th>What it added</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><a href="/agentic-kg/previews/pr-42/design/enhance-github-pages">Enhance GitHub Pages</a></td>
+      <td>Docs generator reading <code class="language-plaintext highlighter-rouge">llm/memory_bank/</code>; unified nav; auto-published backlog</td>
+    </tr>
+  </tbody>
+</table>

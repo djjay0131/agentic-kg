@@ -1,0 +1,155 @@
+<h1 id="e-7--cross-entity-normalization">E-7 · Cross-entity normalization</h1>
+
+<p class="label label-green">VERIFIED</p>
+
+<p><strong>Backlog ID:</strong> E-7 · <strong>Depends on:</strong> E-2/E-3/E-4 (Concept/Model/Method),
+E-6 (self-validation pattern), E-8 V1+V2 (extractors) · <strong>Spec:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/cross-entity-normalization.md"><code class="language-plaintext highlighter-rouge">cross-entity-normalization.md</code></a></p>
+
+<h2 id="why">Why</h2>
+
+<p>The E-8 V2 extractors run the Concept, Model, and Method extractors against the
+same paper text in parallel. Their prompts try to stay in lane (“a Method is not
+a Model”), but real papers blur the lines. The same surface form — the canonical
+example is <em>“attention mechanism”</em> — lands as both a <code class="language-plaintext highlighter-rouge">ResearchConcept</code> and a
+<code class="language-plaintext highlighter-rouge">Method</code>, and the integrator writes <strong>both</strong>. That gives the graph two nodes for
+one idea, with separate <code class="language-plaintext highlighter-rouge">DISCUSSES</code> / <code class="language-plaintext highlighter-rouge">APPLIES_METHOD</code> edges from the same paper.
+It pollutes vector search and breaks queries like “papers that use attention
+mechanism,” which return only half the matches because the rest are filed under
+the other kind. E-7 collapses the collision <em>per paper, before write</em>.</p>
+
+<h2 id="what-shipped">What shipped</h2>
+
+<p>A normalization step that runs between extraction and integration. For each
+paper it detects cross-kind surface collisions across
+<a href="/agentic-kg/previews/pr-42/reference/entity-catalog#researchconcept-e-2">Concept</a> /
+<a href="/agentic-kg/previews/pr-42/reference/entity-catalog#model-e-3">Model</a> /
+<a href="/agentic-kg/previews/pr-42/reference/entity-catalog#method-e-4">Method</a>, routes each one
+through a single self-validating LLM call, and drops the losing kind(s) so only
+the surviving extraction reaches the writers. Every collision is recorded in a
+<code class="language-plaintext highlighter-rouge">normalization_audit</code> JSON property on the <code class="language-plaintext highlighter-rouge">Paper</code> node. Topic is deliberately
+excluded — it is closed-set (E-1) and connects via <code class="language-plaintext highlighter-rouge">BELONGS_TO</code>, so it never
+collides with the free-text kinds.</p>
+
+<h2 id="design-decisions">Design decisions</h2>
+
+<p><strong>Self-validation gates baked into the response — no critic call.</strong> The routing
+LLM returns a single <code class="language-plaintext highlighter-rouge">DisambiguationDecision</code> that carries both the pick
+(<code class="language-plaintext highlighter-rouge">picked_kind</code>, <code class="language-plaintext highlighter-rouge">confidence</code>) <em>and</em> its own two-gate self-evaluation
+(<code class="language-plaintext highlighter-rouge">is_grounded_in_paper_context</code>, <code class="language-plaintext highlighter-rouge">is_specific_to_one_kind</code>). Acceptance requires
+<strong>both gates True AND <code class="language-plaintext highlighter-rouge">confidence ≥ 0.7</code></strong> — one <code class="language-plaintext highlighter-rouge">instructor.extract()</code> call, no
+second adversarial pass. This follows the saved <code class="language-plaintext highlighter-rouge">feedback_llm_self_validation</code>
+memory (from E-6): quality gating rides inside the structured response rather
+than a separate critic request, keeping cost at ≤1 LLM call per ambiguous pair.</p>
+
+<p><strong>Reject keeps BOTH extractions — recall over eager merging.</strong> When the router
+<em>can’t</em> confidently decide (a gate returns False, confidence is below 0.7, the
+LLM raises, or it picks a kind that wasn’t in the pair) the normalizer changes
+nothing — both extractions survive and the integrator writes both nodes exactly
+as it did pre-E-7. The reasoning (spec TL Q1 review): the router only fires on
+already-suspicious cases, so when <em>it</em> also can’t decide, discarding a real
+extraction throws away signal. The audit row marks the case unresolved
+(<code class="language-plaintext highlighter-rouge">picked=null</code>, <code class="language-plaintext highlighter-rouge">dropped_kinds=[]</code>) so an operator can re-ingest later or merge by
+hand. Drops happen <strong>only</strong> on a clean accept.</p>
+
+<p><strong>All-in trigger, cheap signals first.</strong> A pair is flagged ambiguous if ANY of:
+exact name match (case-insensitive), alias overlap (canonical-in-aliases or
+alias-vs-alias), or embedding cosine ≥ <code class="language-plaintext highlighter-rouge">0.85</code>. The two cheap signals run first
+with no I/O; the embedding scan runs <em>only</em> over extractions the cheap pass
+didn’t already pair, and caches each name’s vector per paper. Most papers have
+zero or one collision, so the expensive layer rarely fires.</p>
+
+<p><strong>Untrusted-data prompt hardening.</strong> Paper text is treated as untrusted. Quoted
+snippets and the wider excerpt are wrapped in pseudo-XML <code class="language-plaintext highlighter-rouge">&lt;paper-excerpt&gt;</code> /
+<code class="language-plaintext highlighter-rouge">&lt;quote-{kind}&gt;</code> delimiters, and the system prompt carries an explicit security
+clause telling the model to treat everything inside those blocks as data, never
+instructions. Combined with the <code class="language-plaintext highlighter-rouge">Literal["concept","model","method"]</code> on
+<code class="language-plaintext highlighter-rouge">picked_kind</code>, this bounds the blast radius of an obvious injection. Documented
+as mitigation, not prevention.</p>
+
+<h2 id="how-it-works">How it works</h2>
+
+<ul>
+  <li><strong>Normalizer module:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/extraction/cross_entity_normalizer.py"><code class="language-plaintext highlighter-rouge">cross_entity_normalizer.py</code></a>
+— <code class="language-plaintext highlighter-rouge">DisambiguationDecision</code> (Pydantic response model with the
+<code class="language-plaintext highlighter-rouge">passes_self_validation</code> property), <code class="language-plaintext highlighter-rouge">detect_ambiguous_pairs</code>
+(<code class="language-plaintext highlighter-rouge">_cheap_collisions</code> → <code class="language-plaintext highlighter-rouge">_embedding_collisions</code>), <code class="language-plaintext highlighter-rouge">disambiguate_pair</code> (one
+routing call), and the async entry point <code class="language-plaintext highlighter-rouge">normalize_cross_entity</code>.</li>
+  <li><strong>Prompts:</strong> <code class="language-plaintext highlighter-rouge">DISAMBIGUATION_SYSTEM_PROMPT_V1</code> (definitions + rules + the
+untrusted-data security clause) and <code class="language-plaintext highlighter-rouge">DISAMBIGUATION_USER_PROMPT_TEMPLATE_V1</code> in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/extraction/prompts/templates.py"><code class="language-plaintext highlighter-rouge">prompts/templates.py</code></a>.</li>
+  <li><strong>Where it runs:</strong> the ingestion loop in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/ingestion.py"><code class="language-plaintext highlighter-rouge">ingestion.py</code></a>
+calls <code class="language-plaintext highlighter-rouge">normalize_cross_entity(...)</code> right after extraction and <strong>before</strong>
+<code class="language-plaintext highlighter-rouge">integrate_paper_entities</code>. It mutates <code class="language-plaintext highlighter-rouge">extraction_result.concepts/.models/
+.methods</code> <strong>in place</strong>, so the integrator’s existing writer blocks simply loop
+over whatever survives — no writer change needed.</li>
+  <li><strong>Audit persistence:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/packages/core/src/agentic_kg/extraction/kg_integration_v2.py"><code class="language-plaintext highlighter-rouge">kg_integration_v2.py</code></a>
+receives the <code class="language-plaintext highlighter-rouge">NormalizationResult</code>, serializes it with <code class="language-plaintext highlighter-rouge">audit_to_json</code>, and
+writes <code class="language-plaintext highlighter-rouge">SET p.normalization_audit = $audit_json</code> only when non-empty. Clean
+papers leave the property <code class="language-plaintext highlighter-rouge">NULL</code>, so the operator query
+<code class="language-plaintext highlighter-rouge">MATCH (p:Paper) WHERE p.normalization_audit IS NOT NULL</code> returns exactly the
+papers that hit a collision.</li>
+  <li><strong>Injected clients — the L-1 swap point:</strong> both the <code class="language-plaintext highlighter-rouge">EmbeddingService</code> and the
+<code class="language-plaintext highlighter-rouge">BaseLLMClient</code> are constructed once per ingestion run and injected. When L-1
+(low-cost SLM) lands, swapping in a cheaper client is a one-line change at the
+construction site — no normalizer code touched.</li>
+  <li><strong>Operator toggle:</strong> a <code class="language-plaintext highlighter-rouge">normalize_cross_entity_collisions</code> flag (default <code class="language-plaintext highlighter-rouge">True</code>)
+threads through the CLI / ingestion so a run can opt out.</li>
+</ul>
+
+<p>For the colliding node types in context, see the
+<a href="/agentic-kg/previews/pr-42/reference/entity-catalog">Entity Catalog</a> and
+<a href="/agentic-kg/previews/pr-42/reference/entity-relationships">Entity Relationships</a>.</p>
+
+<h2 id="verification">Verification</h2>
+
+<ul>
+  <li><strong>Tests:</strong> seven <code class="language-plaintext highlighter-rouge">test_cross_entity_*</code> modules under
+<code class="language-plaintext highlighter-rouge">packages/core/tests/extraction/</code> — schemas, cheap detection, embedding
+detection, the excerpt composer, prompts, routing, and end-to-end
+normalize + integrator wiring (accept-drops-loser, reject-keeps-both, triple
+collision = one call, zero-collision = no call, embedder-failure degrades only
+the fuzzy layer, audit lands on the Paper node).</li>
+  <li><strong>Calibration caveat:</strong> per the spec’s Open Questions, no hand-labeled
+cross-entity eval set exists yet, so routing precision/recall is unverified
+beyond mocked unit tests. First real-data shakedown is the deferred follow-up.</li>
+  <li><strong>Status:</strong> VERIFIED.</li>
+</ul>
+
+<h3 id="spec-vs-shipped-divergences">Spec-vs-shipped divergences</h3>
+
+<ul>
+  <li><strong>Call site moved up a level.</strong> The spec diagram had the <em>integrator</em> call
+<code class="language-plaintext highlighter-rouge">normalize_cross_entity</code> as its first step. Shipped, the <strong>ingestion loop</strong>
+makes the call and passes the <code class="language-plaintext highlighter-rouge">NormalizationResult</code> into
+<code class="language-plaintext highlighter-rouge">integrate_paper_entities</code> purely for audit persistence. Same net effect (the
+in-place mutation lands before any write), one level higher.</li>
+  <li><strong><code class="language-plaintext highlighter-rouge">disambiguate_pair</code> returns <code class="language-plaintext highlighter-rouge">(kind, reason)</code>.</strong> The spec sample returned a
+bare <code class="language-plaintext highlighter-rouge">Optional[EntityKind]</code>; the shipped helper returns a tuple so the real
+rejection reason (LLM error text, which gate failed, the confidence value, or
+“picked kind not in pair”) is threaded into the audit instead of a fixed
+string.</li>
+  <li><strong>AC-18 resolved toward keep-both.</strong> The spec’s AC-18 body says an out-of-pair
+pick should drop “both kinds,” which contradicts the governing TL Q1
+“keep both on reject” decision. Shipped code follows keep-both
+(<code class="language-plaintext highlighter-rouge">dropped_kinds=[]</code>), resolving the spec’s internal inconsistency.</li>
+  <li><strong>Per-kind quotes folded into the detected-as block.</strong> The user prompt renders
+each kind’s <code class="language-plaintext highlighter-rouge">quoted_text</code> inside its <code class="language-plaintext highlighter-rouge">&lt;quote-{kind}&gt;</code> tag within the kinds
+block, rather than as a separate “excerpts grounding each extraction” section.
+The pseudo-XML delimiters and security contract are preserved.</li>
+</ul>
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li>Reference: <a href="/agentic-kg/previews/pr-42/reference/entity-catalog">Entity Catalog</a> ·
+<a href="/agentic-kg/previews/pr-42/reference/entity-relationships">Entity Relationships</a></li>
+  <li>Builds on: <a href="/agentic-kg/previews/pr-42/design/e2-research-concepts">E-2</a> ·
+<a href="/agentic-kg/previews/pr-42/design/e3-model-entities">E-3</a> ·
+<a href="/agentic-kg/previews/pr-42/design/e4-method-entities">E-4</a></li>
+  <li>Deferred: cross-paper canonicalization, a labeled eval set, and an audit
+retention/TTL policy (spec Open Questions)</li>
+</ul>

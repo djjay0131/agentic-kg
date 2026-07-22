@@ -1,0 +1,127 @@
+<h1 id="enhance-github-pages">Enhance GitHub Pages</h1>
+
+<p class="label label-green">VERIFIED (Phase A)</p>
+
+<p><strong>Backlog:</strong> enhance-github-pages · <strong>Spec:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/enhance-github-pages.md"><code class="language-plaintext highlighter-rouge">enhance-github-pages.md</code></a></p>
+
+<h2 id="why">Why</h2>
+
+<p>The old Pages site was a narrow, partly broken showcase. Its generator was a
+~300-line regex script that emitted inline HTML by hand, with parsers that had
+drifted out of sync with the source: the milestone regex expected
+<code class="language-plaintext highlighter-rouge">### M1: name ✅</code> while <code class="language-plaintext highlighter-rouge">progress.md</code> had moved to tables, and it still read the
+stale <code class="language-plaintext highlighter-rouge">memory-bank/</code> path instead of the authoritative <code class="language-plaintext highlighter-rouge">llm/memory_bank/</code>. There
+was no unified navigation, no search, no public project overview, and the backlog
+page was a hand-maintained snapshot that went stale the moment anything changed.
+Nobody — researcher, collaborator, or the team itself — could discover what the
+system does or how far along it is without reading raw markdown in the repo.</p>
+
+<h2 id="what-shipped">What shipped</h2>
+
+<p>A Jekyll <a href="https://just-the-docs.github.io/just-the-docs/"><code class="language-plaintext highlighter-rouge">just-the-docs</code></a> site
+with a single dynamic sidebar, search, and breadcrumbs, plus a lean data pipeline
+that keeps the status pages honest. A new Python emitter reads the project’s
+source-of-truth files and writes three YAML data files that Liquid templates
+render — so the backlog, sprint list, and status dashboard regenerate on every
+push instead of being copy-pasted. Two workflows drive it: production deploys on
+merge to <code class="language-plaintext highlighter-rouge">master</code>, and per-PR preview deploys with a bot comment. HTMLProofer
+gates both builds against broken links and malformed HTML.</p>
+
+<p>This is <strong>Phase A</strong> — the structure, navigation, and data pipeline. Every public
+page exists and is reachable from the sidebar, but the prose is still one-paragraph
+placeholder with a <code class="language-plaintext highlighter-rouge">&lt;!-- TODO(phase-b): --&gt;</code> marker; authoring real content is
+Phase B and has not shipped. The <a href="/agentic-kg/previews/pr-42/reference/">Reference</a> and
+<a href="/agentic-kg/previews/pr-42/design/">Design</a> sections you are reading now — including this
+note — are later hand-authored content built <em>on top of</em> the Phase A structure.</p>
+
+<h2 id="design-decisions">Design decisions</h2>
+
+<p><strong>Data emitter, not HTML string-slinging.</strong> The replacement generator emits
+<code class="language-plaintext highlighter-rouge">_data/*.yml</code> only — never HTML. Templates own presentation; the script owns
+parsing. This is the core reversal from the old approach and the reason the
+dashboard can no longer render wrong-but-confident numbers.</p>
+
+<p><strong>Structured stats block, not regex on prose.</strong> Dashboard numbers come from a
+fenced <code class="language-plaintext highlighter-rouge"># docs-stats</code> YAML block in <code class="language-plaintext highlighter-rouge">activeContext.md</code>, validated against a
+Pydantic <code class="language-plaintext highlighter-rouge">DocsStats</code> model. Prose around it can be reworded freely without
+breaking the dashboard; a missing block or a bad field fails the build loudly
+(exit 2) rather than silently emitting <code class="language-plaintext highlighter-rouge">null</code>. The extractor deliberately keys
+on the block’s <em>first content line</em> being <code class="language-plaintext highlighter-rouge"># docs-stats</code>, so a prose mention of
+the marker elsewhere is ignored.</p>
+
+<p><strong>Fail visibly on parse drift.</strong> If fewer than 50% of BACKLOG.md’s detected table
+rows parse into feature records, the generator exits non-zero (exit 3) and fails
+CI — the format having drifted out from under the parser is treated as a bug, not
+a warning to bury. Individual malformed rows are skipped with a stderr warning so
+one bad row can’t blank the whole table.</p>
+
+<p><strong>Nav is emergent, not configured.</strong> <code class="language-plaintext highlighter-rouge">just-the-docs</code> builds the sidebar from each
+page’s <code class="language-plaintext highlighter-rouge">parent</code> / <code class="language-plaintext highlighter-rouge">nav_order</code> frontmatter. Adding a page is creating a markdown
+file — no menu YAML or template edits. <code class="language-plaintext highlighter-rouge">--strict_front_matter</code> fails the build if
+a page ships without valid frontmatter.</p>
+
+<h2 id="how-it-works">How it works</h2>
+
+<ul>
+  <li><strong>Generator:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/.github/scripts/generate_site_data.py"><code class="language-plaintext highlighter-rouge">generate_site_data.py</code></a>
+reads <code class="language-plaintext highlighter-rouge">llm/memory_bank/activeContext.md</code> (the <code class="language-plaintext highlighter-rouge"># docs-stats</code> block),
+<code class="language-plaintext highlighter-rouge">llm/features/BACKLOG.md</code>, and <code class="language-plaintext highlighter-rouge">construction/sprints/sprint-*.md</code>, and writes
+<code class="language-plaintext highlighter-rouge">docs/_data/{status,backlog,sprints}.yml</code>.</li>
+  <li><strong>Templates:</strong> <code class="language-plaintext highlighter-rouge">docs/status/*.md</code> render those data files via Liquid
+(<code class="language-plaintext highlighter-rouge">{% for item in site.data.backlog.items %}</code>) and the partials in
+<code class="language-plaintext highlighter-rouge">docs/_includes/</code> (<code class="language-plaintext highlighter-rouge">backlog-table.html</code>, <code class="language-plaintext highlighter-rouge">sprint-list.html</code>, <code class="language-plaintext highlighter-rouge">status-badge.html</code>).</li>
+  <li><strong>Config:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/docs/_config.yml"><code class="language-plaintext highlighter-rouge">docs/_config.yml</code></a>
+sets the remote <code class="language-plaintext highlighter-rouge">just-the-docs</code> theme, search, breadcrumbs, and GitHub edit links.</li>
+  <li><strong>Production workflow:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/.github/workflows/update-docs.yml"><code class="language-plaintext highlighter-rouge">update-docs.yml</code></a>
+— on push to <code class="language-plaintext highlighter-rouge">master</code> under the watched paths, regenerates data, runs
+<code class="language-plaintext highlighter-rouge">jekyll build --strict_front_matter</code>, HTMLProofs the output, and deploys to
+<code class="language-plaintext highlighter-rouge">gh-pages</code> (with <code class="language-plaintext highlighter-rouge">keep_files</code> so it doesn’t clobber the previews subtree).</li>
+  <li><strong>Preview workflow:</strong>
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/.github/workflows/preview-docs.yml"><code class="language-plaintext highlighter-rouge">preview-docs.yml</code></a>
+— on each PR touching those paths, builds under
+<code class="language-plaintext highlighter-rouge">/agentic-kg/previews/pr-&lt;N&gt;/</code>, comments the URL, and removes the preview when
+the PR closes.</li>
+  <li><strong>Sections built on this structure:</strong> the domain model lives under
+<a href="/agentic-kg/previews/pr-42/reference/">Reference</a> and the completed-feature notes under
+<a href="/agentic-kg/previews/pr-42/design/">Design</a>.</li>
+</ul>
+
+<h2 id="verification">Verification</h2>
+
+<ul>
+  <li><strong>Tests:</strong> two suites under <code class="language-plaintext highlighter-rouge">packages/core/tests/docs/</code> —
+<code class="language-plaintext highlighter-rouge">test_generate_site_data.py</code> (generator behavior: docs-stats extraction,
+Pydantic validation, backlog parsing, parse-ratio gate, sprint parsing) and
+<code class="language-plaintext highlighter-rouge">test_site_structure.py</code> (static assertions on the site + workflow YAML), with
+fixture and golden files for snapshot comparison.</li>
+  <li><strong>CI gates:</strong> <code class="language-plaintext highlighter-rouge">--strict_front_matter</code> blocks pages without frontmatter;
+HTMLProofer blocks broken internal links and malformed HTML on both preview and
+production builds; <code class="language-plaintext highlighter-rouge">concurrency</code> groups cancel superseded runs.</li>
+  <li><strong>Status:</strong> VERIFIED for <strong>Phase A only</strong> — structure, navigation, and the data
+pipeline. Real prose (Phase B, AC-3), Lighthouse thresholds (AC-13), and the
+optional Playwright smoke test (AC-14) are deferred and not yet shipped.</li>
+</ul>
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li>Spec: <a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/enhance-github-pages.md"><code class="language-plaintext highlighter-rouge">enhance-github-pages.md</code></a>
+(full acceptance criteria and Phase A verification record)</li>
+  <li>Builds on this structure: <a href="/agentic-kg/previews/pr-42/reference/">Reference</a> and
+<a href="/agentic-kg/previews/pr-42/design/">Design</a> sections</li>
+  <li>Deferred: <strong>Phase B</strong> — real content for every <code class="language-plaintext highlighter-rouge">about/*</code> and <code class="language-plaintext highlighter-rouge">status/*</code> page,
+plus Lighthouse and Playwright quality gates</li>
+</ul>
+
+<!-- Shipped-vs-spec divergences (verified against code):
+     - Generator is ~390 lines, not the ~55-60 line sketch in the spec — but still
+       data-only (no HTML), which was the actual design intent.
+     - DocsStats shipped with 8 fields (added completed_sprints, tests_passing) vs
+       the 6 fields sketched in the spec's docs-stats example.
+     - SERVICE_INVENTORY.md was moved into status/ as service-inventory.md, as the
+       spec's "Preserve" note anticipated.
+-->
