@@ -76,7 +76,7 @@ a page ships without valid frontmatter.
   `llm/features/BACKLOG.md`, and `construction/sprints/sprint-*.md`, and writes
   `docs/_data/{status,backlog,sprints}.yml`.
 - **Templates:** `docs/status/*.md` render those data files via Liquid
-  (`{% for item in site.data.backlog.items %}`) and the partials in
+  (`{% raw %}{% for item in site.data.backlog.items %}{% endraw %}`) and the partials in
   `docs/_includes/` (`backlog-table.html`, `sprint-list.html`, `status-badge.html`).
 - **Config:**
   [`docs/_config.yml`](https://github.com/djjay0131/agentic-kg/blob/master/docs/_config.yml)
