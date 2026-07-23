@@ -8,6 +8,7 @@ for populating the knowledge graph from a search query.
 
 import logging
 import uuid
+from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from pydantic import BaseModel, Field
@@ -52,7 +53,38 @@ class IngestionResult(BaseModel):
 
     # Phase 2 counts
     papers_extracted: int = Field(0, description="Papers with successful extraction")
-    papers_skipped_no_pdf: int = Field(0, description="Papers skipped (no PDF URL)")
+    papers_skipped_no_pdf: int = Field(
+        0,
+        description=(
+            "Papers with no acquirable full-text source (no candidate PDF URL "
+            "and/or no DOI). SM-1 category: failed_no_pdf_source. No abstract "
+            "fallback — these produce zero entities."
+        ),
+    )
+
+    # SM-1: content-acquisition-resilience
+    pdf_ok: int = Field(
+        0, description="Papers where full text was acquired from a candidate PDF source"
+    )
+    acquisition_failures: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "SM-1 categorized full-text acquisition failures (had a source but "
+            "could not extract usable text): reason -> count. Reasons: "
+            "failed_blocked / failed_404 / failed_thin."
+        ),
+    )
+    sources_rate_limited: int = Field(
+        0,
+        description=(
+            "SM-1: number of search sources that returned a rate-limit (429) "
+            "error and were dropped for this run (papers from them may be missing)."
+        ),
+    )
+    search_errors: dict[str, str] = Field(
+        default_factory=dict,
+        description="SM-1: per-source search errors surfaced from the aggregator.",
+    )
     papers_purged: int = Field(
         0, description="Papers whose existing extraction footprint was purged before re-extraction"
     )
@@ -187,6 +219,88 @@ def _build_extractor_section_text(seg: Any) -> str:
     return "\n\n".join(parts)
 
 
+# SM-1: minimum extractor-input characters for a full-text acquisition to count
+# as usable. Below this the source is treated as failed_thin and the next
+# candidate is tried. A real paper body yields thousands of chars; this only
+# rejects empty/scanned/garbage extractions.
+MIN_USABLE_CHARS = 250
+
+
+def _classify_pdf_failure(error_msg: str) -> str:
+    """Map a PDF fetch/extract error string to an SM-1 failure reason.
+
+    A permanent 404 (``failed_404``) is distinguished from a host that dropped
+    or refused us (``failed_blocked``, the default) so run metrics can tell a
+    systemic fetch problem from genuinely-missing PDFs. See spec AC-6 / QA #1.
+    """
+    if "404" in error_msg:
+        return "failed_404"
+    return "failed_blocked"
+
+
+def _proc_error(proc: Any) -> str:
+    """Return the first failed-stage error string on a PaperProcessingResult."""
+    for stage in getattr(proc, "stages", None) or []:
+        if not getattr(stage, "success", True) and getattr(stage, "error", None):
+            return str(stage.error)
+    return ""
+
+
+@dataclass
+class _AcquisitionOutcome:
+    """Result of trying to acquire full text for one paper (SM-1)."""
+
+    proc: Any  # successful PaperProcessingResult, or None
+    section_text: str  # extractor input text ("" on failure)
+    reason: Optional[str]  # None on success; else a failed_* reason
+
+
+async def _acquire_full_text(
+    pipeline: Any,
+    paper: Any,
+    min_chars: int = MIN_USABLE_CHARS,
+) -> _AcquisitionOutcome:
+    """SM-1: acquire full text by trying candidate PDF sources in order.
+
+    Published/authoritative source first, arXiv fallback second (see
+    ``NormalizedPaper.candidate_pdf_urls``). The first candidate that yields
+    at least ``min_chars`` of extractor text wins. **There is no abstract
+    fallback** — if every candidate fails, return a categorized failure reason
+    and empty text so the caller can fail the paper loudly.
+
+    The caller is expected to only invoke this for papers that have at least
+    one candidate URL; an empty candidate list is reported upstream as
+    ``failed_no_pdf_source``.
+    """
+    reason = "failed_blocked"
+    authors = [a.name for a in getattr(paper, "authors", [])]
+    for url in paper.candidate_pdf_urls():
+        try:
+            proc = await pipeline.process_pdf_url(
+                url=url,
+                paper_title=paper.title,
+                paper_doi=paper.doi,
+                authors=authors,
+            )
+        except Exception as e:
+            reason = _classify_pdf_failure(str(e))
+            logger.warning(f"PDF source raised ({url}): {e}")
+            continue
+
+        if proc is not None and getattr(proc, "success", False):
+            text = _build_extractor_section_text(proc.segmented_document)
+            if len(text.strip()) >= min_chars:
+                logger.info(f"Full text acquired via {url} ({len(text)} chars)")
+                return _AcquisitionOutcome(proc, text, None)
+            reason = "failed_thin"
+            logger.warning(f"PDF source too thin ({url}): {len(text)} chars")
+        else:
+            reason = _classify_pdf_failure(_proc_error(proc))
+            logger.warning(f"PDF source failed ({url}): {_proc_error(proc)}")
+
+    return _AcquisitionOutcome(None, "", reason)
+
+
 def _can_skip_entity_extraction(
     repo: Any,
     paper_doi: Optional[str],
@@ -301,6 +415,13 @@ async def ingest_papers(
         aggregator = get_paper_aggregator()
         search = await aggregator.search_papers(query, sources=sources, limit=limit)
         result.papers_found = len(search.papers)
+        # SM-1: surface per-source search failures (e.g. Semantic Scholar 429)
+        # so rate-limited sources are visible instead of silently dropped.
+        result.search_errors = dict(getattr(search, "errors", {}) or {})
+        result.sources_rate_limited = sum(
+            1 for msg in result.search_errors.values()
+            if "rate limit" in str(msg).lower() or "429" in str(msg)
+        )
         _notify(on_progress, "search_complete", None, result.papers_found)
 
         if dry_run:
@@ -328,8 +449,11 @@ async def ingest_papers(
 
         # Phase 2/3 setup: shared per-batch dependencies.
         pipeline = get_pipeline()
+        # SM-1: "no acquirable source" = no candidate PDF URL (published or
+        # arXiv) or no DOI. Counted here as failed_no_pdf_source; no abstract
+        # fallback is attempted for these.
         result.papers_skipped_no_pdf = sum(
-            1 for p in search.papers if not (p.pdf_url and p.doi)
+            1 for p in search.papers if not (p.candidate_pdf_urls() and p.doi)
         )
         repo = get_repository()
 
@@ -411,40 +535,43 @@ async def ingest_papers(
                     )
                     continue
 
-                # --- Text source resolution (AC-4 / AC-5 / AC-6). ---
+                # --- SM-1: full-text acquisition (published source first,
+                # arXiv fallback). NO abstract fallback: a paper with no
+                # acquirable full text fails loudly and is skipped, categorized
+                # by reason for run metrics. ---
                 proc = None
                 problems: list[Any] = []
                 section_text = ""
-                if paper.pdf_url and doi:
-                    try:
-                        proc = await pipeline.process_pdf_url(
-                            url=paper.pdf_url,
-                            paper_title=paper.title,
-                            paper_doi=doi,
-                            authors=[a.name for a in paper.authors],
-                        )
-                    except Exception as e:
-                        result.extraction_errors[doi] = (
-                            f"PDF processing failed: {e}"
-                        )
-                        logger.warning(
-                            f"[{trace_id}] PDF processing failed {doi}: {e}"
-                        )
-                        proc = None
-                    if proc is not None and proc.success:
-                        section_text = _build_extractor_section_text(
-                            proc.segmented_document,
-                        )
-                        problems = proc.get_high_confidence_problems(
-                            min_extraction_confidence,
-                        )
-                        if proc.problem_count > 0:
-                            _notify(
-                                on_progress, "extracted", doi,
-                                proc.problem_count,
-                            )
-                else:
-                    section_text = paper.abstract or ""
+
+                if not (doi and paper.candidate_pdf_urls()):
+                    # No acquirable source / no DOI — already counted upfront as
+                    # papers_skipped_no_pdf (failed_no_pdf_source). Fail loud.
+                    _notify(on_progress, "acquisition_failed", doi, "failed_no_pdf_source")
+                    continue
+
+                outcome = await _acquire_full_text(pipeline, paper)
+                if outcome.reason is not None:
+                    result.acquisition_failures[outcome.reason] = (
+                        result.acquisition_failures.get(outcome.reason, 0) + 1
+                    )
+                    result.extraction_errors[doi] = (
+                        f"No usable full text ({outcome.reason})"
+                    )
+                    logger.warning(
+                        f"[{trace_id}] Full-text acquisition failed "
+                        f"{doi}: {outcome.reason}"
+                    )
+                    _notify(on_progress, "acquisition_failed", doi, outcome.reason)
+                    continue
+
+                proc = outcome.proc
+                section_text = outcome.section_text
+                result.pdf_ok += 1
+                problems = proc.get_high_confidence_problems(
+                    min_extraction_confidence,
+                )
+                if proc.problem_count > 0:
+                    _notify(on_progress, "extracted", doi, proc.problem_count)
 
                 # --- 5-way parallel extraction (E-8 V1 + V2). ---
                 if extract_entities:
@@ -601,6 +728,27 @@ async def ingest_papers(
         # Phase 4: Sanity checks
         result.sanity_checks = run_sanity_checks()
         result.status = "completed"
+
+        # SM-1: per-run coverage/failure summary (AC-6). Failures are broken
+        # down by reason so a systemic fetch problem (failed_blocked) is
+        # distinguishable at a glance from genuinely-missing PDFs
+        # (failed_no_pdf_source) or throttling (sources_rate_limited).
+        with_entities = result.pdf_ok
+        pct = (100.0 * with_entities / result.papers_found) if result.papers_found else 0.0
+        logger.info(
+            "[%s] Ingest summary: papers=%d pdf_ok=%d (%.0f%%) "
+            "failed_no_pdf_source=%d failed_blocked=%d failed_404=%d "
+            "failed_thin=%d sources_rate_limited=%d",
+            trace_id,
+            result.papers_found,
+            with_entities,
+            pct,
+            result.papers_skipped_no_pdf,
+            result.acquisition_failures.get("failed_blocked", 0),
+            result.acquisition_failures.get("failed_404", 0),
+            result.acquisition_failures.get("failed_thin", 0),
+            result.sources_rate_limited,
+        )
 
     except Exception as e:
         logger.error(f"[{trace_id}] Ingestion failed: {e}", exc_info=True)
