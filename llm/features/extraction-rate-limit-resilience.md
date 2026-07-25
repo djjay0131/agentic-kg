@@ -1,8 +1,14 @@
-# Feature: Extraction Rate-Limit Resilience (SM-6)
+# Feature: Extraction Rate-Limit Resilience (SM-7)
 
 **Status:** VERIFIED
 **Date:** 2026-07-25
 **Author:** Feature Architect (AI-assisted)
+
+> **Tracking note:** drafted under the label **SM-6**; renumbered to **SM-7** to
+> resolve a parallel-work collision — a concurrent branch independently claimed
+> SM-6 for the V2-integration `.mentions → .mention_results` fix and merged first.
+> The branch/PR/commit names still say `sm6` (historical); this spec file is the
+> canonical identifier.
 
 ## Problem
 
