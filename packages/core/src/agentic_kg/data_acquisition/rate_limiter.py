@@ -125,6 +125,30 @@ class TokenBucketRateLimiter:
             self._state.requests_made += 1
             return wait_time
 
+    def wait_estimate(self, tokens: float = 1.0) -> float:
+        """
+        Estimate how long an ``acquire(tokens)`` would block, without consuming.
+
+        This is a pure read: it projects the current token count forward by the
+        time elapsed since the last refill and returns the seconds still needed.
+        It does NOT mutate state, sleep, or consume tokens — safe to call before
+        ``acquire`` purely to log an ETA.
+
+        Args:
+            tokens: Number of tokens the caller intends to acquire.
+
+        Returns:
+            Estimated wait in seconds (0.0 if the tokens are already available).
+        """
+        now = time.monotonic()
+        elapsed = now - self._state.last_update
+        projected = min(self.capacity, self._state.tokens + elapsed * self.rate)
+
+        if projected >= tokens:
+            return 0.0
+
+        return (tokens - projected) / self.rate
+
     async def try_acquire(self, tokens: float = 1.0) -> bool:
         """
         Try to acquire tokens without waiting.

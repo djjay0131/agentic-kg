@@ -55,6 +55,11 @@ jobs:
       NEO4J_USERNAME: neo4j
       NEO4J_PASSWORD: testpassword
       NEO4J_DATABASE: neo4j
+      # SM-6: pull the throughput lever in CI so extraction stays under the TPM
+      # ceiling and entities actually flow. Production default stays gpt-4-turbo;
+      # this override is CI-only.
+      OPENAI_EXTRACTION_MODEL: gpt-4o
+      OPENAI_TPM: "450000"
 
     steps:
       - uses: actions/checkout@v4
