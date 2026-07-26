@@ -261,6 +261,99 @@ class TestPDFExtractor:
 
             assert "404" in str(exc_info.value) or "http" in str(exc_info.value).lower()
 
+    @pytest.mark.asyncio
+    async def test_extract_from_url_sends_user_agent_header(self, extractor):
+        """SM-1: requests carry a browser-like User-Agent (some hosts reject bare clients)."""
+        with patch(
+            "agentic_kg.extraction.pdf_extractor.httpx.AsyncClient"
+        ) as mock_client:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.history = []
+            mock_response.headers = {"content-type": "application/pdf"}
+            mock_response.content = b"%PDF-1.4 fake"
+            mock_response.raise_for_status.return_value = None
+
+            mock_client_instance = AsyncMock()
+            mock_client_instance.get.return_value = mock_response
+            mock_client.return_value.__aenter__.return_value = mock_client_instance
+            mock_client.return_value.__aexit__.return_value = None
+
+            with patch.object(extractor, "_extract_from_bytes", return_value=MagicMock()):
+                await extractor.extract_from_url("https://example.com/paper.pdf")
+
+            _, kwargs = mock_client_instance.get.call_args
+            headers = kwargs.get("headers", {})
+            assert "User-Agent" in headers and headers["User-Agent"]
+
+    @pytest.mark.asyncio
+    async def test_extract_from_url_retries_transient_request_error(self, extractor):
+        """SM-1: a transient RequestError ('Server disconnected') is retried, then succeeds."""
+        with patch(
+            "agentic_kg.extraction.pdf_extractor.httpx.AsyncClient"
+        ) as mock_client:
+            ok = MagicMock()
+            ok.status_code = 200
+            ok.history = []
+            ok.headers = {"content-type": "application/pdf"}
+            ok.content = b"%PDF-1.4 fake"
+            ok.raise_for_status.return_value = None
+
+            mock_client_instance = AsyncMock()
+            mock_client_instance.get.side_effect = [
+                httpx.ConnectError("Server disconnected"),
+                httpx.ConnectError("Server disconnected"),
+                ok,
+            ]
+            mock_client.return_value.__aenter__.return_value = mock_client_instance
+            mock_client.return_value.__aexit__.return_value = None
+
+            with patch.object(extractor, "_extract_from_bytes", return_value=MagicMock()):
+                await extractor.extract_from_url("https://example.com/paper.pdf")
+
+            assert mock_client_instance.get.call_count == 3  # retried twice, then succeeded
+
+    @pytest.mark.asyncio
+    async def test_extract_from_url_transient_error_exhausts_then_raises(self, extractor):
+        """SM-1: a transient error that never recovers is retried up to the cap,
+        then surfaces as PDFExtractionError (so the candidate loop moves on)."""
+        with patch(
+            "agentic_kg.extraction.pdf_extractor.httpx.AsyncClient"
+        ) as mock_client:
+            mock_client_instance = AsyncMock()
+            mock_client_instance.get.side_effect = httpx.ConnectError("Server disconnected")
+            mock_client.return_value.__aenter__.return_value = mock_client_instance
+            mock_client.return_value.__aexit__.return_value = None
+
+            with pytest.raises(PDFExtractionError) as exc_info:
+                await extractor.extract_from_url("https://example.com/paper.pdf")
+
+            assert mock_client_instance.get.call_count == 3  # retried to the cap
+            assert "downloading pdf" in str(exc_info.value).lower()
+
+    @pytest.mark.asyncio
+    async def test_extract_from_url_does_not_retry_404(self, extractor):
+        """SM-1: a permanent 404 is NOT retried — it fails fast (so the candidate loop moves on)."""
+        with patch(
+            "agentic_kg.extraction.pdf_extractor.httpx.AsyncClient"
+        ) as mock_client:
+            mock_response = MagicMock()
+            mock_response.status_code = 404
+            mock_response.history = []
+            mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "Not Found", request=MagicMock(), response=mock_response
+            )
+
+            mock_client_instance = AsyncMock()
+            mock_client_instance.get.return_value = mock_response
+            mock_client.return_value.__aenter__.return_value = mock_client_instance
+            mock_client.return_value.__aexit__.return_value = None
+
+            with pytest.raises(PDFExtractionError):
+                await extractor.extract_from_url("https://example.com/paper.pdf")
+
+            assert mock_client_instance.get.call_count == 1  # not retried
+
 
 class TestPDFExtractorWithMockedPyMuPDF:
     """Tests for PDF extraction with mocked PyMuPDF."""

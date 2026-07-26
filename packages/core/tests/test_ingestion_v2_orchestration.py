@@ -60,13 +60,26 @@ def _batch_import_result(created: int = 1, updated: int = 0):
     return r
 
 
-def _processing_result(success: bool = True, problem_count: int = 0):
-    """Mock PaperProcessingResult."""
+def _processing_result(success: bool = True, problem_count: int = 0, section_chars: int = 400):
+    """Mock PaperProcessingResult.
+
+    SM-1: a successful result must carry >= MIN_USABLE_CHARS of section text
+    for full-text acquisition to accept it (else it is treated as failed_thin).
+    """
     r = MagicMock()
     r.success = success
     r.problem_count = problem_count
-    r.segmented_document = MagicMock()
-    r.segmented_document.sections = []
+    seg = MagicMock()
+    if success and section_chars:
+        section = MagicMock()
+        section.section_type = MagicMock()
+        section.section_type.value = "abstract"
+        section.content = "full paper text " * (section_chars // 16 + 1)
+        seg.sections = [section]
+    else:
+        seg.sections = []
+    r.segmented_document = seg
+    r.stages = [MagicMock(success=success, error="fetch failed" if not success else None)]
     r.get_high_confidence_problems = MagicMock(
         return_value=[MagicMock() for _ in range(problem_count)],
     )
@@ -536,7 +549,10 @@ class TestSkipCheck:
 
 class TestTextSourceResolution:
     @pytest.mark.asyncio
-    async def test_no_pdf_uses_abstract_fallback(self, common_mocks):
+    async def test_no_pdf_fails_loud_no_abstract_fallback(self, common_mocks):
+        """SM-1: a paper with no candidate PDF source is skipped (full text or
+        fail) — the abstract is NOT used as a fallback and extractors do NOT run.
+        """
         papers = [
             _normalized_paper(
                 pdf_url=None, abstract="this is the abstract text",
@@ -544,18 +560,13 @@ class TestTextSourceResolution:
         ]
         _wire_basic_search(common_mocks, papers)
 
-        await ingest_papers("q", limit=10)
+        result = await ingest_papers("q", limit=10)
 
-        # pipeline.process_pdf_url NOT called (no pdf_url).
+        # No PDF source → pipeline not called, extractors not run, counted skipped.
         common_mocks["pipe"].return_value.process_pdf_url.assert_not_called()
-        # Extractors still received the abstract via extract_all_entities.
-        common_mocks["extract"].assert_awaited_once()
-        kwargs = common_mocks["extract"].await_args.kwargs
-        # topic_call etc. are coroutines; the embedder fixture's
-        # `extract` mock got the abstract via the per-paper section_text
-        # (we can't easily peek at coroutine args; instead just confirm
-        # extract_all_entities ran).
-        assert kwargs.get("paper_doi") == "10.1/a"
+        common_mocks["extract"].assert_not_awaited()
+        assert result.papers_skipped_no_pdf == 1
+        assert result.pdf_ok == 0
 
     @pytest.mark.asyncio
     async def test_no_pdf_no_abstract_clean_short_circuit(self, common_mocks):
@@ -612,6 +623,8 @@ class TestErrorIsolation:
 
     @pytest.mark.asyncio
     async def test_pdf_processing_failure_records_error(self, common_mocks):
+        """SM-1: a raising PDF fetch fails the paper loudly (categorized),
+        records an error, and does NOT run the entity extractors/integrator."""
         papers = [_normalized_paper(doi="10.1/a")]
         _wire_basic_search(common_mocks, papers)
         common_mocks["pipe"].return_value.process_pdf_url = AsyncMock(
@@ -621,10 +634,10 @@ class TestErrorIsolation:
         result = await ingest_papers("q", limit=10)
 
         assert "10.1/a" in result.extraction_errors
-        assert "PDF processing failed" in result.extraction_errors["10.1/a"]
-        # V1 didn't run (no problems) but V2 entity extractors did
-        # (empty section_text → all return []). V2 integrator skipped
-        # because nothing landed.
+        assert "No usable full text" in result.extraction_errors["10.1/a"]
+        assert result.acquisition_failures.get("failed_blocked") == 1
+        # No usable text → extractors + V2 integrator never ran for this paper.
+        common_mocks["extract"].assert_not_awaited()
         common_mocks["v2_int"].assert_not_called()
 
     @pytest.mark.asyncio

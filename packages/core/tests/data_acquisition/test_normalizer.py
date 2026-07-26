@@ -432,3 +432,55 @@ class TestGetPaperNormalizer:
         normalizer2 = get_paper_normalizer()
 
         assert normalizer1 is normalizer2
+
+
+class TestCandidatePdfUrls:
+    """Ordered PDF source selection (SM-1): published first, arXiv fallback."""
+
+    def test_published_first_arxiv_second_when_both_present(self):
+        """The authoritative published copy is tried before the arXiv preprint."""
+        paper = NormalizedPaper(
+            title="T",
+            source="semantic_scholar",
+            pdf_url="https://ojs.aaai.org/paper.pdf",
+            external_ids={"arxiv": "2309.01431"},
+        )
+
+        assert paper.candidate_pdf_urls() == [
+            "https://ojs.aaai.org/paper.pdf",
+            "https://arxiv.org/pdf/2309.01431",
+        ]
+
+    def test_arxiv_only_when_no_published_url(self):
+        """arXiv ID with no publisher URL yields the arXiv PDF alone."""
+        paper = NormalizedPaper(
+            title="T", source="semantic_scholar",
+            external_ids={"arxiv": "2106.01345"},
+        )
+
+        assert paper.candidate_pdf_urls() == ["https://arxiv.org/pdf/2106.01345"]
+
+    def test_published_only_when_no_arxiv_id(self):
+        """A publisher URL with no arXiv ID yields the publisher URL alone."""
+        paper = NormalizedPaper(
+            title="T", source="openalex",
+            pdf_url="https://example.com/paper.pdf",
+        )
+
+        assert paper.candidate_pdf_urls() == ["https://example.com/paper.pdf"]
+
+    def test_empty_when_no_pdf_url_and_no_arxiv(self):
+        """No published URL and no arXiv ID → no candidates (paper will fail loudly)."""
+        paper = NormalizedPaper(title="T", source="openalex")
+
+        assert paper.candidate_pdf_urls() == []
+
+    def test_no_duplicate_when_published_url_is_already_arxiv(self):
+        """If the published URL already points at the same arXiv PDF, don't repeat it."""
+        paper = NormalizedPaper(
+            title="T", source="semantic_scholar",
+            pdf_url="https://arxiv.org/pdf/2309.01431",
+            external_ids={"arxiv": "2309.01431"},
+        )
+
+        assert paper.candidate_pdf_urls() == ["https://arxiv.org/pdf/2309.01431"]

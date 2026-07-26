@@ -88,21 +88,38 @@ class TestNotify:
 # =============================================================================
 
 
-def _make_normalized_paper(doi="10.1234/test", title="Test Paper", pdf_url="https://example.com/paper.pdf"):
-    """Create a mock NormalizedPaper."""
+def _make_normalized_paper(
+    doi="10.1234/test",
+    title="Test Paper",
+    pdf_url="https://example.com/paper.pdf",
+    arxiv=None,
+):
+    """Create a mock NormalizedPaper.
+
+    SM-1: ``candidate_pdf_urls()`` drives full-text acquisition, so the mock
+    returns a real ordered candidate list (published first, arXiv fallback).
+    """
     p = MagicMock()
     p.doi = doi
     p.title = title
     p.pdf_url = pdf_url
+    p.abstract = "An abstract."
     p.authors = [MagicMock(name="Author A")]
     p.authors[0].name = "Author A"
+    candidates = []
+    if pdf_url:
+        candidates.append(pdf_url)
+    if arxiv:
+        candidates.append(f"https://arxiv.org/pdf/{arxiv}")
+    p.candidate_pdf_urls.return_value = candidates
     return p
 
 
-def _make_search_result(papers):
+def _make_search_result(papers, errors=None):
     """Create a mock SearchResult."""
     sr = MagicMock()
     sr.papers = papers
+    sr.errors = errors or {}
     return sr
 
 
@@ -115,12 +132,29 @@ def _make_batch_import_result(created=0, updated=0):
     return r
 
 
-def _make_processing_result(success=True, problem_count=3, confidence=0.8):
+def _make_segmented_document(chars=400):
+    """A SegmentedDocument mock whose abstract section yields usable full text.
+
+    SM-1 requires >= MIN_USABLE_CHARS of extractor text for acquisition to
+    succeed, so successful-processing mocks must carry real section content.
+    """
+    section = MagicMock()
+    section.section_type = MagicMock()
+    section.section_type.value = "abstract"
+    section.content = "full paper text " * (chars // 16 + 1)
+    seg = MagicMock()
+    seg.sections = [section]
+    return seg
+
+
+def _make_processing_result(success=True, problem_count=3, confidence=0.8, section_chars=400):
     """Create a mock PaperProcessingResult."""
     r = MagicMock()
     r.success = success
     r.problem_count = problem_count
     r.paper_title = "Test Paper"
+    r.segmented_document = _make_segmented_document(section_chars)
+    r.stages = [MagicMock(success=success, error=None)]
     problems = []
     for i in range(problem_count):
         p = MagicMock()
@@ -183,6 +217,30 @@ class TestIngestPapers:
         assert result.dry_run_papers[0]["doi"] == "10.1234/test"
         assert result.papers_imported == 0
         assert result.papers_extracted == 0
+
+    @pytest.mark.asyncio
+    async def test_rate_limited_source_counted_and_surfaced(self):
+        """SM-1 (AC-5): a source that returns a 429 is counted, not silently dropped."""
+        search_result = _make_search_result(
+            [], errors={"semantic_scholar": "[semantic_scholar] Rate limit exceeded"}
+        )
+
+        with (
+            patch("agentic_kg.ingestion.get_paper_aggregator") as mock_agg,
+            patch("agentic_kg.ingestion.get_paper_importer") as mock_imp,
+            patch("agentic_kg.ingestion.get_pipeline"),
+            patch("agentic_kg.ingestion.KGIntegratorV2"),
+            patch("agentic_kg.ingestion.run_sanity_checks", return_value=[]),
+        ):
+            mock_agg.return_value.search_papers = AsyncMock(return_value=search_result)
+            mock_imp.return_value.batch_import = AsyncMock(
+                return_value=_make_batch_import_result()
+            )
+
+            result = await ingest_papers("q", limit=10)
+
+        assert result.sources_rate_limited == 1
+        assert "semantic_scholar" in result.search_errors
 
     @pytest.mark.asyncio
     async def test_empty_search_results(self):

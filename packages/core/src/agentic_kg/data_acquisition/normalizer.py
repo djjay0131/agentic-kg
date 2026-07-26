@@ -77,6 +77,26 @@ class NormalizedPaper:
     # Source-specific metadata (for reference)
     raw_data: dict[str, Any] | None = None
 
+    def candidate_pdf_urls(self) -> list[str]:
+        """Ordered list of PDF URLs to try for full-text acquisition (SM-1).
+
+        The published/authoritative copy (``pdf_url``, typically Semantic
+        Scholar's ``openAccessPdf``) is tried first because it is the canonical
+        version for a research KG. The arXiv PDF is appended as a reliability
+        fallback when an arXiv ID is present, since arXiv is reachable when
+        publisher hosts drop CI/datacenter IPs. Duplicates are removed so a
+        publisher URL that already points at arXiv is not tried twice.
+        """
+        urls: list[str] = []
+        if self.pdf_url:
+            urls.append(self.pdf_url)
+        arxiv_id = self.external_ids.get("arxiv")
+        if arxiv_id:
+            arxiv_url = f"https://arxiv.org/pdf/{arxiv_id}"
+            if arxiv_url not in urls:
+                urls.append(arxiv_url)
+        return urls
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for Knowledge Graph."""
         return {

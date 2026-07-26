@@ -14,11 +14,40 @@ from pathlib import Path
 from typing import Optional, Union
 
 import httpx
+from tenacity import (
+    retry as tenacity_retry,
+)
+from tenacity import (
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 logger = logging.getLogger(__name__)
 
 # Singleton instance
 _pdf_extractor: Optional["PDFExtractor"] = None
+
+# SM-1: some publisher hosts drop bare clients (no User-Agent). Present a
+# browser-like identity on PDF fetches.
+_PDF_FETCH_HEADERS = {
+    "User-Agent": (
+        "agentic-kg/1.0 (+https://github.com/djjay0131/agentic-kg)"
+    ),
+    "Accept": "application/pdf,*/*",
+}
+
+# SM-1: retry only genuinely-transient network errors (connect/read/disconnect).
+# Kept small on purpose — the ingestion candidate loop provides breadth across
+# sources (published -> arXiv), so a blocked host should fall through quickly
+# rather than burn a long backoff here. HTTP 4xx (e.g. 404) is NOT retried; it
+# is raised by response.raise_for_status() outside this wrapper.
+_pdf_fetch_retry = tenacity_retry(
+    retry=retry_if_exception_type(httpx.RequestError),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=0.5, max=4),
+    reraise=True,
+)
 
 
 class PDFExtractionError(Exception):
@@ -142,9 +171,15 @@ class PDFExtractor:
         """
         logger.info(f"Downloading PDF from: {url}")
 
+        # Retry only the network GET on transient errors; raise_for_status()
+        # (below) is intentionally OUTSIDE the retry so a 404 fails fast.
+        @_pdf_fetch_retry
+        async def _download(client: httpx.AsyncClient) -> httpx.Response:
+            return await client.get(url, headers=_PDF_FETCH_HEADERS)
+
         try:
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-                response = await client.get(url)
+                response = await _download(client)
 
                 # Log redirect information
                 if response.history:

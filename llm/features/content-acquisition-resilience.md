@@ -1,6 +1,6 @@
 # Feature: PDF Acquisition Reliability (source selection + fetch hardening)
 
-**Status:** SPECIFIED
+**Status:** VERIFIED
 **Date:** 2026-07-14
 **Author:** Feature Architect (AI-assisted)
 **Backlog ID:** SM-1
@@ -280,12 +280,34 @@ logger.info("Ingest summary: papers=%d with_entities=%d (%.0f%%) "
 - **SM-4** (merged) — extraction can import `instructor`; prerequisite for any entities.
 - **`docs/ground-truth/`** curation (in progress) — AC-7 only.
 
-## Open Questions
+## Verification (2026-07-14) — all four gates PASS
 
-- **Does a no-full-text paper keep a metadata/citation node, or is it dropped
-  entirely?** "Fails import" could mean either. Citations/metadata don't need full
-  text, so a lean option is: keep the Paper + `CITES` edges, mark
-  `extraction_status="failed"`, just no entity nodes. Confirm in implementation.
+| Gate | Result | Notes |
+|------|--------|-------|
+| 1. Test Integrity | PASS | 137 SM-1 tests green; broad unit gate 1563 passed. SM-1 code fully covered (ingestion 99% — only pre-existing `_paper_has_footprint` uncovered; new pdf_extractor retry/exhaustion + normalizer `candidate_pdf_urls` fully covered). Whole-file 100% is not the project standard; remaining misses are pre-existing untouched code. |
+| 2. Health Check | PASS | Categorized failures (no silent drops), no bare `except`, clear error messages, per-paper isolation keeps the batch alive, metadata/citations persist on acquisition failure. |
+| 3. Deployment Readiness | PASS | Changed modules import cleanly; `agentic-kg --help` works; no new dependency (`tenacity` already declared); thresholds/headers externalized as module constants; no secrets/paths hardcoded. |
+| 4. Maintainability | PASS | Source 100% ruff-clean; new test file clean. Remaining test-tree E501s are pre-existing SM-5 debt (deploy gate lints src only, by design). |
+
+## Implementation Notes (2026-07-14)
+
+- **Resolved open question — metadata/citation persistence:** a no-full-text paper
+  **keeps its Paper metadata + `CITES` edges** (imported in Phase 1b *before*
+  extraction) and is simply skipped for entity extraction. No stub/marker node
+  is added; the failure is recorded in `IngestionResult.acquisition_failures`
+  and `extraction_errors`. This is the lean option from the original question.
+- **Deviations from spec sample:** the candidate loop lives in a new tested
+  `ingestion._acquire_full_text` helper (not `pipeline.py`) — it sits with the
+  paper/candidate/metrics state and is the maintainability down-payment on the
+  `ingest_papers` god-loop (full refactor tracked as SM-1c).
+- **Latency guard:** implemented as a small per-URL transient retry
+  (`stop_after_attempt(3)`, `wait_exponential(max=4)`) rather than the full
+  two-pass breadth-then-depth; the candidate loop provides breadth. Sufficient
+  for AC-3; revisit only if large-run latency shows a problem.
+- **AC-6 log line** is emitted but not unit-asserted (low value); the underlying
+  counters (`pdf_ok`, `acquisition_failures`, `sources_rate_limited`) are asserted.
+
+## Open Questions
 - **arXiv PDF URL form / versioning** (`/pdf/{id}` vs `/pdf/{id}v1`) and abstract-page
   vs pdf endpoint — validate the exact reliable URL during implementation.
 - **Exact retry caps** and the breadth-first vs depth (per-candidate quick attempt,
