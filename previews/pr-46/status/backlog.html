@@ -2,7 +2,7 @@
 
 <p>Auto-regenerated from <a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/BACKLOG.md"><code class="language-plaintext highlighter-rouge">llm/features/BACKLOG.md</code></a> on every push.</p>
 
-<p><strong>45</strong> active, <strong>1</strong> resolved.</p>
+<p><strong>44</strong> active, <strong>1</strong> resolved.</p>
 
 <h2 id="active">Active</h2>
 
@@ -1048,32 +1048,6 @@
     </tr>
     <tr>
       <td>With SM-4 unblocking extraction, the daily smoke now reaches graph assertions and V1 populates (problems/concepts 20/20/20) — but all V2 counters are 0. Root cause: <code class="language-plaintext highlighter-rouge">ingestion.py:550</code> reads <code class="language-plaintext highlighter-rouge">v1_integration.mentions</code>, but <code class="language-plaintext highlighter-rouge">integrate_extracted_problems</code> returns an <code class="language-plaintext highlighter-rouge">IntegrationResultV2</code> whose mention list is <code class="language-plaintext highlighter-rouge">mention_results</code> (no <code class="language-plaintext highlighter-rouge">.mentions</code> attr) → <code class="language-plaintext highlighter-rouge">AttributeError</code> per paper, swallowed by the per-paper <code class="language-plaintext highlighter-rouge">try/except</code> at <code class="language-plaintext highlighter-rouge">:529</code> into <code class="language-plaintext highlighter-rouge">extraction_errors</code> → V2 (Topic/Concept/Model/Method) skipped. Introduced in loop-closure commit <code class="language-plaintext highlighter-rouge">7289588</code>; hidden until SM-4 let the path execute. One-line fix + regression test (the test must be red on the current line, since the outer catch hides the crash). With SM-1 (#44) resolved, this is the only remaining blocker to a green smoke. Next: <code class="language-plaintext highlighter-rouge">/constellize:feature:implement v2-integration-mention-attr-fix</code>.</td>
-    </tr>
-    <tr>
-      <td> </td>
-    </tr>
-    <tr>
-      <td>SM-7</td>
-    </tr>
-    <tr>
-      <td>—</td>
-    </tr>
-    <tr>
-      <td>Extraction rate-limit resilience (OpenAI TPM throttle + model lever)</td>
-    </tr>
-    <tr>
-      <td>{: .label .label-green }<code class="language-plaintext highlighter-rouge">VERIFIED 2026-07-25 (spec: </code>extraction-rate-limit-resilience.md<code class="language-plaintext highlighter-rouge">; renumbered SM-6→SM-7 to resolve a parallel-work label collision with the mention-attr fix; 4 units, 8 ACs, +37 tests, full suite 2097 pass, all 4 verify gates PASS; ready to merge → real build+deploy → smoke gpt-4o flip)</code></td>
-    </tr>
-  </tbody>
-</table>
-
-<table>
-  <tbody>
-    <tr>
-      <td>—</td>
-    </tr>
-    <tr>
-      <td>Post-SM-1 smoke root-caused: acquisition healthy (<code class="language-plaintext highlighter-rouge">pdf_ok=2</code>) but both full-text papers got OpenAI <code class="language-plaintext highlighter-rouge">429</code>‘d → 0 entities. 5 concurrent extractors each send the full paper (50–100k tok) → bursts past <code class="language-plaintext highlighter-rouge">gpt-4-turbo</code>’s 30k TPM; existing blind-backoff retry can’t fix a structurally over-budget workload. Spec: shared process-global TPM token-bucket (reuse <code class="language-plaintext highlighter-rouge">TokenBucketRateLimiter</code>; <code class="language-plaintext highlighter-rouge">OPENAI_TPM</code> env, default 30000; rate=TPM/60) that every extract call reserves against before firing (heuristic estimate <code class="language-plaintext highlighter-rouge">len(text)/4 + max_tokens</code>); honor <code class="language-plaintext highlighter-rouge">Retry-After</code> on the reactive 429 path (parse-miss logs WARN — no silent revert to blind backoff); <code class="language-plaintext highlighter-rouge">OPENAI_EXTRACTION_MODEL</code> env (default unchanged <code class="language-plaintext highlighter-rouge">gpt-4-turbo</code>) as the real throughput lever; flip CI smoke to <code class="language-plaintext highlighter-rouge">gpt-4o</code> so <code class="language-plaintext highlighter-rouge">Ingest + Assert</code> proves entities&gt;0 (prod default untouched); up-front INFO when predicted wait &gt;5s (legible stall, not a hang). Throttle = correctness safety-net; model/tier flip = throughput fix (arithmetic: throttle alone never makes gpt-4-turbo viable for full papers). No input reduction (out of scope), no <code class="language-plaintext highlighter-rouge">tiktoken</code>. Tests do NO real sleeping (assert <code class="language-plaintext highlighter-rouge">wait_estimate</code> math + captured sleep durations). 8 ACs. Next: <code class="language-plaintext highlighter-rouge">/constellize:feature:implement</code>.</td>
     </tr>
     <tr>
       <td> </td>
