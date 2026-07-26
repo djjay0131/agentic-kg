@@ -674,7 +674,7 @@ async def ingest_papers(
                 if (any_v2_extractions or v1_integration is not None) and doi:
                     mentions = (
                         [
-                            m for m in v1_integration.mentions
+                            m for m in v1_integration.mention_results
                             if m.concept_id
                         ]
                         if v1_integration else []
