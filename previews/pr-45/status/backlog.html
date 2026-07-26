@@ -2,7 +2,7 @@
 
 <p>Auto-regenerated from <a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/BACKLOG.md"><code class="language-plaintext highlighter-rouge">llm/features/BACKLOG.md</code></a> on every push.</p>
 
-<p><strong>43</strong> active, <strong>1</strong> resolved.</p>
+<p><strong>44</strong> active, <strong>1</strong> resolved.</p>
 
 <h2 id="active">Active</h2>
 
@@ -1022,6 +1022,32 @@
     </tr>
     <tr>
       <td>When 100% of imported papers have empty <code class="language-plaintext highlighter-rouge">section_text</code>, log ERROR / fail batch loudly; current behavior is silent zero counters. Small fix-forward.</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>SM-6</td>
+    </tr>
+    <tr>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>V2 entity integration blocked by wrong attribute (<code class="language-plaintext highlighter-rouge">.mentions</code> → <code class="language-plaintext highlighter-rouge">.mention_results</code>)</td>
+    </tr>
+    <tr>
+      <td>{: .label .label-blue }<code class="language-plaintext highlighter-rouge">SPECIFIED 2026-07-23 (spec: </code>v2-integration-mention-attr-fix.md<code class="language-plaintext highlighter-rouge">)</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>With SM-4 unblocking extraction, the daily smoke now reaches graph assertions and V1 populates (problems/concepts 20/20/20) — but all V2 counters are 0. Root cause: <code class="language-plaintext highlighter-rouge">ingestion.py:550</code> reads <code class="language-plaintext highlighter-rouge">v1_integration.mentions</code>, but <code class="language-plaintext highlighter-rouge">integrate_extracted_problems</code> returns an <code class="language-plaintext highlighter-rouge">IntegrationResultV2</code> whose mention list is <code class="language-plaintext highlighter-rouge">mention_results</code> (no <code class="language-plaintext highlighter-rouge">.mentions</code> attr) → <code class="language-plaintext highlighter-rouge">AttributeError</code> per paper, swallowed by the per-paper <code class="language-plaintext highlighter-rouge">try/except</code> at <code class="language-plaintext highlighter-rouge">:529</code> into <code class="language-plaintext highlighter-rouge">extraction_errors</code> → V2 (Topic/Concept/Model/Method) skipped. Introduced in loop-closure commit <code class="language-plaintext highlighter-rouge">7289588</code>; hidden until SM-4 let the path execute. One-line fix + regression test (the test must be red on the current line, since the outer catch hides the crash). With SM-1 (#44) resolved, this is the only remaining blocker to a green smoke. Next: <code class="language-plaintext highlighter-rouge">/constellize:feature:implement v2-integration-mention-attr-fix</code>.</td>
     </tr>
     <tr>
       <td> </td>
