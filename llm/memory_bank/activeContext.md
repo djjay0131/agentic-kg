@@ -1,13 +1,13 @@
 # Active Context
 
-Last updated: 2026-07-21
+Last updated: 2026-07-22
 
-## ✅ GOVERNANCE ENFORCED + DOCS SITE EXPANDED (2026-07-21)
+## ✅ GOVERNANCE ENFORCED + DOCS SITE EXPANDED (2026-07-21, closed out 2026-07-22)
 
 **Governance moved from adopted-but-inert to actually enforced.** Ran `governance:audit` (verdict: DRIFTING) and acted on every should-fix:
 - **PR #39 (merged):** pinned `--base origin/master` in the delta's check command (canonical `governance-checks.mjs` defaults to `origin/main`; this repo is `master` → `adr-status`/`l0-allowlist` errored on `fatal: ambiguous argument`). Fixed the SM-3 broken doc links (README → `status/service-inventory.md`; 6 `construction/sprints/*` files repointed into `llm/memory_bank/` or neutralized as historical). Added `.github/CODEOWNERS` + `.github/ISSUE_TEMPLATE/`.
 - **Branch protection LIVE on `master`** (applied via `gh api`): required status check **`test (3.12)`** — chosen because `integration-tests.yml`'s "Unit Tests" job is path-filtered and would hang on docs-only PRs; PR-required (0 approvals, solo-repo); `enforce_admins:false` so the automated deploy-manifest `[skip ci]` push keeps working; force-push + deletion blocked.
-- **PR #41 (open):** CI-wired the check via `.github/workflows/governance-checks.yml` — fetches the public agentic-governance repo pinned to SHA `31f2771` (v0.2.0) into `$RUNNER_TEMP` (outside the workspace so its own docs aren't scanned), runs `--base origin/master`. **Verified GREEN on its own PR.**
+- **PR #41 (merged):** CI-wired the check via `.github/workflows/governance-checks.yml` — fetches the public agentic-governance repo pinned to SHA `31f2771` (v0.2.0) into `$RUNNER_TEMP` (outside the workspace so its own docs aren't scanned), runs `--base origin/master`. **`Governance Checks` now passes on every PR + master push.**
 - Backfilled `gov-L*` labels on #35 (L0) / #36 (L2) / #37 (L1). Steward stays **INACTIVE**.
 
 **Docs site — two new published sections** (Jekyll just-the-docs → GitHub Pages, live):
@@ -15,9 +15,9 @@ Last updated: 2026-07-21
 - **Design & Architecture** (**PR #38** + Liquid-fix **#40**, merged): `docs/design/` = a design note per completed feature (E-1..E-8, pipeline-orchestration, D-1, D-1a, CI smoke, enhance-github-pages), each reconciled against shipped code (divergences recorded — e.g. E-3 `VARIANT_OF` never shipped, D-1 `BatchProcessor` unused, D-1a GCP status-poll is a no-op).
 - **#40** fixed a Jekyll build break: a literal `{% for %}` in a code span (Jekyll runs Liquid before markdown) → wrapped in `{% raw %}`. Child pages serve at `.html`; section landings (`/reference/`, `/design/`) at trailing-slash.
 
-**⚠️ Delta drift (follow-up):** `docs/governance-delta.md` Platform Enforcement Reality still says "branch protection available, currently unset" — now stale (it's live). Reconcile alongside PR #41's delta edit.
+**✅ Delta reconciled (2026-07-22):** `docs/governance-delta.md` Platform Enforcement Reality now records branch protection as LIVE + the `test (3.12)` / `Governance Checks` split. Also this session: **#40** (Liquid build-fix) and **#43** (entity-catalog anchor fix — double-space headings made kramdown emit `topic--e-1` while design notes linked `topic-e-1`; the 12 `build-preview` failures) both merged; live-site anchors verified resolving. Housekeeping: `.tmpbin/` gitignored; stray `enabledPlugins:{}` in `.claude/settings.json` discarded.
 
-**Next:** merge PR #41; promote `Governance Checks` to a *required* check after a few green PRs; triage the failing `cleanup-preview` GHA job (unrelated). **This file is ~580 lines — a Constellize `memory:revise` is overdue** (delta-flagged).
+**Remaining follow-ups (next session):** promote `Governance Checks` to a *required* check after a few green PRs; triage the failing `cleanup-preview` GHA job (unrelated); deploy-pipeline-fix PR-2/PR-3. **This file is ~590 lines — a Constellize `memory:revise` is overdue** (delta-flagged).
 
 ---
 
