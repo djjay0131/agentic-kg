@@ -202,6 +202,20 @@ Research Hypothesis Generation → CS-KG,  Completing Scientific Facts
 Divide and Conquer the EmpiRE  → CS-KG
 ```
 
+**Download pointers for the 5 "fetch" papers (all open access, verified 2026-07-25).** Prefer the
+publisher/DOI link; the repository mirror is the fallback if you hit a paywall or a bot block.
+
+| # | Paper | Primary (DOI) | Direct PDF / repository mirror |
+|---|---|---|---|
+| 2 | CS-KG 2.0 | `https://doi.org/10.1038/s41597-025-05200-8` | **PDF (verified live):** `https://www.nature.com/articles/s41597-025-05200-8.pdf` (gold OA) |
+| 3 | Construction of KGs: State & Challenges | `https://doi.org/10.2139/ssrn.4605059` | Qucosa repo: `https://ul.qucosa.de/id/qucosa:102513` — SSRN preprint; a fuller version also appeared in *Information* (2024), worth confirming which the PDF is |
+| 4 | LLMs for Scholarly Ontology Generation | `https://doi.org/10.1016/j.ipm.2025.104262` | Milano-Bicocca BOA: `https://hdl.handle.net/10281/567741` (hybrid OA) |
+| 6 | KG Validation w/ LLMs + Human-in-the-Loop | `https://doi.org/10.1016/j.ipm.2025.104145` | Open Research Online PDF: `https://oro.open.ac.uk/103792/1/103792.pdf` (opens in a browser; 403s to scripts) |
+| 7 | Research Hypothesis Generation over Sci KGs | `https://doi.org/10.1016/j.knosys.2025.113280` | HAL: `https://hal.science/hal-05052350` (hybrid OA) |
+
+The three ✅ papers you already own (CS-KG, Completing Scientific Facts, KG-EmpiRE/Divide-and-Conquer)
+are in your OneDrive library — just materialize them per Step 0.3.
+
 **How this was derived (and why it replaces the first-pass list):** the original shortlist was built
 from your *paraphrased folder filenames*. On verification (2026-07-25), only 4 of those 10 resolved
 confidently by title search, and the 4 that did (CS-KG, Completing Scientific Facts, KG-EmpiRE,
