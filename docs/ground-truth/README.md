@@ -61,20 +61,22 @@ genuinely ambiguous (those notes are valuable; they tell us where the importer's
    select the folder → right-click → **"Always keep on this device"** before reviewing, or Claude/tools
    won't be able to open them.
 
-## Step 1 — Resolve the papers and verify the chain
+## Step 1 — Get the papers (identifiers + chain already verified)
 
-The shortlist below is identified by **filename** (paraphrased) — resolve each to hard identifiers first:
+**This step is largely done** — see [The verified citation chain](#the-verified-citation-chain-curated-2026-07-25)
+below. The 8 papers are resolved to DOIs and the citation edges among them were confirmed against
+OpenAlex (10 edges, one connected component). What's left for you:
 
-1. Open each PDF, record its **exact title, authors, year, and DOI** (the DOI is usually on page 1 or
-   in the references header). Do **not** guess DOIs — read them off the paper.
-2. Look each up on **Semantic Scholar** (`https://api.semanticscholar.org/graph/v1/paper/DOI:<doi>`)
-   to get its `paperId`. This is the same source the importer uses to populate `CITES`.
-3. **Verify the citation edges** among the set: for each paper, check its references/citations for the
-   other papers in the set. Record which papers actually cite which. This confirms (or corrects) the
-   intended chain — if some papers turn out disconnected, swap them for connected ones from the same
-   `Knowledge Graphs/` folder.
-
-Record the resolved identifiers + edge list wherever you land on storage (Step 2).
+1. **Acquire the PDFs.** Three are already in your library (marked ✅ in the chain table); fetch the
+   other five by DOI (publisher or `https://doi.org/<doi>`; arXiv/open-access where available).
+2. **Sanity-check the ✅ mappings.** Confirm your `Public/Large_Scale_KG_CS.pdf`,
+   `Completing_Scientific_Facts_...pdf`, and `KG-EmpiRE` PDF are in fact the papers listed (open them,
+   check title/DOI). The KG-EmpiRE PDF should map to the **2023 "Divide and Conquer the EmpiRE"** version.
+3. **(Optional) Re-derive edges from your storage** once loaded, as a cross-check — for each paper,
+   confirm its reference list contains the others as the chain table claims. Semantic Scholar
+   (`https://api.semanticscholar.org/graph/v1/paper/DOI:<doi>`) is the source the importer itself uses
+   for `CITES`; OpenAlex was used for the curation. Minor source-to-source edge differences are normal —
+   record whichever the importer will actually populate.
 
 ## Step 2 — Decide storage (Output A)
 
@@ -169,34 +171,73 @@ is most likely to be wrong, and become targeted assertions for the eval harness.
 
 ---
 
-## The shortlist (KG-construction spine)
+## The verified citation chain (curated 2026-07-25)
 
-Concept spine to watch as it recurs and escalates: **"LLM-based scientific entity & relation
-extraction."** All papers are in
-`OneDrive/.../Research.AI/Literature/Human Selected Literature/Knowledge Graphs/` unless noted.
-Ordered as the *intended* chain — **verify the real edges in Step 1** and reorder/swap as needed.
+Concept spine: **automated construction of scholarly knowledge graphs → validation →
+downstream reasoning (hypothesis / `Problem` generation).** This set was **verified against
+OpenAlex**: the 8 papers form **one connected component with 10 real citation edges** and it is
+multi-hop (not just a star), so cross-paper concept accumulation actually has citation structure to
+ride on. **DOIs are resolved** — no guessing needed. Five of the eight are from the same research
+lineage (Dessì / Osborne / Salatino group), so concepts genuinely recur and evolve across the set.
 
-| # | Paper (folder filename) | Intended role in the chain |
-|---|---|---|
-| 1 | `Public/Large_Scale_KG_CS.pdf` (likely CS-KG / AI-KG, Dessì et al.) | Foundational hub — earlier automated KG-of-science that later work cites |
-| 2 | `Automated KG construction.pdf` | Core construction method |
-| 3 | `Constructing KGs with LLMs.pdf` | LLM-based construction (spine anchor) |
-| 4 | `A_Knowledge_Graph-based_RAG_for_Cross-Document_Information_Extraction.pdf` | Cross-document extraction |
-| 5 | `Completing_Scientific_Facts_in_Knowledge_Graphs_of_Research_Concepts.pdf` | Fact/relation completion |
-| 6 | `KG-EmpiRE_...Requirements_Engineering.pdf` | Domain KG application (community-maintainable lit-review KG) |
-| 7 | `Personal Research Knowledge Graphs.pdf` | Per-researcher KG application |
-| 8 | `Assessing Research Papers with Knowlege Graphs.pdf` | Evaluation / downstream use of the KG |
-| 9 | `General Research Automation (idea generation, etc.)/Idea Generation using Knowledge Graphs + LLMs.pdf` | Downstream: KG → new ideas |
-| 10 | `General Research Automation (idea generation, etc.)/Problem-Solution Dataset for Automated Extraction.pdf` | Directly exercises the `Problem` node — the escalation target |
+| # | Paper | Year | DOI | Role in the chain | In your folder? |
+|---|---|---|---|---|---|
+| 1 | CS-KG: A Large-Scale Knowledge Graph of Research Entities and Claims in Computer Science | 2022 | `10.1007/978-3-031-19433-7_39` | **Anchor / hub** — automated scholarly KG | ✅ `Public/Large_Scale_KG_CS.pdf` |
+| 2 | CS-KG 2.0: A Large-scale Knowledge Graph of Computer Science | 2025 | `10.1038/s41597-025-05200-8` | Direct successor to the anchor | — (fetch) |
+| 3 | Construction of Knowledge Graphs: Current State and Challenges | 2023 | `10.2139/ssrn.4605059` | KG-construction survey | — (fetch) |
+| 4 | Large Language Models for Scholarly Ontology Generation | 2025 | `10.1016/j.ipm.2025.104262` | LLM-based construction | — (fetch) |
+| 5 | Completing Scientific Facts in Knowledge Graphs of Research Concepts | 2022 | `10.1109/access.2022.3220241` | Fact / relation completion | ✅ `Completing_Scientific_Facts_...pdf` |
+| 6 | Knowledge Graph Validation by Integrating LLMs and Human-in-the-Loop | 2025 | `10.1016/j.ipm.2025.104145` | Validation + human review (ties to the review-queue goal) | — (fetch) |
+| 7 | Research Hypothesis Generation over Scientific Knowledge Graphs | 2025 | `10.1016/j.knosys.2025.113280` | **Downstream: KG → hypotheses** — the `Problem`-node escalation target | — (fetch) |
+| 8 | Divide and Conquer the EmpiRE: A Community-Maintainable KG of Empirical Research in Requirements Engineering | 2023 | `10.1109/esem56168.2023.10304795` | Domain KG application | ✅ your `KG-EmpiRE` PDF (this is the fuller 2023 version) |
 
-**Tighter core (if 10 is too many):** #1–#5 form the pure KG-construction chain. #6–#10 add breadth and
-the problem-escalation angle.
+**Verified edges (A cites B), from OpenAlex `referenced_works`:**
+
+```
+CS-KG 2.0                      → CS-KG,  Completing Scientific Facts
+Construction of KGs (survey)   → CS-KG
+LLM Scholarly Ontology Gen     → CS-KG,  KG Validation (HITL)
+KG Validation (HITL)           → CS-KG,  Completing Scientific Facts
+Research Hypothesis Generation → CS-KG,  Completing Scientific Facts
+Divide and Conquer the EmpiRE  → CS-KG
+```
+
+**Download pointers for the 5 "fetch" papers (all open access, verified 2026-07-25).** Prefer the
+publisher/DOI link; the repository mirror is the fallback if you hit a paywall or a bot block.
+
+| # | Paper | Primary (DOI) | Direct PDF / repository mirror |
+|---|---|---|---|
+| 2 | CS-KG 2.0 | `https://doi.org/10.1038/s41597-025-05200-8` | **PDF (verified live):** `https://www.nature.com/articles/s41597-025-05200-8.pdf` (gold OA) |
+| 3 | Construction of KGs: State & Challenges | `https://doi.org/10.2139/ssrn.4605059` | Qucosa repo: `https://ul.qucosa.de/id/qucosa:102513` — SSRN preprint; a fuller version also appeared in *Information* (2024), worth confirming which the PDF is |
+| 4 | LLMs for Scholarly Ontology Generation | `https://doi.org/10.1016/j.ipm.2025.104262` | Milano-Bicocca BOA: `https://hdl.handle.net/10281/567741` (hybrid OA) |
+| 6 | KG Validation w/ LLMs + Human-in-the-Loop | `https://doi.org/10.1016/j.ipm.2025.104145` | Open Research Online PDF: `https://oro.open.ac.uk/103792/1/103792.pdf` (opens in a browser; 403s to scripts) |
+| 7 | Research Hypothesis Generation over Sci KGs | `https://doi.org/10.1016/j.knosys.2025.113280` | HAL: `https://hal.science/hal-05052350` (hybrid OA) |
+
+The three ✅ papers you already own (CS-KG, Completing Scientific Facts, KG-EmpiRE/Divide-and-Conquer)
+are in your OneDrive library — just materialize them per Step 0.3.
+
+**How this was derived (and why it replaces the first-pass list):** the original shortlist was built
+from your *paraphrased folder filenames*. On verification (2026-07-25), only 4 of those 10 resolved
+confidently by title search, and the 4 that did (CS-KG, Completing Scientific Facts, KG-EmpiRE,
+Personal Research KGs) turned out to have **zero direct citation edges** among them — a topically
+grouped, same-era folder rarely forms a citation chain. So the chain was **rebuilt by construction**:
+anchor on CS-KG (which you own and which resolved cleanly), then pull papers that *actually cite it*
+via OpenAlex forward-citations, keeping those that also cite each other. Three of your original PDFs
+survive into this set (marked ✅); the other five are fetched by DOI. If you'd rather stay strictly
+inside your existing library, materialize the PDFs and we can re-run the edge check on those exact
+files — but expect a sparser graph.
+
+**Tighter core (if 8 is too many):** #1, #2, #5, #7 give the anchor → successor → completion →
+hypothesis-escalation spine with every edge verified.
 
 ## Gotchas
 
 - **PDFs are OneDrive online-only placeholders** — materialize them (Step 0.3) or nothing can open them.
-- **Don't fabricate DOIs.** Read them off the paper; confirm on Semantic Scholar.
+  (This is why curation used DOIs/OpenAlex rather than the PDFs directly.)
+- **Don't fabricate DOIs.** The chain table's DOIs are resolved; confirm each against the actual PDF.
 - **Independence of the two reviews is the point** — don't let the Claude review see the human review (or
   vice versa) until reconciliation.
-- If a shortlisted paper turns out **not** to connect to the others by citation, swap it — a connected
-  set is the requirement, not this exact list.
+- **The chain is verified but not immutable** — if you drop or add a paper, re-run the edge check so the
+  set stays connected. A connected set is the requirement, not this exact list.
+- **`CITES` source differs by tool** — curation used OpenAlex; the importer uses Semantic Scholar. Expect
+  small edge differences; the ground truth should reflect what the *importer* will populate.

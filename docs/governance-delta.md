@@ -6,7 +6,7 @@ nav_exclude: true
 # Governance Delta: agentic-kg
 
 Status: Approved (bootstrap)
-Last updated: 2026-07-13
+Last updated: 2026-07-22
 Governance: agentic-governance v0.2
 
 This file localizes [agentic-governance](https://github.com/djjay0131/agentic-governance)
@@ -121,26 +121,27 @@ deny docs/governance-delta.md
 
 ## Platform Enforcement Reality
 
-- **Branch protection on `master`: available, currently unset.**
-  agentic-kg is a **public** repository (unlike its siblings, which are
-  private/free-plan and structurally blocked). Verified 2026-07-13:
-  `gh api repos/djjay0131/agentic-kg/branches/master/protection` returns
-  `404 "Branch not protected"` — the platform-available/not-yet-configured
-  signal, not the siblings' `403` plan-blocked signal.
-- **Required status checks: available, currently unset.** `test.yml`,
-  `integration-tests.yml`, and `smoke-ingest.yml` already exist and run in
-  CI; none is yet marked required. **Recommended follow-up (owner action):**
-  enable branch protection on `master` with these three as required status
-  checks, plus a PR-review requirement. This establish PR does not enable
-  branch protection itself — that is an owner-only settings action, and
-  this PR does not touch `.github/workflows/**`.
+- **Branch protection on `master`: LIVE (enabled 2026-07-21).** agentic-kg
+  is a **public** repo, so this was platform-available (not plan-blocked
+  like the private siblings). Applied via
+  `gh api …/branches/master/protection`: required status check
+  `test (3.12)`; PR required (0 approvals — solo repo, so no second
+  approver); `enforce_admins: false` (so the automated deploy-manifest
+  `[skip ci]` push keeps working); force-push + deletion blocked.
+- **Required status checks: `test (3.12)` (from `test.yml`, runs on every
+  PR).** Chosen over `integration-tests.yml`'s "Unit Tests" job, which is
+  path-filtered and would hang docs-only PRs on "waiting for status."
+  `Governance Checks` (`governance-checks.yml`, PR #41) now runs on every
+  PR + push to master but is **not yet required** — promote it once it has
+  a green track record. `smoke-ingest.yml` is path-filtered, unsuitable as
+  a blanket required check.
 - **Token/identity model:** agent sessions authenticate with the owner's
   token — steward/auditor/architect are procedural roles, not distinct
   identities; independence is temporal/artifactual, same as the siblings.
-- **Hardening path:** enabling required status checks converts today's
-  convention-only CI-green expectation into a platform-enforced merge
-  gate; this is available now (no plan upgrade needed, unlike the private
-  siblings) and only awaits the owner's configuration action.
+- **Hardening path (remaining):** (1) promote `Governance Checks` to a
+  required check after a few green PRs; (2) consider `enforce_admins: true`
+  once the automated deploy-manifest commit is moved off direct-to-master
+  (else strict enforcement would break it). Steward stays INACTIVE.
 
 ## Steward Activation Status
 

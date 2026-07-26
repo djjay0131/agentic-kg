@@ -1,87 +1,13 @@
 # Active Context
 
-Last updated: 2026-07-25
+Last updated: 2026-07-22
 
-## ✅ SM-7 VERIFIED — extraction rate-limit resilience (2026-07-25)
-
-**All four Constellize verify gates PASS.** Ready for integration (merge → real
-`packages/core/**` build+deploy → smoke's gpt-4o flip should turn `Ingest +
-Assert` green with entities>0).
-
-| Gate | Result | Notes |
-|------|--------|-------|
-| 1. Test Integrity | PASS | Full core suite 2097 passed / 0 fail. `rate_limiter.py` 100%; all SM-7 code in `llm_client.py` covered. The 26 whole-file `llm_client` misses are **pre-existing** (abstract stub, real AsyncOpenAI/AsyncAnthropic SDK construction, `instructor.from_*` patching, Anthropic error path, `create_llm_client` unreachable guard) — predate SM-7, matching the E-7/orchestration verify precedent. No real-time sleeping in throttle tests (frozen clock + mocked `asyncio.sleep`). |
-| 2. Health Check | PASS | `OPENAI_TPM` → `ValueError` naming the var on non-int/≤0; `estimate_tokens` handles `None` system prompt; `_parse_retry_after` defensive `getattr` chain + specific `except (TypeError, ValueError)` (no bare except), and its `None` is surfaced LOUDLY as a WARN at the call site (no silent revert); 429 path raises typed errors with actionable messages. |
-| 3. Deployment | PASS | `agentic-kg ingest` runs clean; config externalized (`OPENAI_EXTRACTION_MODEL` env-first, `OPENAI_TPM`); no hardcoded secrets; no new deps; defaults match production (gpt-4-turbo / 30000). Env vars documented in `techContext.md` + runbook. |
-| 4. Maintainability | PASS | Ruff clean on `src` + all changed test files. Reuses `TokenBucketRateLimiter` + singleton/reset pattern; no unjustified deps. |
-
-**Verify-time fixes applied:** none (Gate 3 added env-var docs to `techContext.md`
-— documentation, not code). **Follow-up (not blocking):** pre-existing
-`llm_client.py` whole-file coverage debt (Anthropic + SDK-construction paths) —
-candidate cleanup, symmetric to SM-5 test-lint debt.
-
-## ✅ SM-7 IMPLEMENTED — extraction rate-limit resilience (2026-07-25)
-
-Spec `llm/features/extraction-rate-limit-resilience.md` (IMPLEMENTED). Fixes the
-post-SM-1 smoke red-line: acquisition healthy (`pdf_ok=2`) but both full-text
-papers got OpenAI `429`'d → 0 entities. 5 concurrent extractors each send the
-full paper (~50–100k tok) → burst past `gpt-4-turbo`'s 30k TPM; the old blind
-exponential-backoff retry can't fix a structurally over-budget workload.
-
-**What was built (4 units, 8 ACs, no new deps):**
-- **`data_acquisition/rate_limiter.py`** — new `TokenBucketRateLimiter.wait_estimate(tokens)`:
-  pure-read peek (projects tokens forward by elapsed, no mutation, no sleep) so
-  `extract` can log an ETA before blocking.
-- **`extraction/llm_client.py`** — shared process-global OpenAI TPM bucket
-  (`get_tpm_limiter()`, singleton, reset via `reset_llm_clients()`): `rate =
-  OPENAI_TPM/60`, `RateLimitConfig(burst_multiplier=60)` → capacity == TPM.
-  `_read_tpm_budget()` (env `OPENAI_TPM`, default 30000; **ValueError naming the
-  var** on non-int/≤0). `estimate_tokens()` heuristic (`(len(prompt)+len(system))//4
-  + max_tokens`). `OpenAIClient.extract` now reserves the estimate via
-  `acquire()` BEFORE the API call (proactive throttle), logs an up-front INFO
-  when predicted wait > 5s (legible stall, names the model-flip remedy), and on
-  a 429 parses `Retry-After` (`_parse_retry_after`: typed header → regex
-  "1.8s"/"20ms") — **WARN on parse-miss** (no silent revert). Retry `wait=`
-  swapped to `_rate_limit_wait` (honors `retry_after`, else exponential).
-  `get_openai_client` model resolves **env-first**: `OPENAI_EXTRACTION_MODEL`
-  wins → passed arg → `gpt-4-turbo` (so the CI flip reaches problem_extractor,
-  which passes `model="gpt-4-turbo"` explicitly). **OpenAI path only** —
-  Anthropic untouched (non-goal).
-- **`.github/workflows/smoke-ingest.yml`** — CI flips `OPENAI_EXTRACTION_MODEL=gpt-4o`
-  + `OPENAI_TPM=450000` so `Ingest + Assert` proves entities>0. **Production
-  default stays gpt-4-turbo** (workflow-only override).
-- **`docs/operations/extraction-throughput-runbook.md`** (+ `docs/operations/index.md`,
-  nav_order 6) — AC-8 operator runbook: the two levers, the `gcloud run jobs
-  update` command, verify via edge-count Cypher.
-
-**Decisions / framing:** throttle = correctness safety-net (kills 429 storms,
-keeps *any* tier under budget), model/tier flip = the real throughput lever —
-arithmetic in the spec shows the throttle alone never makes gpt-4-turbo viable
-for full papers (~500s/paper accrual at 30k TPM). No input reduction (out of
-scope). **HARD RULE honored: no real-time sleeping in tests** — throttle tests
-assert `wait_estimate` math + durations captured from a monkeypatched
-`asyncio.sleep`, clock frozen via `time.monotonic` monkeypatch.
-
-**Tests:** `test_rate_limiter.py` (+6: wait_estimate boundaries + 5-way
-concurrent-acquire no-deadlock), `test_llm_client.py` (+~30: TPM budget parse,
-estimate, Retry-After parse/honor, env-first model, throttle ordering + ETA log
-+ WARN-on-miss + LLMAPIError branch), `test_smoke_workflow_structure.py` (+1:
-env flip). Full core suite: **2097 passed, 0 failures**. `wait_estimate` at
-100%; llm_client new code fully covered (remaining misses are pre-existing
-AsyncOpenAI/Anthropic/create_llm_client lines). Ruff clean on src + changed tests.
-
-**Next:** `/constellize:feature:verify extraction-rate-limit-resilience` (4
-gates). Then merge → triggers a real `packages/core/**` build+deploy → the
-smoke's `gpt-4o` flip should finally turn `Ingest + Assert` green with entities>0.
-
----
-
-## ✅ GOVERNANCE ENFORCED + DOCS SITE EXPANDED (2026-07-21)
+## ✅ GOVERNANCE ENFORCED + DOCS SITE EXPANDED (2026-07-21, closed out 2026-07-22)
 
 **Governance moved from adopted-but-inert to actually enforced.** Ran `governance:audit` (verdict: DRIFTING) and acted on every should-fix:
 - **PR #39 (merged):** pinned `--base origin/master` in the delta's check command (canonical `governance-checks.mjs` defaults to `origin/main`; this repo is `master` → `adr-status`/`l0-allowlist` errored on `fatal: ambiguous argument`). Fixed the SM-3 broken doc links (README → `status/service-inventory.md`; 6 `construction/sprints/*` files repointed into `llm/memory_bank/` or neutralized as historical). Added `.github/CODEOWNERS` + `.github/ISSUE_TEMPLATE/`.
 - **Branch protection LIVE on `master`** (applied via `gh api`): required status check **`test (3.12)`** — chosen because `integration-tests.yml`'s "Unit Tests" job is path-filtered and would hang on docs-only PRs; PR-required (0 approvals, solo-repo); `enforce_admins:false` so the automated deploy-manifest `[skip ci]` push keeps working; force-push + deletion blocked.
-- **PR #41 (open):** CI-wired the check via `.github/workflows/governance-checks.yml` — fetches the public agentic-governance repo pinned to SHA `31f2771` (v0.2.0) into `$RUNNER_TEMP` (outside the workspace so its own docs aren't scanned), runs `--base origin/master`. **Verified GREEN on its own PR.**
+- **PR #41 (merged):** CI-wired the check via `.github/workflows/governance-checks.yml` — fetches the public agentic-governance repo pinned to SHA `31f2771` (v0.2.0) into `$RUNNER_TEMP` (outside the workspace so its own docs aren't scanned), runs `--base origin/master`. **`Governance Checks` now passes on every PR + master push.**
 - Backfilled `gov-L*` labels on #35 (L0) / #36 (L2) / #37 (L1). Steward stays **INACTIVE**.
 
 **Docs site — two new published sections** (Jekyll just-the-docs → GitHub Pages, live):
@@ -89,9 +15,9 @@ smoke's `gpt-4o` flip should finally turn `Ingest + Assert` green with entities>
 - **Design & Architecture** (**PR #38** + Liquid-fix **#40**, merged): `docs/design/` = a design note per completed feature (E-1..E-8, pipeline-orchestration, D-1, D-1a, CI smoke, enhance-github-pages), each reconciled against shipped code (divergences recorded — e.g. E-3 `VARIANT_OF` never shipped, D-1 `BatchProcessor` unused, D-1a GCP status-poll is a no-op).
 - **#40** fixed a Jekyll build break: a literal `{% for %}` in a code span (Jekyll runs Liquid before markdown) → wrapped in `{% raw %}`. Child pages serve at `.html`; section landings (`/reference/`, `/design/`) at trailing-slash.
 
-**⚠️ Delta drift (follow-up):** `docs/governance-delta.md` Platform Enforcement Reality still says "branch protection available, currently unset" — now stale (it's live). Reconcile alongside PR #41's delta edit.
+**✅ Delta reconciled (2026-07-22):** `docs/governance-delta.md` Platform Enforcement Reality now records branch protection as LIVE + the `test (3.12)` / `Governance Checks` split. Also this session: **#40** (Liquid build-fix) and **#43** (entity-catalog anchor fix — double-space headings made kramdown emit `topic--e-1` while design notes linked `topic-e-1`; the 12 `build-preview` failures) both merged; live-site anchors verified resolving. Housekeeping: `.tmpbin/` gitignored; stray `enabledPlugins:{}` in `.claude/settings.json` discarded.
 
-**Next:** merge PR #41; promote `Governance Checks` to a *required* check after a few green PRs; triage the failing `cleanup-preview` GHA job (unrelated). **This file is ~580 lines — a Constellize `memory:revise` is overdue** (delta-flagged).
+**Remaining follow-ups (next session):** promote `Governance Checks` to a *required* check after a few green PRs; triage the failing `cleanup-preview` GHA job (unrelated); deploy-pipeline-fix PR-2/PR-3. **This file is ~590 lines — a Constellize `memory:revise` is overdue** (delta-flagged).
 
 ---
 
