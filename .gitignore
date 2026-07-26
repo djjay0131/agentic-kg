@@ -68,3 +68,6 @@ docs/_data/
 node_modules/
 .next/
 *.code-workspace
+
+# Scratch tool binaries (e.g. downloaded actionlint)
+.tmpbin/
