@@ -42,12 +42,23 @@ so **the throttle alone never makes `gpt-4-turbo` viable for full papers.**
   eliminating 429 storms and wasted API attempts, and — critically — it keeps *any* tier under
   its ceiling once concurrent papers are in flight. It is NOT a throughput solution at the
   default tier.
-- **Model/tier flip = the throughput lever.** Moving to a higher-TPM model (e.g. `gpt-4o` at a
-  450k-TPM tier) is what actually lets full-paper extraction complete. The throttle then keeps
+- **Model/tier flip = a throughput lever *only if the org actually has a higher tier*.** Moving
+  to a higher-TPM model lets full-paper extraction complete faster, and the throttle then keeps
   that larger budget from being blown by concurrency.
 
 Reducing extractor input (chunking/summarizing full papers) is deliberately out of scope — see
 Non-Goals; that is a separate, larger feature.
+
+> **Field note (2026-07-26, first CI run):** the "flip to a higher-TPM model" lever is
+> **tier-dependent and was wrong for this org.** `gpt-4o` on org `org-f7rSG…` is capped at
+> **30,000 TPM — identical to `gpt-4-turbo`** (proven by the 429s: `Limit 30000` for gpt-4o).
+> There is no higher tier to flip to here. Worse, setting `OPENAI_TPM=450000` (an assumed tier)
+> told the throttle it had 15× the real budget, so it **never paced** and every call still
+> 429-ed. Correction: set `OPENAI_TPM` to the org's **real** ceiling (30000); the **throttle
+> alone**, at the honest budget, is what makes extraction fit — no higher tier required. The
+> model-flip lever remains valid *for orgs that genuinely have a higher tier*; verify the tier
+> (read the `x-ratelimit-limit-tokens` response header) before raising `OPENAI_TPM`. Setting
+> `OPENAI_TPM` **too high breaks** the throttle; **too low is always safe** (just slower).
 
 ## Goals
 
@@ -59,8 +70,9 @@ Non-Goals; that is a separate, larger feature.
 - Make the **extraction model configurable** via `OPENAI_EXTRACTION_MODEL` (default unchanged:
   `gpt-4-turbo`), so an operator can pull the real throughput lever (a higher-TPM tier/model)
   without a code change.
-- **Flip CI's smoke-ingest** to a higher-TPM model via the env knob so the `Ingest + Assert`
-  job proves entities > 0 end-to-end. Production default stays `gpt-4-turbo`.
+- **Set CI's smoke-ingest `OPENAI_TPM` to the org's real ceiling** so the throttle paces the
+  concurrent extractors and the `Ingest + Assert` job proves entities > 0 end-to-end (the
+  throttle, not a model flip, is the mechanism on this org). Production default stays `gpt-4-turbo`.
 - Ship a **documented operator runbook** for the same lever in production.
 
 ## Non-Goals
@@ -190,8 +202,8 @@ def get_openai_client(model: str | None = None) -> OpenAIClient:
 ```yaml
 # .github/workflows/smoke-ingest.yml
 env:
-  OPENAI_EXTRACTION_MODEL: gpt-4o     # higher-TPM tier so smoke produces entities
-  OPENAI_TPM: "450000"                # match the tier; throttle isn't the bottleneck here
+  OPENAI_EXTRACTION_MODEL: gpt-4o     # CI-only; exercises the env knob (no higher tier here)
+  OPENAI_TPM: "30000"                 # this org's REAL ceiling → the throttle actually paces
 ```
 
 ## Edge Cases & Error Handling
@@ -267,11 +279,14 @@ env:
 - **When** the limiter is constructed
 - **Then** its rate is `OPENAI_TPM/60` (default 500.0); a non-integer value raises `ValueError`.
 
-### AC-6: CI smoke-ingest produces entities
-- **Given** the smoke-ingest workflow sets a higher-TPM extraction model
+### AC-6: CI smoke-ingest produces entities (throttle paces under the real ceiling)
+- **Given** the smoke-ingest workflow sets `OPENAI_TPM` to the org's real ceiling (30000) so the
+  proactive throttle actually paces the concurrent extractors under it
 - **When** `Ingest + Assert` runs against the full-text sample
-- **Then** entities extracted > 0 and the job passes; the production default remains
-  `gpt-4-turbo` (workflow-only override).
+- **Then** extraction stays under the TPM ceiling (no unrecovered 429s) and entities > 0; the
+  production default model remains `gpt-4-turbo` (the model override is CI-only). *Note: a
+  green smoke also requires the separate `v2-integration-mention-attr-fix` — an unrelated
+  `AttributeError` that skips all V2 writes — to have landed; see Dependencies.*
 
 ### AC-7: A long throttle wait is legible, not a silent hang
 - **Given** a predicted throttle wait exceeding 5 seconds for the next call
@@ -311,6 +326,12 @@ env:
 - SM-1 (content-acquisition-resilience, VERIFIED/merged) — full-text papers must reach the
   extractor for this throttle to matter.
 - `TokenBucketRateLimiter` (data-acquisition, existing).
+- **`v2-integration-mention-attr-fix` (hard dependency for AC-6's green smoke)** — an unrelated
+  `AttributeError` (`ingestion.py` reads `v1_integration.mentions`, but the result exposes
+  `mention_results`) crashes every paper after V1 and skips all V2 writes. Until it lands, the
+  smoke shows `topic_edges=0 / concepts=0 / models=0` regardless of rate limiting. This
+  feature's rate-limit work is independent and unit-verified; the *end-to-end green smoke*
+  needs both.
 
 ## Open Questions
 

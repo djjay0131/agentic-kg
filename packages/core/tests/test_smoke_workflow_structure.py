@@ -276,14 +276,15 @@ class TestEnvBlock:
         env = _smoke_job(workflow)["env"]
         assert "secrets.OPENAI_API_KEY" in env["OPENAI_API_KEY"]
 
-    def test_sm6_extraction_model_and_tpm_flip(self, workflow):
-        """AC-6: CI flips to a higher-TPM model so entities flow; the throttle
-        budget matches the tier. Production default stays gpt-4-turbo (this
-        override lives only in the workflow)."""
+    def test_sm7_throttle_budget_at_real_ceiling(self, workflow):
+        """AC-6: CI sets OPENAI_TPM to this org's REAL ceiling (30000) so the
+        throttle paces the concurrent extractors under it — the throttle, not a
+        model flip, is the mechanism (gpt-4o has no higher tier on this org).
+        Production default stays gpt-4-turbo; the model override is CI-only."""
         env = _smoke_job(workflow)["env"]
         assert env["OPENAI_EXTRACTION_MODEL"] == "gpt-4o"
         # YAML may parse the quoted value as str or int; normalize to str.
-        assert str(env["OPENAI_TPM"]) == "450000"
+        assert str(env["OPENAI_TPM"]) == "30000"
 
     def test_neo4j_uri_is_localhost(self, workflow):
         """AC-12: NEO4J_URI always points at localhost via the service
