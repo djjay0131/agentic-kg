@@ -146,6 +146,15 @@ class TestNeo4jService:
         assert "initialize_schema" in step["run"]
         assert "force=True" in step["run"]
 
+    def test_taxonomy_seed_step_before_ingest(self, workflow):
+        """SM-8b: Topic (BELONGS_TO) is closed-set — the taxonomy must be seeded
+        before ingest or every extracted topic is skipped (topic_edges=0)."""
+        step = _step_by_name(workflow, "Seed topic taxonomy")
+        assert "load-taxonomy" in step["run"]
+        names = [s.get("name") for s in _smoke_job(workflow)["steps"]]
+        assert names.index("Initialize Neo4j schema") < names.index("Seed topic taxonomy")
+        assert names.index("Seed topic taxonomy") < names.index("Ingest (with single retry)")
+
 
 # =============================================================================
 # AC-4: ingest invocation
