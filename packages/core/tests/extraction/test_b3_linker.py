@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 
 from agentic_kg.extraction.b3_linker import link_problems_to_concepts
 from agentic_kg.extraction.fixtures.b3_deny_list import DEFAULT_ALIAS_DENY_LIST
+from agentic_kg.extraction.kg_integration_v2 import MentionIntegrationResult
 from agentic_kg.extraction.schemas import ExtractedResearchConcept
 
 
@@ -25,6 +26,49 @@ def _mention(
     m.quoted_text = quoted
     m.concept_id = concept_id
     return m
+
+
+class TestMentionIntegrationResultIsB3LinkerInput:
+    """SM-8: the real object handed to the B3 linker in production is a
+    MentionIntegrationResult, NOT a duck-typed mock. It must satisfy the
+    ProblemMention-like contract (.statement / .quoted_text / .concept_id / .id).
+
+    The pre-fix schema lacked statement/quoted_text/id, so these are red before
+    the fix — reproducing the production `'MentionIntegrationResult' object has
+    no attribute 'statement'` crash.
+    """
+
+    def test_id_aliases_mention_id(self):
+        m = MentionIntegrationResult(mention_id="mid-1", trace_id="t")
+        assert m.id == "mid-1"
+
+    def test_carries_problem_text_fields(self):
+        m = MentionIntegrationResult(
+            mention_id="mid-1", trace_id="t",
+            statement="s", quoted_text="q",
+        )
+        assert m.statement == "s"
+        assert m.quoted_text == "q"
+
+    def test_real_result_links_without_attribute_error(self):
+        mention = MentionIntegrationResult(
+            mention_id="mid-1",
+            trace_id="t",
+            concept_id="pc-1",
+            statement="The attention mechanism dominates the loss landscape.",
+            quoted_text="we use multi-head attention",
+        )
+        extracted = ExtractedResearchConcept(
+            name="attention mechanism",
+            aliases=[],
+            quoted_text="we use multi-head attention layers",
+        )
+        # Would raise AttributeError on the pre-fix schema (no .statement).
+        edges = link_problems_to_concepts(
+            mentions=[mention],
+            paper_extractions=[(extracted, "rc-attention")],
+        )
+        assert edges == [("pc-1", "rc-attention")]
 
 
 class TestLinkProblemsToConcepts:
