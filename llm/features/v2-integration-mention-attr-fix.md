@@ -1,7 +1,7 @@
 # Feature: Fix V2 Entity Integration Blocked by Wrong Attribute (`.mentions` → `.mention_results`)
 
-**Status:** SPECIFIED
-**Date:** 2026-07-23
+**Status:** IMPLEMENTED
+**Date:** 2026-07-23 (implemented 2026-07-26)
 **Author:** Feature Architect (AI-assisted)
 **Backlog ID:** SM-6
 
