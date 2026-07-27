@@ -81,6 +81,14 @@ jobs:
       - name: Initialize Neo4j schema
         run: python -c "from agentic_kg.knowledge_graph.schema import initialize_schema; initialize_schema(force=True)"
 
+      - name: Seed topic taxonomy
+        # SM-8b: Topic (BELONGS_TO) is a CLOSED set — the integrator only links
+        # papers to pre-existing Topic nodes. Without this seed every extracted
+        # topic is "not found in graph" and skipped → topic_edges=0. Name-based
+        # match needs no embeddings; --skip-embeddings keeps the smoke off the
+        # OpenAI TPM budget.
+        run: agentic-kg load-taxonomy --skip-embeddings
+
       - name: Ingest (with single retry)
         run: |
           set +e

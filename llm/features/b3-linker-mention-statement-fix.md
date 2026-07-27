@@ -147,3 +147,33 @@ result.mention_results.append(mention_result)
   `AttributeError`/`TypeError` propagate (or log at ERROR with a distinct
   "integration wiring bug" prefix) would surface the next such defect loudly.
   Filed as SM-9 (below), still out of scope here.
+
+## Addendum — SM-8b: smoke never seeds the Topic taxonomy
+
+**Discovered in the same smoke run** (`30306645413`) that confirmed SM-8. With
+the crash fixed, entities finally flowed: `concepts=19, models=23, methods=25,
+cites=19, taxonomy_hash=3` — **5 of 6 checks pass**. The lone remaining failure
+was `topic_edges=0`, with:
+
+```
+WARNING - Topic 'Retrieval-Augmented Generation' not found in graph (taxonomy drift?), skipping
+WARNING - Topic 'Large Language Models' not found in graph (taxonomy drift?), skipping
+```
+
+**Not a code bug.** Topic (E-1) is a **closed set**: `assign_entity_to_topic`
+only draws `BELONGS_TO` to a **pre-existing** `Topic` node. The topic extractor
+works (it emits real topic names), but the smoke's setup runs
+`initialize_schema` (constraints/indexes) and **never seeds the taxonomy**, so
+every extracted topic is "not found" and skipped. Models/Methods populate because
+they are open-set (create-on-the-fly); Topics are not.
+
+**Fix:** add a `Seed topic taxonomy` step to `smoke-ingest.yml` after schema-init
+and before ingest: `agentic-kg load-taxonomy --skip-embeddings` (name-based match
+needs no embeddings; `--skip-embeddings` keeps the seed off the OpenAI TPM
+budget). Structure test asserts the step exists and is ordered schema-init →
+seed → ingest.
+
+**Staging parity (operator action, tracked separately):** the deployed staging
+Neo4j needs the same one-time `agentic-kg load-taxonomy` seed, or a real staging
+ingestion will also produce `topic_edges=0`. Concept/Model/Method/Citation nodes
+are unaffected and already populate on staging.
