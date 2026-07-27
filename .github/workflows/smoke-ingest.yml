@@ -55,6 +55,14 @@ jobs:
       NEO4J_USERNAME: neo4j
       NEO4J_PASSWORD: testpassword
       NEO4J_DATABASE: neo4j
+      # SM-7: set the throttle budget to this org's REAL OpenAI ceiling (30k TPM
+      # — gpt-4o has no higher tier here) so the proactive throttle actually
+      # paces the 5 concurrent extractors under it instead of no-op'ing on an
+      # over-set budget. The throttle — not a model flip — is what keeps
+      # extraction under the ceiling. Model override is CI-only (exercises the
+      # env knob); production default stays gpt-4-turbo.
+      OPENAI_EXTRACTION_MODEL: gpt-4o
+      OPENAI_TPM: "30000"
 
     steps:
       - uses: actions/checkout@v4

@@ -8,6 +8,7 @@ token usage tracking.
 
 import logging
 import os
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
@@ -21,7 +22,91 @@ from tenacity import (
     wait_exponential,
 )
 
+from agentic_kg.data_acquisition.config import RateLimitConfig
+from agentic_kg.data_acquisition.rate_limiter import TokenBucketRateLimiter
+
 logger = logging.getLogger(__name__)
+
+# --- OpenAI TPM throttle (SM-6) ---------------------------------------------
+# Default OpenAI tokens-per-minute ceiling (matches gpt-4-turbo's 30k tier).
+_DEFAULT_TPM = 30000
+
+
+def _read_tpm_budget() -> int:
+    """
+    Read the OpenAI TPM budget from ``OPENAI_TPM`` (default 30000).
+
+    Raises:
+        ValueError: If ``OPENAI_TPM`` is set to a non-integer or non-positive
+            value. Fail loud rather than silently fall back to a default that
+            would hide the misconfiguration.
+    """
+    raw = os.getenv("OPENAI_TPM", str(_DEFAULT_TPM))
+    try:
+        tpm = int(raw)
+    except ValueError as e:
+        raise ValueError(
+            f"OPENAI_TPM must be a positive integer (tokens per minute); got {raw!r}"
+        ) from e
+    if tpm <= 0:
+        raise ValueError(
+            f"OPENAI_TPM must be a positive integer (tokens per minute); got {tpm}"
+        )
+    return tpm
+
+
+def estimate_tokens(prompt: str, system_prompt: Optional[str], max_tokens: int) -> int:
+    """
+    Heuristic token estimate for a chat completion (SM-6, no tokenizer dep).
+
+    Uses ~4 characters per token for the input and reserves the full completion
+    budget. Over-reserving throttles slightly harder — the safe direction for a
+    rate limit.
+    """
+    return (len(prompt) + len(system_prompt or "")) // 4 + max_tokens
+
+
+def _parse_retry_after(exc: Exception) -> Optional[float]:
+    """
+    Extract the server's requested wait (seconds) from a 429, or ``None``.
+
+    Prefers the SDK error's typed ``Retry-After`` response header; falls back to
+    a regex on the message ("try again in 1.8s" / "try again in 20ms"). Returns
+    ``None`` when nothing parseable is found — the caller logs that loudly so a
+    format drift is visible instead of silently reverting to blind backoff.
+    """
+    # 1) Typed header on the SDK error's response, when present.
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None)
+    if headers is not None:
+        raw = headers.get("retry-after")
+        if raw is not None:
+            try:
+                return float(raw)
+            except (TypeError, ValueError):
+                # Header may be an HTTP-date rather than delta-seconds; fall through.
+                pass
+
+    # 2) Regex on the message: "try again in 1.8s" / "try again in 20ms".
+    match = re.search(r"try again in ([\d.]+)\s*(ms|s)\b", str(exc), re.IGNORECASE)
+    if match:
+        amount = float(match.group(1))
+        return amount / 1000.0 if match.group(2).lower() == "ms" else amount
+
+    return None
+
+
+def _rate_limit_wait(retry_state) -> float:
+    """
+    tenacity wait strategy: honor a server ``Retry-After`` when present.
+
+    Returns the exception's ``retry_after`` when the raised ``LLMRateLimitError``
+    carries one; otherwise falls back to exponential backoff.
+    """
+    exc = retry_state.outcome.exception()
+    if isinstance(exc, LLMRateLimitError) and exc.retry_after:
+        return exc.retry_after
+    return wait_exponential(multiplier=1, min=1, max=60)(retry_state)
 
 # Generic type for structured output
 T = TypeVar("T", bound=BaseModel)
@@ -213,7 +298,7 @@ class OpenAIClient(BaseLLMClient[T]):
     @retry(
         retry=retry_if_exception_type(LLMRateLimitError),
         stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=60),
+        wait=_rate_limit_wait,
     )
     async def extract(
         self,
@@ -241,6 +326,26 @@ class OpenAIClient(BaseLLMClient[T]):
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
+
+        # SM-6: reserve the estimated token cost from the shared TPM budget
+        # BEFORE firing, so concurrent extractors serialize under the ceiling
+        # instead of all 429-ing. A long predicted wait is logged up front so a
+        # throttle stall reads as a legible message, not a silent hang.
+        limiter = get_tpm_limiter()
+        estimate = estimate_tokens(prompt, system_prompt, self.config.max_tokens)
+        eta = limiter.wait_estimate(estimate)
+        if eta > 5.0:
+            logger.info(
+                "TPM throttle: ~%.0fs wait for ~%d tokens (budget %d TPM). "
+                "Raise throughput with OPENAI_EXTRACTION_MODEL=gpt-4o "
+                "and a matching OPENAI_TPM.",
+                eta,
+                estimate,
+                int(limiter.capacity),
+            )
+        waited = await limiter.acquire(estimate)
+        if waited:
+            logger.info("TPM throttle: waited %.1fs for ~%d tokens", waited, estimate)
 
         try:
             response, completion = await client.chat.completions.create_with_completion(
@@ -272,7 +377,20 @@ class OpenAIClient(BaseLLMClient[T]):
 
             # Check for rate limit errors
             if "rate" in error_str and "limit" in error_str:
-                raise LLMRateLimitError(f"OpenAI rate limited: {e}") from e
+                # SM-6: honor the server's Retry-After hint. A parse miss is
+                # logged loudly so a stale parser (OpenAI changed the error
+                # surface) is visible instead of silently reverting to blind
+                # exponential backoff.
+                retry_after = _parse_retry_after(e)
+                if retry_after is None:
+                    logger.warning(
+                        "OpenAI 429 with unparseable Retry-After; falling back to "
+                        "exponential backoff — the parser may be stale. Error: %s",
+                        e,
+                    )
+                raise LLMRateLimitError(
+                    f"OpenAI rate limited: {e}", retry_after=retry_after
+                ) from e
 
             # Check for API errors
             if hasattr(e, "status_code"):
@@ -456,17 +574,51 @@ def create_llm_client(
 # Singleton clients
 _openai_client: Optional[OpenAIClient] = None
 _anthropic_client: Optional[AnthropicClient] = None
+_tpm_limiter: Optional[TokenBucketRateLimiter] = None
+
+
+def get_tpm_limiter() -> TokenBucketRateLimiter:
+    """
+    Get or create the shared OpenAI TPM token bucket (SM-6).
+
+    One process-global bucket paces every OpenAI extraction call across all
+    extractors and papers so a concurrent burst stays under the account's
+    tokens-per-minute ceiling. Sized from ``OPENAI_TPM`` (default 30000):
+    ``rate = TPM / 60`` tokens/sec, capacity = one minute's budget.
+
+    Returns:
+        The shared TPM rate limiter.
+
+    Raises:
+        ValueError: If ``OPENAI_TPM`` is malformed (via ``_read_tpm_budget``).
+    """
+    global _tpm_limiter
+
+    if _tpm_limiter is None:
+        tpm = _read_tpm_budget()
+        _tpm_limiter = TokenBucketRateLimiter(
+            rate=tpm / 60.0,
+            config=RateLimitConfig(burst_multiplier=60.0),  # capacity == TPM
+            source="openai-tpm",
+        )
+
+    return _tpm_limiter
 
 
 def get_openai_client(
-    model: str = "gpt-4-turbo",
+    model: Optional[str] = None,
     temperature: float = 0.1,
 ) -> OpenAIClient:
     """
     Get or create singleton OpenAI client.
 
+    The extraction model resolves env-first: ``OPENAI_EXTRACTION_MODEL`` wins
+    when set (the operator's throughput lever — see SM-6), so a single env flip
+    reaches every extractor including callers that pass an explicit model;
+    otherwise the passed ``model``, otherwise ``gpt-4-turbo``.
+
     Args:
-        model: OpenAI model name.
+        model: OpenAI model name; overridden by ``OPENAI_EXTRACTION_MODEL``.
         temperature: Temperature for generation.
 
     Returns:
@@ -475,9 +627,10 @@ def get_openai_client(
     global _openai_client
 
     if _openai_client is None:
+        resolved_model = os.getenv("OPENAI_EXTRACTION_MODEL") or model or "gpt-4-turbo"
         config = LLMConfig(
             provider=LLMProvider.OPENAI,
-            model=model,
+            model=resolved_model,
             temperature=temperature,
         )
         _openai_client = OpenAIClient(config)
@@ -513,7 +666,8 @@ def get_anthropic_client(
 
 
 def reset_llm_clients() -> None:
-    """Reset all singleton LLM clients (for testing)."""
-    global _openai_client, _anthropic_client
+    """Reset all singleton LLM clients + the shared TPM limiter (for testing)."""
+    global _openai_client, _anthropic_client, _tpm_limiter
     _openai_client = None
     _anthropic_client = None
+    _tpm_limiter = None

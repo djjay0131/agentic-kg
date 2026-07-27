@@ -267,11 +267,24 @@ class TestEnvBlock:
             "NEO4J_USERNAME",
             "NEO4J_PASSWORD",
             "NEO4J_DATABASE",
+            # SM-6: the throughput lever, CI-only
+            "OPENAI_EXTRACTION_MODEL",
+            "OPENAI_TPM",
         }
 
     def test_openai_key_from_secret(self, workflow):
         env = _smoke_job(workflow)["env"]
         assert "secrets.OPENAI_API_KEY" in env["OPENAI_API_KEY"]
+
+    def test_sm7_throttle_budget_at_real_ceiling(self, workflow):
+        """AC-6: CI sets OPENAI_TPM to this org's REAL ceiling (30000) so the
+        throttle paces the concurrent extractors under it — the throttle, not a
+        model flip, is the mechanism (gpt-4o has no higher tier on this org).
+        Production default stays gpt-4-turbo; the model override is CI-only."""
+        env = _smoke_job(workflow)["env"]
+        assert env["OPENAI_EXTRACTION_MODEL"] == "gpt-4o"
+        # YAML may parse the quoted value as str or int; normalize to str.
+        assert str(env["OPENAI_TPM"]) == "30000"
 
     def test_neo4j_uri_is_localhost(self, workflow):
         """AC-12: NEO4J_URI always points at localhost via the service
