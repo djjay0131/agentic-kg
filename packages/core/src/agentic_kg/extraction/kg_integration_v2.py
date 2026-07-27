@@ -60,6 +60,10 @@ class MentionIntegrationResult(BaseModel):
 
     mention_id: str = Field(..., description="ProblemMention ID")
     concept_id: Optional[str] = Field(None, description="Linked ProblemConcept ID")
+    # SM-8: the B3 linker (link_problems_to_concepts) matches on the problem text
+    # and reads `.id`, so this object must be a valid ProblemMention-like input.
+    statement: Optional[str] = Field(None, description="Source problem statement")
+    quoted_text: Optional[str] = Field(None, description="Source problem quoted text")
     is_new_concept: bool = Field(False, description="True if new concept created")
     match_confidence: Optional[str] = Field(None, description="Match confidence level")
     match_score: Optional[float] = Field(None, description="Similarity score")
@@ -71,6 +75,12 @@ class MentionIntegrationResult(BaseModel):
     trace_id: str = Field(..., description="Trace ID for audit trail")
     checkpoint_saved: bool = Field(False, description="True if checkpoint saved")
     error: Optional[str] = Field(None, description="Error message if failed")
+
+    @property
+    def id(self) -> str:
+        """Alias for ``mention_id`` — the B3 linker expects a ProblemMention-like
+        ``.id`` (SM-8)."""
+        return self.mention_id
 
 
 class IntegrationResultV2(BaseModel):
@@ -199,6 +209,14 @@ class KGIntegratorV2:
                     session_trace_id=session_trace_id,
                     problem_index=idx,
                 )
+
+                # SM-8: carry the source problem text onto the result so the
+                # B3 linker (link_problems_to_concepts) — which matches on
+                # `.statement`/`.quoted_text` — accepts mention_results directly.
+                # Set once here rather than at _process_extracted_problem's 9
+                # return sites.
+                mention_result.statement = extracted_problem.statement
+                mention_result.quoted_text = extracted_problem.quoted_text
 
                 result.mention_results.append(mention_result)
                 result.mentions_created += 1
