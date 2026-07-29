@@ -1,7 +1,7 @@
 # Feature: DOI/Identifier-Targeted Ingestion
 
-**Status:** NEEDS SPEC
-**Date:** 2026-07-27
+**Status:** IMPLEMENTED
+**Date:** 2026-07-27 (implemented 2026-07-28)
 **Author:** Feature Architect (AI-assisted)
 **Backlog ID:** SM-10
 
@@ -39,15 +39,32 @@ lands in the graph.
 - Existing flags (`--force-rewrite`, `--no-populate-citations`,
   `--no-extract-entities`, etc.) continue to apply.
 
-## Acceptance Criteria (draft)
+## Acceptance Criteria
 
 - **AC-1:** `--dois` (and/or `--dois-file`) ingests exactly the listed papers;
-  unresolvable identifiers are **reported**, not silently skipped.
+  unresolvable identifiers are **reported** in `search_errors` (`unresolved:<doi>`),
+  not silently skipped. ✅
 - **AC-2:** `CITES` edges among the ingested set populate from each paper's
-  reference list (the intra-set chain is reproducible).
-- **AC-3:** `--query` and `--dois` are mutually exclusive, with a clear error when
-  both (or neither) are supplied.
-- **AC-4:** Cloud Run Job env equivalent (e.g. `INGEST_DOIS`) mirrors the CLI flag.
+  reference list (the intra-set chain is reproducible) — the DOI path reuses the
+  standard per-paper loop, so `populate_citations` behaves identically to search.✅
+- **AC-3:** `--query` and `--dois`/`--dois-file` are mutually exclusive, with a
+  clear error when both (or neither) are supplied. ✅
+- **AC-4 (deferred):** Cloud Run Job env equivalent (`INGEST_DOIS`) mirrors the CLI
+  flag. Not needed for the ground-truth run (driven from the CLI); file if the Job
+  ever needs DOI-targeting.
+
+## Implementation (2026-07-28)
+
+- `ingestion.py`: `ingest_papers` gains `dois: list[str] | None`; `query` is now
+  optional. When `dois` is set, each is resolved via `aggregator.get_paper_by_doi`
+  (catching `NotFoundError`/transient source errors per DOI → `unresolved:<doi>` in
+  `search_errors`), assembled into a `SearchResult`, then the **unchanged** import
+  → extract → integrate → CITES loop runs. `query` XOR `dois` enforced (fail-loud).
+- `cli.py`: `ingest --dois <DOI…>` + `--dois-file <path>` (blank/`#` lines ignored),
+  mutually exclusive with `--query`, threaded to `ingest_papers`.
+- Tests: `TestDoiTargetedIngestion` (fetch-by-DOI-not-search, unresolved recorded,
+  per-DOI source errors surfaced, neither-input fails loud) + CLI wiring verified.
+  Full suite 2107 pass; src ruff-clean.
 
 ## Notes / Motivation
 

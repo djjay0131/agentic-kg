@@ -257,6 +257,77 @@ def _wire_basic_search(common_mocks, papers):
     )
 
 
+def _agg_result(paper, errors=None):
+    r = MagicMock()
+    r.paper = paper
+    r.errors = errors or {}
+    return r
+
+
+def _wire_doi_fetch(common_mocks, by_doi_side_effect):
+    """by_doi_side_effect: list of _agg_result(...) objects and/or Exceptions."""
+    common_mocks["agg"].return_value.get_paper_by_doi = AsyncMock(
+        side_effect=by_doi_side_effect,
+    )
+    common_mocks["imp"].return_value.batch_import = AsyncMock(
+        return_value=_batch_import_result(created=1),
+    )
+    common_mocks["pipe"].return_value.process_pdf_url = AsyncMock(
+        return_value=_processing_result(success=True, problem_count=1),
+    )
+
+
+# =============================================================================
+# SM-10: DOI-targeted ingestion
+# =============================================================================
+
+
+class TestDoiTargetedIngestion:
+    @pytest.mark.asyncio
+    async def test_dois_fetch_via_by_doi_not_search(self, common_mocks):
+        _wire_doi_fetch(common_mocks, [
+            _agg_result(_normalized_paper(doi="10.1/a")),
+            _agg_result(_normalized_paper(doi="10.1/b")),
+        ])
+        result = await ingest_papers(dois=["10.1/a", "10.1/b"])
+
+        assert result.papers_found == 2
+        assert common_mocks["agg"].return_value.get_paper_by_doi.await_count == 2
+        # Search path is NOT used when DOIs are given.
+        common_mocks["agg"].return_value.search_papers.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unresolved_doi_recorded_not_dropped(self, common_mocks):
+        _wire_doi_fetch(common_mocks, [
+            _agg_result(_normalized_paper(doi="10.1/a")),
+            RuntimeError("Paper not found"),  # unresolved DOI
+        ])
+        result = await ingest_papers(dois=["10.1/a", "10.1/missing"])
+
+        assert result.papers_found == 1
+        assert "unresolved:10.1/missing" in result.search_errors
+
+    @pytest.mark.asyncio
+    async def test_source_errors_on_resolved_doi_surfaced(self, common_mocks):
+        _wire_doi_fetch(common_mocks, [
+            _agg_result(
+                _normalized_paper(doi="10.1/a"),
+                errors={"openalex": "429 rate limit"},
+            ),
+        ])
+        result = await ingest_papers(dois=["10.1/a"])
+
+        assert result.papers_found == 1
+        assert "openalex:10.1/a" in result.search_errors
+
+    @pytest.mark.asyncio
+    async def test_neither_query_nor_dois_fails_loud(self, common_mocks):
+        result = await ingest_papers()
+
+        assert result.status == "failed"
+        assert "query or dois" in (result.error or "")
+
+
 # =============================================================================
 # AC-4 / AC-5 / AC-6: text source resolution helper
 # =============================================================================
