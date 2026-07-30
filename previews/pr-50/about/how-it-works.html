@@ -1,0 +1,14 @@
+<h1 id="how-it-works">How it works</h1>
+
+<!-- TODO(phase-b): walk a single paper through the full ingestion pipeline with example extracted fields and resulting graph edges. -->
+
+<p>The ingestion pipeline has four phases:</p>
+
+<ol>
+  <li><strong>Search &amp; Import</strong> — fan out to OpenAlex / arXiv / Semantic Scholar; store <code class="language-plaintext highlighter-rouge">Paper</code> + <code class="language-plaintext highlighter-rouge">Author</code> nodes.</li>
+  <li><strong>Extraction</strong> — PyMuPDF → section segmenter → LLM extraction of problem statements from “Limitations” / “Future Work” sections.</li>
+  <li><strong>Integration</strong> — embed the extracted <code class="language-plaintext highlighter-rouge">ProblemMention</code>, vector-match it against existing <code class="language-plaintext highlighter-rouge">ProblemConcept</code> nodes, route by confidence (auto-link / agent review / human queue).</li>
+  <li><strong>Sanity Checks</strong> — five automated integrity checks against the live graph.</li>
+</ol>
+
+<p>Extracted concepts become part of a growing semantic spine that later stages (community detection, RAG retrieval) operate over.</p>

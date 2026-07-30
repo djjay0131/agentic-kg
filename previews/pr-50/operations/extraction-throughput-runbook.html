@@ -1,0 +1,92 @@
+<h1 id="extraction-throughput-runbook-sm-6">Extraction throughput runbook (SM-6)</h1>
+
+<p><strong>Symptom:</strong> an ingest completes with full-text papers acquired (<code class="language-plaintext highlighter-rouge">pdf_ok &gt; 0</code>)
+but <strong>zero entities extracted</strong>, and the logs show OpenAI <code class="language-plaintext highlighter-rouge">429
+rate_limit_exceeded</code> on the extractor calls.</p>
+
+<p><strong>Why it happens:</strong> each paper runs five extractors (problem, topic, concept,
+model, method) concurrently, and each sends the <em>full paper text</em> to OpenAI. A
+50–100k-token paper × 5 calls bursts past the account’s tokens-per-minute (TPM)
+ceiling. The default model, <code class="language-plaintext highlighter-rouge">gpt-4-turbo</code>, is capped at <strong>30,000 TPM</strong> — far too
+low to absorb even a single full paper across five extractors.</p>
+
+<h2 id="the-two-levers">The two levers</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Knob</th>
+      <th>Env var</th>
+      <th>Default</th>
+      <th>What it does</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Model / tier</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">OPENAI_EXTRACTION_MODEL</code></td>
+      <td><code class="language-plaintext highlighter-rouge">gpt-4-turbo</code></td>
+      <td>The real throughput lever. A higher-TPM model (e.g. <code class="language-plaintext highlighter-rouge">gpt-4o</code>) is what actually lets full-paper extraction complete.</td>
+    </tr>
+    <tr>
+      <td><strong>TPM budget</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">OPENAI_TPM</code></td>
+      <td><code class="language-plaintext highlighter-rouge">30000</code></td>
+      <td>The proactive throttle’s budget. Set it to match your account’s ceiling for the chosen model so the throttle paces calls correctly.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The <strong>throttle is a correctness safety-net</strong>, not a throughput fix: it stops
+concurrent calls from all 429-ing, but at <code class="language-plaintext highlighter-rouge">gpt-4-turbo</code>’s 30k TPM it can only do
+so by waiting minutes per paper. Raising the model/tier is what makes entities
+actually flow; the throttle then keeps that larger budget from being blown by
+concurrency.</p>
+
+<h2 id="fix-raise-the-throughput">Fix: raise the throughput</h2>
+
+<p>Set both env vars — model <strong>and</strong> a matching TPM budget for that tier — then
+re-run the ingest and confirm entities land.</p>
+
+<h3 id="cloud-run-job-staging--production">Cloud Run Job (staging / production)</h3>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud run <span class="nb">jobs </span>update agentic-kg-ingest-staging <span class="se">\</span>
+  <span class="nt">--project</span> vt-gcp-00042 <span class="nt">--region</span> us-central1 <span class="se">\</span>
+  <span class="nt">--update-env-vars</span> <span class="nv">OPENAI_EXTRACTION_MODEL</span><span class="o">=</span>gpt-4o,OPENAI_TPM<span class="o">=</span>450000
+
+gcloud run <span class="nb">jobs </span>execute agentic-kg-ingest-staging <span class="se">\</span>
+  <span class="nt">--project</span> vt-gcp-00042 <span class="nt">--region</span> us-central1
+</code></pre></div></div>
+
+<h3 id="local--smoke">Local / smoke</h3>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">export </span><span class="nv">OPENAI_EXTRACTION_MODEL</span><span class="o">=</span>gpt-4o
+<span class="nb">export </span><span class="nv">OPENAI_TPM</span><span class="o">=</span>450000
+make smoke-local        <span class="c"># or: agentic-kg ingest --query "..." --limit 3 --json</span>
+</code></pre></div></div>
+
+<h2 id="verify">Verify</h2>
+
+<p>The run should now report entities &gt; 0. Check the ingest summary counters
+(<code class="language-plaintext highlighter-rouge">topics_linked</code>, <code class="language-plaintext highlighter-rouge">concepts_v2_linked</code>, <code class="language-plaintext highlighter-rouge">models_linked</code>, <code class="language-plaintext highlighter-rouge">methods_linked</code>) or
+query Neo4j directly:</p>
+
+<div class="language-cypher highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">MATCH</span><span class="w"> </span><span class="ss">(</span><span class="py">p:</span><span class="n">Paper</span><span class="ss">)</span><span class="o">-</span><span class="ss">[</span><span class="py">r:</span><span class="n">BELONGS_TO</span><span class="o">|</span><span class="n">DISCUSSES</span><span class="o">|</span><span class="n">USES_MODEL</span><span class="o">|</span><span class="n">APPLIES_METHOD</span><span class="ss">]</span><span class="o">-&gt;</span><span class="ss">()</span>
+<span class="k">RETURN</span> <span class="nf">type</span><span class="ss">(</span><span class="n">r</span><span class="ss">)</span> <span class="k">AS</span> <span class="n">edge</span><span class="ss">,</span> <span class="nf">count</span><span class="ss">(</span><span class="o">*</span><span class="ss">)</span> <span class="k">AS</span> <span class="n">n</span> <span class="k">ORDER</span> <span class="k">BY</span> <span class="n">n</span> <span class="k">DESC</span>
+</code></pre></div></div>
+
+<p>If a run is legitimately throttling, you will see an up-front log line before it
+blocks — e.g. <code class="language-plaintext highlighter-rouge">TPM throttle: ~480s wait for ~250000 tokens (budget 30000 TPM)</code> —
+which both confirms the stall is the throttle (not a hang) and names the remedy.</p>
+
+<h2 id="notes">Notes</h2>
+
+<ul>
+  <li>The <strong>production default is unchanged</strong> (<code class="language-plaintext highlighter-rouge">gpt-4-turbo</code>); the model flip is a
+deliberate operator action per run, not a code change.</li>
+  <li>CI’s smoke-ingest workflow already sets <code class="language-plaintext highlighter-rouge">OPENAI_EXTRACTION_MODEL=gpt-4o</code> +
+<code class="language-plaintext highlighter-rouge">OPENAI_TPM=450000</code> so the <code class="language-plaintext highlighter-rouge">Ingest + Assert</code> job proves entities flow.</li>
+  <li>Match <code class="language-plaintext highlighter-rouge">OPENAI_TPM</code> to your account’s actual tier for the chosen model. Setting
+it higher than your real ceiling defeats the throttle and reintroduces 429s;
+setting it lower just paces more conservatively (safe, but slower).</li>
+</ul>
