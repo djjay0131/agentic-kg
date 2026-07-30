@@ -60,7 +60,7 @@ Ordered by category, roughly by priority within category.
 | D-3 | Retrieval quality benchmarks | Needs Spec | MRR / nDCG vs. keyword + citation baselines. |
 | D-4 | Agent decision accuracy validation | Needs Spec | EvaluatorAgent >90% human agreement; consensus workflow >85%. |
 | S-3 | Sprint 10 integration tests (golden dataset) | Partial Spec | Golden dataset benchmarks against live Neo4j not yet run. |
-| SM-10 | [DOI/identifier-targeted ingestion](doi-targeted-ingestion.md) | Needs Spec | `agentic-kg ingest` is query-only; can't hit an exact curated set by DOI. Blocks running the importer on the CS-KG ground-truth citation chain (diff vs answer key). Add `--dois`/`--dois-file` (mutually exclusive with `--query`) resolving via the S2/OpenAlex by-DOI path through the normal ingest loop; `CITES` among the set must populate. Surfaced 2026-07-27 during the first staging validation run. |
+| SM-10 | [DOI/identifier-targeted ingestion](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/doi-targeted-ingestion.md) | **IMPLEMENTED** (PR #50) | `agentic-kg ingest` was query-only; couldn't hit an exact curated set by DOI. Added `--dois`/`--dois-file` (mutually exclusive with `--query`) resolving via the S2/OpenAlex by-DOI path through the normal ingest loop; `CITES` among the set populates; unresolvable DOIs reported (`unresolved:<doi>`). Unblocked the CS-KG ground-truth run (8/8 resolved vs 2/8 by title search). Surfaced 2026-07-27 during the first staging validation. |
 
 ### Community detection & summarization
 
