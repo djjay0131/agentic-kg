@@ -1,0 +1,117 @@
+_note: IMPORTER OUTPUT — machine extraction to diff against the human answer key; NOT the reconciled ground
+  truth.
+_caveats:
+- Topic (BELONGS_TO) not populated — known bug (topics_linked counter increments but no edge persists).
+- Concepts/Models/Methods store name+aliases only; no per-paper quoted_text/confidence retained (only
+  Problems do).
+paper:
+  n: '8'
+  title: 'Divide and Conquer the EmpiRE: A Community-Maintainable Knowledge Graph of Empirical Research
+    in Requirements Engineering'
+  doi: 10.1109/ESEM56168.2023.10304795
+  year: 2023
+  venue: International Symposium on Empirical Software Engineering and Measurement
+  s2_paper_id: 5f60655778fd0e3cb849c719797585e0e97912a2
+  status: extracted
+topic:
+  domain: null
+  area: null
+  subtopic: null
+  _note: empty — BELONGS_TO bug
+research_concepts:
+- name: Design Science Paradigm
+  aliases: []
+  description: A framework used to frame the research approach in the study.
+- name: Empirical Standards for Software Engineering Research
+  aliases: []
+  description: Standards followed for the research approach and reporting in the study.
+- name: Jupyter Notebook
+  aliases: []
+  description: A tool used for running queries and analyzing data in the study.
+- name: Knowledge Graph
+  aliases:
+  - KG
+  description: A structured representation of knowledge in the form of entities and their interrelations.
+- name: Open Research Knowledge Graph
+  aliases:
+  - ORKG
+  description: A technical infrastructure for organizing scientific data in an openly available and long-term
+    way.
+- name: SHACL
+  aliases: []
+  description: A language used to specify the structure of ORKG contributions to describe a paper.
+- name: SPARQL
+  aliases: []
+  description: A query language used for specifying competency questions in the study.
+models: []
+methods:
+- name: Competency Questions
+  aliases: []
+  method_type: evaluation
+- name: ORKG Template
+  aliases: []
+  method_type: data_processing
+problems:
+- statement: The current KG-EmpiRE only covers one track of one venue and only six of the 18 different
+    themes examined in related publications, limiting its comprehensiveness.
+  quoted_text: Given the initial stage of KG-EmpiRE, the number of competency questions answered represents
+    an acceptable coverage of the curated topic. So far, we have focused only on one track of one venue,
+    and the ORKG template covers only six of the 18 different themes examined in related publications
+    (cf. Section III). Therefore, the need to expand KG-EmpiRE by adding more papers from different venues
+    and more data is evident.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: The current analysis of the state and evolution of empirical research in RE is limited due
+    to the initial stage of KG-EmpiRE, which does not provide a comprehensive overview.
+  quoted_text: Due to the initial stage of KG-EmpiRE, we cannot provide an analysis of the general state
+    and evolution of empirical research in RE.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: There is a need for more case studies and action research in empirical research to ensure
+    industrial relevance, as their current use is low.
+  quoted_text: According to Sjøberg et al. [50], more case studies and action research are needed for
+    data collection to ensure the industrial relevance of empirical research. However, our results show
+    that the use of case studies decreased, and researchers rarely use action research.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: The use of inferential statistics in empirical research is low and diverse, with inconsistencies
+    in the naming of statistical tests.
+  quoted_text: For data analysis, the proportion of papers using inferential statistics is low (26.2%
+    average proportion for the target state) and diverse. Based on the names, we found 57 different statistical
+    tests in the 570 papers, often apparently using different spellings for partly the supposedly same
+    test.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: There is a lack of comprehensive communication of threats to validity in empirical research,
+    with some types of validity being underreported.
+  quoted_text: Regarding the reporting of threats to validity, we found two issues for future improvements.
+    First, a proportion of 33.6% of the papers reporting threats to validity did not use any further classification
+    of the types of validity. Second, a proportion of 18.2% of the papers reporting threats to validity
+    addresses conclusion validity.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: The need for a comprehensive, up-to-date, and long-term available overview of the state and
+    evolution of empirical research in Requirements Engineering (RE).
+  quoted_text: This increase is accompanied by the need to have a comprehensive, up-to-date, and long-term
+    available overview of the state and evolution of empirical research [1], [5], [6]. This need is the
+    underlying motivation of all 14 related publications.
+  datasets: '[{"name": "IEEE International Requirements Engineering Conference papers", "url": null, "available":
+    true, "size": null}]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: The challenge of using the ORKG as a technical infrastructure to organize scientific data
+    in an openly available and long-term way by building, publishing, and evaluating a KG of empirical
+    research in RE.
+  quoted_text: 'Research question: How can we use the ORKG as a technical infrastructure to organize scientiﬁc
+    data in an openly available and long-term way by building, publishing, and evaluating a KG of empirical
+    research in RE that the research community can constantly maintain, (re-)use, update, and expand to
+    enable sustainable literature reviews?'
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+cites_within_set: []
