@@ -1,0 +1,169 @@
+# ---------------------------------------------------------------- identity
+paper_id: "doi:10.1007/978-3-031-19433-7_39" 
+slug: "cskg"
+title: "CS-KG: A Large-Scale Knowledge Graph of Research Entities and Claims in Computer Science"
+doi: "10.1007/978-3-031-19433-7_39"
+s2_paper_id: null
+year: 2022
+source_pdf: "ground-truth-papers/Large_Scale_KG_CS.pdf"
+reviewer: "human"
+reviewed_at: "2026-07-27"
+
+# ------------------------------------------------- scored (e8_eval-compatible)
+expected_topics:
+  - name: "Knowledge Graphs"
+    level: "subtopic"
+  - name: "Information Extraction"
+    level: "subtopic"
+
+expected_concepts:
+  - canonical: "scientific knowledge graph"
+    acceptable_aliases: 
+    - "scholarly knowledge graph"
+    - "scientific knowledge graphs"
+    - "large-scale knowledge graph" 
+    - "structured description of scientific articles"
+    quoted_text: "the Computer Science Knowledge Graph (CS-KG), a large-scale knowledge graph composed by over 350M RDF triples"  
+    confidence: 0.9 
+
+  - canonical: "information extraction pipeline"
+    acceptable_aliases: 
+    - "information extraction pipeline"
+    - "information extraction framework"
+    - "knowledge graph generation pipeline"
+    quoted_text: "periodically updated by applying an information extraction pipeline on a large repository of research papers"
+    confidence: 0.9
+  
+  - canonical: "reification"
+    acceptable_aliases: 
+    - "reification"
+    - "triple reification"
+    - "entity reification"
+    - "statement reification"
+    quoted_text: "which provide the reification of triples within a rdf:Statement"
+    confidence: 0.7
+
+  - canonical: "linked data"
+    acceptable_aliases:
+    - "linked data"
+    - "Linked Data"
+    quoted_text: "Following the best practices of Linked Data, entities in CS-KG are associated with a set of alternative labels"
+    confidence: 0.7
+  
+  - canonical: "support"
+    acceptable_aliases:
+    - "reliability"
+    quoted_text: "We can thus use the number of papers associated with a triple, which we label support, to distinguish between reliable and uncertain triples"
+    confidence: 0.5
+
+expected_models: 
+  - canonical: "DyGIEpp"
+    acceptable_aliases:
+    - "DyGIEpp"
+    - "DyGIE++"
+    - "DyGIE"
+    quoted_text: "a claim which is extracted from 6 papers (MAG IDs 2913757079, 2145844448, etc.), by the tool DyGIEpp."
+    confidence: 0.8
+
+  - canonical: "OpenIE"
+    acceptable_aliases:
+    - "Open Information Extraction"
+    quoted_text: "OpenIE of the Stanford Core NLP suite [1]. This tool is used to extract open domain relationships from plain text"
+    confidence: 0.7    
+
+  - canonical: "CSO Classifier" 
+    acceptable_aliases:
+    - "CSO-C"
+    - "Computer Science Ontology Classifier"
+    quoted_text: "CSO-C is a classifier which exploits syntactic and semantic similarity to map text spans to topics in CSO."
+    confidence: 0.65
+
+  - canonical: "PoS Tagger"
+    acceptable_aliases:
+    - "Part-of-Speech Tagger"
+    - "Part of Speech Tagger"
+    - "PoST"
+    quoted_text: "PoS Tagger (PoST). This module is built on top of the Stanford Core NLP suite [28]. It uses part-of-speech (PoS) tags to find all verbs that exist in sentences between pairs of entities."
+    confidence: 0.55
+
+  - canonical: "paraphrase-distilroberta-base-v2"
+    acceptable_aliases:
+    - "paraphrase-distilroberta"
+    - "distilroberta"
+    - "distilroberta-base-v2"
+    quoted_text: "encoding the entities with the paraphrase-distilroberta-base-v2 11 transformer model."
+    confidence: 0.8
+
+expected_methods:
+  - canonical: "entity merging"
+    acceptable_aliases: 
+    - "entity resolution"
+    - "linked data"
+    - "entity integration"
+    - "entity linking"
+    quoted_text: "a sentence transformer model is used to detect and merge entities with the same meaning."
+    confidence: 0.75
+  
+  - canonical: "lemmatization"
+    acceptable_aliases:
+    - "lemmatize"
+    - "lemmatizes"
+    quoted_text: "lemmatizes all entities to group singulars and plurals forms of the same entities"
+    confidence: 0.7
+  
+  - canonical: "filtering"
+    acceptable_aliases:
+    - "whitelist"
+    - "blacklist"
+    - "whitelisting"
+    - "blacklisting"
+    quoted_text: "removes entities which appear in a handcrafted blacklist"
+    confidence: 0.55
+
+  - canonical: "relationship merging"
+    acceptable_aliases:
+    - "relationship integration"
+    - "relationship resolution"
+    - "verb mapping"
+    quoted_text: "We address this issue by mapping similar verbs to the same predicate."
+    confidence: 0.70
+
+  - canonical: "ontology-based verification"
+    acceptable_aliases:
+    - "ontology-based checking"
+    quoted_text: "the CS-KG ontology is used to integrate entities from different tools and discard triples that do not comply with domain and range of the relations"
+    confidence: 0.55
+
+  - canonical: "negative triple generation"
+    acceptable_aliases:
+    - "triple corruption"
+    quoted_text: "In order to generate negative triples for the training phase, each triple t ∈ Treliable is corrupted by a triple t′|t′ ∈ T by replacing the head or the tail with a random chosen entity."
+    confidence: 0.65
+
+  - canonical: "gold standard evaluation"
+    acceptable_aliases:
+    - "manual annotation"
+    - "manual evaluation data generation"
+    quoted_text: "to evaluate the automatic methodology used for producing CS-KG, we measured its performance on a manually annotated gold standard"
+    confidence: 0.55
+
+# ------------------------------------------------------------------ unscored
+problems:                    # ExtractedProblem is a LIST per paper, not one
+  - statement: "Although knowledge graphs for research progression have emerged to streamline research in recent years, most of these are limited in scope due to relying on manual methods to extract and process literature information."         # >=20 chars (importer's own floor)
+    quoted_text: "A common limitation of these solutions is that they address a low number of articles, either because they rely on human experts to summarize information from the literature or because they focus on specific research areas."       # >=10 chars
+    involves_concepts: ["scientific knowledge graph"]
+  
+  - statement: "Previous scientific knowledge graphs, such as AI-KG, fail to properly process different lexical variants of nouns and verbs, resulting in duplicate entities and missed relations in the knowledge graph."
+    quoted_text: "the methodology for integrating different lexical variations of entities did not always work, resulting in multiple versions of the same entity"
+    involves_concepts: 
+    - "scientific knowledge graph"
+
+cites_within_set: ["cskg", "fact_completion"]   # slugs only, this set only
+
+notes: >- 
+  Linked Data/entity linking could potentially be either a concept or a method. 
+  I put them down as both, but we should narrow it down to one. 
+  I also put down the tools used in the extraction pipeline as models since they cite specific implementations 
+  and are treated as roughly equal by the paper, but these could potentially be methods as well.
+  I'm not sure if filtering is too vague of a method name or if there could be some other term for it.
+  Should we include the canonical name in the list of acceptable aliases as well?
