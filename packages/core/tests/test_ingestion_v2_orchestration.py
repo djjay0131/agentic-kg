@@ -9,6 +9,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from agentic_kg.data_acquisition.normalizer import NormalizedPaper
+from agentic_kg.extraction.kg_integration_v2 import (
+    IntegrationResultV2,
+    MentionIntegrationResult,
+)
 from agentic_kg.extraction.pipeline import PaperExtractionResult
 from agentic_kg.extraction.schemas import (
     ExtractedMethod,
@@ -91,11 +95,16 @@ def _v1_integration_result(
     new_concepts: int = 0,
     linked: int = 0,
 ):
-    r = MagicMock()
+    # spec=IntegrationResultV2 so accessing a non-existent attr (e.g. the old
+    # `.mentions` bug) raises AttributeError instead of auto-vivifying — the mask
+    # that hid SM-6 (v2-integration-mention-attr-fix). Real field: mention_results.
+    r = MagicMock(spec=IntegrationResultV2)
     r.mentions_created = mentions_created
     r.mentions_new_concepts = new_concepts
     r.mentions_linked = linked
-    r.mentions = [MagicMock(concept_id=f"c-{i}") for i in range(mentions_created)]
+    r.mention_results = [
+        MagicMock(concept_id=f"c-{i}") for i in range(mentions_created)
+    ]
     return r
 
 
@@ -661,6 +670,57 @@ class TestErrorIsolation:
         # First paper errored; second succeeded.
         assert "10.1/a" in result.extraction_errors
         assert result.status == "completed"
+
+
+# =============================================================================
+# SM-6 (v2-integration-mention-attr-fix): the V2 mention list is built from
+# IntegrationResultV2.mention_results, NOT a non-existent `.mentions` attr.
+# =============================================================================
+
+
+class TestV2MentionResultsWiring:
+    @pytest.mark.asyncio
+    async def test_v2_mentions_come_from_mention_results_filtered_by_concept(
+        self, common_mocks,
+    ):
+        """AC-2: with a REAL IntegrationResultV2 from the V1 integrator, the V2
+        integrator receives a `mentions` list derived from `mention_results`
+        filtered by `concept_id` — and no `has no attribute` error is recorded.
+
+        This is red against the pre-fix `v1_integration.mentions` line: a real
+        IntegrationResultV2 has no `.mentions`, so the access raises
+        AttributeError, the outer try/except records it, and V2 is skipped.
+        """
+        papers = [_normalized_paper(doi="10.1/a")]
+        _wire_basic_search(common_mocks, papers)
+        common_mocks["pipe"].return_value.process_pdf_url = AsyncMock(
+            return_value=_processing_result(success=True, problem_count=1),
+        )
+
+        linked = MentionIntegrationResult(
+            mention_id="m-1", concept_id="c-1", trace_id="t",
+        )
+        unlinked = MentionIntegrationResult(
+            mention_id="m-2", concept_id=None, trace_id="t",
+        )
+        common_mocks["v1_intg_cls"].return_value.integrate_extracted_problems.return_value = (
+            IntegrationResultV2(
+                paper_doi="10.1/a",
+                trace_id="t",
+                mentions_created=2,
+                mentions_linked=1,
+                mention_results=[linked, unlinked],
+            )
+        )
+
+        result = await ingest_papers("q", limit=10)
+
+        # No AttributeError swallowed into extraction_errors.
+        assert "10.1/a" not in result.extraction_errors
+        # V2 integrator ran, and got only the concept-linked mention.
+        common_mocks["v2_int"].assert_called_once()
+        passed = common_mocks["v2_int"].call_args.kwargs["mentions"]
+        assert passed == [linked]
 
 
 # =============================================================================

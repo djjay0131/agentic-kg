@@ -158,6 +158,37 @@ class TestHighConfidenceRouting:
         assert mention_result.concept_id == "concept-001"
         assert mention_result.match_confidence == "high"
 
+    def test_mention_result_carries_problem_text_for_b3_linker(
+        self, mock_repo, mock_embedder, mock_matcher, mock_linker
+    ):
+        """SM-8 AC-3: the appended mention_result carries the source problem's
+        statement/quoted_text and answers to .id, so it is a valid B3-linker
+        input (link_problems_to_concepts reads those fields)."""
+        mock_matcher.match_mention_to_concept.return_value = make_mock_candidate(
+            MatchConfidence.HIGH
+        )
+        mock_linker.auto_link_high_confidence.return_value = make_mock_concept()
+
+        integrator = KGIntegratorV2(
+            repository=mock_repo,
+            embedding_service=mock_embedder,
+            concept_matcher=mock_matcher,
+            auto_linker=mock_linker,
+            enable_agent_workflow=False,
+            enable_concept_refinement=False,
+        )
+        problem = make_extracted_problem()
+
+        result = integrator.integrate_extracted_problems(
+            extracted_problems=[problem],
+            paper_doi="10.1234/test.2024",
+        )
+
+        mention_result = result.mention_results[0]
+        assert mention_result.statement == problem.statement
+        assert mention_result.quoted_text == problem.quoted_text
+        assert mention_result.id == mention_result.mention_id
+
     def test_high_confidence_triggers_refinement(
         self, mock_repo, mock_embedder, mock_matcher, mock_linker
     ):

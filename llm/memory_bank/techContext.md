@@ -115,6 +115,20 @@ The Cloud Run Job's `job_runner._parse_env` reads these — all default-on excep
 
 Pattern: default-on flags use `.lower() != "false"`; opt-in flags use `.lower() == "true"`.
 
+### Extraction throttle env vars (SM-6)
+
+Read directly by `extraction/llm_client.py` via `os.getenv` — so they apply to
+**any** process on the extraction path (Cloud Run Job, CLI, API), not only the
+Job's `_parse_env`:
+
+| Env var | Default | Effect |
+|---|---|---|
+| `OPENAI_EXTRACTION_MODEL` | `gpt-4-turbo` | Extraction model; **env-first** (wins over the model passed in code) so a single flip reaches every extractor. The throughput lever — set to `gpt-4o` for a higher TPM tier. |
+| `OPENAI_TPM` | `30000` | Proactive TPM throttle budget (shared token bucket, `rate = TPM/60`). Set to match the account/model ceiling. Non-integer / ≤0 → `ValueError` at first extract. |
+
+CI's `smoke-ingest.yml` sets `gpt-4o` + `450000`; production default is
+unchanged. Operator runbook: `docs/operations/extraction-throughput-runbook.md`.
+
 ## CLI flags mirror env vars
 
 `agentic-kg ingest`:

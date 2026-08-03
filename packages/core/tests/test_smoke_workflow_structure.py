@@ -146,6 +146,15 @@ class TestNeo4jService:
         assert "initialize_schema" in step["run"]
         assert "force=True" in step["run"]
 
+    def test_taxonomy_seed_step_before_ingest(self, workflow):
+        """SM-8b: Topic (BELONGS_TO) is closed-set — the taxonomy must be seeded
+        before ingest or every extracted topic is skipped (topic_edges=0)."""
+        step = _step_by_name(workflow, "Seed topic taxonomy")
+        assert "load-taxonomy" in step["run"]
+        names = [s.get("name") for s in _smoke_job(workflow)["steps"]]
+        assert names.index("Initialize Neo4j schema") < names.index("Seed topic taxonomy")
+        assert names.index("Seed topic taxonomy") < names.index("Ingest (with single retry)")
+
 
 # =============================================================================
 # AC-4: ingest invocation
@@ -267,11 +276,24 @@ class TestEnvBlock:
             "NEO4J_USERNAME",
             "NEO4J_PASSWORD",
             "NEO4J_DATABASE",
+            # SM-6: the throughput lever, CI-only
+            "OPENAI_EXTRACTION_MODEL",
+            "OPENAI_TPM",
         }
 
     def test_openai_key_from_secret(self, workflow):
         env = _smoke_job(workflow)["env"]
         assert "secrets.OPENAI_API_KEY" in env["OPENAI_API_KEY"]
+
+    def test_sm7_throttle_budget_at_real_ceiling(self, workflow):
+        """AC-6: CI sets OPENAI_TPM to this org's REAL ceiling (30000) so the
+        throttle paces the concurrent extractors under it — the throttle, not a
+        model flip, is the mechanism (gpt-4o has no higher tier on this org).
+        Production default stays gpt-4-turbo; the model override is CI-only."""
+        env = _smoke_job(workflow)["env"]
+        assert env["OPENAI_EXTRACTION_MODEL"] == "gpt-4o"
+        # YAML may parse the quoted value as str or int; normalize to str.
+        assert str(env["OPENAI_TPM"]) == "30000"
 
     def test_neo4j_uri_is_localhost(self, workflow):
         """AC-12: NEO4J_URI always points at localhost via the service
