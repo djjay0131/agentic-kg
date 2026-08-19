@@ -12,6 +12,12 @@ and therefore every entity extracted by `ingest_papers`.
 **Severity:** High. One of eight papers yields **zero** extractor input and
 therefore zero entities, silently and with no error.
 
+**Update 2026-08-09:** a seventh, independent cause was found — see
+[(7)](#7-the-four-section-keep-list-loses-content-even-when-boundaries-are-perfect).
+Causes (1)–(6) are about locating section boundaries; (7) is about which
+sections are kept once located, and it survives fixing all of them. It is also
+the only one that reaches the ground-truth labels.
+
 ## Summary
 
 `ingest_papers` feeds all four entity extractors a single text block built by
@@ -206,6 +212,99 @@ Independent of the above: 244,748 chars would be sent as a single extractor
 prompt. There is no length guard between `_build_extractor_section_text` and
 the extractor calls, only `MIN_USABLE_CHARS = 250` on the lower end.
 
+### 7. The four-section keep-list loses content even when boundaries are perfect
+
+**Found:** 2026-08-09, while reconciling `fact_completion`. This is a different
+defect from (1)–(5) and survives fixing all of them.
+
+Causes (1)–(5) are about *finding* section boundaries. This one is about which
+sections are kept once found. `_build_extractor_section_text`
+(`ingestion.py:198`) keeps exactly four types — `abstract`, `introduction`,
+`methods`, `experiments` — and discards everything else.
+
+`scripts/segment_ground_truth.py` uses **hand-verified** boundaries, so it
+isolates the variable: any content missing from `paper_<slug>.txt` is lost to
+the keep-list policy, not to boundary detection. Measuring that loss across all
+eight papers:
+
+| Slug | Body chars | Fed to extractors | Coverage | Chain entities in body | Lost |
+|---|---:|---:|---:|---:|---:|
+| `hypothesis_generation` | 61,088 | 43,771 | 71.7% | 17 | 2 |
+| `fact_completion` | 47,804 | 33,340 | 69.7% | 32 | 5 |
+| `cskg2` | 51,847 | 35,470 | 68.4% | 34 | **0** |
+| `cskg` | 37,639 | 24,955 | 66.3% | 18 | 1 |
+| `kg_validation_hitl` | 73,055 | 34,693 | 47.5% | 12 | 4 |
+| `empire` | 57,871 | 20,380 | 35.2% | 2 | 0 |
+| `llm_ontology_gen` | 84,401 | 17,347 | **20.6%** | 12 | **8** |
+| `kg_construction_survey` | 181,256 | 7,139 | **3.9%** | 22 | **18** |
+
+"Body" is PDF text up to the last references heading. "Chain entities" are the
+53 distinct gold entities (canonical + aliases, word-boundary matched, grouped
+so an alias hit counts as the entity being visible) drawn from the gold files
+that existed on 2026-08-09. "Lost" means the entity appears in the body under
+some gold surface form and under **none** of them in the extractor's input.
+
+**Two papers are effectively unlabelable, for defensible per-paper reasons.**
+
+- `kg_construction_survey` gets 3.9% of its body. The keep-list is
+  `["abstract", "introduction"]`, which is the honest call for a 94-page survey
+  with no methods or experiments sections — but the consequence is that 18 of
+  the 22 chain entities in the paper are invisible, and the paper contributes
+  almost nothing to a validation set built around cross-paper concept
+  accumulation. Worth asking whether it earns its place in the set at all.
+- `llm_ontology_gen` gets 20.6%, losing 8 of 12 — including
+  `scientific knowledge graph`, the chain's spine concept, and `fine-tuning`.
+  Cause: its `3. Background` is background (excluded) and its approach lives in
+  `4. Experiments`, so the method content straddles a kept and an excluded span.
+
+**`fact_completion` is the sharpest case, because the loss is targeted.** Its
+Section V (`Use Case: AI-KG`, 6,502 chars) is excluded as a `use_case` type, and
+it is the single densest source of chain-recurring entities in the document:
+
+- `support score` — "the authors adopted a support score deﬁned as the number
+  of research papers where the fact was extracted from". This is the concept
+  `cskg` and `cskg2` were reconciled to share one canonical for, and it occurs
+  **zero** times in the extractor input. The five `support` hits there are the
+  verb "supporting" and the AI-KG relation names `supportsTask`/`supportsMethod`.
+- `TransR` (a scored model on `cskg2`), the CSO topic classifier (a scored model
+  on both predecessors), verb clustering (`predicate mapping` on both), and the
+  exact phrase `information extraction pipeline` (a scored concept on both).
+
+A "use case" or "application" section is where a paper says what its artifact
+is *for* — on this paper that is where it connects to the rest of the chain.
+
+**Why this matters more than a coverage number.** The set exists to watch a
+concept accumulate evidence across a citation chain. Where a recurring entity is
+present in the paper and absent from the extractor's input, the diff will show a
+recall gap that is a keep-list decision, not an importer failure. Gold cannot
+compensate: labeling an entity the importer cannot read just manufactures a
+guaranteed miss.
+
+**Fix options**, in increasing order of change:
+
+1. Add `use_case` / `application` to the keep-list. Cheapest, and recovers the
+   `fact_completion` case specifically.
+2. Add `results` and `background`, which would recover `empire` (35.2%, `V.
+   RESULTS` excluded) and `llm_ontology_gen`.
+3. Invert the filter — keep everything except references, acknowledgments,
+   appendices and author bios. This is the "don't filter at all" option already
+   raised under (5), and this data strengthens it: the allowlist's precision
+   benefit is unmeasured, while its recall cost is now measured and large. Note
+   it interacts with (6) — the survey would then send 181k chars to one prompt,
+   so a length guard becomes a prerequisite rather than a nice-to-have.
+
+**Caveats on the numbers.** Body includes tables, figure captions and running
+headers, so coverage is a floor rather than an exact reading ratio. One of
+`fact_completion`'s five losses (`paraphrase-distilroberta-base-v2`) is a
+surface-form artifact rather than a section exclusion — the extractor breaks it
+as `paraphrase-distilrobertabase-v2` here and as `paraphrasedistilroberta-base-v2`
+in `cskg`, so the gold alias from one paper does not match the other. `empire`'s
+zero is not a clean bill of health: only 2 chain entities appear in it at all,
+because it is the one paper from a different research community. And the probe
+set is drawn from the three papers reviewed so far, so the unreviewed papers are
+being measured with their neighbours' vocabulary and their "in body" counts
+understate what is actually there.
+
 ## Reproduction
 
 ```bash
@@ -235,11 +334,23 @@ only. Worth adding fixtures for:
 
 ## Impact on the ground-truth task
 
-None to the labels, by construction. `scripts/segment_ground_truth.py` uses
-hand-verified boundaries, so the gold files describe what the importer *intends*
-to read. Baking today's segmenter output into gold would have invalidated all
-eight files the moment the segmenter is fixed.
+None to the labels from causes (1)–(6), by construction.
+`scripts/segment_ground_truth.py` uses hand-verified boundaries, so the gold
+files describe what the importer *intends* to read. Baking today's segmenter
+output into gold would have invalidated all eight files the moment the segmenter
+is fixed.
 
 It does mean the eventual importer-vs-gold diff will show large recall gaps that
 are **segmenter** failures, not extractor failures. Fix this first, or the diff
 will be read wrong.
+
+**Cause (7) is the exception, and it does reach the labels** — added 2026-08-09.
+Hand-verified boundaries do not help when the content is inside a section type
+the keep-list discards. Coverage ranges from 3.9% to 71.7% of body text, and on
+`fact_completion`, `llm_ontology_gen` and `kg_construction_survey` the discarded
+spans hold chain-recurring entities that appear nowhere in the extractor's
+input. Gold correctly omits them — an entity the importer cannot read is not a
+labeling target — but that means those papers under-contribute to the concept
+accumulation the set was built to measure, silently. Decide the keep-list
+question before diffing, and if it changes, the affected `paper_<slug>.txt`
+fixtures must be regenerated and their reviews redone rather than patched.
