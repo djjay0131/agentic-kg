@@ -41,16 +41,30 @@ plane, and pin the current governance version.
 |---|---|
 | `docs/governance-delta.md` | `llm/governance/governance-delta.md` |
 | `docs/adr/` | `llm/governance/adr/` |
+| `construction/sprints/` | `llm/sprints/` |
 
 Every move is `git mv`, so history follows. All inbound references are
 rewritten except dated historical records in the memory bank and in ADR-0001,
 which describe where things *were* and must not be falsified.
 
-`construction/sprints/` is **out of scope**. It is control plane by nature but
-has no canonical v0.3 slot, and it is read by two workflows and a site-data
-generator. Moving it is a separate decision with its own blast radius.
+`construction/sprints/` moves too:
+
+| From | To |
+|---|---|
+| `construction/sprints/` | `llm/sprints/` |
+
+It was initially left out on the grounds that it had no canonical slot. That was
+the wrong conclusion from a right observation — sprint plans record how work was
+executed and are control plane by any reading, so the gap was in the slot table.
+agentic-governance v0.5 adds a `Sprints directory` slot (`llm/sprints/`), and
+this repo declares it. `construction/` held nothing else and is removed.
 
 ## Consequences
+
+- `preview-docs.yml`, `update-docs.yml` and `.github/scripts/generate_site_data.py`
+  are repointed at `llm/sprints/`, along with the two test modules that assert
+  those paths (`test_generate_site_data.py`, `test_site_structure.py`). The
+  sprint history itself is unchanged — only its location.
 
 - The `adr/` and `governance-delta.md` exclusions are removed from
   `docs/_config.yml` — the files are no longer there to exclude.
