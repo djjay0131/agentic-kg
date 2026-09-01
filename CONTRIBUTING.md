@@ -4,14 +4,14 @@ Status: Active
 Last updated: 2026-07-13
 
 This project follows [agentic-governance](https://github.com/djjay0131/agentic-governance)
-(see `docs/governance-delta.md` for project specifics).
+(see `llm/governance/governance-delta.md` for project specifics).
 
 ## Before You Start
 
 1. `llm/memory_bank/activeContext.md`
 2. `llm/memory_bank/systemPatterns.md` (interim design authority — see
    ADR-0001)
-3. `docs/governance-delta.md`
+3. `llm/governance/governance-delta.md`
 4. agentic-governance: `docs/architecture-governance.md`,
    `docs/project-operating-system.md`
 
@@ -21,7 +21,7 @@ This project follows [agentic-governance](https://github.com/djjay0131/agentic-g
   Merge.
 - Branch prefixes: `docs/`, `architecture/`, `feature/`, `research/`,
   `spike/`, `governance/`, `fix/`, ...
-- ADRs for durable decisions (`docs/adr/`, use `0000-template.md`).
+- ADRs for durable decisions (`llm/governance/adr/`, use `0000-template.md`).
 - Update `llm/memory_bank/` when project context changes (Constellize
   `memory:update` / `memory:revise`).
 - Feature work follows the Constellize spec → implement → verify cycle
