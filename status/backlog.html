@@ -2,7 +2,7 @@
 
 <p>Auto-regenerated from <a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/BACKLOG.md"><code class="language-plaintext highlighter-rouge">llm/features/BACKLOG.md</code></a> on every push.</p>
 
-<p><strong>44</strong> active, <strong>1</strong> resolved.</p>
+<p><strong>45</strong> active, <strong>1</strong> resolved.</p>
 
 <h2 id="active">Active</h2>
 
@@ -398,6 +398,32 @@
     </tr>
     <tr>
       <td>Golden dataset benchmarks against live Neo4j not yet run.</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>SM-10</td>
+    </tr>
+    <tr>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td><a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/doi-targeted-ingestion.md">DOI/identifier-targeted ingestion</a></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">IMPLEMENTED (PR #50)</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">agentic-kg ingest</code> was query-only; couldn’t hit an exact curated set by DOI. Added <code class="language-plaintext highlighter-rouge">--dois</code>/<code class="language-plaintext highlighter-rouge">--dois-file</code> (mutually exclusive with <code class="language-plaintext highlighter-rouge">--query</code>) resolving via the S2/OpenAlex by-DOI path through the normal ingest loop; <code class="language-plaintext highlighter-rouge">CITES</code> among the set populates; unresolvable DOIs reported (<code class="language-plaintext highlighter-rouge">unresolved:&lt;doi&gt;</code>). Unblocked the CS-KG ground-truth run (8/8 resolved vs 2/8 by title search). Surfaced 2026-07-27 during the first staging validation.</td>
     </tr>
     <tr>
       <td> </td>
