@@ -5,7 +5,7 @@ name: Governance Checks
 #
 # The checker script lives in the *public* agentic-governance repo, not here,
 # so this job fetches it pinned to a commit SHA for reproducibility (keep the
-# SHA in sync with the governance version pinned in docs/governance-delta.md).
+# SHA in sync with the governance version pinned in llm/governance/governance-delta.md).
 # It is cloned OUTSIDE the workspace ($RUNNER_TEMP) so the script's own file
 # scan (rooted at `git rev-parse --show-toplevel`) does not walk into it.
 #
@@ -28,7 +28,7 @@ jobs:
     env:
       GOVERNANCE_REPO: djjay0131/agentic-governance
       # agentic-governance v0.2.0 (VERSION 0.2.0). Bump alongside the version
-      # pinned in docs/governance-delta.md when adopting a newer ruleset.
+      # pinned in llm/governance/governance-delta.md when adopting a newer ruleset.
       GOVERNANCE_REF: 31f2771149bca78acdd8fbcac53f0b4a94f1bb0c
     steps:
       - name: Check out repo (full history so origin/master exists for the diff)

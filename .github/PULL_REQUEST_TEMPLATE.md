@@ -77,7 +77,7 @@ Closes #
 Reviewers apply agentic-governance `docs/review-checklist.md` (semantic
 L1–L3 PRs). L0 fast-track PRs are audited against the conditions in
 agentic-governance `docs/l0-fast-track.md` instead — note this repo's
-Steward Activation Status (`docs/governance-delta.md`) is currently
+Steward Activation Status (`llm/governance/governance-delta.md`) is currently
 INACTIVE, so L0 PRs still take human merge.
 
 ## Open Questions
