@@ -13,7 +13,7 @@ from typing import Any, Callable, Optional
 
 from pydantic import BaseModel, Field
 
-from agentic_kg.data_acquisition.aggregator import get_paper_aggregator
+from agentic_kg.data_acquisition.aggregator import SearchResult, get_paper_aggregator
 from agentic_kg.data_acquisition.importer import get_paper_importer
 from agentic_kg.extraction.cross_entity_normalizer import normalize_cross_entity
 from agentic_kg.extraction.kg_integration_v2 import (
@@ -361,7 +361,7 @@ async def _returns(value: Any) -> Any:
 
 
 async def ingest_papers(
-    query: str,
+    query: Optional[str] = None,
     limit: int = 20,
     sources: Optional[list[str]] = None,
     dry_run: bool = False,
@@ -373,6 +373,7 @@ async def ingest_papers(
     extract_entities: bool = True,
     normalize_cross_entity_collisions: bool = True,
     force_reextract: bool = False,
+    dois: Optional[list[str]] = None,
 ) -> IngestionResult:
     """
     End-to-end paper ingestion: search → import → extract → integrate.
@@ -408,12 +409,41 @@ async def ingest_papers(
         IngestionResult with counts and sanity check results.
     """
     trace_id = f"ingest-{uuid.uuid4().hex[:8]}"
-    result = IngestionResult(trace_id=trace_id, query=query, status="running")
+    result = IngestionResult(
+        trace_id=trace_id,
+        query=query or f"dois:{len(dois or [])}",
+        status="running",
+    )
+
+    if not query and not dois:
+        result.status = "failed"
+        result.error = "ingest_papers requires either query or dois"
+        return result
 
     try:
-        # Phase 1: Search across sources
+        # Phase 1: acquire candidate papers — by explicit DOI (SM-10) or by search.
         aggregator = get_paper_aggregator()
-        search = await aggregator.search_papers(query, sources=sources, limit=limit)
+        if dois:
+            # DOI-targeted: resolve each identifier via the by-DOI path (S2/OpenAlex).
+            # Unresolved DOIs are recorded (not silently dropped), mirroring SM-1's
+            # loud-failure contract; resolved papers run the normal per-paper loop.
+            fetched: list = []
+            doi_errors: dict[str, str] = {}
+            for doi in dois:
+                try:
+                    agg = await aggregator.get_paper_by_doi(doi)
+                except Exception as e:  # NotFoundError or transient source error
+                    doi_errors[f"unresolved:{doi}"] = str(e) or "not found"
+                    continue
+                if agg is not None and getattr(agg, "paper", None) is not None:
+                    fetched.append(agg.paper)
+                    for src, msg in (getattr(agg, "errors", {}) or {}).items():
+                        doi_errors[f"{src}:{doi}"] = msg
+                else:
+                    doi_errors[f"unresolved:{doi}"] = "no paper resolved by DOI"
+            search = SearchResult(papers=fetched, errors=doi_errors)
+        else:
+            search = await aggregator.search_papers(query, sources=sources, limit=limit)
         result.papers_found = len(search.papers)
         # SM-1: surface per-source search failures (e.g. Semantic Scholar 429)
         # so rate-limited sources are visible instead of silently dropped.
