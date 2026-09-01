@@ -200,7 +200,7 @@ class TestGraphChecks:
             rc = smoke_assert.main(str(result_path))
 
         assert rc == 1
-        assert "FAIL: BELONGS_TO topic edges >= 1" in capsys.readouterr().out
+        assert "FAIL: RESEARCHES topic edges >= 1" in capsys.readouterr().out
 
     def test_zero_concepts_fails(self, tmp_path, capsys):
         counts = _happy_counts()
