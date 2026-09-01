@@ -1,0 +1,126 @@
+<h1 id="named-resources-have-no-home-in-the-e-8-entity-model">Named resources have no home in the E-8 entity model</h1>
+
+<p><strong>Owner:</strong> Victoria
+<strong>Status:</strong> Open — awaiting colleague input (raised 2026-08-03)
+<strong>Blocks:</strong> diffing importer output against <code class="language-plaintext highlighter-rouge">ground_truth_chain/reconciled/</code></p>
+
+<h2 id="the-problem">The problem</h2>
+
+<p>The extraction schema offers four buckets for paper content: <code class="language-plaintext highlighter-rouge">Topic</code>, <code class="language-plaintext highlighter-rouge">ResearchConcept</code>,
+<code class="language-plaintext highlighter-rouge">Model</code>, <code class="language-plaintext highlighter-rouge">Method</code>. A large class of entities that scholarly-KG papers talk about
+constantly fits none of them:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Kind</th>
+      <th>Examples in our 8-paper set</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Knowledge graphs</td>
+      <td>CS-KG, AI-KG, ORKG, Wikidata, DBpedia, KG-EmpiRE</td>
+    </tr>
+    <tr>
+      <td>Ontologies / taxonomies</td>
+      <td>CSO, SKOS, PROV-O, VerbNet</td>
+    </tr>
+    <tr>
+      <td>Corpora / catalogues</td>
+      <td>MAG, OpenAlex, Semantic Scholar</td>
+    </tr>
+    <tr>
+      <td>Lexical resources</td>
+      <td>WordNet</td>
+    </tr>
+    <tr>
+      <td>Frameworks / libraries</td>
+      <td>SentenceTransformers, Stanford CoreNLP</td>
+    </tr>
+    <tr>
+      <td>Publishing formats</td>
+      <td>Nanopublications</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>None is a <code class="language-plaintext highlighter-rouge">Model</code> (no weights, no architecture family). None is a <code class="language-plaintext highlighter-rouge">Method</code> (not a recipe
+you apply). Calling them <code class="language-plaintext highlighter-rouge">ResearchConcept</code>s is a stretch — they are <em>instances</em>, not
+techniques, theories or named ideas — and it puts “Wikidata” in the same bucket as
+“retrieval augmented generation”.</p>
+
+<p>This is not a corner case for our validation set. The set was chosen for citation
+connectivity around scholarly-KG construction, so <strong>every paper in it is dense with named
+resources</strong>. On <code class="language-plaintext highlighter-rouge">cskg</code> alone, both reviewers independently flagged eleven of them.</p>
+
+<h2 id="why-it-blocks-the-diff">Why it blocks the diff</h2>
+
+<p>Because a gold file is binary, the decision changes the score in both directions:</p>
+
+<ul>
+  <li><strong>If gold omits them</strong> and the importer emits “CS-KG” as a concept, that is a false
+positive dragging <code class="language-plaintext highlighter-rouge">concept_precision</code> down on every paper in the set.</li>
+  <li><strong>If gold includes them</strong> as concepts, the importer <em>must</em> emit them or lose
+<code class="language-plaintext highlighter-rouge">concept_recall</code> — and we will have defined “Wikidata” as a research concept in the
+graph schema by the back door.</li>
+</ul>
+
+<p>Either way the number we get out measures our labeling choice more than the importer’s
+behaviour. On <code class="language-plaintext highlighter-rouge">cskg</code> they are currently parked in <code class="language-plaintext highlighter-rouge">acceptable_extras</code> (neither scored nor
+penalised), which is a holding position, not an answer.</p>
+
+<h2 id="options">Options</h2>
+
+<p><strong>A. Score them as <code class="language-plaintext highlighter-rouge">ResearchConcept</code>s.</strong> Zero code change; the importer probably already
+does this. Cost: the concept layer silently becomes a mixed bag of techniques and named
+artifacts, which degrades every downstream use of it — concept accumulation across the
+citation chain (the whole point of this set) would count “CS-KG appears in 6 papers” as a
+concept building evidence.</p>
+
+<p><strong>B. Exclude them from gold and treat emissions as false positives.</strong> Keeps the concept
+layer clean and honest. Cost: we knowingly score correct-looking extractions as errors,
+and the precision numbers will look bad for reasons that are not the importer’s fault.
+Needs the extractor prompt updated to say “do not extract named resources” or the penalty
+is unfair.</p>
+
+<p><strong>C. Add a <code class="language-plaintext highlighter-rouge">Resource</code> node type (E-9?).</strong> Models the domain correctly, and for a
+scholarly-KG project a <code class="language-plaintext highlighter-rouge">Resource</code> node is arguably a first-class citizen — it is what the
+papers in this domain are <em>about</em>. Cost: new extractor, new prompt, new merge logic, new
+gold key, and a taxonomy question of its own (is <code class="language-plaintext highlighter-rouge">CSO</code> a Resource that is also a Topic
+source?). Largest change, best end state.</p>
+
+<p><strong>D. Keep the <code class="language-plaintext highlighter-rouge">acceptable_extras</code> holding pattern indefinitely.</strong> Unblocks the diff now at
+the cost of leaving a documented hole: these entities are simply not validated, so we
+learn nothing about how the importer handles the most common entity class in the set.</p>
+
+<h2 id="recommendation">Recommendation</h2>
+
+<p><strong>B for the current validation round, C as the target</strong> — provided the extractor prompts
+get the matching “not a named resource” instruction before we score precision, otherwise B
+is unfair to the importer and the numbers are noise.</p>
+
+<p>Reasoning: the reason for this validation set is watching a <em>concept</em> accumulate evidence
+across a citation chain and escalate into a <code class="language-plaintext highlighter-rouge">Problem</code>. Option A directly corrupts that
+signal, which is the one thing we cannot afford. C is right but is a feature, not a
+labeling decision, and should not gate this round. B is the honest interim: it keeps the
+concept layer clean, and the resulting precision hit is itself the argument for C.</p>
+
+<h2 id="what-is-needed-to-close-this">What is needed to close this</h2>
+
+<ul class="task-list">
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Decision on A / B / C / D.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />If B: extractor prompt updated to exclude named resources, then re-run before scoring.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />If C: <code class="language-plaintext highlighter-rouge">Resource</code> spec in <code class="language-plaintext highlighter-rouge">llm/features/</code>, and a new <code class="language-plaintext highlighter-rouge">expected_resources</code> key in <code class="language-plaintext highlighter-rouge">SCHEMA.md</code>.</li>
+  <li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled="disabled" />Apply the outcome uniformly to all 8 reconciled files — <code class="language-plaintext highlighter-rouge">cskg</code>’s <code class="language-plaintext highlighter-rouge">acceptable_extras</code>
+    block is the current inventory for that paper and each remaining paper will need its own.</li>
+</ul>
+
+<h2 id="where-this-is-recorded">Where this is recorded</h2>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">packages/core/tests/extraction/fixtures/ground_truth_chain/reconciled/paper_cskg.gold.yml</code>
+— <code class="language-plaintext highlighter-rouge">acceptable_extras.named_resources</code> (the eleven entities, with grounding rationale)</li>
+  <li><code class="language-plaintext highlighter-rouge">packages/core/tests/extraction/fixtures/ground_truth_chain/SCHEMA.md</code> — the
+<code class="language-plaintext highlighter-rouge">acceptable_extras</code> contract</li>
+</ul>

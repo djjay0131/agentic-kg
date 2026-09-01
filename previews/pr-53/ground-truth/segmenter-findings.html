@@ -1,0 +1,546 @@
+<h1 id="sectionsegmenter-mis-segments-every-paper-in-the-ground-truth-set"><code class="language-plaintext highlighter-rouge">SectionSegmenter</code> mis-segments every paper in the ground-truth set</h1>
+
+<p><strong>Found:</strong> 2026-07-27, while preparing extractor input for the ground-truth
+curation task (<code class="language-plaintext highlighter-rouge">docs/ground-truth/README.md</code>).
+<strong>Affects:</strong> <code class="language-plaintext highlighter-rouge">packages/core/src/agentic_kg/extraction/section_segmenter.py</code>,
+and therefore every entity extracted by <code class="language-plaintext highlighter-rouge">ingest_papers</code>.
+<strong>Severity:</strong> High. One of eight papers yields <strong>zero</strong> extractor input and
+therefore zero entities, silently and with no error.</p>
+
+<p><strong>Update 2026-08-09:</strong> a seventh, independent cause was found — see
+<a href="#7-the-four-section-keep-list-loses-content-even-when-boundaries-are-perfect">(7)</a>.
+Causes (1)–(6) are about locating section boundaries; (7) is about which
+sections are kept once located, and it survives fixing all of them. It is also
+the only one that reaches the ground-truth labels.</p>
+
+<h2 id="summary">Summary</h2>
+
+<p><code class="language-plaintext highlighter-rouge">ingest_papers</code> feeds all four entity extractors a single text block built by
+<code class="language-plaintext highlighter-rouge">_build_extractor_section_text</code> (<code class="language-plaintext highlighter-rouge">ingestion.py:198</code>), which keeps only the
+sections typed <code class="language-plaintext highlighter-rouge">abstract</code>, <code class="language-plaintext highlighter-rouge">introduction</code>, <code class="language-plaintext highlighter-rouge">methods</code>, <code class="language-plaintext highlighter-rouge">experiments</code>. Running the
+current segmenter over the 8-paper ground-truth chain, <strong>not one paper produced
+a clean abstract + introduction + methods + experiments block</strong>, only one of
+eight produced an abstract at all, and only two of the six papers that have a
+methods section had it recognized.</p>
+
+<p>This was found by preparing labeling input, not by looking for bugs. The
+labeling task is now unblocked via a hand-written segmenter
+(<code class="language-plaintext highlighter-rouge">scripts/segment_ground_truth.py</code>) — this document records the underlying
+defect so it can be fixed on its own terms.</p>
+
+<h2 id="observed-output">Observed output</h2>
+
+<p>Chars fed to the extractors, per paper, via <code class="language-plaintext highlighter-rouge">SectionSegmenter.segment()</code>:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Slug</th>
+      <th style="text-align: right">Chars</th>
+      <th>Sections detected</th>
+      <th>Problem</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">fact_completion</code></td>
+      <td style="text-align: right"><strong>0</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">references</code> only</td>
+      <td>Extractors receive <code class="language-plaintext highlighter-rouge">""</code> and short-circuit — <strong>no entities at all</strong></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">cskg</code></td>
+      <td style="text-align: right">8,919</td>
+      <td>intro (822w), experiments (517w)</td>
+      <td>No abstract, no methods</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">empire</code></td>
+      <td style="text-align: right">12,405</td>
+      <td>one <code class="language-plaintext highlighter-rouge">methods</code> block</td>
+      <td>Abstract, intro, and most sections missed</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">kg_validation_hitl</code></td>
+      <td style="text-align: right">23,938</td>
+      <td>5 fragments</td>
+      <td>No abstract</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">cskg2</code></td>
+      <td style="text-align: right">39,226</td>
+      <td>one <code class="language-plaintext highlighter-rouge">methods</code> block</td>
+      <td><code class="language-plaintext highlighter-rouge">Methods</code> swallows everything to the references</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">llm_ontology_gen</code></td>
+      <td style="text-align: right">43,250</td>
+      <td>7 fragments</td>
+      <td>No abstract</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">hypothesis_generation</code></td>
+      <td style="text-align: right">49,517</td>
+      <td>4 fragments</td>
+      <td>No abstract</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">kg_construction_survey</code></td>
+      <td style="text-align: right"><strong>244,748</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">introduction</code> = 16,715 words</td>
+      <td>Whole body swallowed into “introduction”</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>For comparison, hand-verified boundaries over the same PDFs yield 1,130–6,456
+words per paper — all eight plausible, all eight with a real abstract.</p>
+
+<h2 id="root-causes">Root causes</h2>
+
+<h3 id="1-roman-numeral-section-headings-never-match">1. Roman-numeral section headings never match</h3>
+
+<p>Every pattern in <code class="language-plaintext highlighter-rouge">SECTION_PATTERNS</code> admits only Arabic numbering:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">SectionType</span><span class="p">.</span><span class="n">INTRODUCTION</span><span class="p">:</span> <span class="p">[</span>
+    <span class="sa">r</span><span class="sh">"</span><span class="s">^(?:\d+\.?\s*)?introduction\s*$</span><span class="sh">"</span><span class="p">,</span>
+    <span class="bp">...</span>
+<span class="p">]</span>
+</code></pre></div></div>
+
+<p>IEEE-format papers number sections with Roman numerals. Confirmed present in
+the PDFs and unmatched by every pattern:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>fact_completion: I. INTRODUCTION, II. RELATED WORK, III. SciCheck,
+                 IV. EVALUATION, V. USE CASE: AI-KG, VI. CONCLUSION
+empire:          I. INTRODUCTION, II. BACKGROUND, III. RELATED WORK,
+                 IV. RESEARCH APPROACH, V. RESULTS, VI. THREATS TO VALIDITY,
+                 VII. DISCUSSION, VIII. CONCLUSION
+</code></pre></div></div>
+
+<p>In <code class="language-plaintext highlighter-rouge">fact_completion</code> the only heading that matched anything was the unnumbered
+<code class="language-plaintext highlighter-rouge">REFERENCES</code>, which is why that paper produces an empty extractor input.</p>
+
+<p><strong>Fix:</strong> extend the numeric prefix group to accept Roman numerals and letters,
+e.g. <code class="language-plaintext highlighter-rouge">(?:(?:\d+|[IVXLC]+|[A-Z])[\.\)]?\s*)?</code>.</p>
+
+<h3 id="2-segment_with_abstract-can-never-match-an-abstract">2. <code class="language-plaintext highlighter-rouge">segment_with_abstract</code> can never match an abstract</h3>
+
+<p><code class="language-plaintext highlighter-rouge">section_segmenter.py:377</code>:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">abstract_match</span> <span class="o">=</span> <span class="n">re</span><span class="p">.</span><span class="nf">search</span><span class="p">(</span>
+    <span class="sa">r</span><span class="sh">"</span><span class="s">^(?:abstract\s*[:\-]?\s*)(.*?)(?=\n\s*(?:\d+\.?\s*)?(?:introduction|1\.|I\.))</span><span class="sh">"</span><span class="p">,</span>
+    <span class="n">text</span><span class="p">,</span>
+    <span class="n">re</span><span class="p">.</span><span class="n">IGNORECASE</span> <span class="o">|</span> <span class="n">re</span><span class="p">.</span><span class="n">DOTALL</span><span class="p">,</span>      <span class="c1"># &lt;-- no re.MULTILINE
+</span><span class="p">)</span>
+</code></pre></div></div>
+
+<p>Without <code class="language-plaintext highlighter-rouge">re.MULTILINE</code>, <code class="language-plaintext highlighter-rouge">^</code> anchors to the start of the entire document. Every
+real PDF begins with a title and author block, so this never fires.</p>
+
+<p>Empirically confirmed: <code class="language-plaintext highlighter-rouge">segment()</code> and <code class="language-plaintext highlighter-rouge">segment_with_abstract()</code> returned
+byte-identical output on all 8 papers.</p>
+
+<p>This is currently moot in production — <code class="language-plaintext highlighter-rouge">pipeline.py:475</code> calls plain
+<code class="language-plaintext highlighter-rouge">.segment()</code>, so <code class="language-plaintext highlighter-rouge">segment_with_abstract</code> is dead code on the ingest path. Worth
+deciding whether to fix it or delete it.</p>
+
+<p><strong>Fix:</strong> add <code class="language-plaintext highlighter-rouge">re.MULTILINE</code>, and note the lookahead also needs the Roman-numeral
+fix from (1) to terminate correctly.</p>
+
+<h3 id="3-run-in-abstracts-defeat-the-standalone-line-pattern">3. Run-in abstracts defeat the standalone-line pattern</h3>
+
+<p><code class="language-plaintext highlighter-rouge">r"^abstract\s*$"</code> requires <code class="language-plaintext highlighter-rouge">Abstract</code> alone on a line. Real formats run the
+abstract into the same line:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>IEEE ESEM:    Abstract—[Background.] Empirical research in requirements...
+IEEE Access:  ABSTRACT In the last few years, we have witnessed...
+Springer:     Abstract. In recent years, we saw the emergence of...
+Elsevier:     A B S T R A C T          (letter-spaced by the PDF extractor)
+Nature SD:    (no "Abstract" label at all — it is the lead paragraph)
+</code></pre></div></div>
+
+<p>Five distinct conventions across eight papers, and the pattern matches none.</p>
+
+<p><strong>Fix:</strong> allow a run-in delimiter (<code class="language-plaintext highlighter-rouge">[—\-–.:]</code> or whitespace) after the keyword,
+and handle the letter-spaced <code class="language-plaintext highlighter-rouge">A B S T R A C T</code> form that Elsevier PDFs produce.</p>
+
+<h3 id="4-an-unrecognized-heading-lets-the-previous-section-swallow-the-rest">4. An unrecognized heading lets the previous section swallow the rest</h3>
+
+<p>Section spans run from one recognized heading to the next, so a journal whose
+headings aren’t in the pattern table produces one enormous section.</p>
+
+<p><code class="language-plaintext highlighter-rouge">cskg2</code> is Nature <em>Scientific Data</em>, whose top-level headings are
+<code class="language-plaintext highlighter-rouge">Background &amp; Summary</code>, <code class="language-plaintext highlighter-rouge">Methods</code>, <code class="language-plaintext highlighter-rouge">Data Records</code>, <code class="language-plaintext highlighter-rouge">Technical Validation</code>,
+<code class="language-plaintext highlighter-rouge">Usage Notes</code>. Only <code class="language-plaintext highlighter-rouge">Methods</code> matches, so it absorbs 39k chars through to the
+references. The same mechanism inflated the survey’s <code class="language-plaintext highlighter-rouge">introduction</code> to 16,715
+words.</p>
+
+<p>Note the semantic mapping is also missing: <code class="language-plaintext highlighter-rouge">Background &amp; Summary</code> is that
+journal’s introduction and <code class="language-plaintext highlighter-rouge">Technical Validation</code> its evaluation, but neither
+name appears in <code class="language-plaintext highlighter-rouge">SECTION_PATTERNS</code>.</p>
+
+<p><strong>Fix:</strong> add the Nature/<code class="language-plaintext highlighter-rouge">Scientific Data</code> heading vocabulary, and consider a
+sanity check that flags any single section exceeding some word count as
+probable under-segmentation rather than passing it downstream.</p>
+
+<h3 id="5-methods-and-experiments-sections-are-usually-not-named-methods-or-experiments">5. Methods and experiments sections are usually not named “Methods” or “Experiments”</h3>
+
+<p>The pattern table assumes generic section names. Real papers name the methods
+section after <em>the thing they built</em>, or write a descriptive sentence. Testing
+the live patterns against the actual headings of this set:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Paper</th>
+      <th>Wanted</th>
+      <th>Actual heading</th>
+      <th>Classified as</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">cskg</code></td>
+      <td>methods</td>
+      <td><code class="language-plaintext highlighter-rouge">The Computer Science Knowledge Graph</code></td>
+      <td><strong>unmatched</strong></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">cskg</code></td>
+      <td>experiments</td>
+      <td><code class="language-plaintext highlighter-rouge">Evaluation</code></td>
+      <td>experiments ✓</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">cskg2</code></td>
+      <td>methods</td>
+      <td><code class="language-plaintext highlighter-rouge">Methods</code></td>
+      <td>methods ✓</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">cskg2</code></td>
+      <td>experiments</td>
+      <td><code class="language-plaintext highlighter-rouge">Technical Validation</code></td>
+      <td><strong>unmatched</strong></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">llm_ontology_gen</code></td>
+      <td>experiments</td>
+      <td><code class="language-plaintext highlighter-rouge">4. Experiments</code></td>
+      <td>experiments ✓</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">fact_completion</code></td>
+      <td>methods</td>
+      <td><code class="language-plaintext highlighter-rouge">III. SciCheck</code></td>
+      <td><strong>unmatched</strong></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">fact_completion</code></td>
+      <td>experiments</td>
+      <td><code class="language-plaintext highlighter-rouge">IV. EVALUATION</code></td>
+      <td><strong>unmatched</strong></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">kg_validation_hitl</code></td>
+      <td>methods</td>
+      <td><code class="language-plaintext highlighter-rouge">4. Integrating LLMs and HiL into the SCICERO validation</code></td>
+      <td><strong>unmatched</strong></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">kg_validation_hitl</code></td>
+      <td>experiments</td>
+      <td><code class="language-plaintext highlighter-rouge">5. Experiment design and implementation</code></td>
+      <td><strong>unmatched</strong></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">hypothesis_generation</code></td>
+      <td>methods</td>
+      <td><code class="language-plaintext highlighter-rouge">3. Methodology</code></td>
+      <td>methods ✓</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">hypothesis_generation</code></td>
+      <td>experiments</td>
+      <td><code class="language-plaintext highlighter-rouge">4. Evaluation</code></td>
+      <td>experiments ✓</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">empire</code></td>
+      <td>methods</td>
+      <td><code class="language-plaintext highlighter-rouge">IV. RESEARCH APPROACH</code></td>
+      <td><strong>unmatched</strong></td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>7 of 12 unmatched. Only 2 of 6 methods sections are found.</strong></p>
+
+<p>This is a separate defect from (1), and the more stubborn one: only
+<code class="language-plaintext highlighter-rouge">IV. EVALUATION</code> is explained by Roman numerals. <strong>Five of the seven misses
+survive a perfect Roman-numeral fix</strong>, for four different reasons:</p>
+
+<ul>
+  <li><strong>Named after the contribution</strong> — <code class="language-plaintext highlighter-rouge">The Computer Science Knowledge Graph</code>,
+<code class="language-plaintext highlighter-rouge">III. SciCheck</code>. No keyword list can catch these; the section is named after
+the system the paper introduces.</li>
+  <li><strong>Journal-specific vocabulary</strong> — <code class="language-plaintext highlighter-rouge">Technical Validation</code> is Nature <em>Scientific
+Data</em>’s evaluation section. Fixable by adding vocabulary (see (4)).</li>
+  <li><strong>Descriptive sentence headings</strong> — <code class="language-plaintext highlighter-rouge">4. Integrating LLMs and HiL into the
+SCICERO validation</code>. Contains no method keyword at all.</li>
+  <li><strong>Keyword present but pattern too strict</strong> — <code class="language-plaintext highlighter-rouge">5. Experiment design and
+implementation</code> fails because the pattern is
+<code class="language-plaintext highlighter-rouge">experiment(?:s|al)?\s*(?:setup|settings)?\s*$</code>, which allows only <code class="language-plaintext highlighter-rouge">setup</code> or
+<code class="language-plaintext highlighter-rouge">settings</code> as a suffix. <code class="language-plaintext highlighter-rouge">IV. RESEARCH APPROACH</code> fails because the approach
+pattern admits only <code class="language-plaintext highlighter-rouge">our</code> or <code class="language-plaintext highlighter-rouge">proposed</code> as a prefix.</li>
+</ul>
+
+<p>The last category is cheap to fix: relax the anchors so a heading <em>containing</em> a
+method/experiment keyword matches, rather than requiring near-exact equality.
+That alone would recover <code class="language-plaintext highlighter-rouge">5. Experiment design and implementation</code> and
+<code class="language-plaintext highlighter-rouge">IV. RESEARCH APPROACH</code>.</p>
+
+<p>The first and third categories cannot be fixed by pattern-matching. Options
+worth weighing:</p>
+
+<ul>
+  <li><strong>Positional fallback</strong> — if no methods section is found, treat the span
+between the last recognized front-matter section (related work / background)
+and the first recognized results/evaluation section as methods. This works for
+<code class="language-plaintext highlighter-rouge">cskg</code>, <code class="language-plaintext highlighter-rouge">fact_completion</code>, and <code class="language-plaintext highlighter-rouge">kg_validation_hitl</code>.</li>
+  <li><strong>Don’t filter at all</strong> — feed everything except references, acknowledgments,
+and appendices. Given (4) already lets unrecognized headings silently merge
+into their predecessor, the section allowlist is providing less filtering
+precision than it appears to.</li>
+  <li><strong>LLM-assisted heading classification</strong> for the residue, which is more
+machinery than this probably warrants.</li>
+</ul>
+
+<p>Whatever is chosen, note that the current failure is silent: an unmatched
+methods heading doesn’t error, it just quietly removes the paper’s core
+technical content from every extractor’s input.</p>
+
+<h3 id="6-unbounded-section-length-reaches-the-llm-call">6. Unbounded section length reaches the LLM call</h3>
+
+<p>Independent of the above: 244,748 chars would be sent as a single extractor
+prompt. There is no length guard between <code class="language-plaintext highlighter-rouge">_build_extractor_section_text</code> and
+the extractor calls, only <code class="language-plaintext highlighter-rouge">MIN_USABLE_CHARS = 250</code> on the lower end.</p>
+
+<h3 id="7-the-four-section-keep-list-loses-content-even-when-boundaries-are-perfect">7. The four-section keep-list loses content even when boundaries are perfect</h3>
+
+<p><strong>Found:</strong> 2026-08-09, while reconciling <code class="language-plaintext highlighter-rouge">fact_completion</code>. This is a different
+defect from (1)–(5) and survives fixing all of them.</p>
+
+<p>Causes (1)–(5) are about <em>finding</em> section boundaries. This one is about which
+sections are kept once found. <code class="language-plaintext highlighter-rouge">_build_extractor_section_text</code>
+(<code class="language-plaintext highlighter-rouge">ingestion.py:198</code>) keeps exactly four types — <code class="language-plaintext highlighter-rouge">abstract</code>, <code class="language-plaintext highlighter-rouge">introduction</code>,
+<code class="language-plaintext highlighter-rouge">methods</code>, <code class="language-plaintext highlighter-rouge">experiments</code> — and discards everything else.</p>
+
+<p><code class="language-plaintext highlighter-rouge">scripts/segment_ground_truth.py</code> uses <strong>hand-verified</strong> boundaries, so it
+isolates the variable: any content missing from <code class="language-plaintext highlighter-rouge">paper_&lt;slug&gt;.txt</code> is lost to
+the keep-list policy, not to boundary detection. Measuring that loss across all
+eight papers:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Slug</th>
+      <th style="text-align: right">Body chars</th>
+      <th style="text-align: right">Fed to extractors</th>
+      <th style="text-align: right">Coverage</th>
+      <th style="text-align: right">Chain entities in body</th>
+      <th style="text-align: right">Lost</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">hypothesis_generation</code></td>
+      <td style="text-align: right">61,088</td>
+      <td style="text-align: right">43,771</td>
+      <td style="text-align: right">71.7%</td>
+      <td style="text-align: right">17</td>
+      <td style="text-align: right">2</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">fact_completion</code></td>
+      <td style="text-align: right">47,804</td>
+      <td style="text-align: right">33,340</td>
+      <td style="text-align: right">69.7%</td>
+      <td style="text-align: right">32</td>
+      <td style="text-align: right">5</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">cskg2</code></td>
+      <td style="text-align: right">51,847</td>
+      <td style="text-align: right">35,470</td>
+      <td style="text-align: right">68.4%</td>
+      <td style="text-align: right">34</td>
+      <td style="text-align: right"><strong>0</strong></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">cskg</code></td>
+      <td style="text-align: right">37,639</td>
+      <td style="text-align: right">24,955</td>
+      <td style="text-align: right">66.3%</td>
+      <td style="text-align: right">18</td>
+      <td style="text-align: right">1</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">kg_validation_hitl</code></td>
+      <td style="text-align: right">73,055</td>
+      <td style="text-align: right">34,693</td>
+      <td style="text-align: right">47.5%</td>
+      <td style="text-align: right">12</td>
+      <td style="text-align: right">4</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">empire</code></td>
+      <td style="text-align: right">57,871</td>
+      <td style="text-align: right">20,380</td>
+      <td style="text-align: right">35.2%</td>
+      <td style="text-align: right">2</td>
+      <td style="text-align: right">0</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">llm_ontology_gen</code></td>
+      <td style="text-align: right">84,401</td>
+      <td style="text-align: right">17,347</td>
+      <td style="text-align: right"><strong>20.6%</strong></td>
+      <td style="text-align: right">12</td>
+      <td style="text-align: right"><strong>8</strong></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">kg_construction_survey</code></td>
+      <td style="text-align: right">181,256</td>
+      <td style="text-align: right">7,139</td>
+      <td style="text-align: right"><strong>3.9%</strong></td>
+      <td style="text-align: right">22</td>
+      <td style="text-align: right"><strong>18</strong></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>“Body” is PDF text up to the last references heading. “Chain entities” are the
+53 distinct gold entities (canonical + aliases, word-boundary matched, grouped
+so an alias hit counts as the entity being visible) drawn from the gold files
+that existed on 2026-08-09. “Lost” means the entity appears in the body under
+some gold surface form and under <strong>none</strong> of them in the extractor’s input.</p>
+
+<p><strong>Two papers are effectively unlabelable, for defensible per-paper reasons.</strong></p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">kg_construction_survey</code> gets 3.9% of its body. The keep-list is
+<code class="language-plaintext highlighter-rouge">["abstract", "introduction"]</code>, which is the honest call for a 94-page survey
+with no methods or experiments sections — but the consequence is that 18 of
+the 22 chain entities in the paper are invisible, and the paper contributes
+almost nothing to a validation set built around cross-paper concept
+accumulation. Worth asking whether it earns its place in the set at all.</li>
+  <li><code class="language-plaintext highlighter-rouge">llm_ontology_gen</code> gets 20.6%, losing 8 of 12 — including
+<code class="language-plaintext highlighter-rouge">scientific knowledge graph</code>, the chain’s spine concept, and <code class="language-plaintext highlighter-rouge">fine-tuning</code>.
+Cause: its <code class="language-plaintext highlighter-rouge">3. Background</code> is background (excluded) and its approach lives in
+<code class="language-plaintext highlighter-rouge">4. Experiments</code>, so the method content straddles a kept and an excluded span.</li>
+</ul>
+
+<p><strong><code class="language-plaintext highlighter-rouge">fact_completion</code> is the sharpest case, because the loss is targeted.</strong> Its
+Section V (<code class="language-plaintext highlighter-rouge">Use Case: AI-KG</code>, 6,502 chars) is excluded as a <code class="language-plaintext highlighter-rouge">use_case</code> type, and
+it is the single densest source of chain-recurring entities in the document:</p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">support score</code> — “the authors adopted a support score deﬁned as the number
+of research papers where the fact was extracted from”. This is the concept
+<code class="language-plaintext highlighter-rouge">cskg</code> and <code class="language-plaintext highlighter-rouge">cskg2</code> were reconciled to share one canonical for, and it occurs
+<strong>zero</strong> times in the extractor input. The five <code class="language-plaintext highlighter-rouge">support</code> hits there are the
+verb “supporting” and the AI-KG relation names <code class="language-plaintext highlighter-rouge">supportsTask</code>/<code class="language-plaintext highlighter-rouge">supportsMethod</code>.</li>
+  <li><code class="language-plaintext highlighter-rouge">TransR</code> (a scored model on <code class="language-plaintext highlighter-rouge">cskg2</code>), the CSO topic classifier (a scored model
+on both predecessors), verb clustering (<code class="language-plaintext highlighter-rouge">predicate mapping</code> on both), and the
+exact phrase <code class="language-plaintext highlighter-rouge">information extraction pipeline</code> (a scored concept on both).</li>
+</ul>
+
+<p>A “use case” or “application” section is where a paper says what its artifact
+is <em>for</em> — on this paper that is where it connects to the rest of the chain.</p>
+
+<p><strong>Why this matters more than a coverage number.</strong> The set exists to watch a
+concept accumulate evidence across a citation chain. Where a recurring entity is
+present in the paper and absent from the extractor’s input, the diff will show a
+recall gap that is a keep-list decision, not an importer failure. Gold cannot
+compensate: labeling an entity the importer cannot read just manufactures a
+guaranteed miss.</p>
+
+<p><strong>Fix options</strong>, in increasing order of change:</p>
+
+<ol>
+  <li>Add <code class="language-plaintext highlighter-rouge">use_case</code> / <code class="language-plaintext highlighter-rouge">application</code> to the keep-list. Cheapest, and recovers the
+<code class="language-plaintext highlighter-rouge">fact_completion</code> case specifically.</li>
+  <li>Add <code class="language-plaintext highlighter-rouge">results</code> and <code class="language-plaintext highlighter-rouge">background</code>, which would recover <code class="language-plaintext highlighter-rouge">empire</code> (35.2%, <code class="language-plaintext highlighter-rouge">V.
+RESULTS</code> excluded) and <code class="language-plaintext highlighter-rouge">llm_ontology_gen</code>.</li>
+  <li>Invert the filter — keep everything except references, acknowledgments,
+appendices and author bios. This is the “don’t filter at all” option already
+raised under (5), and this data strengthens it: the allowlist’s precision
+benefit is unmeasured, while its recall cost is now measured and large. Note
+it interacts with (6) — the survey would then send 181k chars to one prompt,
+so a length guard becomes a prerequisite rather than a nice-to-have.</li>
+</ol>
+
+<p><strong>Caveats on the numbers.</strong> Body includes tables, figure captions and running
+headers, so coverage is a floor rather than an exact reading ratio. One of
+<code class="language-plaintext highlighter-rouge">fact_completion</code>’s five losses (<code class="language-plaintext highlighter-rouge">paraphrase-distilroberta-base-v2</code>) is a
+surface-form artifact rather than a section exclusion — the extractor breaks it
+as <code class="language-plaintext highlighter-rouge">paraphrase-distilrobertabase-v2</code> here and as <code class="language-plaintext highlighter-rouge">paraphrasedistilroberta-base-v2</code>
+in <code class="language-plaintext highlighter-rouge">cskg</code>, so the gold alias from one paper does not match the other. <code class="language-plaintext highlighter-rouge">empire</code>’s
+zero is not a clean bill of health: only 2 chain entities appear in it at all,
+because it is the one paper from a different research community. And the probe
+set is drawn from the three papers reviewed so far, so the unreviewed papers are
+being measured with their neighbours’ vocabulary and their “in body” counts
+understate what is actually there.</p>
+
+<h2 id="reproduction">Reproduction</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>python <span class="nt">-m</span> venv .venv-gt
+.venv-gt/Scripts/python.exe <span class="nt">-m</span> pip <span class="nb">install </span>PyMuPDF httpx tenacity pydantic PyYAML neo4j
+.venv-gt/Scripts/python.exe scripts/segment_ground_truth.py   <span class="c"># hand-verified boundaries</span>
+</code></pre></div></div>
+
+<p>To observe the defect itself, call <code class="language-plaintext highlighter-rouge">SectionSegmenter().segment(full_text)</code> on
+any PDF in <code class="language-plaintext highlighter-rouge">ground-truth-papers/</code> and inspect <code class="language-plaintext highlighter-rouge">doc.sections</code>.</p>
+
+<h2 id="suggested-test-coverage">Suggested test coverage</h2>
+
+<p>The current tests appear to exercise Arabic-numbered, standalone-heading papers
+only. Worth adding fixtures for:</p>
+
+<ul>
+  <li>Roman-numeral headings (IEEE)</li>
+  <li>Each of the five abstract conventions listed in (3)</li>
+  <li>A paper with journal-specific headings (Nature <code class="language-plaintext highlighter-rouge">Scientific Data</code>)</li>
+  <li>A methods section named after the contribution rather than “Methods”
+(e.g. <code class="language-plaintext highlighter-rouge">III. SciCheck</code>) — see (5)</li>
+  <li>A descriptive sentence heading containing no method keyword</li>
+  <li>An assertion that no single section exceeds a plausible word count</li>
+  <li>An assertion that a paper with a known methods section actually yields one —
+the current failure mode is silent, so a test that only checks “segmentation
+returned some sections” would pass on every paper in this set</li>
+</ul>
+
+<h2 id="impact-on-the-ground-truth-task">Impact on the ground-truth task</h2>
+
+<p>None to the labels from causes (1)–(6), by construction.
+<code class="language-plaintext highlighter-rouge">scripts/segment_ground_truth.py</code> uses hand-verified boundaries, so the gold
+files describe what the importer <em>intends</em> to read. Baking today’s segmenter
+output into gold would have invalidated all eight files the moment the segmenter
+is fixed.</p>
+
+<p>It does mean the eventual importer-vs-gold diff will show large recall gaps that
+are <strong>segmenter</strong> failures, not extractor failures. Fix this first, or the diff
+will be read wrong.</p>
+
+<p><strong>Cause (7) is the exception, and it does reach the labels</strong> — added 2026-08-09.
+Hand-verified boundaries do not help when the content is inside a section type
+the keep-list discards. Coverage ranges from 3.9% to 71.7% of body text, and on
+<code class="language-plaintext highlighter-rouge">fact_completion</code>, <code class="language-plaintext highlighter-rouge">llm_ontology_gen</code> and <code class="language-plaintext highlighter-rouge">kg_construction_survey</code> the discarded
+spans hold chain-recurring entities that appear nowhere in the extractor’s
+input. Gold correctly omits them — an entity the importer cannot read is not a
+labeling target — but that means those papers under-contribute to the concept
+accumulation the set was built to measure, silently. Decide the keep-list
+question before diffing, and if it changes, the affected <code class="language-plaintext highlighter-rouge">paper_&lt;slug&gt;.txt</code>
+fixtures must be regenerated and their reviews redone rather than patched.</p>
