@@ -374,7 +374,7 @@ class TestPDFExtractorWithMockedPyMuPDF:
         mock_doc.__len__ = lambda self: 2
         mock_doc.metadata = {"title": "Test Paper", "author": "Test Author"}
 
-        with patch("fitz.open", return_value=mock_doc):
+        with patch("pymupdf.open", return_value=mock_doc):
             result = extractor._extract_from_bytes(b"fake pdf bytes")
 
         assert result.total_pages == 2
@@ -393,14 +393,14 @@ class TestPDFExtractorWithMockedPyMuPDF:
         mock_doc.__len__ = lambda self: 1
         mock_doc.metadata = {}
 
-        with patch("fitz.open", return_value=mock_doc):
+        with patch("pymupdf.open", return_value=mock_doc):
             result = extractor._extract_from_bytes(b"fake pdf bytes")
 
         assert result.is_scanned is True
 
     def test_extract_handles_open_error(self, extractor):
         """Test handling of PDF open errors."""
-        with patch("fitz.open", side_effect=Exception("Corrupt PDF")):
+        with patch("pymupdf.open", side_effect=Exception("Corrupt PDF")):
             with pytest.raises(PDFExtractionError) as exc_info:
                 extractor._extract_from_bytes(b"corrupt pdf")
 
@@ -408,8 +408,8 @@ class TestPDFExtractorWithMockedPyMuPDF:
 
     def test_extract_handles_missing_pymupdf(self, extractor):
         """Test error when PyMuPDF is not installed."""
-        with patch.dict("sys.modules", {"fitz": None}):
-            with patch("builtins.__import__", side_effect=ImportError("No module named 'fitz'")):
+        with patch.dict("sys.modules", {"pymupdf": None}):
+            with patch("builtins.__import__", side_effect=ImportError("No module named 'pymupdf'")):
                 with pytest.raises(PDFExtractionError) as exc_info:
                     extractor._extract_from_bytes(b"pdf bytes")
 

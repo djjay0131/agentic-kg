@@ -14,7 +14,7 @@ dependencies = [
     "cachetools>=5.0.0",
     "feedparser>=6.0.0",
     # Extraction
-    "PyMuPDF>=1.23.0",
+    "PyMuPDF>=1.24.3",  # `pymupdf` module name (no stdout deprecation warning)
     # instructor <1.14 paired with openai 1.99.9 fails to `import instructor`
     # (SM-4). instructor>=1.14 requires openai>=2.0. This is only resolvable
     # because `denario` was removed from this package's deps — denario pulled

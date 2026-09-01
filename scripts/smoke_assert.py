@@ -36,7 +36,7 @@ def _run_graph_checks(session: Any) -> dict[str, int]:
     row = session.run("""
         OPTIONAL MATCH (p:Paper)
           WITH count(p) AS papers
-        OPTIONAL MATCH (:Paper)-[r1:BELONGS_TO]->(:Topic)
+        OPTIONAL MATCH (:Paper)-[r1:RESEARCHES]->(:Topic)
           WITH papers, count(r1) AS topic_edges
         OPTIONAL MATCH (c:ResearchConcept)
           WITH papers, topic_edges, count(c) AS concepts
@@ -67,7 +67,7 @@ def _evaluate_checks(counts: dict[str, int]) -> dict[str, bool]:
     """Apply the AC-6 standard-strictness checks against raw counts."""
     return {
         "papers >= 1":                  counts["papers"] >= 1,
-        "BELONGS_TO topic edges >= 1":  counts["topic_edges"] >= 1,
+        "RESEARCHES topic edges >= 1":  counts["topic_edges"] >= 1,
         "ResearchConcept nodes >= 1":   counts["concepts"] >= 1,
         "Model OR Method >= 1":         (counts["models"] + counts["methods"]) >= 1,
         "CITES edges >= 1":             counts["cites"] >= 1,
