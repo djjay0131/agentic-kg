@@ -19,7 +19,7 @@ spec → implement → verify cycle; specs live in `llm/features/`
 
 - Backlog category (if known): E- / D- / C- / R- / P- / SM- …
 - Rough governance level (L1 architecture / L2 implementation / L3 product) —
-  see `docs/governance-delta.md`.
+  see `llm/governance/governance-delta.md`.
 
 ## Notes
 

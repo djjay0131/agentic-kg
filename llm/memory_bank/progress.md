@@ -129,6 +129,7 @@ Each cycle: spec → implement → verify.
 
 ## Governance
 
+- 2026-08-31: **Migrated** to the `llm/` control plane (ADR-0002) — delta and ADRs moved out of `docs/`, pin v0.2 → v0.4.
 - 2026-07-13: **Adopted** agentic-governance v0.2 (`docs/governance-delta.md`, ADR-0001 declares `systemPatterns.md` interim design authority; Steward: INACTIVE).
 - 2026-07-21: **Enforced.** Audit (`governance:audit`, verdict DRIFTING) acted on:
   - PR #39 — pinned `--base origin/master` (fixes the `main`/`master` check blocker); fixed SM-3 broken doc links; added CODEOWNERS + issue templates.

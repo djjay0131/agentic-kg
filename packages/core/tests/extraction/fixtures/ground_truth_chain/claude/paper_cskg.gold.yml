@@ -1,0 +1,217 @@
+# Independent Claude review — produced from paper_cskg.txt only.
+# The human review was not consulted. See ../SCHEMA.md for the field contract.
+#
+# Quote convention: quoted_text is verbatim from paper_cskg.txt with internal
+# whitespace normalised to single spaces (the PDF extractor hard-wraps lines
+# mid-sentence). Ligatures the extractor emits (ﬁ, ﬀ) are preserved as-is,
+# because the importer's LLM sees exactly those bytes.
+
+paper_id: "doi:10.1007/978-3-031-19433-7_39"
+slug: "cskg"
+title: "CS-KG: A Large-Scale Knowledge Graph of Research Entities and Claims in Computer Science"
+doi: "10.1007/978-3-031-19433-7_39"
+s2_paper_id: null
+year: 2022
+source_pdf: "ground-truth-papers/Large_Scale_KG_CS.pdf"
+reviewer: "claude"
+reviewed_at: "2026-07-28"
+
+# --------------------------------------------------------------- scored keys
+
+expected_topics:
+  - name: "Knowledge Graphs"
+    level: "subtopic"
+  - name: "Information Extraction"
+    level: "subtopic"
+
+expected_concepts:
+  - canonical: "scientific knowledge graph"
+    acceptable_aliases:
+      - "scientific knowledge graphs"
+      - "scholarly knowledge graph"
+      - "scholarly knowledge graphs"
+      - "knowledge graph of research entities"
+    quoted_text: "a large-scale knowledge graph composed by over 350M RDF triples describing 41M statements from 6.7M articles about 10M entities"
+    confidence: 0.95
+
+  - canonical: "information extraction"
+    acceptable_aliases:
+      - "information extraction pipeline"
+    quoted_text: "by applying an information extraction pipeline on a large repository of research papers"
+    confidence: 0.85
+
+  - canonical: "reification"
+    acceptable_aliases:
+      - "reiﬁcation"
+      - "triple reification"
+      - "statement reification"
+    quoted_text: "rdf:subject, rdf:predicate, and rdf:object, which provide the reiﬁcation of triples"
+    confidence: 0.7
+
+  - canonical: "provenance"
+    acceptable_aliases:
+      - "provenance information"
+      - "provenance metadata"
+    quoted_text: "which provides provenance information and lists the MAG IDs"
+    confidence: 0.65
+
+  - canonical: "linked data"
+    acceptable_aliases:
+      - "Linked Data"
+    quoted_text: "Following the best practices of Linked Data, entities in CS-KG are associated with a set of alternative labels"
+    confidence: 0.6
+
+  - canonical: "support score"
+    acceptable_aliases:
+      - "support"
+      - "statement support"
+    quoted_text: "cskg-ont:hasSupport, which reports the number of articles that contributed to create the statement (support)"
+    confidence: 0.55
+
+expected_models:
+  - canonical: "paraphrase-distilroberta-base-v2"
+    acceptable_aliases:
+      # The PDF extractor drops the hyphen at the line break, so the importer's
+      # LLM sees the second form. Both must count as a hit.
+      - "paraphrasedistilroberta-base-v2"
+      - "distilroberta"
+      - "paraphrase-distilroberta"
+    architecture: "transformer"
+    model_type: "language_model"
+    quoted_text: "encoding the entities with the paraphrasedistilroberta-base-v2 11 transformer model"
+    confidence: 0.9
+
+  - canonical: "DyGIEpp"
+    acceptable_aliases:
+      - "DyGIE++"
+      - "DyGIE"
+    quoted_text: "DyGIEpp [43]. This tool extracts a set of entities EDy of six pre-deﬁned types"
+    confidence: 0.6
+
+expected_methods:
+  - canonical: "lemmatization"
+    acceptable_aliases:
+      - "lemmatisation"
+      - "lemmatizes"
+    method_type: "data_processing"
+    quoted_text: "lemmatizes all entities to group singulars and plurals forms of the same entities"
+    confidence: 0.85
+
+  - canonical: "part-of-speech tagging"
+    acceptable_aliases:
+      - "PoS tagging"
+      - "POS tagging"
+      - "part of speech tagging"
+      - "PoST"
+    method_type: "data_processing"
+    quoted_text: "It uses part-of-speech (PoS) tags to ﬁnd all verbs that exist in sentences between pairs of entities"
+    confidence: 0.85
+
+  - canonical: "open information extraction"
+    acceptable_aliases:
+      - "OpenIE"
+      - "Open IE"
+    quoted_text: "This tool is used to extract open domain relationships from plain texts of the input dataset"
+    confidence: 0.8
+
+  - canonical: "entity merging"
+    acceptable_aliases:
+      - "entity resolution"
+      - "entity deduplication"
+      - "entity integration"
+    method_type: "data_processing"
+    quoted_text: "a sentence transformer model is used to detect and merge entities with the same meaning"
+    confidence: 0.75
+
+  - canonical: "acronym resolution"
+    acceptable_aliases:
+      - "acronym expansion"
+      - "solves acronyms"
+    method_type: "data_processing"
+    quoted_text: "solves acronyms by exploiting the fact that they are usually placed in brackets near entities in the text"
+    confidence: 0.7
+
+  - canonical: "negative sampling"
+    acceptable_aliases:
+      - "negative triple generation"
+      - "triple corruption"
+    method_type: "training"
+    quoted_text: "In order to generate negative triples for the training phase"
+    confidence: 0.65
+
+  - canonical: "majority vote"
+    acceptable_aliases:
+      - "majority voting"
+      - "majority vote schema"
+    method_type: "evaluation"
+    quoted_text: "The majority vote schema was employed to generate the gold standard"
+    confidence: 0.6
+
+# ------------------------------------------------------------- unscored keys
+
+problems:
+  - statement: "Existing scholarly knowledge graphs cover too few articles, because they either rely on human experts to summarise the literature or restrict themselves to a narrow domain, leaving Computer Science without a comprehensive machine-readable representation of its research entities and claims."
+    quoted_text: "A common drawback of these solutions is that they are limited to a relatively low number of articles, either because they rely on human experts to summarize information from the literature"
+    involves_concepts:
+      - "scientific knowledge graph"
+      - "information extraction"
+
+  - statement: "AI-KG's entity integration failed to merge lexical variants of the same entity, and its handcrafted verb-to-relation mapping was too small, so statements using less frequent predicates were dropped."
+    quoted_text: "the methodology for integrating diﬀerent lexical variations of entities did not always work, resulting in multiple versions of the same entity"
+    involves_concepts:
+      - "scientific knowledge graph"
+
+  - statement: "Triples extracted from only one or very few papers are noisy and unreliable, yet discarding all low-support triples would also remove many valid statements."
+    quoted_text: "triples which appear in one or very few papers are more noisy and less reliable"
+    involves_concepts:
+      - "support score"
+
+# CS-KG is the anchor of the chain: cited by six of the other seven papers,
+# citing none of them (it is the earliest, and predates all but fact_completion).
+cites_within_set: []
+
+notes: >-
+  Judgment calls, flagged for reconciliation.
+
+  TOPICS. Restricted to two per the extractor's "smallest number, usually one or
+  two" instruction. "Ontology Engineering" and "Entity Linking" were both
+  genuinely arguable and dropped: the paper does build a 179-relation domain
+  ontology, and does emit 31K owl:sameAs links to DBpedia plus 27K to Wikidata.
+  If the importer emits either, I would not call it a false positive.
+
+  MODEL vs TOOL — the main disagreement risk on this paper. The pipeline's four
+  components (DyGIEpp, CSO Classifier, OpenIE, PoS Tagger) are all called
+  "tools" by the paper. I classed DyGIEpp as a Model (it is a named neural
+  IE model with weights, confidence only 0.6) but excluded the CSO Classifier,
+  whose mechanism the paper describes as syntactic and semantic similarity
+  rather than a learned artifact. OpenIE and PoS tagging I recorded as Methods,
+  since the underlying techniques are named recipes even though the paper refers
+  to the Stanford implementations. A reviewer could defensibly move any of these
+  three between categories.
+
+  MLP EXCLUDED FROM MODELS. "a Multi-Layer Perceptron classifier" is an
+  architecture family, not a named artifact with weights — the same rule that
+  makes "transformer architecture" not a model. Recorded here because it is a
+  likely importer false positive.
+
+  NAMED RESOURCES EXCLUDED. CS-KG, AI-KG, ORKG, Nanopublications, VerbNet,
+  WordNet, CSO, MAG, OpenAlex, DBpedia and Wikidata are all named resources
+  (knowledge graphs, lexicons, corpora) rather than concepts, models or methods.
+  None has a home in the E-8 entity model. I expect the importer to emit several
+  of them as concepts or models; whether that counts as a miss is a genuine
+  schema question, not a labeling one, and it needs deciding before the diff.
+
+  EXTRACTOR ARTIFACT. The PDF extractor dehyphenates across line breaks, so the
+  text says "paraphrasedistilroberta-base-v2". The importer's LLM will see that
+  string, so it is listed as an acceptable alias alongside the correct spelling.
+  Ligatures (ﬁ, ﬀ) survive extraction and are preserved in the quotes verbatim.
+
+  LOW-CONFIDENCE ENTRIES. "support score" (0.55) and "linked data" (0.6) are the
+  weakest concepts — both grounded, both arguably too paper-specific or too
+  generic respectively. "majority vote" (0.6) is a real but minor procedure used
+  only to build the gold standard.
+
+  SECTION SCOPE. Labeled from abstract + introduction + methods + evaluation
+  only, per _EXTRACTOR_WANTED_SECTIONS. Related Work, Statistics, the AI-KG
+  comparison and Conclusions were excluded, so entities appearing only there are
+  deliberately absent.

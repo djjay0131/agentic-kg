@@ -6,7 +6,7 @@ nav_exclude: true
 # Ground-Truth Curation — Importer Validation Set
 
 **Owner:** Victoria
-**Status:** Not started
+**Status:** Started
 **Created:** 2026-07-21
 
 ## Why this task exists
@@ -164,8 +164,8 @@ is most likely to be wrong, and become targeted assertions for the eval harness.
 
 ## Done criteria
 
-- [ ] Output A: storage set up and documented (with the rationale for the choice).
-- [ ] Step 1: all papers resolved to title + DOI + S2 id; citation edges among the set verified.
+- [x] Output A: storage set up and documented (with the rationale for the choice). Located in /packages/core/tests/extraction/fixtures/ground_truth_chain.
+- [x] Step 1: all papers resolved to title + DOI + S2 id; citation edges among the set verified.
 - [ ] Output B: 5–10 papers each have a human review **and** a Claude review **and** a reconciled record.
 - [ ] Disagreement/ambiguity notes captured.
 

@@ -1,0 +1,596 @@
+# Reconciled answer key — human/paper_cskg.gold.yml + claude/paper_cskg.gold.yml,
+# adjudicated against paper_cskg.txt line by line and agreed 2026-08-03.
+# Every disagreement is recorded in `disagreements:`; nothing was resolved silently.
+#
+# Quote convention: quoted_text is verbatim from paper_cskg.txt with internal
+# whitespace normalised to single spaces (the extractor hard-wraps mid-sentence).
+# The extractor's own artifacts are preserved deliberately — ligatures (ﬁ, ﬀ) and
+# the dehyphenated "paraphrasedistilroberta-base-v2" — because those are the
+# bytes the importer's LLM sees. The human review was typed from the PDFs, which
+# are more readable; quotes here were replaced with the extracted-file forms.
+
+# ---------------------------------------------------------------- identity
+paper_id: "doi:10.1007/978-3-031-19433-7_39"
+slug: "cskg"
+title: "CS-KG: A Large-Scale Knowledge Graph of Research Entities and Claims in Computer Science"
+doi: "10.1007/978-3-031-19433-7_39"
+s2_paper_id: null            # DOI does not resolve on the S2 graph API; title search rate-limited 2026-08-03. Still open.
+year: 2022
+source_pdf: "ground-truth-papers/Large_Scale_KG_CS.pdf"
+reviewer: "reconciled"
+reviewed_at: "2026-08-03"
+
+# ------------------------------------------------- scored (e8_eval-compatible)
+
+# Both reviews independently returned exactly these two. Agreement.
+# "Ontology Engineering" was considered and is recorded under acceptable_extras.
+expected_topics:
+  - name: "Knowledge Graphs"
+    level: "subtopic"
+  - name: "Information Extraction"
+    level: "subtopic"
+
+expected_concepts:
+  - canonical: "scientific knowledge graph"
+    acceptable_aliases:
+      - "scientific knowledge graphs"
+      - "scholarly knowledge graph"
+      - "scholarly knowledge graphs"
+      - "large-scale knowledge graph"
+      - "knowledge graph of research entities"
+    quoted_text: "a large-scale knowledge graph composed by over 350M RDF triples describing 41M statements from 6.7M articles about 10M entities"
+    confidence: 0.95
+
+  - canonical: "information extraction pipeline"
+    acceptable_aliases:
+      - "information extraction"
+      - "information extraction framework"
+      - "knowledge graph generation pipeline"
+      - "extraction pipeline"
+    quoted_text: "by applying an information extraction pipeline on a large repository of research papers"
+    confidence: 0.9
+
+  - canonical: "reification"
+    acceptable_aliases:
+      - "reiﬁcation"          # extractor emits the ligature; the LLM will echo it
+      - "triple reification"
+      - "statement reification"
+    quoted_text: "which provide the reiﬁcation of triples within a rdf:Statement"
+    confidence: 0.7
+
+  - canonical: "linked data"
+    acceptable_aliases: []     # matching is case-insensitive, so "Linked Data" is not a distinct form
+    quoted_text: "Following the best practices of Linked Data, entities in CS-KG are associated with a set of alternative labels"
+    confidence: 0.65
+
+  - canonical: "provenance"
+    acceptable_aliases:
+      - "provenance information"
+      - "provenance metadata"
+    quoted_text: "which provides provenance information and lists the MAG IDs"
+    confidence: 0.6
+
+  - canonical: "support score"
+    acceptable_aliases:
+      - "support"
+      - "hasSupport"
+      - "statement support"
+    quoted_text: "cskg-ont:hasSupport, which reports the number of articles that contributed to create the statement (support)"
+    confidence: 0.55
+
+expected_models:
+  - canonical: "paraphrase-distilroberta-base-v2"
+    acceptable_aliases:
+      - "paraphrasedistilroberta-base-v2"   # extractor drops the hyphen at the line break
+      - "paraphrase-distilroberta"
+      - "distilroberta"
+      - "distilroberta-base-v2"
+    architecture: "transformer"
+    model_type: "language_model"
+    quoted_text: "encoding the entities with the paraphrasedistilroberta-base-v2 11 transformer model"
+    confidence: 0.9
+
+  - canonical: "DyGIEpp"
+    acceptable_aliases:
+      - "DyGIE++"
+      - "DyGIE"
+    quoted_text: "DyGIEpp [43]. This tool extracts a set of entities EDy of six pre-deﬁned types"
+    confidence: 0.7
+
+  # Kept deliberately at low confidence. This is the one entry here that does not
+  # satisfy MODEL_SYSTEM_PROMPT_V1's "named artifact with weights" test on the
+  # paper's own description — see disagreement 3.
+  - canonical: "CSO Classifier"
+    acceptable_aliases:
+      - "CSO-C"
+      - "Computer Science Ontology Classifier"
+      - "Computer Science Ontology Classiﬁer"   # ligature form, as extracted
+    quoted_text: "CSO-C is a classiﬁer which exploits syntactic and semantic similarity to map text spans to topics in CSO"
+    confidence: 0.5
+
+expected_methods:
+  - canonical: "open information extraction"
+    acceptable_aliases:
+      - "OpenIE"
+      - "Open IE"
+      - "Open Information Extraction"
+    method_type: "data_processing"
+    quoted_text: "This tool is used to extract open domain relationships from plain texts of the input dataset"
+    confidence: 0.8
+
+  - canonical: "part-of-speech tagging"
+    acceptable_aliases:
+      - "PoS tagging"
+      - "POS tagging"
+      - "part of speech tagging"
+      - "PoST"
+      - "PoS Tagger"
+      - "Part-of-Speech Tagger"
+    method_type: "data_processing"
+    quoted_text: "It uses part-of-speech (PoS) tags to ﬁnd all verbs that exist in sentences between pairs of entities"
+    confidence: 0.8
+
+  - canonical: "lemmatization"
+    acceptable_aliases:
+      - "lemmatisation"
+      - "lemmatize"
+      - "lemmatizes"
+    method_type: "data_processing"
+    quoted_text: "lemmatizes all entities to group singulars and plurals forms of the same entities"
+    confidence: 0.8
+
+  - canonical: "entity merging"
+    acceptable_aliases:
+      - "entity resolution"
+      - "entity deduplication"
+      - "entity integration"
+    method_type: "data_processing"
+    quoted_text: "a sentence transformer model is used to detect and merge entities with the same meaning"
+    confidence: 0.75
+
+  - canonical: "acronym resolution"
+    acceptable_aliases:
+      - "acronym expansion"
+    method_type: "data_processing"
+    quoted_text: "solves acronyms by exploiting the fact that they are usually placed in brackets near entities in the text"
+    confidence: 0.7
+
+  - canonical: "predicate mapping"
+    acceptable_aliases:
+      - "verb mapping"
+      - "verb-to-predicate mapping"
+      - "relationship merging"
+      - "relationship integration"
+    method_type: "data_processing"
+    quoted_text: "We address this issue by mapping similar verbs to the same predicate"
+    confidence: 0.7
+
+  - canonical: "ontology-based consistency checking"
+    acceptable_aliases:
+      - "ontology-based checking"
+      - "ontology-based verification"
+      - "domain and range checking"
+    method_type: "data_processing"
+    quoted_text: "the CS-KG ontology is used to integrate entities from diﬀerent tools and discard triples that do not comply with domain and range of the relations"
+    confidence: 0.65
+
+  - canonical: "negative sampling"
+    acceptable_aliases:
+      - "negative triple generation"
+      - "triple corruption"
+    method_type: "training"
+    quoted_text: "In order to generate negative triples for the training phase"
+    confidence: 0.65
+
+  - canonical: "majority vote"
+    acceptable_aliases:
+      - "majority voting"
+      - "majority vote schema"
+    method_type: "evaluation"
+    quoted_text: "The majority vote schema was employed to generate the gold standard"
+    confidence: 0.6
+
+  # Bare "filtering" is deliberately NOT an alias here — it is on the method
+  # prompt's banned-generic list. It sits in acceptable_extras instead, so a
+  # generic prediction is neither a hit nor a false positive.
+  - canonical: "entity filtering"
+    acceptable_aliases:
+      - "blacklist filtering"
+      - "whitelist filtering"
+      - "blacklisting"
+      - "whitelisting"
+    method_type: "data_processing"
+    quoted_text: "removes entities which appear in a handcrafted blacklist"
+    confidence: 0.5
+
+# ------------------------------------------------------------------ unscored
+
+# Correct-if-emitted, not required. Never counted as a false positive, never
+# counted as a recall miss. See SCHEMA.md — "acceptable_extras".
+acceptable_extras:
+  topics:
+    - name: "Ontology Engineering"
+      why: >-
+        Not the focus of the paper, but it does build a 179-relation domain
+        ontology on SKOS and PROV-O and semi-automatically enriches it from
+        VerbNet. Both reviewers expect this as a likely importer emission.
+    - name: "Entity Linking"
+      why: >-
+        The paper emits 31K owl:sameAs links to DBpedia, 27K to Wikidata and 6K
+        to CSO — real, but a by-product of construction rather than a subject of
+        the paper.
+
+  methods:
+    - name: "filtering"
+      why: >-
+        The step is real (handcrafted blacklist, MAG whitelist, WordNet
+        information-content threshold) but the bare name is on
+        METHOD_SYSTEM_PROMPT_V1's banned-generic list. Scored as "entity
+        filtering"; the generic form is tolerated here.
+    - name: "manual annotation"
+      why: >-
+        3 senior researchers annotated the 1,200-statement benchmark (Fleiss'
+        kappa 0.435). Real, but one step from the banned generic "evaluation";
+        the aggregation step is scored instead, as "majority vote".
+    - name: "gold standard evaluation"
+      why: "Same as above — the human review's original canonical for this step."
+
+  models:
+    - name: "Multi-Layer Perceptron"
+      why: >-
+        "The set Treliable is employed to train a Multi-Layer Perceptron
+        classiﬁer" — an architecture family, not a named artifact with weights,
+        by the same rule that rejects "transformer architecture". Grounded
+        enough that emitting it is not an error worth counting.
+    - name: "SentenceTransformers"
+      why: >-
+        A named framework, not a model. The model it loads
+        (paraphrase-distilroberta-base-v2) is scored above.
+
+  # DECISION PENDING — do not diff against this paper until it is settled.
+  # Write-up and options: docs/ground-truth/named-resources.md
+  named_resources:
+    - names:
+        - "CS-KG"
+        - "AI-KG"
+        - "ORKG"
+        - "Open Research Knowledge Graph"
+        - "Nanopublications"
+        - "CSO"
+        - "Computer Science Ontology"
+        - "MAG"
+        - "Microsoft Academic Graph"
+        - "OpenAlex"
+        - "DBpedia"
+        - "Wikidata"
+        - "VerbNet"
+        - "WordNet"
+      why: >-
+        Named resources — knowledge graphs, ontologies, corpora, lexicons — with
+        no home in the E-8 entity model. All are heavily grounded in this paper
+        and several are near-certain importer emissions as concepts or models.
+        Parked here so they neither inflate recall nor register as false
+        positives while the schema question is open.
+
+problems:
+  # P1 and P2 were found independently by both reviewers; statements merged.
+  - statement: "Existing scholarly knowledge graphs cover only a small number of articles, because they either rely on human experts to summarise the literature or restrict themselves to a narrow research area, leaving Computer Science without a comprehensive machine-readable representation of its research entities and claims."
+    quoted_text: "A common limitation of these solutions is that they address a low number of articles, either because they rely on human experts to summarize information from the literature or because they focus on speciﬁc research areas."
+    involves_concepts:
+      - "scientific knowledge graph"
+      - "information extraction pipeline"
+
+  - statement: "AI-KG's entity integration failed to merge lexical variants of the same entity, producing duplicate entities, and its handcrafted verb-to-relation mapping was too small, so statements using less frequent predicates were dropped."
+    quoted_text: "the methodology for integrating diﬀerent lexical variations of entities did not always work, resulting in multiple versions of the same entity"
+    involves_concepts:
+      - "scientific knowledge graph"
+
+  # Single-sourced (Claude only). Kept because the problem extractor runs
+  # per-section and asks for "limitations" as well as problems — see
+  # disagreement 17.
+  - statement: "Triples extracted from only one or very few papers are noisy and unreliable, yet discarding all low-support triples would also remove many valid statements."
+    quoted_text: "triples which appear in one or very few papers are more noisy and less reliable"
+    involves_concepts:
+      - "support score"
+
+# CS-KG is the chain's anchor: cited by six of the other seven, citing none of
+# them. Re-check against Semantic Scholar before treating a live edge to
+# fact_completion as an importer bug — both papers are 2022.
+cites_within_set: []
+
+# ---------------------------------------------------------------- disagreements
+disagreements:
+  - field: "expected_models"
+    item: "OpenIE"
+    human: "present (model, 0.7)"
+    claude: "absent from models; recorded as method 'open information extraction'"
+    resolution: "method"
+    rationale: >-
+      MODEL_SYSTEM_PROMPT_V1 asks for "ML models or named neural architectures …
+      a named artifact with weights". Stanford CoreNLP's OpenIE is
+      rule/pattern-based. The technique underneath it is a named recipe, so it
+      belongs in methods; "OpenIE" is kept as an alias there so a prediction of
+      the tool name still scores as a hit.
+
+  - field: "expected_models"
+    item: "PoS Tagger"
+    human: "present (model, 0.55)"
+    claude: "absent from models; recorded as method 'part-of-speech tagging'"
+    resolution: "method"
+    rationale: >-
+      Same rule as OpenIE. The paper describes a module that "uses
+      part-of-speech (PoS) tags", not a weights-bearing artifact. "PoST",
+      "PoS Tagger" and "Part-of-Speech Tagger" kept as method aliases.
+
+  - field: "expected_models"
+    item: "CSO Classifier (CSO-C)"
+    human: "present (model, 0.65)"
+    claude: "absent (excluded deliberately)"
+    resolution: "kept as a model at 0.5"
+    rationale: >-
+      The one place the reconciled record knowingly departs from the model
+      prompt's definition. On the paper's description ("a classiﬁer which
+      exploits syntactic and semantic similarity") it is not a weights-bearing
+      artifact, and unlike OpenIE and PoS tagging there is no separately named
+      technique to demote it to — dropping it entirely was the alternative. It
+      is kept because it is a named implementation the human review
+      independently read as a model and the importer is likely to emit it there;
+      confidence 0.5 marks it as the weakest model entry. If the diff shows the
+      importer consistently placing pipeline tools in models, revisit this and
+      the two entries above together, not one at a time.
+
+  - field: "expected_concepts"
+    item: "provenance"
+    human: "absent"
+    claude: "present (0.65)"
+    resolution: "kept at 0.6"
+    rationale: >-
+      Grounded twice and load-bearing — the ontology builds on PROV-O and every
+      statement carries provo:wasDerivedFrom and provo:wasGeneratedBy. A recall
+      gap in the human review, not a spurious extraction.
+
+  - field: "expected_concepts"
+    item: "support vs. support score"
+    human: "canonical 'support' (0.5)"
+    claude: "canonical 'support score' (0.55)"
+    resolution: "canonical 'support score', 'support' as alias"
+    rationale: >-
+      Both surface forms are in the paper ("which we label support"; "The
+      support score can be used"). "support score" is the less ambiguous
+      canonical for a string-equality scorer; the bare form still matches via
+      the alias.
+
+  - field: "expected_concepts"
+    item: "information extraction vs. information extraction pipeline"
+    human: "canonical 'information extraction pipeline'"
+    claude: "canonical 'information extraction'"
+    resolution: "canonical 'information extraction pipeline'"
+    rationale: >-
+      SCHEMA.md prefers the paper's own terminology and the abstract says "an
+      information extraction pipeline". The bare form is kept as an alias, and
+      the longer canonical avoids colliding head-on with the "Information
+      Extraction" topic.
+
+  - field: "acceptable_aliases"
+    item: "alias hygiene"
+    human: "canonical repeated as its own alias; case variants; some related-but-different terms"
+    claude: "no self-aliases"
+    resolution: "self-aliases and case variants dropped; three related terms dropped"
+    rationale: >-
+      Answers the human review's fourth question. Every scorer builds its match
+      set as {canonical} | aliases and lowercases both sides, so a self-alias
+      and a case-variant alias are both no-ops — "linked data"/"Linked Data",
+      "DyGIEpp", "reification", "information extraction pipeline" were dropped
+      as redundant, not as wrong. Also dropped as different-referent rather than
+      surface forms: "structured description of scientific articles" (a
+      definition, not a name), "entity reification" (reification applies to
+      triples and statements here, not entities), "reliability" (a property
+      support indicates, not another name for it).
+
+  - field: "expected_methods"
+    item: "predicate mapping (human: 'relationship merging')"
+    human: "present (0.70)"
+    claude: "absent"
+    resolution: "kept at 0.7, renamed"
+    rationale: >-
+      Genuine recall gap in the Claude review, and a costly one — the
+      VerbNet-based verb-to-predicate mapping is one of the paper's three
+      headline advances over AI-KG. Renamed to the paper's framing ("mapping
+      similar verbs to the same predicate"); "relationship merging" and
+      "relationship integration" kept as aliases.
+
+  - field: "expected_methods"
+    item: "ontology-based consistency checking"
+    human: "present (0.55)"
+    claude: "absent"
+    resolution: "kept at 0.65"
+    rationale: >-
+      The paper gives it its own module and section heading ("Ontology-Based
+      Checker Module") and the evaluation credits the two checker modules with
+      +21% precision. Confidence raised above the human's 0.55 on that basis.
+
+  - field: "expected_methods"
+    item: "acronym resolution"
+    human: "absent"
+    claude: "present (0.7)"
+    resolution: "kept"
+    rationale: >-
+      Sits in the same four-item Entities Handler list as lemmatization and
+      blacklist filtering, both of which the human review captured. Reads as an
+      oversight rather than a judgment call.
+
+  - field: "expected_methods"
+    item: "gold standard evaluation vs. majority vote"
+    human: "'gold standard evaluation' (0.55)"
+    claude: "'majority vote' (0.6)"
+    resolution: "scored 'majority vote'; 'manual annotation' and 'gold standard evaluation' moved to acceptable_extras"
+    rationale: >-
+      "gold standard evaluation" is one step from "evaluation", which
+      METHOD_SYSTEM_PROMPT_V1 names as too generic; "majority vote" is a named
+      aggregation recipe. The annotation step is real but should not carry a
+      recall obligation, which is exactly what acceptable_extras is for.
+
+  - field: "expected_methods"
+    item: "'filtering' as a method name"
+    human: "canonical 'filtering' (0.55), self-flagged as possibly too vague"
+    claude: "absent"
+    resolution: "scored as 'entity filtering' (0.5); bare 'filtering' in acceptable_extras"
+    rationale: >-
+      The step is real and grounded (handcrafted blacklist, MAG-derived
+      whitelist, WordNet information-content threshold), but bare "filtering" is
+      on the prompt's banned-generic list. Renaming keeps the step in gold;
+      parking the generic form keeps a vague prediction from counting either
+      way.
+
+  - field: "expected_methods"
+    item: "aliases 'entity linking' / 'linked data' on 'entity merging'"
+    human: "both listed as aliases"
+    claude: "neither"
+    resolution: "both dropped; 'linked data' scored as a concept only"
+    rationale: >-
+      Answers the human review's first question. Entity merging (cosine
+      similarity >= 0.9 over SentenceTransformers encodings) and entity linking
+      (31K owl:sameAs to DBpedia, 27K to Wikidata, 6K to CSO) are different
+      operations; aliasing them lets a prediction about either satisfy the
+      other. "linked data" is a best practice the paper invokes, not a procedure
+      it applies. Entity Linking is recorded as an acceptable extra topic.
+
+  - field: "expected_topics"
+    item: "Ontology Engineering"
+    human: "absent"
+    claude: "absent (considered and dropped)"
+    resolution: "left out of the scored list; recorded in acceptable_extras"
+    rationale: >-
+      Agreed not the focus of the paper, and the extractor is told to return
+      "the SMALLEST number… usually one or two". But the paper does build and
+      enrich a 179-relation ontology, so an emission is a plausible false
+      positive rather than a wrong one.
+
+  - field: "quoted_text"
+    item: "ligatures and the dehyphenated model name"
+    human: "typed from the PDFs — 'fi'/'ff' expanded, 'paraphrase-distilroberta-base-v2' re-hyphenated"
+    claude: "preserved the extracted text's bytes"
+    resolution: "extracted text is authoritative"
+    rationale: >-
+      Seven human quotes (reification, CSO-C, PoS Tagger, ontology checker,
+      distilroberta, and both problem quotes) do not appear verbatim in
+      paper_cskg.txt as typed — the extractor emits ligatures and drops the
+      hyphen at line breaks. validate_ground_truth.py checks quotes verbatim
+      modulo whitespace, and the importer's LLM sees the extracted form, so that
+      form wins. The PDFs remain the right thing to read; only the transcription
+      changed.
+
+  - field: "quoted_text"
+    item: "human 'support' quote"
+    human: >-
+      "We can thus use the number of papers associated with a triple, which we
+      label support, to distinguish between reliable and uncertain triples"
+    claude: "cskg-ont:hasSupport … (support)"
+    resolution: "Claude's quote"
+    rationale: >-
+      The human span is broken in the extracted text by an interleaved figure
+      caption ("Fig. 2. Distribution of the research areas …") between
+      "uncertain" and "triples", so it is not contiguous and fails the verbatim
+      check. Truncating at "…reliable and uncertain" would also have worked.
+
+  - field: "cites_within_set"
+    item: "['cskg', 'fact_completion']"
+    human: "['cskg', 'fact_completion']"
+    claude: "[]"
+    resolution: "[]"
+    rationale: >-
+      Copied from SCHEMA.md's template, including the self-cite the validator
+      rejects. CS-KG is the chain's anchor: the verified OpenAlex edge list has
+      six papers citing it and none cited by it.
+
+  - field: "problems"
+    item: "P1 and P2"
+    human: "both present (abstract grounding for P1)"
+    claude: "both present (introduction grounding for P1)"
+    resolution: "kept; statements merged, human's P1 quote adopted"
+    rationale: >-
+      Independent agreement on both, which is the strongest signal in this file.
+      The human's P1 quote is from the abstract and names both causes (human
+      experts and narrow domains) where the Claude quote from the introduction
+      reaches only the first. Statements merged: the human's scope framing plus
+      the Claude statement's point that the resulting gap is specific to
+      Computer Science. P2 statements bundled the same two AI-KG limitations
+      differently and were merged. The third AI-KG limitation — coverage of only
+      330K AI articles — is folded into P1 rather than broken out.
+
+  - field: "problems"
+    item: "P3 (support/noise tradeoff)"
+    human: "absent"
+    claude: "present"
+    resolution: "kept, single-sourced"
+    rationale: >-
+      A methods-section design limitation rather than the paper's headline
+      problem. Kept because PROBLEM_SYSTEM_PROMPT asks for "research problems,
+      limitations, and open questions", runs per section, and allows "zero, one,
+      or multiple distinct problems" per section — so omitting it would score a
+      correct extraction as noise. Flagged as the one entry in this file with a
+      single reader.
+
+  - field: "expected_models"
+    item: "DyGIEpp confidence"
+    human: "0.8"
+    claude: "0.6"
+    resolution: "0.7"
+    rationale: >-
+      Split. It is unambiguously a named neural IE model, but the paper calls it
+      a "tool" throughout and never states an architecture, which is what pulled
+      the Claude estimate down.
+
+notes: >-
+  Reconciled 2026-08-03 from two independent reviews, both worked from
+  paper_cskg.txt (abstract, introduction, Sect. 3, methods, evaluation), so
+  entities appearing only in Related Work, Statistics or Conclusions are
+  deliberately absent.
+
+  AGREEMENT WAS HIGH WHERE THE RUBRIC IS SHARP AND LOW WHERE IT IS NOT.
+  Identical topics; five of six concepts shared; both reviewers landed on
+  paraphrase-distilroberta-base-v2 and DyGIEpp as models, on entity merging,
+  lemmatization and negative sampling as methods, and independently on the same
+  two problems. Every substantive split traces to one of two seams: (a) tool
+  vs. model vs. method for the four pipeline components, and (b) how specific a
+  method name must be before it stops being "too generic". Those are the two
+  places the live importer is most likely to diverge, which is the useful output
+  of this exercise.
+
+  THE TOOL/MODEL SEAM IS THE HEADLINE RISK. The human review classed all four
+  extraction tools (DyGIEpp, CSO-C, OpenIE, PoS Tagger) as models — coherent,
+  since the paper calls them "tools" and treats them as peers. The reconciled
+  record follows MODEL_SYSTEM_PROMPT_V1 for OpenIE and PoS tagging (demoted to
+  methods, tool names kept as aliases) but keeps CSO-C as a model at 0.5. That
+  is a deliberate inconsistency, recorded rather than smoothed over. Note that
+  model_precision and method_precision score each category separately, and
+  model_method_recall matches gold models only against predicted models — so a
+  category swap costs twice, a false positive in one list and a recall miss in
+  the other. Expect the diff to light up here first.
+
+  acceptable_extras IS NEW IN THIS FILE. The scored lists are binary: an entry
+  either carries a recall obligation or its absence makes a prediction a false
+  positive. Several items on this paper are genuinely neither — correct if
+  emitted, not required. They now live in acceptable_extras, which no scorer
+  reads. See SCHEMA.md. If the eval runner is ever written, it should subtract
+  these names from the precision denominator rather than count them as misses.
+
+  NAMED RESOURCES ARE STILL UNDECIDED AND BLOCK THE DIFF. CS-KG, AI-KG, ORKG,
+  Nanopublications, CSO, MAG, OpenAlex, DBpedia, Wikidata, VerbNet and WordNet
+  have no home in the E-8 entity model, and this paper is dense with them.
+  Parked in acceptable_extras pending a schema decision; the write-up and the
+  options are in docs/ground-truth/named-resources.md. Whatever is decided has
+  to be applied to all eight papers, not just this one.
+
+  WEAKEST ENTRIES, IN ORDER: CSO Classifier (0.5) — kept against the model
+  rubric on purpose; entity filtering (0.5) — real step, name fights the
+  anti-generic rule; support score (0.55) — very paper-specific; majority vote
+  (0.6) — gold-standard construction only; provenance (0.6) — single-reviewer;
+  linked data (0.65) — a best practice invoked rather than a technique applied.
+  P3 is the only single-sourced problem.
+
+  STILL OPEN: s2_paper_id. The Springer DOI does not resolve on the Semantic
+  Scholar graph API and the title-search fallback was rate-limited on
+  2026-08-03. Since the importer sources CITES from Semantic Scholar, this needs
+  resolving before cites_within_set can be checked against what the importer
+  will actually populate.

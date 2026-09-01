@@ -92,7 +92,7 @@ agentic-kg/
 │   ├── adr/                          # Architecture Decision Records (ADR-0001 = governance adoption)
 │   ├── about/ · status/             # Overview + auto-generated dashboards
 │   └── governance-delta.md           # agentic-governance v0.2 localization
-├── construction/sprints/             # Sprint history archive (read by GitHub Pages generator)
+├── llm/sprints/                       # Sprint history archive (read by GitHub Pages generator)
 ├── .claude/                          # Claude Code config
 │   ├── agents/                       # Project agent definitions
 │   └── skills/                       # Constellize skills (specify / implement / verify / memory)

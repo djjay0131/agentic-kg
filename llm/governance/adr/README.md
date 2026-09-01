@@ -22,3 +22,4 @@ individually numbered here.
 | ADR | Title | Status |
 |---|---|---|
 | [0001](0001-adopt-agentic-governance-v0.2.md) | Adopt agentic-governance v0.2 and declare interim design authority | Accepted |
+| [0002](0002-migrate-to-llm-control-plane.md) | Migrate governance content to the `llm/` control plane | Accepted | 2026-08-31 |

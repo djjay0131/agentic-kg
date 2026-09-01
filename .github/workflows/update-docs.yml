@@ -7,7 +7,7 @@ on:
     paths:
       - 'llm/memory_bank/**'
       - 'llm/features/**'
-      - 'construction/sprints/**'
+      - 'llm/sprints/**'
       - 'docs/**'
       - '.github/scripts/generate_site_data.py'
       - '.github/workflows/update-docs.yml'
