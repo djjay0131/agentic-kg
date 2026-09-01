@@ -7,7 +7,7 @@ nav_exclude: true
 
 Status: Approved (bootstrap)
 Last updated: 2026-07-22
-Governance: agentic-governance v0.4
+Governance: agentic-governance v0.5
 
 This file localizes [agentic-governance](https://github.com/djjay0131/agentic-governance)
 for this project.
@@ -81,16 +81,16 @@ plane, `docs/` data plane). Only slots this repo has content for are declared;
 - Governance directory: `llm/governance/`
 - ADR directory: `llm/governance/adr/`
 - Features directory: `llm/features/`
+- Sprints directory: `llm/sprints/`
 - Memory-bank path: `llm/memory_bank/`
 - Artifacts directory (the data plane): `docs/`
 
 Not declared: constitution, spec and plans directories — this repo has no
 content for them.
 
-`construction/sprints/` is control-plane content with no canonical slot. It is
-read by `preview-docs.yml`, `update-docs.yml` and
-`.github/scripts/generate_site_data.py`; relocating it is a separate decision
-(ADR-0002 §Decision).
+Sprint history lives at `llm/sprints/` (agentic-governance v0.5 added the
+`Sprints directory` slot). It is read by `preview-docs.yml`, `update-docs.yml`
+and `.github/scripts/generate_site_data.py`, all repointed in ADR-0002.
 
 ## Memory Bank
 

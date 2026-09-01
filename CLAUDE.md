@@ -19,7 +19,7 @@ The previous `construction-agent` / `memory-agent` sub-agents were superseded on
 
 **Personas** (`.claude/agents/`): `construction-lead`, `knowledge-steward`, `feature-architect`.
 
-📁 **Locations:** Feature specs in `llm/features/` (master index: `BACKLOG.md`), memory bank in `llm/memory_bank/`. `construction/sprints/` preserves completed sprint history (still read by the GitHub Pages generator). Legacy `memory-bank/` and `construction/{design,requirements,backlog}` folders were deleted 2026-07-07 — content superseded by the above.
+📁 **Locations:** Feature specs in `llm/features/` (master index: `BACKLOG.md`), memory bank in `llm/memory_bank/`. `llm/sprints/` preserves completed sprint history (still read by the GitHub Pages generator). Legacy `memory-bank/` and `construction/{design,requirements,backlog}` folders were deleted 2026-07-07 — content superseded by the above.
 
 ---
 
