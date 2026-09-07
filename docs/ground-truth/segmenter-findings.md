@@ -9,14 +9,46 @@ nav_exclude: true
 curation task (`docs/ground-truth/README.md`).
 **Affects:** `packages/core/src/agentic_kg/extraction/section_segmenter.py`,
 and therefore every entity extracted by `ingest_papers`.
-**Severity:** High. One of eight papers yields **zero** extractor input and
-therefore zero entities, silently and with no error.
+**Severity:** High. One of eight papers yields **zero** extractor input.
 
 **Update 2026-08-09:** a seventh, independent cause was found — see
 [(7)](#7-the-four-section-keep-list-loses-content-even-when-boundaries-are-perfect).
 Causes (1)–(6) are about locating section boundaries; (7) is about which
 sections are kept once located, and it survives fixing all of them. It is also
 the only one that reaches the ground-truth labels.
+
+**Update 2026-09-06:** an eighth cause was found while measuring the SEG-1 fix
+— see [(8)](#8-single-word-body-lines-classify-as-headings). Note the
+numbering convention breaks here: this document's causes are numbered to match
+`SEG-n` backlog IDs, but `SEG-8`, `SEG-9` and `SEG-10` were already taken by
+non-cause items (test fixtures, hyphen normalization, a set-membership
+decision), so **cause (8) is tracked as `SEG-11`**. Causes (1)–(7) still map
+to `SEG-1`–`SEG-7`.
+
+> ### ⚠️ Correction (2026-09-06): "silently and with no error" is out of date
+>
+> This document originally said the zero-input paper produced "zero entities,
+> silently and with no error." **SM-1** (`content-acquisition-resilience`,
+> merged as #44) moved `_build_extractor_section_text` to *before* the
+> usability gate in `_acquire_full_text` (`ingestion.py:291-296`), so
+> `fact_completion` now produces:
+>
+> ```
+> WARNING  PDF source too thin (<url>): 0 chars
+> ```
+>
+> is counted as `failed_thin` in `result.acquisition_failures`, and is
+> **skipped** (`ingestion.py:553-565`). The consequence is therefore a
+> **dropped paper** — one carrying 32 of the 53 chain entities — not a silent
+> zero.
+>
+> **What is still silent is the *partial* case.** `cskg` yields 8,917 chars
+> with no abstract and no methods, clears the 250-char floor, logs
+> `INFO Full text acquired`, and is indistinguishable from a healthy paper.
+> SEG-1 added a WARNING for exactly this (`_missing_wanted_sections`,
+> `ingestion.py`), plus a DEBUG line per rejected heading candidate in
+> `_find_headings` so the misses in (3), (4) and (5) below are observable
+> without writing a script.
 
 ## Summary
 
@@ -80,6 +112,36 @@ In `fact_completion` the only heading that matched anything was the unnumbered
 
 **Fix:** extend the numeric prefix group to accept Roman numerals and letters,
 e.g. `(?:(?:\d+|[IVXLC]+|[A-Z])[\.\)]?\s*)?`.
+
+> **Fixed 2026-09-06 (SEG-1)** — but **not** as proposed above. Measuring the
+> candidates over all eight PDFs rejected the `[A-Z]` half of that pattern and
+> the hierarchical form:
+>
+> | Variant | `fact_completion` extractor input |
+> |---|---:|
+> | before | 0 |
+> | Roman + Arabic (shipped) | **25,586** |
+> | Roman + Arabic + `[A-Z]` | 12,449 |
+>
+> IEEE uses letters for *subsections*, so `[A-Z]` promotes
+> `B. RESULTS AND DISCUSSION` — a child of `IV. EVALUATION` — to a top-level
+> `results` heading, truncating `experiments` from 3,045w to 1,032w and
+> diverting 2,009w into a type the keep-list discards: a **net loss of 13,137
+> chars**. Stripping hierarchical numbers (`4.4.`) does the same thing to
+> `hypothesis_generation`, costing **5,585 chars** by promoting `4.4. Results`
+> out of `4. Evaluation`.
+>
+> Shipped instead: a flat Roman/Arabic enumerator (`_ROMAN` / `_ENUMERATOR`)
+> stripped **once** in `_classify_heading`, with the per-pattern prefix groups
+> deleted from all 34 literals — so the vocabulary additions in (3), (4) and
+> (5) inherit numbering support and cannot forget it. Measured result:
+> `fact_completion` 0 → 25,586, `empire` 12,405 → 17,953, the other six
+> byte-identical. Spec: `llm/features/seg1-roman-numeral-headings.md`;
+> regression guard: `scripts/measure_segmentation.py`.
+>
+> Note what SEG-1 does **not** fix on these two papers: neither gains an
+> abstract (run-in form, cause (3)) and neither gains a methods section
+> (`III. SciCheck` / `IV. RESEARCH APPROACH`, cause (5)).
 
 ### 2. `segment_with_abstract` can never match an abstract
 
@@ -305,6 +367,63 @@ set is drawn from the three papers reviewed so far, so the unreviewed papers are
 being measured with their neighbours' vocabulary and their "in body" counts
 understate what is actually there.
 
+### 8. Single-word body lines classify as headings
+
+**Found:** 2026-09-06, while measuring the SEG-1 fix. Tracked as **`SEG-11`**
+(not `SEG-8` — see the numbering note at the top). Independent of (1)–(7).
+
+`_find_headings` accepts *any* line shorter than `max_heading_length` (100
+chars) that matches a pattern. It requires nothing heading-shaped of the line:
+no blank-line delimitation, no capitalization check, no position or repetition
+check. Several METHODS patterns are bare single words:
+
+```python
+SectionType.METHODS: [
+    r"^method(?:s|ology)?\s*$",
+    r"^approach\s*$",
+    r"^(?:our\s+)?(?:proposed\s+)?(?:method|approach|framework|model)\s*$",
+    r"^technique(?:s)?\s*$",
+    ...
+]
+```
+
+So a table column header reading `MODEL` becomes a top-level methods section:
+
+```python
+>>> SectionSegmenter()._classify_heading("MODEL")
+<SectionType.METHODS: 'methods'>
+```
+
+Measured over the set:
+
+| Paper | Phantom `methods` sections | Titles |
+|---|---:|---|
+| `llm_ontology_gen` | 5 | `MODEL` ×5 (a table column header) |
+| `kg_validation_hitl` | 4 | `Model` ×3, `Method` ×1 |
+| `kg_construction_survey` | 2 | `Model`, `Approach` |
+| `empire` | 1 | `Method` |
+
+**This distorts how the other causes read.** `empire`'s only `methods` block
+is one of these phantoms — its actual method section, `IV. RESEARCH APPROACH`,
+is a cause-(5) miss. So the "one `methods` block" recorded for `empire` in the
+Observed output table above is not a real methods section, and SEG-1's
++5,548 chars on that paper is entirely introduction/background recovery.
+
+Two further consequences worth noting:
+
+- A phantom heading does not just add a bogus section, it **splits a real
+  one** — the span it opens is subtracted from whatever section legitimately
+  contained that line.
+- Fixing (5) by relaxing the method/experiment anchors (its cheap option)
+  widens this surface, because looser patterns match more stray lines. The two
+  should be scheduled together.
+
+**Fix:** a heading-context heuristic rather than a vocabulary change — some
+combination of blank-line delimitation, an all-caps/title-case test, and a
+repetition filter to drop running headers. Needs its own measurement; the
+cheap-looking version (require a blank line before the heading) has not been
+tested against PyMuPDF's actual line breaks.
+
 ## Reproduction
 
 ```bash
@@ -315,6 +434,30 @@ python -m venv .venv-gt
 
 To observe the defect itself, call `SectionSegmenter().segment(full_text)` on
 any PDF in `ground-truth-papers/` and inspect `doc.sections`.
+
+**Measuring it, per paper (added by SEG-1):**
+
+```bash
+.venv/Scripts/python.exe scripts/measure_segmentation.py
+```
+
+Prints extractor-input chars per paper against `scripts/seg_baseline.json`
+and exits non-zero if any paper regresses. Causes (3), (4), (5) and (7) will
+each legitimately move those numbers — re-baseline with `--update-baseline`
+and justify the diff in the PR. Requires the gitignored PDFs, so it cannot
+run in CI; the PDF-free guards are
+`packages/core/tests/extraction/test_section_segmenter.py` and
+`packages/core/tests/test_measure_segmentation.py`.
+
+To see what the segmenter *rejected* — the (3)/(4)/(5) misses — raise the log
+level:
+
+```python
+logging.getLogger("agentic_kg.extraction.section_segmenter").setLevel(logging.DEBUG)
+# unmatched candidate heading: 'III. SciCheck'
+# unmatched candidate heading: 'Technical Validation'
+# unmatched candidate heading: 'B. RESULTS AND DISCUSSION'
+```
 
 ## Suggested test coverage
 
