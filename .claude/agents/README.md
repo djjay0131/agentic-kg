@@ -45,9 +45,9 @@ the construction workflow.
 
 | Persona | Primary Skills |
 |---------|---------------|
-| Knowledge Steward | `/constellize:memory:establish`, `update`, `revise`, `recover` |
-| Construction Lead | `/constellize:feature:implement`, `verify` |
-| Feature Architect | `/constellize:feature:specify`, `implement`, `verify` |
+| Knowledge Steward | `/constellize-memory-establish`, `update`, `revise`, `recover` |
+| Construction Lead | `/constellize-feature-implement`, `verify` |
+| Feature Architect | `/constellize-feature-specify`, `implement`, `verify` |
 
 ## Integration
 

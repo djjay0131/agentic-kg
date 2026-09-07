@@ -263,9 +263,9 @@ For async/long-running ingestion:
 ## Constellize Workflow
 
 Feature development follows the constellize spec → implement → verify cycle:
-- `.claude/skills/constellize:feature:specify` — interview-driven spec authoring
-- `.claude/skills/constellize:feature:implement` — star-gap-generate implementation
-- `.claude/skills/constellize:feature:verify` — four-gate verification (test integrity, health check, deployment readiness, maintainability)
-- `.claude/skills/constellize:memory:update` — memory bank sync (quick or full)
+- `.claude/skills/constellize-feature-specify` — interview-driven spec authoring
+- `.claude/skills/constellize-feature-implement` — star-gap-generate implementation
+- `.claude/skills/constellize-feature-verify` — four-gate verification (test integrity, health check, deployment readiness, maintainability)
+- `.claude/skills/constellize-memory-update` — memory bank sync (quick or full)
 
 Every feature ships spec + implementation + verification as three separate commits, each with a Co-Authored-By tag.

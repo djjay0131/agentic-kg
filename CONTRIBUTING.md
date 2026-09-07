@@ -25,7 +25,7 @@ This project follows [agentic-governance](https://github.com/djjay0131/agentic-g
 - Update `llm/memory_bank/` when project context changes (Constellize
   `memory:update` / `memory:revise`).
 - Feature work follows the Constellize spec → implement → verify cycle
-  (`.claude/skills/constellize:feature:*`; specs live in `llm/features/`,
+  (`.claude/skills/constellize-feature-*`; specs live in `llm/features/`,
   master index `llm/features/BACKLOG.md`).
 - AI agents: follow assigned scope, identify ADR candidates, never merge
   your own PR.

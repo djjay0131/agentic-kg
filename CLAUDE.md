@@ -6,16 +6,16 @@
 
 The previous `construction-agent` / `memory-agent` sub-agents were superseded on 2026-04-15 by the **Constellize** methodology. Use the Constellize skills and personas instead:
 
-**Feature workflow** (`.claude/skills/constellize:feature:*`):
-- `/constellize:feature:specify` — build a feature spec (repo analysis → problem → interview → draft → review). Stores spec in `llm/features/`. Does NOT implement.
-- `/constellize:feature:implement` — implement from spec (context load → Star-Gap → TDD → adversarial review → integration)
-- `/constellize:feature:verify` — gate a feature against test integrity, health checks, deployment readiness, maintainability
+**Feature workflow** (`.claude/skills/constellize-feature-*`):
+- `/constellize-feature-specify` — build a feature spec (repo analysis → problem → interview → draft → review). Stores spec in `llm/features/`. Does NOT implement.
+- `/constellize-feature-implement` — implement from spec (context load → Star-Gap → TDD → adversarial review → integration)
+- `/constellize-feature-verify` — gate a feature against test integrity, health checks, deployment readiness, maintainability
 
-**Memory workflow** (`.claude/skills/constellize:memory:*`):
-- `/constellize:memory:establish` — initialize memory bank for a new project
-- `/constellize:memory:update` — sync memory bank with current state (supports `--full`)
-- `/constellize:memory:revise` — restructure when files grow unwieldy
-- `/constellize:memory:recover` — audit and rewrite a neglected bank
+**Memory workflow** (`.claude/skills/constellize-memory-*`):
+- `/constellize-memory-establish` — initialize memory bank for a new project
+- `/constellize-memory-update` — sync memory bank with current state (supports `--full`)
+- `/constellize-memory-revise` — restructure when files grow unwieldy
+- `/constellize-memory-recover` — audit and rewrite a neglected bank
 
 **Personas** (`.claude/agents/`): `construction-lead`, `knowledge-steward`, `feature-architect`.
 

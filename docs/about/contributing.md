@@ -10,9 +10,9 @@ nav_order: 8
 
 The project follows a **design-first** workflow powered by [Constellize](https://github.com/djjay0131/agentic-kg/blob/master/CLAUDE.md).
 
-- `/constellize:feature:specify` — build a feature spec before writing code
-- `/constellize:feature:implement` — implement from spec, unit-by-unit
-- `/constellize:feature:verify` — gate against test integrity, health checks, deployment readiness, and maintainability
+- `/constellize-feature-specify` — build a feature spec before writing code
+- `/constellize-feature-implement` — implement from spec, unit-by-unit
+- `/constellize-feature-verify` — gate against test integrity, health checks, deployment readiness, and maintainability
 
 All public-facing collaboration flows through GitHub issues and PRs.
 
