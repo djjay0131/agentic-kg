@@ -1,0 +1,294 @@
+{
+  "cskg": {
+    "chars": 8917,
+    "sections": [
+      [
+        "introduction",
+        "Introduction"
+      ],
+      [
+        "related_work",
+        "Related Work"
+      ],
+      [
+        "experiments",
+        "Evaluation"
+      ],
+      [
+        "conclusion",
+        "Conclusions"
+      ],
+      [
+        "references",
+        "References"
+      ]
+    ]
+  },
+  "cskg2": {
+    "chars": 39226,
+    "sections": [
+      [
+        "methods",
+        "Methods"
+      ],
+      [
+        "references",
+        "References"
+      ],
+      [
+        "acknowledgments",
+        "Acknowledgements"
+      ]
+    ]
+  },
+  "empire": {
+    "chars": 17953,
+    "sections": [
+      [
+        "introduction",
+        "I. INTRODUCTION"
+      ],
+      [
+        "background",
+        "II. BACKGROUND"
+      ],
+      [
+        "related_work",
+        "III. RELATED WORK"
+      ],
+      [
+        "methods",
+        "Method"
+      ],
+      [
+        "limitations",
+        "Threats to Validity"
+      ],
+      [
+        "results",
+        "V. RESULTS"
+      ],
+      [
+        "limitations",
+        "VI. THREATS TO VALIDITY"
+      ],
+      [
+        "discussion",
+        "VII. DISCUSSION"
+      ],
+      [
+        "conclusion",
+        "VIII. CONCLUSION"
+      ],
+      [
+        "acknowledgments",
+        "ACKNOWLEDGMENT"
+      ],
+      [
+        "references",
+        "REFERENCES"
+      ]
+    ]
+  },
+  "fact_completion": {
+    "chars": 25586,
+    "sections": [
+      [
+        "introduction",
+        "I. INTRODUCTION"
+      ],
+      [
+        "related_work",
+        "II. RELATED WORK"
+      ],
+      [
+        "experiments",
+        "IV. EVALUATION"
+      ],
+      [
+        "conclusion",
+        "VI. CONCLUSION"
+      ],
+      [
+        "references",
+        "REFERENCES"
+      ]
+    ]
+  },
+  "hypothesis_generation": {
+    "chars": 49511,
+    "sections": [
+      [
+        "introduction",
+        "1. Introduction"
+      ],
+      [
+        "related_work",
+        "2. Related work"
+      ],
+      [
+        "methods",
+        "Technique"
+      ],
+      [
+        "methods",
+        "3. Methodology"
+      ],
+      [
+        "experiments",
+        "4. Evaluation"
+      ],
+      [
+        "limitations",
+        "5. Limitations"
+      ],
+      [
+        "conclusion",
+        "6. Conclusions"
+      ],
+      [
+        "acknowledgments",
+        "Acknowledgments"
+      ],
+      [
+        "references",
+        "References"
+      ]
+    ]
+  },
+  "kg_construction_survey": {
+    "chars": 244742,
+    "sections": [
+      [
+        "abstract",
+        "Abstract"
+      ],
+      [
+        "introduction",
+        "1. Introduction"
+      ],
+      [
+        "methods",
+        "Model"
+      ],
+      [
+        "related_work",
+        "6. Related Work"
+      ],
+      [
+        "conclusion",
+        "7. Conclusion"
+      ],
+      [
+        "references",
+        "References"
+      ],
+      [
+        "methods",
+        "Approach"
+      ]
+    ]
+  },
+  "kg_validation_hitl": {
+    "chars": 23930,
+    "sections": [
+      [
+        "introduction",
+        "1. Introduction"
+      ],
+      [
+        "related_work",
+        "2. Related work"
+      ],
+      [
+        "methods",
+        "Model"
+      ],
+      [
+        "methods",
+        "Method"
+      ],
+      [
+        "methods",
+        "Model"
+      ],
+      [
+        "results",
+        "6. Results"
+      ],
+      [
+        "methods",
+        "Model"
+      ],
+      [
+        "conclusion",
+        "7. Conclusion"
+      ],
+      [
+        "acknowledgments",
+        "Acknowledgments"
+      ],
+      [
+        "references",
+        "References"
+      ]
+    ]
+  },
+  "llm_ontology_gen": {
+    "chars": 43238,
+    "sections": [
+      [
+        "introduction",
+        "1. Introduction"
+      ],
+      [
+        "related_work",
+        "2. Related work"
+      ],
+      [
+        "background",
+        "3. Background"
+      ],
+      [
+        "experiments",
+        "4. Experiments"
+      ],
+      [
+        "results",
+        "5. Results and discussion"
+      ],
+      [
+        "methods",
+        "MODEL"
+      ],
+      [
+        "methods",
+        "MODEL"
+      ],
+      [
+        "methods",
+        "MODEL"
+      ],
+      [
+        "methods",
+        "MODEL"
+      ],
+      [
+        "methods",
+        "MODEL"
+      ],
+      [
+        "conclusion",
+        "8. Conclusions"
+      ],
+      [
+        "acknowledgments",
+        "Acknowledgements"
+      ],
+      [
+        "references",
+        "References"
+      ]
+    ]
+  }
+}
