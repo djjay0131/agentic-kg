@@ -1,0 +1,318 @@
+# ---------------------------------------------------------------- identity
+paper_id: "doi:10.1038/s41597-025-05200-8"
+slug: "cskg2"
+title: "CS-KG 2.0: A Large-scale Knowledge Graph of Computer Science"
+doi: "10.1038/s41597-025-05200-8"
+s2_paper_id: null
+year: 2025
+source_pdf: "ground-truth-papers/CS_KG_2.0_2025.pdf"
+reviewer: "human"
+reviewed_at: "2026-08-03"
+
+# ------------------------------------------------- scored (e8_eval-compatible)
+expected_topics:
+  - name: "Knowledge Graphs"
+    level: "subtopic"
+  - name: "Information Extraction" 
+    level: "subtopic"
+
+expected_concepts:
+ - canonical: "scientific knowledge graph"
+   acceptable_aliases:
+    - "scientific knowledge graphs"
+    - "scholarly knowledge graph"
+    - "scholarly knowledge graphs"
+    - "large-scale knowledge graph"
+    - "knowledge graph of research entities"
+   quoted_text: "the Computer Science Knowledge Graph (CS-KG 2.0), an extensive knowledge base generated from 15 million research papers."
+   confidence: 0.95
+
+ - canonical: "information extraction pipeline"
+   acceptable_aliases:
+    - "information extraction"
+    - "information extraction framework"
+    - "knowledge graph generation pipeline"
+    - "extraction pipeline"
+   quoted_text: "The resource released in this paper is built using an automatic pipeline named SCICERO presented in Dessí et al."
+   confidence: 0.9
+ 
+ - canonical: "knowledge representation"
+   acceptable_aliases:
+   - "information representation"
+   - "representaton of scientific knowledge"
+   quoted_text: "the research community has successfully used knowledge graphs (KGs) for creating semantically enriched representations of data in various domains, including scholarly knowledge."
+   confidence: 0.65
+ 
+ - canonical: "knowledge-centric paradigm"
+   acceptable_aliases: []
+   quoted_text: "To address these challenges, a knowledge-centric paradigm has been suggested"
+   confidence: 0.7
+
+ - canonical: "temporal information"
+   acceptable_aliases:
+   - "time-related information"
+   - "time-related metadata"
+   quoted_text: "the incorporation of temporal data linked with entities and statements, which facilitates the analysis of research trends over time"
+   confidence: 0.8
+  
+ - canonical: "contextual information"
+   acceptable_aliases:
+   - "inferred information"
+   - "contextual framework"
+   - "co-occurring information"
+   quoted_text: "The objective is to analyze each statement to identify the statements and entities that most frequently co-occur with it. This process provides deep insights into the contextual framework within which a statement is situated."
+   confidence: 0.7
+
+ - canonical: "reification"
+   acceptable_aliases:
+   - "triple reification"
+   - "statement reification"
+   quoted_text: "Finally, the triples in sets Treliable and Tconsistent, along with all associated information, are converted into RDF statements through reification."
+   confidence: 0.8
+  
+ - canonical: "linked data"
+   acceptable_aliases: []
+   quoted_text: "In the scientific field, the community has advanced this paradigm by developing bibliographic repositories linked to the Linked Data Cloud"
+   confidence: 0.5
+  
+ - canonical: "support"
+   acceptable_aliases:
+   - "support score"
+   - "support level"
+   - "hasSupport"
+   quoted_text: "To discern between reliable and possibly problematic triples, we introduce the concept of support denoting the number of papers associated with a specific triple."
+   confidence: 0.6
+
+ - canonical: "binary classification"
+   acceptable_aliases:
+    - "classfication"
+   quoted_text: "is utilized to fine-tune a SciBERT59 classifier"
+   confidence: 0.5
+
+ - canonical: "link prediction"
+   acceptable_aliases:
+    - "knowledge graph completion"
+    - "edge existence prediction"
+   quoted_text: "Link prediction is a widely studied task in machine learning that involves predicting the existence (or likelihood) of (typed) edges in a graph63. This task gains particular importance in the context of KGs, where it is also known as knowledge graph completion"
+   confidence: 0.6
+
+expected_models: 
+- canonical: "DyGIEpp"
+  acceptable_aliases:
+    - "DyGIE++"
+    - "DyGIE"
+  quoted_text: "The relations extracted by DyGIEpp are then transformed into a set of predicates using mapping rules that are publicly available online"
+  confidence: 0.75
+
+- canonical: "CSO Classifier"
+  acceptable_aliases:
+    - "CSO-C"
+    - "CSO Classifier Module"
+    - "Computer Science Ontology Classifier"
+    - "Computer Science Ontology Classiﬁer" 
+  quoted_text: "The CSO Classifier Module36, based on the Computer Science Ontology (CSO)55, identifies research topics within textual content."
+  confidence: 0.4
+
+- canonical: "SciBERT"
+  acceptable_aliases: []
+  quoted_text: "is utilized to fine-tune a SciBERT59 classifier"
+  confidence: 0.65
+
+- canonical: "BERT"
+  acceptable_aliases:
+  - "BERT-based model"
+  quoted_text: "leverages the tool described in Wadden et al.53, which adopts a BERT-based model pre-trained on the SciERC54 dataset."
+  confidence: 0.65
+
+- canonical: "Word2Vec"
+  acceptable_aliases:
+  - "Word2Vec model"
+  - "word2vec embedding model"
+  quoted_text: "The semantic component utilizes a combination of part-of-speech tagging and similarity computed via a Word2Vec model"
+  confidence: 0.65
+
+- canonical: "TransR"
+  acceptable_aliases:
+  - "TransR65"
+  quoted_text: "four of the most prominent state-of-the-art solutions for link prediction: TransR65, ComplEx66, DistMul67, and RESCAL68."
+  confidence: 0.55
+
+- canonical: "ComplEx"
+  acceptable_aliases:
+  - "ComplEx66"
+  quoted_text: "four of the most prominent state-of-the-art solutions for link prediction: TransR65, ComplEx66, DistMul67, and RESCAL68."
+  confidence: 0.55
+
+- canonical: "DistMul"
+  acceptable_aliases:
+  - "DistMul67"
+  quoted_text: "four of the most prominent state-of-the-art solutions for link prediction: TransR65, ComplEx66, DistMul67, and RESCAL68."
+  confidence: 0.55
+
+- canonical: "RESCAL"
+  acceptable_aliases:
+  - "RESCAL68"
+  quoted_text: "four of the most prominent state-of-the-art solutions for link prediction: TransR65, ComplEx66, DistMul67, and RESCAL68."
+  confidence: 0.55
+
+expected_methods:
+  - canonical: "open information extraction"
+    acceptable_aliases:
+      - "OpenIE"
+      - "Open IE"
+      - "OpenIE Module"
+      - "Open Information Extraction"
+    method_type: "data_processing"
+    quoted_text: "The OpenIE Module extracts triples using the Stanford Core NLP56 suite and its OpenIE annotator57."
+    confidence: 0.8
+
+  - canonical: "part-of-speech tagging"
+    acceptable_aliases:
+      - "PoS tagging"
+      - "POS tagging"
+      - "part of speech tagging"
+      - "PoST"
+      - "PoS Tagger"
+      - "PoS Tagger Module"
+      - "Part-of-Speech Tagger"
+    method_type: "data_processing"
+    quoted_text: "The PoS Tagger Module is designed for extracting triples and is based on the part of speech component from the Stanford Core NLP suite56."
+    confidence: 0.8
+
+  - canonical: "dependency parsing"
+    acceptable_aliases:
+      - "dependency parser"
+      - "dependency module"
+    method_type: "data_processing"
+    quoted_text: "The Dependency Module extracts triples by extending the functionality of the Stanford Core NLP Dependency Parser."
+    confidence: 0.8
+
+  - canonical: "lemmatization"
+    acceptable_aliases:
+      - "lemmatisation"
+      - "lemmatize"
+      - "lemmatizes"
+    method_type: "data_processing"
+    quoted_text: "it lemmatizes all entities to map singular and plural forms to the same text representation;"
+    confidence: 0.8
+
+  - canonical: "acronym resolution"
+    acceptable_aliases:
+      - "acronym expansion"
+      - "acronym solving"
+    method_type: "data_processing"
+    quoted_text: "it solves acronyms by leveraging their common placement in brackets near relevant entities;"
+    confidence: 0.7
+
+  - canonical: "predicate mapping"
+    acceptable_aliases:
+      - "verb mapping"
+      - "verb-to-predicate mapping"
+      - "relationship merging"
+      - "relationship integration"
+    method_type: "data_processing"
+    quoted_text: "To address this issue, we associate similar verbs with an exemplary predicate."
+    confidence: 0.7
+
+  - canonical: "entity filtering"
+    acceptable_aliases:
+      - "blacklist filtering"
+      - "whitelist filtering"
+      - "blacklisting"
+      - "whitelisting"
+    method_type: "data_processing"
+    quoted_text: "it discards entities included in a manually curated denylist; and (iv) it identifies and removes generic entities by assessing their information content score"
+    confidence: 0.7
+
+  - canonical: "ontology-based consistency checking"
+    acceptable_aliases:
+      - "ontology-based checking"
+      - "ontology-based verification"
+      - "domain and range checking"
+    method_type: "data_processing"
+    quoted_text: "This component uses the CS-KG50 ontology to consolidate triples generated by the various tools and discards those that do not adhere to the specified domain and range constraints of the defined object properties."
+    confidence: 0.7
+
+  - canonical: "negative sampling"
+    acceptable_aliases:
+      - "negative triple generation"
+      - "triple corruption"
+    method_type: "training"
+    quoted_text: "Triples corruption involves replacing either the head or the tail with a randomly chosen entity, resulting in the set of negative triples denoted as Tnegative."
+    confidence: 0.65
+  
+  - canonical: "fine-tuning"
+    acceptable_aliases:
+      - "model fine-tuning"
+      - "classifier fine-tuning"
+    method_type: "training"
+    quoted_text: "is utilized to fine-tune a SciBERT59 classifier on a binary classification task"
+    confidence: 0.6
+  
+  - canonical: "context enrichment"
+    acceptable_aliases: 
+      - "context analysis"
+      - "co-occurrence analysis"
+    method_type: "data_processing"
+    quoted_text: "The objective is to analyze each statement to identify the statements and entities that most frequently co-occur with it. This process provides deep insights into the contextual framework within which a statement is situated."
+    confidence: 0.7
+
+  - canonical: "temporal enrichment"
+    acceptable_aliases:
+      - "time enrichment"
+      - "temporal augmentation"
+      - "augmentation with temporal data"
+    method_type: "data_processing"
+    quoted_text: "Time Enrichment Module. This module is engineered to augment statements and entities with temporal data, derived from the publication years of the source papers from which they are extracted."
+    confidence: 0.7
+  
+  - canonical: "majority vote"
+    acceptable_aliases:
+      - "majority voting"
+      - "majority vote schema"
+    method_type: "evaluation"
+    quoted_text: "We have then created a gold standard based on the majority vote."
+    confidence: 0.7
+
+# ------------------------------------------------------------------ unscored
+problems:                    # ExtractedProblem is a LIST per paper, not one
+  - statement: "An increasing number of scientific papers are being published in formats that are difficult for AI tools to parse, such as PDF files and unstructured plain text."         # >=20 chars (importer's own floor)
+    quoted_text: "Nonetheless, a significant challenge remains: processing the vast quantity of scientific papers, which continues to expand at a rate of approximately 2.5 million new articles each year11. The large number of research articles, often found in hard-to-parse PDF files or, at best, as unstructured plain text, poses significant challenges for AI technologies12."       # >=10 chars
+    involves_concepts: ["scientific knowledge graph", "information extraction pipeline"]
+  
+  - statement: "Current search and analysis engines for research papers, even those making use of advanced LLMs, are typically limited to simple searching due to the aforementioned large volume of information."
+    quoted_text: "As a result, current search engines are limited, mainly performing simple searches based on keywords or the semantic similarity of a query with titles and abstracts."
+    involves_concepts: 
+    - "information extraction pipeline"
+  
+  - statement: "While LLMs may be able to process and respond to natural-language inquiries about a single paper, a collection of millions of papers is far too complex for them to accurately retrieve information about."
+    quoted_text: "The capability of effectively interpreting and answering natural language questions about a single 15-page paper, a task currently undertaken by several LLM-based services4, does not extend to understanding the key entities, narratives, and concepts of a research field represented by millions of such papers"
+    involves_concepts:
+    - "scientific knowledge graph"
+  
+  - statement: "Resources such as AI-KG are relatively small-scale and low-scope compared to the entire domain of computer science; additionally, they build semantically shallow relationships between entities."
+    quoted_text: "However, user feedback has highlighted some limitations of AI-KG: its coverage is restricted to 330,000 research papers, the semantic depth of the relationships between entities is relatively shallow, and its scope is confined exclusively to the domain of artificial intelligence."
+    involves_concepts:
+    - "scientific knowledge graph"
+    - "knowledge representation"
+
+  - statement: "CS-KG 1.0, while broader and richer than AI-KG, is also limited in that it lacks time-related information, can exclude recent publications if they are not yet cited by other papers, and relies on an outdated resource (the Microsoft Academic Graph), making it difficult to update."
+    quoted_text: "CS-KG lacks time-related information for its entities, which is essential for analyzing trends in the adoption and evolution of various methods and materials. Second, it only includes research papers that are cited at least once, thereby excluding some of the most recent publications. Finally, CS-KG is based on the Microsoft Academic Graph (MAG), a resource that has since been discontinued."
+    involves_concepts:
+    - "scientific knowledge graph"
+    - "knowledge representation"
+
+  - statement: "Commonly-used link prediction benchmarks are relatively small-scale, limiting their usefulness in validating state-of-the-art link prediction solutions."
+    quoted_text: "Specifically, the link prediction benchmarks commonly used in the community, such as WN1851 and FB15k51, usually feature tens of thousands of triples. By current standards, these datasets are considered small."
+    involves_concepts:
+    - "link prediction"
+
+cites_within_set: ["cskg", "fact_completion"]   # slugs only, this set only
+
+notes: >- 
+  1. Put down knowledge representation as a concept separate from the scientific knowledge graph itself. Could be similar enough to merge the two.
+  2. Quotes are somewhat long to cover entire problem definition. May want to search for better quotes.
+  3. "Contextual information" may be ambiguous. Unsure whether there is a better term for what the paper describes.
+  4. CSO classifier is given equal weight to other extractor modules. Still unsure whether this should be a model or a method.
+  5. Is fine-tuning and/or classification too generic?
+  6. Should machine learning tasks be considered methods or concepts?                

@@ -70,9 +70,11 @@ expected_concepts:
     quoted_text: "which provides provenance information and lists the MAG IDs"
     confidence: 0.6
 
-  - canonical: "support score"
+  # Canonical CHANGED 2026-08-08 from "support score" to "support" when cskg2
+  # was reconciled — see disagreement "support vs. support score" below.
+  - canonical: "support"
     acceptable_aliases:
-      - "support"
+      - "support score"
       - "hasSupport"
       - "statement support"
     quoted_text: "cskg-ont:hasSupport, which reports the number of articles that contributed to create the statement (support)"
@@ -113,7 +115,6 @@ expected_methods:
     acceptable_aliases:
       - "OpenIE"
       - "Open IE"
-      - "Open Information Extraction"
     method_type: "data_processing"
     quoted_text: "This tool is used to extract open domain relationships from plain texts of the input dataset"
     confidence: 0.8
@@ -121,7 +122,6 @@ expected_methods:
   - canonical: "part-of-speech tagging"
     acceptable_aliases:
       - "PoS tagging"
-      - "POS tagging"
       - "part of speech tagging"
       - "PoST"
       - "PoS Tagger"
@@ -209,6 +209,14 @@ expected_methods:
 # counted as a recall miss. See SCHEMA.md — "acceptable_extras".
 acceptable_extras:
   topics:
+    # Added 2026-08-08, when cskg2 was reconciled. Applies equally to both papers.
+    - name: "Knowledge Representation"
+      why: >-
+        The parent AREA of the scored "Knowledge Graphs" subtopic, and the most
+        likely over-emission of any entry here — an extractor asked for the
+        deepest applicable topic can reasonably return the area as well as, or
+        instead of, the child. Not scored, because the prompt asks for the
+        smallest set and the paper is specifically about knowledge graphs.
     - name: "Ontology Engineering"
       why: >-
         Not the focus of the paper, but it does build a 179-relation domain
@@ -291,7 +299,7 @@ problems:
   - statement: "Triples extracted from only one or very few papers are noisy and unreliable, yet discarding all low-support triples would also remove many valid statements."
     quoted_text: "triples which appear in one or very few papers are more noisy and less reliable"
     involves_concepts:
-      - "support score"
+      - "support"
 
 # CS-KG is the chain's anchor: cited by six of the other seven, citing none of
 # them. Re-check against Semantic Scholar before treating a live edge to
@@ -353,12 +361,23 @@ disagreements:
     item: "support vs. support score"
     human: "canonical 'support' (0.5)"
     claude: "canonical 'support score' (0.55)"
-    resolution: "canonical 'support score', 'support' as alias"
+    resolution: >-
+      REVERSED 2026-08-08 to canonical 'support', 'support score' as alias.
+      Originally resolved the other way on 2026-08-03.
     rationale: >-
-      Both surface forms are in the paper ("which we label support"; "The
-      support score can be used"). "support score" is the less ambiguous
-      canonical for a string-equality scorer; the bare form still matches via
-      the alias.
+      Both surface forms are in this paper ("which we label support"; "The
+      support score can be used"), and the original resolution chose "support
+      score" as the less ambiguous canonical. That was reversed when cskg2 was
+      reconciled: cskg2 uses only the bare form ("the concept of support",
+      "support score" zero occurrences), both of its reviewers chose it
+      independently, and SCHEMA.md prefers the paper's own terminology. Support
+      is the recurring concept this citation-chain set exists to watch
+      accumulate, so it must not accumulate under two canonicals. The
+      readability objection to a node named "support" stands but is a
+      graph-quality argument, not a scoring one — scorers match
+      {canonical} | aliases case-insensitively and "support score" is retained
+      as an alias in both files, so no score changes either way. See
+      reconciled/paper_cskg2.gold.yml, disagreement 1.
 
   - field: "expected_concepts"
     item: "information extraction vs. information extraction pipeline"

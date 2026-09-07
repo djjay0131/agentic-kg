@@ -1,0 +1,182 @@
+# ---------------------------------------------------------------- identity
+paper_id: "doi:10.1109/access.2022.3220241"
+slug: "fact_completion"
+title: "Completing Scientific Facts in Knowledge Graphs of Research Concepts"
+doi: "10.1109/access.2022.3220241"
+s2_paper_id: null
+source_pdf: "ground-truth-papers/Completing_Scientific_Facts.pdf"   
+year: 2022
+reviewer: "human"
+reviewed_at: "2026-08-08"
+
+# ------------------------------------------------- scored (e8_eval-compatible)
+expected_topics:
+  - name: "Knowledge Graphs" # CLOSED SET — must appear in seed_taxonomy.yml
+    level: "subtopic"        # domain | area | subtopic. NOT scored; for humans.
+
+expected_concepts:
+  - canonical: "scientific knowledge graph"
+    acceptable_aliases:
+      - "scientific knowledge graphs"
+      - "scholarly knowledge graph"
+      - "scholarly knowledge graphs"
+      - "scholarly knowledge"
+      - "large-scale knowledge graph"
+    quoted_text: "In the last few years, we have witnessed the emergence of several knowledge graphs that explicitly describe research knowledge with the aim of enabling intelligent systems for supporting and accelerating the scientiﬁc process."       # unscored; >=10 chars, verbatim
+    confidence: 0.9
+  
+  - canonical: "triple classification"
+    acceptable_aliases: 
+      - "triple classiﬁcation"
+    quoted_text: "In this paper, we introduce SciCheck, a new triple classiﬁcation approach for completing scientiﬁc statements in knowledge graphs."
+    confidence: 0.85
+  
+  - canonical: "Open Science"
+    acceptable_aliases:
+      - "open research"
+    quoted_text: "The rise of Open Science and the steady growth of the number of research publications, datasets, and other materials on the web is changing the way research outcomes are shared and explored, and is posing new challenges and opportunities."
+    confidence: 0.7
+
+  - canonical: "link prediction"
+    acceptable_aliases: []
+    quoted_text: "The issue of incompleteness in knowledge graphs is usually addressed by link prediction or triple classiﬁcation techniques"
+    confidence: 0.7
+  
+  - canonical: "knowledge graph completion"
+    acceptable_aliases: []
+    quoted_text: "However, existing methods for knowledge graph completion under-perform on KGs of research concepts, as detailed in Section IV."
+    confidence: 0.7
+
+  - canonical: "reification"
+    acceptable_aliases:
+      - "triple reification"
+      - "statement reification"
+    quoted_text: "a largescale automatically-generated open KG including 14M RDF triples and 1.2M reiﬁed statements extracted from the 333K most cited articles in the ﬁeld of AI."
+    confidence: 0.7
+  
+  - canonical: "neighborhood-aware features"
+    acceptable_aliases:
+      - "neighbourhood-aware features"
+    quoted_text: "SciCheck uses an extensible set of neighbourhood-aware features specifically tailored to scholarly information"
+    confidence: 0.65
+
+  - canonical: "Jaccard index"
+    acceptable_aliases: []
+    quoted_text: "Jaccard index of the neighbourhoods of radius r of the head and tail of the triple"
+    confidence: 0.55
+
+  - canonical: "Adamic index"
+    acceptable_aliases:
+      - "Adar index"
+      - "Adamic/Adar index"
+    quoted_text: "Adamic/Adar index [56] between the head and tail. This index gives higher scores to entities whose neighbourhoods are smaller."
+    confidence: 0.55
+
+  
+expected_models: 
+  - canonical: "RoBERTa"
+    acceptable_aliases:
+      - "RoBERTa model"
+    quoted_text: "SciCheck uses by default the RoBERTa model [37] to generate the word embeddings"
+    confidence: 0.9    # same entry shape; [] is valid but see "Empty lists"
+
+  - canonical: "TransE"
+    acceptable_aliases: []
+    quoted_text: "Five of the baselines are well-known embedding-based KG completion approaches: TransE, TransD, TransH, SimplE, and Com-plEx"
+    confidence: 0.7
+  
+  - canonical: "TransD"
+    acceptable_aliases: []
+    quoted_text: "Five of the baselines are well-known embedding-based KG completion approaches: TransE, TransD, TransH, SimplE, and Com-plEx"
+    confidence: 0.7
+
+  - canonical: "TransH"
+    acceptable_aliases: []
+    quoted_text: "Five of the baselines are well-known embedding-based KG completion approaches: TransE, TransD, TransH, SimplE, and Com-plEx"
+    confidence: 0.7
+
+  - canonical: "SimplE"
+    acceptable_aliases: []
+    quoted_text: "Five of the baselines are well-known embedding-based KG completion approaches: TransE, TransD, TransH, SimplE, and Com-plEx"
+    confidence: 0.7
+
+  - canonical: "ComplEx"
+    acceptable_aliases:
+      "ComplEx"
+    quoted_text: "Five of the baselines are well-known embedding-based KG completion approaches: TransE, TransD, TransH, SimplE, and Com-plEx"
+    confidence: 0.7
+
+  - canonical: "SciBert"
+    acceptable_aliases: 
+      - "CAFE + SciBERT"
+    quoted_text: "extends CAFE by considering features based on the similarity of the embeddings of head and tail, using SciBERT"
+    confidence: 0.9
+  
+  - canonical: "paraphrase-distilroberta-base-v2" # found in citations
+    acceptable_aliases:
+      - "paraphrase-distilroberta"
+      - "distilroberta"
+      - "distilroberta-base-v2"
+    quoted_text: "7https://huggingface.co/sentence-transformers/paraphrase-distilroberta-base-v2"
+    confidence: 0.5
+
+expected_methods:
+  - canonical: "CAFE"
+    acceptable_aliases: 
+      - "CAFE method"
+      - "CAFE approach"
+    quoted_text: "It is built on top of the CAFE approach [27] by incorporting a new set of features and heuristics tailored to capture scientiﬁc knowledge."
+    confidence: 0.7
+  
+  - canonical: "negative sampling"
+    acceptable_aliases:
+      - "negative triple generation"
+      - "triple corruption"
+    method_type: "training"
+    quoted_text: "To do this, Sci-Check follows the same approach as many other related techniques [27], [28], [38], [51], [52], [53] and generates negative triples by corrupting a positive triple < h, r, t > and replacing t with t′,"
+    confidence: 0.75
+  
+  - canonical: "ontology-based consistency checking"
+    acceptable_aliases:
+      - "ontology-based checking"
+      - "ontology-based verification"
+      - "ontology-based validation"
+      - "ontology validation"
+      - "domain and range checking"
+    method_type: "data_processing"
+    quoted_text: "SciCheck can automatically classify a triple as incorrect if the triple does not respect the domains and ranges of the relation as deﬁned in the ontological schema"
+    confidence: 0.7
+
+  - canonical: "majority vote"
+    acceptable_aliases:
+      - "majority voting"
+      - "majority vote schema"
+      - "majority vote approach"
+    method_type: "evaluation"
+    quoted_text: "A majority vote approach was used to determine that 221 triples were correct and 279 were incorrect."
+    confidence: 0.7
+
+# ------------------------------------------------------------------ unscored
+problems:                    # ExtractedProblem is a LIST per paper, not one
+  - statement: "Existing knowledge graphs describing research knowledge typically miss relevant information about the reserach knowledge they were derived from."
+    quoted_text: "However, they are usually very partial representations of the actual research knowledge and may miss several relevant facts."
+    involves_concepts: ["scientific knowledge graph"]
+  
+  - statement: "A machine-readable, complete, and extensive representation of knowledge in open research is not yet available, preventing more advanced researdch services from being provided."
+    quoted_text: "One of the main challenges in this space is to generate a semantically rich, interlinked, and machine readable description of the available research knowledge. This could enable more sophisticated techniques to analyze the scientiﬁc literature."
+    involves_concepts: ["scientific knowledge graph", "Open Science"]
+  
+  - statement: "Existing knowledge graph comnpletion methods are imprecise on knowledge graphs of research concepts, making them unacceptable for use in the sciences, which rely on precise links between concepts."
+    quoted_text: "However, existing methods for knowledge graph completion under-perform on KGs of research concepts, as detailed in Section IV. In particular, they suffer from low precision, which is not acceptable in the scientiﬁc domain."
+    involves_concepts: ["scientific knowledge graph", "knowledge graph completion"]
+
+cites_within_set: ["cskg", "fact_completion"]   # slugs only, this set only
+
+notes: >-
+  1. Is triple classification a method or a concept?
+  2. Link prediction and triple classification seem to both be explicitly called methods of knowledge graph completion.
+  3. Is CAFE a method or a named entity?
+  4. Named indices included as concepts, but low confidence
+  5. Maybe neighborhood-aware vectorization could be a method? Not sure, though.
+  6. Potentially, "neural network-based classifier" could be an acceptable extra?
+  7. Found paraphrase-distilroberta in a citation, added since it was a model used in other papers in the chain.

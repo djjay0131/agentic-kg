@@ -1,0 +1,367 @@
+The rapid evolution of AI and the increased accessibility of scientific articles through open access marks
+a pivotal moment in research. AI-driven tools are reshaping how scientists explore, interpret, and
+contribute to the body of scientific knowledge, offering unprecedented opportunities. Nonetheless, a
+significant challenge remains: dealing with the overwhelming number of papers published every year.
+A promising solution is the use of knowledge graphs, which provide structured, interconnected, and
+formalized frameworks that improve the capabilities of AI systems to integrate information from the
+literature. This paper presents the last version of the Computer Science Knowledge Graph (CS-KG 2.0),
+an extensive knowledge base generated from 15 million research papers. CS-KG 2.0 describes 25 million
+entities linked by 67 million relationships, offering a nuanced representation of the scientific knowledge
+within the field of computer science. This innovative resource facilitates new research opportunities in
+key areas such as analysis and forecasting of research trends, hypothesis generation, smart literature
+search, automatic production of literature review, and scientific question-answering.
+
+Background & Summary
+We are at a crucial juncture in history, characterized by the rise of groundbreaking artificial intelligence tools for
+text analysis and the increased accessibility of scientific articles through open access. This progress has the potential
+to radically transform scientific research and how scientists engage with and contribute to scientific literature. The
+Artificial Intelligence (AI) community is actively working on sophisticated methods for smart and tailored literature
+searches1–3, assisting in or even automating the creation of literature reviews4, enhancing academic writing and referencing5,6, automatically formulating novel hypotheses7,8, developing specialized conversational agents9,10, and much
+more. Nonetheless, a significant challenge remains: processing the vast quantity of scientific papers, which continues
+to expand at a rate of approximately 2.5 million new articles each year11. The large number of research articles, often
+found in hard-to-parse PDF files or, at best, as unstructured plain text, poses significant challenges for AI technologies12. This issue limits the effectiveness of existing tools in fully understanding and exploring the literature13. As
+a result, current search engines are limited, mainly performing simple searches based on keywords or the semantic
+similarity of a query with titles and abstracts. Searching and analyzing this extensive body of text is a significant challenge even for advanced systems based on the latest Large Language Models (LLM)14–18. For instance, a recent study
+by Gan et al.19 discusses the limitations of LLMs in their ability to effectively identify and classify software and dataset
+mentions. Despite their impressive capabilities in natural language processing, these models struggle to achieve the
+level of accuracy necessary for such tasks, particularly when it comes to meeting the high standards of precision
+and recall demanded within the scholarly domain. Even the adoption of techniques such as Retrieval-Augmented
+Generation (RAG)20 does not solve this problem due to the complexity involved in searching and summarizing
+such an extensive collection of documents. The capability of effectively interpreting and answering natural language
+questions about a single 15-page paper, a task currently undertaken by several LLM-based services4, does not extend
+to understanding the key entities, narratives, and concepts of a research field represented by millions of such papers.
+This issue is very evident in the computer science domain, where it is notably difficult to navigate and assess the
+variety of methods and datasets that are continuously produced by the community. For instance, numerous methods
+that are described as state-of-the-art have reproducibility challenges and, when evaluated by external parties, might
+not outperform basic techniques21,22.
+1Department of Computer Science, College of Computing and Informatics, University of Sharjah, Sharjah, UAE. 2The
+Open University, Knowledge Media Institute, Milton Keynes, UK. 3Milano Bicocca University, Department of Business
+and Law, Milan, Italy. 4Sorbonne Paris Nord University, Laboratoire d’Informatique de Paris Nord, Paris, France.
+5University of Cagliari, Mathematics and Computer Science Department, Cagliari, Italy. ✉e-mail: francesco.osborne@
+open.ac.uk
+Data Descriptor
+OPEN
+
+Scientific Data | (2025) 12:964 | https://doi.org/10.1038/s41597-025-05200-8
+www.nature.com/scientificdata
+www.nature.com/scientificdata/
+To address these challenges, a knowledge-centric paradigm has been suggested23,24. This approach involves
+creating a structured, interconnected, and formal representation of research publications to improve the capabilities of AI systems to conduct complex and extensive analyses of scientific texts.
+In recent years, the research community has successfully used knowledge graphs (KGs) for creating semantically enriched representations of data in various domains, including scholarly knowledge. KGs are data structures that describe the key entities in a domain and their relationships, presenting information in a format
+accessible and interpretable by both machines and humans25. The relationship between two entities is typically formalized as a triple in the format of <subject, predicate, object> following the Resource
+Description Framework (RDF) as standard model (e.g., <sentiment analysis, uses, deep learning classifier> or <cloud computing, includes, virtualization security>). KGs
+are recognized for their ability to organize data in a structured and semantically meaningful manner, offering
+significant support to AI systems across multiple domains such as medicine, research, education, robotics, manufacturing, and social media, among others26. They are often realized by using Semantic Web technologies, such
+as RDF and the Web Ontology Language (OWL)27, that allow human experts to verify, curate, and correct both
+the data and their ontological schema. Additionally, KGs can be enhanced and refined using link prediction
+techniques, which are designed to discover new relationships between entities within a domain28,29. Prominent
+instances of KGs include DBpedia30, Google Knowledge Graph, BabelNet, and YAGO.
+In the scientific field, the community has advanced this paradigm by developing bibliographic repositories
+linked to the Linked Data Cloud31, generating representations of scientific workflows32, managing pieces of
+information in nano-publications33,34, and designing a variety of vocabularies and ontologies to annotate scholarly data35,36. A recent survey37 identified 45 knowledge organization systems, including thesauri, taxonomies,
+and ontologies, which describe research fields at various levels of granularity.
+In recent years, we have seen the release of KGs that describe the metadata of research publications, such
+as SemOpenAlex38, as well as KGs that focus on the content of these publications and describe the key entities
+and concepts such as topics, methods, and tasks. The content-focused KGs are either created through crowdsourcing (e.g., ORKG39, Nanopublications34) or generated automatically (e.g., AI-KG40, CS-KG41, SoftwareKG42).
+Crowdsourced KGs suffer from their limited coverage in terms of the number of articles because they rely on
+human experts to extract information from scholarly literature34,39 or focus on very specific domains such as
+intrusion detection43 or computational linguistics44. To tackle this challenge, in 2020, we introduced the Artificial
+Intelligence Knowledge Graph (AI-KG)40. This resource is the first automatically generated large-scale KG of
+artificial intelligence, including 1.2 million statements about over 800 thousand research entities. However, user
+feedback has highlighted some limitations of AI-KG: its coverage is restricted to 330,000 research papers, the
+semantic depth of the relationships between entities is relatively shallow, and its scope is confined exclusively to
+the domain of artificial intelligence.
+In 2022, we released the Computer Science Knowledge Graph (CS-KG)41, building upon our previous efforts.
+This enhanced KG has a broader array of relationships between research entities and covers approximately 6.7
+million research publications across a wide range of computer science subdomains. CS-KG has represented
+a significant step forward in addressing previous challenges, but it also faces a few notable limitations. First,
+CS-KG lacks time-related information for its entities, which is essential for analyzing trends in the adoption and
+evolution of various methods and materials. Second, it only includes research papers that are cited at least once,
+thereby excluding some of the most recent publications. Finally, CS-KG is based on the Microsoft Academic
+Graph (MAG), a resource that has since been discontinued. This means that this version of CS-KG cannot be
+updated or easily linked to a current and well-recognized metadata catalog.
+In 2021, to fill the gap left by the discontinuation of MAG, the OpenAlex45 project started. OpenAlex45 is a
+free and open-access catalog of works, authors, venues, and institutions about the scholarly domain. One of its
+primary objectives is to sustain scientific initiatives previously reliant on MAG40,46–49. At the time of writing,
+OpenAlex covers more than 250M works including scientific publications in conferences or journals, about 90M
+disambiguate authors, and more than 100K institutions. While it has already been transformed into a KG38, there
+is no existing work or resource that provides a formal representation of the content of the publications.
+In this paper, we present the newest version of CS-KG50 (CS-KG 2.0), which covers all the papers within
+the computer science domain indexed within the OpenAlex catalog from 2010 to 2022. Notably, OpenAlex is
+completely open-source and freely available under the CC0 license. Since CS-KG 2.050 provides the unique identifiers of the papers used in its construction, users can access all relevant metadata via the OpenAlex API or its
+data dumps. The novel version of CS-KG 2.050 includes over 1 billion RDF triples and approximately 24 million
+research entities categorized into types such as Task, Method, Metric, Material, and OtherEntity. It also includes
+67 million statements that detail the relationships among these entities. Consequently, this version is more than
+50 times larger than its predecessor. Compared to earlier versions, CS-KG50 2.0 introduces significant enhancements, including i) the incorporation of temporal data linked with entities and statements, which facilitates the
+analysis of research trends over time, and ii) the provision of supplementary contextual information. This extra
+information enhances the comprehension and analysis of the data contained within its statements, highlighting,
+for instance, the co-occurrence patterns among entities and statements. This initiative aims to support a range
+of intelligent services, including advanced search, question-answering systems, conversational agents, article
+recommendation, trend forecasting, hypothesis generation, and many others.
+In conjunction with CS-KG50 2.0, we also release three extensive benchmarks for the evaluation of link prediction algorithms: CSKG-2M, CSKG-490K, and CSKG-132K. These new resources, derived from CS-KG 2.0,
+are significantly larger than established benchmarks in this field, such as WN18 and FB15k51.
+CS-KG50 2.0 is licensed under a Creative Commons Attribution 4.0 International License (CC BY 4.0). It is
+available as a dump in RDF and CSV format at https://doi.org/10.5281/zenodo.14167681. It can also be queried
+
+Scientific Data | (2025) 12:964 | https://doi.org/10.1038/s41597-025-05200-8
+www.nature.com/scientificdata
+www.nature.com/scientificdata/
+via a SPARQL endpoint at https://w3id.org/cskg/sparql. In all subsequent sections of the paper, we utilize CS-KG
+as the singular reference for CS-KG50 2.0.
+
+Methods
+Knowledge Graph Generation.
+The resource released in this paper is built using an automatic pipeline
+named SCICERO presented in Dessí et al.52 Fig. 1 reports an overview of the architecture. In this section, we
+briefly describe the main components and provide the scientific rationale behind each. Specifically, the approach
+is composed of several modules that can be grouped into four categories: i) extraction modules, which parse text
+from the title and abstract of the research papers, ii) handler modules, which clean and normalize the extracted
+data, iii) validation modules, which discard noisy elements from the final set of generated triples, and iv) enrichment modules, which add additional contextual information to the extracted statements.
+Extractor Modules.  The current version of the SCICERO pipeline uses five extraction modules: DyGIEpp, CSO
+Classifier, OpenIE, PoS Tagger, and Dependency Module. We describe each of them in the following.
+The DyGIEpp Module leverages the tool described in Wadden et al.53, which adopts a BERT-based
+model pre-trained on the SciERC54 dataset. This module extracts 6 types of entity (i.e., Method, Task,
+Metric, Material, Other-Scientific-Term, and Generic) and 7 types of relations between entities (i.e., Used-for,
+Hyponym-Of, Compare, Part-of, Conjunction, Feature-of, Evaluate-for). CS-KG50 does not differentiate between
+Other-Scientific-Term and Generic and thus, the module merges them in the OtherEntity entity type. DyGIEpp
+employs a feed-forward neural network to process textual span representations, generating two scores. The first
+score indicates the likelihood of a given text being a research entity belonging to one of the predefined types.
+The second score represents the probability of a predefined relationship existing between two identified entities,
+considering the context in the text. A softmax function is applied to distinguish entity types and relationships.
+For instance, in the sentence “Training time for large language models is usually lengthy.”, the text span “training
+time” is recognized as a research entity of type Metric with a softmax value of 0.99, while “large language models”
+is identified as an entity of type Method with a softmax value of 1.0. The relation Feature-of is identified with a
+softmax value of 0.54 in the generated triple <training time, Feature-of, large language
+models>. The relations extracted by DyGIEpp are then transformed into a set of predicates using mapping
+rules that are publicly available online (https://github.com/danilo-dessi/SKG-pipeline/blob/main/resources/
+SKG-dygiepp-Mapping.csv). For example, the triple <training time, Feature-of, large language models> is transformed into <large language models, includes, training time>.
+The CSO Classifier Module36, based on the Computer Science Ontology (CSO)55, identifies research topics
+within textual content. Specifically, it evaluates whether a given text span aligns with one of the over 14,000
+topics defined in the CSO.
+For this purpose, it leverages two unsupervised components. The syntactic component identifies unigrams,
+bigrams, and trigrams using a rule-based method and employs the Levenshtein similarity to compare these
+n-grams with topics in the CSO. The semantic component utilizes a combination of part-of-speech tagging and
+similarity computed via a Word2Vec model to map a text span with topics in CSO.
+The output of this module is the set of identified entities.
+The OpenIE Module extracts triples using the Stanford Core NLP56 suite and its OpenIE annotator57. It
+operates as follows. First, it creates clauses, i.e., groups of words containing a subject-noun and a verb which are
+identified by traversing the parsing tree of the input text. These clauses are then shortened, creating concise fragments, which are subsequently transformed into triples. Finally, the module selects only triples in which both
+subjects and objects overlap with the entities identified by the DyGIEpp and CSO classifier modules.
+The PoS Tagger Module is designed for extracting triples and is based on the part of speech component from
+the Stanford Core NLP suite56. This module identifies verbs located between pairs of entities that have already
+been extracted. Subsequently, it forms triples in the form <entity1, verb, entity2 > . To minimize the
+Fig. 1  The modules used to create our resource from the SCICERO52 pipeline.
+
+Scientific Data | (2025) 12:964 | https://doi.org/10.1038/s41597-025-05200-8
+www.nature.com/scientificdata
+www.nature.com/scientificdata/
+inclusion of irrelevant or weakly associated relationships, the module applies a filtering mechanism to exclude
+entity pairs that are too distant within the text. Specifically, it considers only entity pairs separated by a number
+of tokens within a predefined window size. This approach effectively reduces the likelihood of capturing noisy or
+spurious relationships between entities, ensuring a focus on those with meaningful or direct relevance.
+The Dependency Module extracts triples by extending the functionality of the Stanford Core NLP
+Dependency Parser. It derives meaningful triples by leveraging a set of predefined paths within the dependency
+trees of a sentence. The module is designed to extract relationships based on twelve paths (https://github.com/
+danilo-dessi/SKG-pipeline/blob/main/resources/path.txt) that were manually designed by analyzing the frequency and quality of generated triples52. These paths represent specific patterns in the dependency structures of
+sentences that frequently capture meaningful relationships between entities. To identify these paths, dependency
+trees from a sample of scientific papers were analyzed, with a focus on paths containing verbs that consistently
+connect pairs of research entities. The paths were evaluated based on the quality and frequency of the resulting
+triples, with only those generating over 60% correct triples being retained. This process yielded twelve highly
+effective paths for capturing high-quality relationships.
+Handler Modules.  Entity Cleaner and Validator. This module performs several tasks to filter and improve the
+quality of the extracted entities: (i) it lemmatizes all entities to map singular and plural forms to the same text
+representation; (ii) it solves acronyms by leveraging their common placement in brackets near relevant entities;
+(iii) it discards entities included in a manually curated denylist; and (iv) it identifies and removes generic entities
+by assessing their information content score, which quantifies the specificity of words based on the WordNet
+taxonomy (https://wordnet.princeton.edu/). To ensure essential entities for the domain are retained, the module
+also utilizes a white list of research entities, derived from the Fields of Study provided by the original source.
+Relationship Integrator. The sets of triples extracted by the DyGIEpp Module, OpenIE Module, PoS Tagger
+Module, and Dependency Module, namely TDy, TOIE, TPoS, and TDep may contain redundant triples that use different
+predicates to express the same meaning (e.g., includes, embeds, contains). To address this issue, we associate similar
+verbs with an exemplary predicate. This mapping schema is built by combining relation clustering using the word2vec
+embedding model58 with the VerbNet (https://verbs.colorado.edu/verbnet/) taxonomy as described in Dessí et
+al.52 VerbNet provides a comprehensive taxonomy of English verbs organized into classes, where verbs within the
+same class share both syntactic and semantic coherence. It allows the creation of domain-specific taxonomies while
+maintaining a core representation of verbs based on their semantics in more general contexts. We used it to construct the CS-KG50 ontology (https://scholkg.kmi.open.ac.uk/cskg/ontology), which describes a set of 39 predicates
+mapped to 464 verbs. All relations in the sets TDy, TOIE, TPoS, and TDep, are mapped using this schema. For instance,
+two triples sharing the same entities, such as <a, embeds, b> and <a, contains, b>, are consolidated
+into a single triple <a, includes, b>, where embeds and contains are mapped to includes. Following the mapping of all relations in the sets TDy, TOIE, TPoS, and TDep, the module produces a unique set of triples T.
+Triple Validation Modules.  The Ontology Validator Module. This component uses the CS-KG50 ontology to
+consolidate triples generated by the various tools and discards those that do not adhere to the specified domain
+and range constraints of the defined object properties. All triples in the set T that are compatible with the
+CS-KG50 ontology are then represented by RDF statements in accordance with the ontology. The entity types
+returned by the DyGIEpp tool are aligned with relevant classes in the ontology. Specifically, entities such as
+methods, tasks, materials, and metrics are mapped to corresponding classes in the ontology (e.g., the type material is mapped to the class cskg-ont:Material), while other scientific terms and generic entity types are mapped
+to cskg-ont:OtherEntity. The predicates are also mapped to the object properties of the ontology. For example,
+the triple <cskg:dimensionality_reduction, uses, cskg:similarity_metric>, where
+cskg:similarity_metric is a cskg-ont:Metric is transformed into <cskg:dimensionality_reduction,
+cskg-ont:usesMetric, cskg:similarity_metric>. During this phase, triples that do not
+adhere to the semantics of the ontology are discarded. For instance, the triple <cskg:textbook_dataset,
+uses, cskg:spatial_prediction>, where cskg:textbook_dataset is a cskg-ont:Material and cskg:spatial_prediction is a cskg-ont:Task, is discarded because the class cskg-ont:Material is not in the domain of the
+property cskg-ont:usesTask. In simpler terms, a material cannot utilize a task according to the CS-KG50 ontology.
+Transformer Validator Module. A triple derived from several articles is generally of reliable quality,
+given the low likelihood of extracting the same erroneous information from multiple textual sources.
+Conversely, triples found in only one or a few papers tend to be more prone to noise. To discern between
+reliable and possibly problematic triples, we introduce the concept of support denoting the number of
+papers associated with a specific triple. However, discarding all uncertain triples could lead to significant
+information loss, since many of these triples may still be valid. Consequently, we employ a machine learning
+classifier to determine which low-supported triples exhibit high-quality characteristics and can thus be
+integrated into the KG. First, we partition the set of all triples, denoted as T, into two groups: Treliable, which
+includes triples with a support ≥3, and Tuncertain, which includes all other triples. Subsequently, the set Treliable
+is utilized to fine-tune a SciBERT59 classifier on a binary classification task. This classifier implements a
+function θ: <s,p,o> → 0, 1 that when provided with an input triple <s,p,o>, predicts 1 if the triple is
+accurate and can be included in the KG, and 0 if the triple should be discarded. For the fine-tuning phase,
+we provide both positive and negative examples to the classifier. Positive triples correspond to the set Treliable
+whereas negative triples are generated by corrupting each triple t ∈ Treliable with a triple t′ where ′ ∉
+T, i.e., ′t
+is not triple that is extracted by our approach. Triples corruption involves replacing either the head or the
+tail with a randomly chosen entity, resulting in the set of negative triples denoted as Tnegative. Consequently,
+the combined set Treliable ∪ Tnegative is employed to fine-tune the model. The underlying rationale of this
+
+Scientific Data | (2025) 12:964 | https://doi.org/10.1038/s41597-025-05200-8
+www.nature.com/scientificdata
+www.nature.com/scientificdata/
+methodology is to leverage the classifier’s capability to identify high-quality triples within the set Tuncertain,
+aligning with the characteristics of triples in Treliable. The set of triples for which the classifier predicts 1 is
+denoted as Tconsistent.
+Finally, the triples in sets Treliable and Tconsistent, along with all associated information, are converted into
+RDF statements through reification. Reification is a data modeling solution used to provide additional information regarding specific triples within an RDF graph60. It is commonly utilized to append metadata to
+triples, such as sources, confidence levels, and context-related annotations61. In the CS-KG50 pipeline, reification entails the creation of a new RDF statement for each triple. This statement describes the original
+triple through the relations rdf:subject, rdf:predicate, and rdf:object. Additional properties are incorporated via
+different relations. For example, the relation provo:wasDerivedFrom is employed to list the academic papers
+that were used to generate the triple. The enrichment modules, described in the next subsection, expand this
+representation by integrating more metadata. An illustration of a fully reified statement is presented in the
+Data Records Section.
+Enrichment Modules.  This section describes the modules utilized to enhance the extracted statements with
+additional information.
+Context Enrichment Module. This module is designed to materialize additional information that can be
+inferred from the generated statements. The objective is to analyze each statement to identify the statements
+and entities that most frequently co-occur with it. This process provides deep insights into the contextual
+framework within which a statement is situated. The co-occurrences are computed as in the following. First,
+for each statement s, the module retrieves the list of papers from where it was extracted, let us refer to it as
+P. Next, for each paper p ∈ P, it extracts all entities and statements linked to p and calculates their respective
+frequencies of occurrence. For example, if the statement s is extracted from the papers {p1, p2, p3} where p1
+contains the entities {e1, e2, e3}, p2 contains the entities {e2, e3, e4}, and p3 contains {e2, e3, e5}, then the statement s is associated to the entities e2 and e3 with number of occurrences equal to 3 and to e1, e4, and e5 with
+number of occurrences equal to 1. The same process is applied to compute the co-occurrent statements.
+This process is applied only to statements that are associated with at least 5 research papers, thus ensuring
+sufficiently robust association with the literature. The output of the module is a set of contextual entities and
+statements for each statement.
+Time Enrichment Module. This module is engineered to augment statements and entities with temporal
+data, derived from the publication years of the source papers from which they are extracted. More specifically, it
+determines the annual frequency of each entity and statement by quantifying their occurrences in the papers for
+each respective year. For example, let two statements be s1 and s2 describing the triples <s,p,o> and
+<s,p',o'>, respectively; <s,p,o> appears in the papers p1, p2, and p3 while <s,p',o'> appears in p3 and
+p4. Let us also assume that p1 and p3 are published in the year 2015, and p2 in the year 2017, and p4 in the year
+2018. Then, this module associates s to the frequencies {2015: 2, 2017: 1, 2018: 1}, the frequencies
+{2015: 2, 2017: 1} to o, and {2015: 1, 2018: 1} to ′o . Also, it associates {2015: 2, 2017: 1} to <s,p,o>, and
+{2015: 1, 2018: 1} to <s,p',o'>.
+
+Technical Validation
+In this section, we present a formal evaluation of the quality of the extracted triples within CS-KG50. We also explore
+the performance of various state-of-the-art algorithms for link prediction on a new benchmark based on CS-KG50.
+Evaluation of the Triples Quality.
+We evaluate the quality of the triples in CS-KG50 by manually assessing
+a subset of 3, 600 triples. For this purpose, we have selected:
+900 triples sourced from CS-KG50 with a support of 3 or more. These triples are considered reliable as they
+have been identified in at least three distinct research papers.
+900 triples from CS-KG50 with a support lower than 3. These triples feature information that is less common
+in the literature, which could make them noisier.
+800 triples discarded by the Ontology Validator Module, indicating information that conflicts with the
+CS-KG50 ontology.
+800 triples discarded by the Transformer Validator Module. These triples include scientific assertions that
+were deemed potentially inaccurate or not aligned with the high-quality triples utilized to train the model.
+200 triples randomly generated by corrupting triples from CS-KG50. These triples contain mostly erroneous facts.
+The selection of triples is designed to ensure that either the subject or the object is relevant to one of three specific subfields of computer science: Natural Language Processing, Machine Learning, or Information Retrieval.
+This is achieved by curating a list of pertinent topics from the Computer Science Ontology. The list of topics for
+the evaluation is available at https://github.com/danilo-dessi/SKG-pipeline/blob/main/resources/cso_topics.txt.
+Next, three senior researchers with strong expertise in the relevant topics have evaluated the 3,600 triples.
+They have assigned a value of 1 whenever a triple is correct, meaning it is corroborated by the literature, and 0
+otherwise. They have been also permitted to use online resources to verify whether a triple aligns with established scientific research. The agreement between annotators, as measured by Fleiss’ kappa62, is 0.61, indicating
+a moderate level of agreement. We have then created a gold standard based on the majority vote.
+To assess the performance of the information extraction method, we use the resulting gold standard to
+compare: 1) all extracted triples without any validation (row Extractor & Handler Modules), 2) only the triples
+Fig. 5  The distribution in logarithmic scale of the statements with support greater or equal to a threshold x.
+Feature
+CS-KG50
+CS-KG 1.041
+AI-KG40
+Number of Entities
+24.7M
+10M
+820K
+Number of Statements
+67.5M
+41M
+1.2M
+Number of covered Scientific Papers
+14.5M
+6.7M
+333K
+Number of Ontology Axioms
+2,275
+2,213
+Number of Object Properties
+Links to DBpedia
+203K
+31K
+Links to Wikidata
+26K
+27K
+19K
+Multiple relationships between two Entities
+yes
+yes
+Temporal Information
+yes
+Contextual Information
+yes
+Table 1.  Comparison between CS-KG50, CS-KG 1.0, and AI-KG graphs.
+
+Scientific Data | (2025) 12:964 | https://doi.org/10.1038/s41597-025-05200-8
+www.nature.com/scientificdata
+www.nature.com/scientificdata/
+validated by the Ontology Validator Module, 3) only the triples validated by the Transformer Validator Module,
+4) the final triples produced by the full pipeline, validated by all the validators. We evaluate the quality of the
+triples using precision, recall, and F-measure.
+Table 2 reports the result of the evaluation. The raw triples (first row), i.e., triples extracted without any
+further refinement and validation process, exhibit high recall but are quite noisy, as reflected in their low precision (47%). This suggests that while combining multiple tools provides extensive coverage of triples relevant
+to the computer science domain, it also introduces a considerable amount of incorrect or misleading information. The Ontology Validator Module increases precision by 10% while maintaining good recall. Similarly, the
+Transformer Validator Module increases precision by about 7%. The final version of the pipeline achieves a
+precision of 72% and a recall of 79%, resulting in an F-measure of 75%.
+As discussed earlier, the accuracy of the triples is highly dependent on their support, defined by the number
+of associated papers. For instance, the triples supported by more than five papers yield a precision of 77% while
+triples with support greater than ten achieve a precision of over 91%. Therefore, studies or tools requiring greater
+precision can consider subsets of CS-KG50 that contain only triples with high support.
+In summary, the evaluation reveals two primary insights. First, while the extraction method can generate a
+detailed representation of the field, it may also result in some inaccurate and irrelevant information. Second, the
+techniques used to validate the data, whether based on their alignment with highly supported triples (as in the
+Transformer Validator Module) or adherence to domain ontology (as in the Ontology Validator Module), can
+alleviate this issue and significantly improve the quality of the resulting triples.
+Link Prediction Benchmark.
+We are also releasing three benchmarks for link prediction based on CS-KG50:
+CSKG-2M, CSKG-490K, and CSKG-132K.
+Link prediction is a widely studied task in machine learning that involves predicting the existence (or likelihood)
+of (typed) edges in a graph63. This task gains particular importance in the context of KGs, where it is also known
+as knowledge graph completion, due to its role in improving data quality by addressing data incompleteness
+and correcting erroneous relationships64. The purpose of these benchmarks is twofold: 1) to demonstrate how
+the triples in the CS-KG50 can serve as a knowledge base for machine learning techniques, and 2) to provide
+the research community with large-scale resources for evaluating and comparing link prediction approaches.
+Specifically, the link prediction benchmarks commonly used in the community, such as WN1851 and FB15k51,
+usually feature tens of thousands of triples. By current standards, these datasets are considered small. The
+resources we introduce aim to address this limitation by providing a large-scale benchmark.
+The released benchmarks are as follows:
+CSKG-2M provides more than 2M triples from CS-KG50with a support ≥3. It contains about 1.5M triples for
+training, 278K triples for validation, and 465K triples for testing.
+CSKG-490K provides more than 490K triples with a support ≥5. It contains about 335K triples for training,
+59K triples for validation, and 98K triples for testing.
+CSKG-132K provides 132K triples with a support ≥10. It contains about 89K triples for training, 15K triples
+for validation, and 26K triples for testing.
+Therefore, CSKG-2M includes both CSKG-490K and CSKG-132K, and CSKG-490K includes CSKG-132K.
+We have assessed on the new benchmarks four of the most prominent state-of-the-art solutions for link prediction:
+TransR65, ComplEx66, DistMul67, and RESCAL68. Although the research community continuously develops novel
+approaches for link prediction, these methods remain widely recognized, frequently included in state-of-the-art comparisons, and implemented in several software libraries, making them strong baselines for future research efforts.
+Table 3 reports the performance of the four methods both on our benchmarks as well as on two widely recognized benchmarks in the field: FB15k, derived from Freebase, and WN18, derived from WordNet51. The three
+benchmarks derived from CS-KG50 are more challenging than existing benchmarks for two primary reasons.
+First, they include a wider selection of relations. Second, they offer a substantially larger volume of triples, testing
+the scalability of link prediction methods. Consequently, these benchmarks offer novel and more demanding
+resources to advance research in link prediction.

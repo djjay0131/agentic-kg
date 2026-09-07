@@ -1,0 +1,184 @@
+A B S T R A C T
+Ontologies of research topics are crucial for structuring scientific knowledge, enabling scientists
+to navigate vast amounts of research, and forming the backbone of intelligent systems such as
+search engines and recommendation systems. However, manual creation of these ontologies
+is expensive, slow, and often results in outdated and overly general representations. As a
+solution, researchers have been investigating ways to automate or semi-automate the process
+of generating these ontologies. One of the key challenges in this domain is accurately assessing
+the semantic relationships between pairs of research topics. This paper presents an analysis
+of the capabilities of large language models (LLMs) in identifying such relationships, with a
+specific focus on the field of engineering. To this end, we introduce a novel benchmark based
+on the IEEE Thesaurus for evaluating the task of identifying three types of semantic relations
+between pairs of topics: broader, narrower, and same-as. Our study evaluates the performance
+of seventeen LLMs, which differ in scale, accessibility (open vs. proprietary), and model type
+(full vs. quantised), while also assessing four zero-shot reasoning strategies. Several models
+with varying architectures and sizes have achieved excellent results on this task, including
+Mixtral-8× 7B, Dolphin-Mistral-7B, and Claude 3 Sonnet, with F1-scores of 0.847, 0.920, and
+0.967, respectively. Furthermore, our findings demonstrate that smaller, quantised models,
+when optimised through prompt engineering, can achieve strong performance while requiring
+very limited computational resources.
+
+1. Introduction
+Ontologies of research topics, along with other knowledge organisation systems (KOS), such as taxonomies and thesauri, play
+a vital role in organising and retrieving information from digital libraries (Salatino, Aggarwal, Mannocci, Osborne, & Motta,
+2024). Major publishers and organisations in this domain, such as Elsevier, Springer Nature, ACM, IEEE, and PubMed, employ
+a variety of classification systems, including the All Science Journal Classification (ASJC), SpringerNature Taxonomy, ACM
+Computing Classification System,1 the IEEE Thesaurus, and Medical Subject Headings. These systems are crucial for enabling
+efficient information discovery and supporting effective scientific dissemination (Dunne & Hulek, 2020; Lipscomb, 2000; Rous,
+2012). Furthermore, ontologies of research topics play a vital role in supporting a wide range of intelligent systems to navigate
+and interpret academic literature (Beel, Gipp, Langer, & Breitinger, 2016; Gusenbauer & Haddaway, 2020; Osborne, Motta, &
+∗Corresponding author.
+E-mail addresses: tanay.aggarwal@open.ac.uk (T. Aggarwal), angelo.salatino@open.ac.uk (A. Salatino), francesco.osborne@open.ac.uk (F. Osborne),
+enrico.motta@open.ac.uk (E. Motta).
+1 ACM Computing Classification System - https://dl.acm.org/ccs.
+https://doi.org/10.1016/j.ipm.2025.104262
+Received 30 August 2024; Received in revised form 6 June 2025; Accepted 6 June 2025
+Information Processing and Management 63 (2026) 104262
+Available online 21 July 2025
+0306-4573/© 2025 The Authors.
+Published by Elsevier Ltd.
+This is an open access article under the CC BY license
+( http://creativecommons.org/licenses/by/4.0/ ).
+
+T. Aggarwal et al.
+Mulholland, 2013). These include search engines (Gusenbauer & Haddaway, 2020), conversational agents (Meloni et al., 2023),
+analytics dashboards (Angioni, Salatino, Osborne, Recupero, & Motta, 2021), and recommender systems (Beel et al., 2016).
+Nevertheless, generating and maintaining ontologies of research topics is both expensive and time-consuming, typically requiring
+the involvement of several domain experts over an extended period of time (Osborne & Motta, 2015). Moreover, the everincreasing volume of literature, with approximately 2.5 million new scientific papers published annually (Bornmann & Mutz,
+2015; Wang & Barabási, 2021), demands continuous updates to ensure that these ontologies accurately reflect the latest research
+developments. Over the past 25 years, Artificial Intelligence (AI) researchers have developed several methods for the automated
+or semi-automated generation of such ontologies, with varying degrees of success (Han, Yang, Mishra, & Diesner, 2020; Osborne
+& Motta, 2012, 2015; Sanderson & Croft, 1999). Some notable achievements include the semi-automatic pipeline for generating
+OpenAlex Topics (OpenAlex, 2024) and the automatic development of the Computer Science Ontology (Salatino et al., 2020), along
+with a few other initiatives. However, most of the ontologies in this domain are still manually created because current solutions
+still struggle to generate large-scale, detailed representations of research topics. Consequently, this challenge remains far from being
+fully addressed.
+Over the past two years, Large Language Models (LLMs) have transformed the field of Natural Language Processing (NLP) by
+significantly improving machine comprehension of human language. In particular, some studies have demonstrated that LLMs can
+achieve remarkable performance even in zero-shot settings, where the model makes predictions without prior exposure to specific
+tasks or examples (Kojima, Gu, Reid, Matsuo, & Iwasawa, 2023).
+In this paper, we explore the potential of LLMs to facilitate ontology generation by identifying semantic relationships between
+research topics, with a specific focus on the field of engineering. This task is a fundamental step in the construction of scientific KOSs,
+and has traditionally been the most labour-intensive phase, often involving extensive deliberation among domain experts (Osborne
+& Motta, 2015). Specifically, we analyse the capability of several state-of-the-art LLMs to detect three semantic relations frequently
+adopted in such ontologies: broader, narrower, and same-as. In particular, our experimental analysis focuses on identifying such
+relations between research topics defined in the IEEE Thesaurus, the most widely adopted ontology in electrical and electronic
+engineering, which also offers broad coverage of computer science. To support this investigation, we introduce IEEE-Rel-1K, a
+gold-standard dataset derived from the IEEE Thesaurus, which describes the semantic relationships of 1000 topic pairs.
+We evaluated 17 off-the-shelf LLMs on this dataset, varying in scale, accessibility (open or proprietary), and model type (full
+or quantised). The models included 3 full open models, 10 open quantised models, and 4 proprietary models. For each model,
+we employed four distinct zero-shot prompting strategies. The first strategy involved a straightforward prompt asking the model
+to determine the relationship between two topics, 𝑡𝑎 and 𝑡𝑏. The second strategy extended this by applying the same method to
+both the original pair (𝑡𝑎, 𝑡𝑏) and the reversed pair (𝑡𝑏, 𝑡𝑎), with the results then being combined. The third strategy utilised a
+Chain-of-Thought (CoT) prompt, encouraging the model to reason through the relationship step by step. The fourth strategy was a
+two-way version of this CoT approach, where the process is repeated for both the original and reversed pairs before integrating the
+outcomes.
+Our findings show that several models exhibit strong zero-shot reasoning capabilities for this task. Proprietary models performed
+best, with Claude 3 Sonnet achieving an impressive F1 score of 0.967. Nonetheless, several open models also delivered highly
+competitive results, particularly when enhanced with advanced prompting techniques based on Chain-of-Thought (CoT) reasoning.
+Among the open models, the top performer was Dolphin-Mistral-7B (0.920 F1), a Mistral variant fine-tuned on the Dolphin dataset.
+The Mixtral model also demonstrated solid performance, reaching an F1 score of 0.847.
+Our study produced several notable insights. First, many models exhibit strong zero-shot reasoning capabilities for this task.
+Second, the performance of LLMs is highly dependent on the prompting strategy employed. In particular, the two-way variant of CoT
+prompting consistently outperforms alternative approaches. In fact, our results show that prompting strategies can lead to substantial
+performance gains, with improvements exceeding 0.2 F1 points in several instances. Finally, when the optimal prompting strategy
+described in this paper is adopted, smaller models, which are more scalable and cost-efficient, can achieve performance comparable
+to that of the best-performing architectures. These findings point to promising directions for the development of optimised and
+efficient models for ontology generation.
+Ultimately, our objective is to develop a detailed, comprehensive ontology of research topics across all domains. To achieve this,
+we plan to develop and publish field-specific ontologies using the SKOS standard,2 subsequently mapping them together. This paper
+represents the first step in this ambitious direction.
+In summary, the contributions of this paper are as follows:
+• We conduct a comprehensive analysis of 17 recent LLMs in identifying semantic relationships between research topics in a
+zero-shot setting.
+• We introduce IEEE-Rel-1K, a gold standard for research topic relation prediction, designed to facilitate the evaluation of models
+in this domain.
+• We explore this task under various conditions, examining different types of LLMs and evaluating the effectiveness of multiple
+prompting strategies.
+• We provide the complete codebase for our methodologies, including the gold standard.3
+2 SKOS - https://www.w3.org/TR/2009/REC-skos-reference-20090818/.
+3 Gold Standard and code for experiments can be found at https://github.com/ImTanay/LLM-Automatic-Ontology-Generation.
+Information Processing and Management 63 (2026) 104262
+
+T. Aggarwal et al.
+The remainder of this paper is structured as follows. Section 2 provides an overview of the literature. Section 3 defines the
+task, describes the gold standard, and presents the seventeen LLMs employed in this study. Section 4 describes the experiments and
+provides details on the implementation setup. Section 5 presents and discusses our results. Section 6 provides an analysis of the
+types of errors made by the models. Section 7 discusses the key findings and the limitations. Finally, in Section 8 we conclude the
+paper and provide future directions.
+
+4. Experiments
+We evaluated the 17 models described in Section 3.3 against IEEE-Rel-1K, the gold standard defined in Section 3.2, employing
+four different experiments that varied based on the prompting strategy utilised.
+We investigated two primary prompting paradigms: a standard prompting approach based on a simple prompt that directly asks
+the model to perform the classification and Chain-of-Thought (CoT) prompting (Wei et al., 2023), which encourages the model to
+reason through a predefined sequence of steps before providing an answer. For each of these two paradigms, we employed two
+additional strategies, resulting in four distinct experimental settings. The first, labelled one-way, involves the model inferring the
+relationship between 𝑡𝐴 and 𝑡𝐵 directly. The second, referred to as two-way, builds upon the first by having the model initially infer
+the relationship between 𝑡𝐴 and 𝑡𝐵, then infer the relationship between 𝑡𝐵 and 𝑡𝐴, and finally combine the results using heuristic
+rules.
+Fig. 1 illustrates the flowcharts of these experiments.
+Based on these strategies, we can characterise our four experiments as follows:
+1. standard prompting, one-way strategy (left branch of Fig. 1(a));
+2. standard prompting, two-way strategy (both branches of Fig. 1(a));
+3. chain-of-thought prompting, one-way strategy (left branch of Fig. 1(b));
+4. chain-of-thought prompting, two-way strategy (both branches of Fig. 1(b)).
+In all experiments, the performance of the model was assessed using standard precision, recall and F1.
+The standard prompting, one-way strategy serves as a baseline for classification tasks. We introduced CoT prompting due to
+its demonstrated effectiveness in complex reasoning tasks (Kojima, Gu, Reid, Matsuo, & Iwasawa, 2022; Wei et al., 2023). Indeed,
+as discussed in Section 5, CoT prompting led to improved performance for most models. We investigated the two-way validation
+strategy to identify and rectify potential inconsistencies. It draws inspiration from prior research showing that approaches to improve
+logical consistency can enhance the overall performance of LLMs (Liu, Guo et al., 2024). This approach leverages the inverse
+relationship between broader and narrower, as well as the symmetric nature of the same-as and other relationships (Guidelines for
+the construction, 2010). Conflicting answers suggest inconsistencies that may be addressed using heuristic methods.
+In the following subsections, we provide a detailed description of each strategy, followed by a discussion of the experimental
+setup and implementation details.
+4.1. Standard prompting
+In the experiments using standard prompting (Fig. 1(a)), we generated a prompt for each pair of research topics from the gold
+standard using a predefined template. The prompt template (detailed in Appendix A) describes the task and clearly defines the four
+categories, providing one generic example for each. Additionally, the template specifies that the answer should be provided in a
+numeric code format to facilitate parsing and ensure unambiguous responses. The resulting prompts were then submitted to the
+LLM to obtain an answer for each pair of topics. To ensure a fair comparison, all models received the same prompt.
+20 Llama-3 - https://huggingface.co/lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF.
+21 Orca-2-13B - https://huggingface.co/TheBloke/Orca-2-13B-GGUF.
+Information Processing and Management 63 (2026) 104262
+
+T. Aggarwal et al.
+Fig. 1. Flowcharts of our experiments. One the left there is the flowchart of our standard prompting experiments. On the right is the flowchart of our chainof-thought prompting experiments. All boxes except the orange are similar across experiments.
+4.2. Chain-of-thought prompting
+CoT prompting experiments operated similarly to the previous solution but involved a two-phase interaction with the LLM,
+as illustrated in Fig. 1(b). In the first phase, the model is asked to provide a definition of both topics, formulate a sentence that
+incorporates both of them, and finally discuss their potential semantic relationships. The resulting response is then fed back into the
+model in the second phase, with the sole task of determining the type of semantic relationship. The two templates used to produce
+the prompts for the CoT experiments are available in Appendix B.
+4.3. One-way vs. two-way strategies
+The experiments for both standard prompting and CoT prompting are conducted in two different configurations. The one-way
+strategy simply asks for the relationship between 𝑡𝐴 and 𝑡𝐵. The two-way strategy involves asking the LLM to identify the relationship
+between topics 𝑡𝐴 and 𝑡𝐵, as well as the relationship between topics 𝑡𝐵 and 𝑡𝐴, where the order of the topics is reversed. This approach
+can naturally produce inconsistent responses, which may indicate potential issues.
+In order to detect and mitigate logical inconsistencies, we designed a set of empirical rules (cyan boxes as referees in both Figs.
+1(a) and 1(b)). The rules were designed to prioritise the development of a hierarchical taxonomy.
+Considering f(X) and s(X) as the relationship types respectively obtained via the first and second branches of the two-way strategy;
+and len(𝑡𝐴) as the length of the topic’s surface form, the rules are established as follows:
+1. broader :- f(broader) ∧ s(narrower)
+2. narrower :- f(narrower) ∧ s(broader)
+3. broader :- ((f(narrower) ∧ s(narrower)) ∨ (f(broader) ∧ s(broader))) ∧ len(𝑡𝐴) ≤ len(𝑡𝐵)
+4. narrower :- ((f(narrower) ∧ s(narrower)) ∨ (f(broader) ∧ s(broader))) ∧ len(𝑡𝐴) > len(𝑡𝐵)
+5. same-as :- f(same-as) ∧ s(same-as)
+6. broader :- (f(broader) ∧ s(other)) ∨ (f(other) ∧ s(narrower))
+7. narrower :- (f(narrower) ∧ s(other)) ∨ (f(other) ∧ s(broader))
+8. :- f(X)
+Information Processing and Management 63 (2026) 104262
+
+T. Aggarwal et al.
+4.4. Experimental setup
+To interact with the various LLMs we employed two services, e.g., Amazon Bedrock,22 and OpenAI API23; as well as the KoboldAI24
+library for running LLMs locally.
+Specifically, through Amazon Bedrock, we interacted with MistralAI family LLMs (e.g., Mistral-7B and Mixtral-8 × 7B),
+Anthropic models (e.g., Cluade 3 Haiku, and Claude 3 Sonnet), and Llama-2-70B by Meta. This facility provides a pre-structured
+generic wrapper, which encapsulates the interaction with the different LLMs offered by Amazon Bedrock.
+With the OpenAI API we interacted with GPT models, such as GPT3.5-Turbo-Instruct and GPT4-Turbo.
+Finally, we employed KoboldAI to interface with Dolphin-2.1-Mistral-7B, Mistral-7B-OpenOrca, Dolphin-2.6-Mistral-7B-dpolaser, Dolphin-2.1-OpenOrca-7B, SOLAR-10.7B-Instruct-v1.0, OpenChat-3.5-1210, OpenChat-3.5-0106-Gemma, EURUS-7B-SFT.
+KoldbolAI is an open-source tool built on llama.cpp and provides model access through an API endpoint. We run it on a Google
+Colaboratory instance equipped with Nvidia’s V100 and L4 GPUs.
+Within the GitHub repository, we report the various parameters we set when interacting with the models across the three services.

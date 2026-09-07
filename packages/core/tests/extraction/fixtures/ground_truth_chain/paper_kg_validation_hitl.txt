@@ -1,0 +1,569 @@
+A B S T R A C T
+Ensuring the quality of knowledge graphs (KGs) is crucial for the success of the intelligent
+applications they support. Recent advances in large language models (LLMs) have demonstrated
+human-level performance across various tasks, raising the question of their potential for KG
+validation. In this work, we explore the role of LLMs in human-centric KG validation workflows,
+examining different collaboration strategies between LLMs and domain experts. We propose and
+evaluate nine distinct approaches, ranging from fully automated validation to hybrid methods
+that combine expert oversight with AI assistance. These workflows are tested within a real-world
+KG construction pipeline used to generate the Computer Science Knowledge Graph (CS-KG),
+a large-scale resource designed to support scientometric tasks such as trend forecasting and
+hypothesis generation. CS-KG comprises 41 million statements represented as 350 million triples
+within the Computer Science domain. Our findings show that integrating LLMs into the CS-
+KG verification process enhances precision by 12%, improving alignment with expert-level
+validation. However, this comes at the cost of recall, resulting in a 5% decrease in the overall F1
+score. In contrast, a hybrid approach which involves both human-in-the-loop and LLM modules,
+yields the best overall results, improving F1 score by 5% with minimal human involvement.
+
+1. Introduction
+Knowledge graphs (KGs) are conceptual models that structure domain knowledge, integrated from various sources, and stored
+in a machine-readable and understandable format (Hogan et al., 2021; Peng, Xia, Naseriparsa, & Osborne, 2023). KGs are employed
+in a variety of intelligent applications (Paulheim, 2017) supporting tasks such as question answering (Yani & Krisnadhi, 2021),
+recommender systems (Guo et al., 2020), and exploratory search (Nuzzolese, Presutti, Gangemi, Peroni, & Ciancarini, 2017). KGbased solutions have been adopted across various domain such as medicine (Li et al., 2020), production & manufacturing (Wang,
+Cheng, Qi, & Tao, 2024; Xu & Dang, 2023), tourism (Chessa et al., 2023), and education (Su & Zhang, 2020). In the scientometrics
+domain, scientific KGs have recently gained significant interest as a solution for knowledge-based content exploration of scientific
+works (Dessí, Osborne, Reforgiato Recupero, Buscaldi, & Motta, 2022b; Dessì et al., 2020; Jaradeh et al., 2019; Meloni et al., 2023;
+∗Corresponding author.
+E-mail addresses: stefani.tsaneva@wu.ac.at (S. Tsaneva), danilo.dessi@gesis.org (D. Dessì), francesco.osborne@open.ac.uk (F. Osborne),
+marta.sabou@wu.ac.at (M. Sabou).
+1 These authors contributed equally.
+https://doi.org/10.1016/j.ipm.2025.104145
+Received 14 September 2024; Received in revised form 26 February 2025; Accepted 10 March 2025
+Information Processing and Management 62 (2025) 104145
+Available online 9 April 2025
+0306-4573/© 2025 The Authors.
+Published by Elsevier Ltd.
+This is an open access article under the CC BY license
+( http://creativecommons.org/licenses/by/4.0/ ).
+
+S. Tsaneva et al.
+Sakor et al., 2023). Some of the proposed scientific knowledge graphs have been manually curated, ensuring the high quality of these
+resources, such as the Open Research Knowledge Graph (Jaradeh et al., 2019). Others prioritize a high coverage of the scientific
+domain and have been generated through automated approaches, e.g., COVID-19 Knowledge Graph (Sakor et al., 2023) and the
+Computer Science Knowledge Graph (Dessí et al., 2022b).
+While automated KG generation allows the integration of content from a vast amount of sources and provides extensive coverage
+of a given domain, the produced resources can face quality issues such as the inclusion of erroneous, inconsistent or misleading
+facts (Paulheim, 2017; Zaveri et al., 2013). To ensure the success of systems relying on the constructed KGs, knowledge graph
+validation is an essential step to be integrated within KG generation pipelines.
+Against this backdrop, various approaches for KG quality evaluation have been proposed. In Xue and Zou (2023), the authors
+provide an overview of state-of-the-art validation techniques, categorized as automated methods relying on statistics (e.g., outlier
+detection and KG embedding) or rules (e.g., ontology-based rules), and methods relying on a human-in-the-loop (HiL), such as
+crowdsourcing. While some KG generation pipelines contain an integrated automated validation stage, HiL-based KG validation
+techniques do not scale well (Paulheim, 2017; Xue & Zou, 2023) and are thus often excluded or envisioned as a future extension.
+Recently, large language models (LLMs) have demonstrated human-like performance in a variety of natural language processing
+tasks, significantly reducing the need of human intervention (Chiang & Lee, 2023; Sallam, Al-Salahat, Eid, Egger, & Puladi, 2024). As
+a result, several works in the knowledge engineering domain, e.g., Allen and Groth (2024), Fathallah et al. (2024), Khorashadizadeh,
+Mihindukulasooriya, Tiwari, Groppe, and Groppe (2023), Tsaneva, Vasic, and Sabou (2024), have been inspired, reporting promising
+LLM performance in the evaluation of semantic resources (i.e., ontologies, KGs). However, the conducted experiments are limited
+in terms of the simplicity of the application domain, small size of the evaluated resource and lack of comprehensive experimental
+investigations. Moreover, many open questions remain: (i) how should the proposed LLM-based approaches be evaluated? (ii) how
+should LLM-based approaches be integrated into the generation of real KGs? (iii) could these solutions fully replace or only support
+human validators?
+This paper primarily addresses question (iii) above, exploring how to best combine LLMs and HiL for KG validation. Specifically,
+we investigate the following two research questions.
+RQ1: What are different ways to combine LLMs and HiL contributors for the validation of large knowledge graphs? We investigate novel
+KG validation workflows, incorporating both HiL and LLM validations, to improve the performance of KG generation pipelines.
+We base our work on previous research on collaborative human-LLM workflows from a spectrum of automation levels, proposed
+for relevance judgments tasks in Faggioli et al. (2023), which we adopt for KG validation. As a result, we propose nine distinct
+validation workflows- three workflows that rely exclusively on human judgment, three hybrid solutions involving a combination of
+human expertise and LLMs, and three fully automated LLM-based validation pipelines. Each workflow is tailored towards a specific
+evaluation goal and availability of HiL and LLM resources to provide adaptability across different use cases.
+RQ2: What are the strengths and limitations of human-LLM collaborative knowledge graph validation workflows? To the best of our
+knowledge, no prior empirical investigation has been performed of the trade-offs involved in hybrid human-machine workflows for
+KG validation. Thus, we conduct two experimental investigations on a large scale resource, representing a non-trivial domain, to collect
+empirical evidence and facilitate a direct comparison of the achieved performance with each workflow.
+To explore RQ1 and RQ2, we consider the validation of the Computer Science Knowledge Graph (CS-KG) as our use case. CS-KG
+is a scientific knowledge graph, automatically generated from 6.7M publications, supporting researchers and funding agencies by
+enabling the exploration of research dynamics (Dessí et al., 2022b). We selected this KG for its relevance to various applications,
+its broad coverage of scientific concepts and domains, and its focus on a field well-known to the authors. Furthermore, CS-KG was
+constructed using an open methodology that already integrates a few validation techniques, which we can leverage in our analysis.
+Specifically, CS-KG was generated using the SCICERO pipeline (Dessí, Osborne, Recupero, Buscaldi, & Motta, 2022a), which extracts
+scientific statements from literature and represents them as triples of the form <subject, predicate, object>, for instance, <cloud service,
+acquires, information integration> or <text classification, includes, text processing>. SCICERO includes an automated validation stage,
+which we extend by integrating it with HiL techniques, LLM-sourced validations or a combination thereof. Subsequently we evaluate
+the achieved performance of these SCICERO extensions on a set of 3.6𝐾 triples.
+Our results indicate that: (1) an LLM-based validation can increase precision from 75% up to 87% without requiring any manual
+validation efforts; (2) both fully manual and fully automated validation approaches present trade-offs between precision and recall;
+and (3) a hybrid approach, leveraging a HiL only upon a disagreement among automated methods, leads to smaller precision
+improvement up to 80% and overall highest F1 score reaching 82% (+5% compared to SCICERO) with minimal manual efforts.
+The remainder of this paper is structured as follows. Section 2 reviews related research in the area. Section 3 introduces CS-KG
+and its extraction pipeline SCICERO. In Section 4, we propose extensions of SCICERO, covering a spectrum of automation levels
+from purely HiL-based validation to purely LLM-based validation. Section 5 details the design of two experiments carried out to
+evaluate these extended workflows. The experiment results are discussed in Section 6, followed by a conclusion and future work
+directions in Section 7.
+
+4. Integrating LLMs and HiL into the SCICERO validation
+Human validation has frequently been envisioned as an addition to automated KG generation workflows to ensure the quality
+of the produced knowledge graphs. We investigate possible extensions of the SCICERO pipeline with an additional human validator
+module. Building on recent advances in LLMs research, which have shown expert-level results for KG validation (Tsaneva, Vasic
+et al., 2024), we also investigate an additional LLM validator module. We explore both workflows, where the LLM validator fully
+replaces the human validator as well as scenarios where LLMs and human annotators collaborate in the KG validation task.
+This section discusses potential SCICERO extension workflows, with a particular focus on the level of collaboration between
+distinct validation modules. Formally, let 𝑇 be a set of input triples, 𝑆 be the SCICERO pipeline, and 𝑉 the outcome of the triple
+validation. We want to introduce one or both modules 𝑀𝑗, where 𝑗∈{𝐻𝑖𝐿, 𝐿𝐿𝑀}, such that the enhanced pipeline 𝑆+𝑀𝑗 archives
+better performance in terms of precision, recall, and F1 score, compared to 𝑆 alone in validating the triples to be added to CS-KG.
+We build on top of our recent work (Tsaneva, Dessì, Osborne, & Sabou, 2024), where we perform a preliminary investigation of
+possible SCICERO extensions to select the most meaningful workflows which lead to the best performance scores. In the following
+section (Section 5) we discuss two experiments with concrete implementation details for the LLM and human validator modules.
+In Table 1, we categorize potential extension workflows based on the level of collaboration between the integrated LLM and
+the human validator. Specifically, we classify these workflows according to the four categories introduced in Faggioli et al. (2023):
+human judgment, AI assistance, human verification, and full automation. Sections 4.1–4.4 provide a detailed description of each
+workflow and define the expected roles of the corresponding validation modules.
+Additionally, we differentiate the types of the incorporated validation methods according to the classification from Xue and Zou
+(2023). In Figs. 2–10, statistics and learning-based methods are displayed in red. Rule-based methods are shown in yellow and
+human-based methods are displayed in purple.
+4.1. Human judgment
+We first explore possible positions of the human validator module within the SCICERO pipeline without involving an LLM. Since
+the original SCICERO pipeline already contains two automated validators, we consider several alternative configurations:
+Human validation (workflow 1 in Table 1). For a completely manual annotation process without any tool-support the SCICERO
+pipeline needs to be modified. This involves replacing the entire SCICERO validation stage with a human validator module as
+illustrated in Fig. 2. While this workflow ensures full decision control by the human annotators, it is not a scalable solution for the
+validation of large resources such as CS-KG.
+Human validation after SCICERO (workflow 2 in Table 1). An intuitive extension of SCICERO with human validation implies the
+positioning of the human validator module at the end of the SCICERO pipeline (see Fig. 3). In this scenario, the automated
+transformer and ontology validators can be seen as filters that the human judges utilize in order to reduce the pool of triples that
+need to be verified. The ontology validator relies on expert-defined rules that apply to the domain, while the transformer validator
+can be adjusted with the desired triple support level. By placing the human validator at the end, humans retain full control of what
+is included in the final KG while automated tools support the removal of noisy triples. This workflow is particularly useful when
+the primary validation goal is to further enhance the precision of the resulting KG triples.
+Information Processing and Management 62 (2025) 104145
+
+S. Tsaneva et al.
+Table 1
+Possible extensions of SCICERO, employing various levels of interaction among human and LLM validations, following the
+interaction classification from Faggioli et al. (2023).
+ Collaboration level
+Workflow
+Figure
+Workflow description
+
+ according to Faggioli et al. (2023)
+
+ Human Judgment
+
+Fig. 2
+Human validation with no automated support.
+
+
+Fig. 3
+Human validation as a final step of SCICERO’s
+validation. Experts are supported in the removal of
+noisy triples but have full decision control over
+triple additions to the KG.
+
+
+Fig. 4
+Partial human validation for low-support triples
+(𝑇𝑐𝑜𝑛𝑠𝑖𝑠𝑡𝑒𝑛𝑡) as a final step of SCICERO’s validation.
+Highly supported triples (𝑇𝑐𝑜𝑛𝑠𝑖𝑠𝑡𝑒𝑛𝑡) are directly
+added to the KG.
+
+ AI Assistance
+
+Fig. 5
+Balanced competence partitioning. Human
+validation for low-support triples (𝑇𝑐𝑜𝑛𝑠𝑖𝑠𝑡𝑒𝑛𝑡) and
+LLM validation of highly supported triples
+(𝑇𝑐𝑜𝑛𝑠𝑖𝑠𝑡𝑒𝑛𝑡).
+
+ Human Verification
+
+Fig. 6
+Human validation triple correctness upon
+disagreement. LLM validation of 𝑇𝑡−𝑑𝑖𝑠𝑐𝑎𝑟𝑑𝑒𝑑 and
+𝑇𝑐𝑜𝑛𝑠𝑖𝑠𝑡𝑒𝑛𝑡 triples. Human validation whenever the
+LLM module disagrees with the original SCICERO
+validators.
+
+
+Fig. 7
+Human validation upon triple removal
+disagreement. LLM validation of 𝑇𝑡−𝑑𝑖𝑠𝑐𝑎𝑟𝑑𝑒𝑑. Human
+validation whenever the LLM disagrees with the
+original SCICERO validators.
+
+ Fully Automated
+
+Fig. 8
+LLM-based triples verification added to SCICERO’s
+validation stage. LLMs take the final judgment.
+
+
+Fig. 9
+LLM-based triples verification after SCICERO’s
+original automated validation for 𝑇𝑐𝑜𝑛𝑠𝑖𝑠𝑡𝑒𝑛𝑡.
+
+
+Fig. 10
+LLM-based triples verification. Replacement of the
+SCICERO validation through an LLM validation.
+
+Fig. 3. Workflow 2: Human validation integration as a last step of the SCICERO validation.
+Partial human validation after SCICERO (workflow 3 in Table 1). While sending all triples to the human validator module ensures
+the highest level of human oversight, this solution does not scale well for large resources since the manual efforts are enormous.
+Thus, we also consider a version of this workflow, where the human validator is only involved for the annotation of selected triples.
+Specifically, human annotation is added only for triples with limited literature support (Fig. 4). Although not every triple is manually
+reviewed before it is added to the KG, human oversight can be ensured by the selection of an appropriate reliability threshold for
+the transformer validator and establishing rules, to be followed by the ontology validator, with domain experts.
+Following the task-partitioning idea from Faggioli et al. (2023), workflow 3 can also be classified as an example of AI assistance
+since human judges take control over 𝑇𝑐𝑜𝑛𝑠𝑖𝑠𝑡𝑒𝑛𝑡, while the automated validators takes care of 𝑇𝑟𝑒𝑙𝑖𝑎𝑏𝑙𝑒. However, in this paper we
+focus on the interaction between the human validator and LLM validator modules and thus consider the interaction in the workflow
+as human judgment. Next, we propose an extension of workflow 3 more closely fitting the AI (LLM) assistance paradigm.
+Information Processing and Management 62 (2025) 104145
+
+S. Tsaneva et al.
+Fig. 4. Workflow 3: Partial human validation integration as a last step of the SCICERO validation for low-support triples (𝑇𝑐𝑜𝑛𝑠𝑖𝑠𝑡𝑒𝑛𝑡).
+Fig. 5. Workflow 4: Balanced competence partitioning. Human judges validate 𝑇𝑐𝑜𝑛𝑠𝑖𝑠𝑡𝑒𝑛𝑡 triples while LLMs judge triples belonging to 𝑇𝑟𝑒𝑙𝑖𝑎𝑏𝑙𝑒.
+Fig. 6. Workflow 5: Human validation upon triple correctness disagreement among the LLM validator and original SCICERO validators.
+4.2. AI assistance
+Balanced competence partitioning (workflow 4 in Table 1). Intuitively, LLMs are likely to be more capable at validating statements that
+often occur in literature because of the availability of a larger training dataset. In contrast, human judges might struggle reviewing
+statement extracted from numerous sources, especially if contradictory results are presented. Therefore, we propose a workflow
+where LLMs deal with triples linked to a higher amount of scientific texts (i.e., triples with high support), while human participants
+focus on triples for which only a few references are available (i.e., triples with low support). Fig. 5 visualizes the capability-based task
+partitioning between the LLM validator (for 𝑇𝑟𝑒𝑙𝑖𝑎𝑏𝑙𝑒) and the human validator (for 𝑇𝑐𝑜𝑛𝑠𝑖𝑠𝑡𝑒𝑛𝑡) after the original SCICERO validation
+modules.
+4.3. Human verification
+A typical human verification workflow, where human participants judge the results of an automated approach, does not reduce
+the number of triples to be verified since all triples would be annotated both within the LLM validator module and the human
+validator module. Moreover, an over- or under-reliance on the LLM might affect the judgment capabilities of the human participants.
+To address this issue, we adopt the ‘‘preference-testing’’ strategy from Faggioli et al. (2023), and apply it to the triple validation
+task such that a human judge is involved only whenever a disagreement among automated validation modules occurs.
+Human validation upon correctness disagreement (workflow 5 in Table 1). The original SCICERO evaluation revealed that 34% of the
+triples removed by the transformer validator were in fact correct triples. In contrast, 35% of 𝑇𝑐𝑜𝑛𝑠𝑖𝑠𝑡𝑒𝑛𝑡 triples, added to the KG,
+were incorrect (Dessí et al., 2022a). To address this, as shown in Fig. 6, an additional LLM validator module can be integrated to
+re-evaluate triples before their removal or addition to the KG. The disagreement paradigm can be employed whenever the LLM
+validator produces an output different from the original SCICERO validation modules. Following the intuition that triples verified
+as correct by several distinct automated approaches are likely to be correct, human participants can focus only on annotating triples
+where no conclusive decision could be established.
+Information Processing and Management 62 (2025) 104145
+
+S. Tsaneva et al.
+Fig. 7. Workflow 6: Human validation upon triple removal disagreement among the LLM validation and SCICERO transformer validator.
+Fig. 8. Workflow 7: SCICERO integration with an LLM for triple addition approval.
+Fig. 9. Workflow 8: SCICERO integration with an LLM validator for triple addition approval of 𝑇𝑢𝑛𝑐𝑒𝑟𝑡𝑎𝑖𝑛 triples.
+Human validation upon triple removal disagreement (workflow 6 in Table 1). The previously proposed workflow can be adopted based
+on the main KG validation goals to reduce the manual efforts. For instance, workflow 6 (Fig. 7) follows the disagreement strategy
+only for the removal of triples and not for triple additions to the KG. Such an approach is especially useful whenever a higher KG
+coverage is desired. In comparison, for use cases with high KG precision requirements, such as those in the medical domain, the
+disagreement strategy might only be added for the addition of triples, to allow human participants to focus on removing misleading
+information.
+4.4. Fully automated
+We propose two integration approaches of the LLM module within the SCICERO framework.
+SCICERO integration with the LLM validator (workflow 7 in Table 1). In this setup, the LLM validator is assumed to be better performing
+than the SCICERO automated validation and is therefore added as a last step of the workflow to ensure no noisy triples are included
+in the final KG. The transformer and ontology validators are utilized as filters reducing the LLM annotation costs, however, the final
+decision is taken by the LLM.
+SCICERO with LLM validator approval for 𝑇𝑢𝑛𝑐𝑒𝑟𝑡𝑎𝑖𝑛 (workflow 8 in Table 1). An alternative workflow, exploiting the task-partitioning
+paradigm, is shown in Fig. 9. The LLM validator module is integrated before the removal of triples or addition of triples with lower
+scientific support (i.e, triples belonging to 𝑇𝑢𝑛𝑐𝑒𝑟𝑡𝑎𝑖𝑛). This workflow is the fully automated replication of workflow 5, however,
+instead of involving a HiL on disagreement, the annotation by the LLM is considered reliable and is used as the final decision.
+Complete LLM validation (workflow 9 in Table 1). Building on related work in the field of LLMs (Chiang & Lee, 2023; Tsaneva, Vasic
+et al., 2024), we also propose a workflow in which the original SCICERO validation stage is entirely replaced by an LLM-based
+validator, as illustrated in Fig. 10. This workflow allows the investigation of the capabilities of LLMs as standalone annotators,
+compared to the performance achieved with the integration of the LLM within the SCICERO validation stage.
+Information Processing and Management 62 (2025) 104145
+
+S. Tsaneva et al.
+Fig. 10. Workflow 9: LLM validation in place of the original SCICERO validation.
+Fig. 11. Overview of the two experiment setups: Experiment A, conducted on the full CS-KG-3600 dataset by simulating the human validator module, and
+Experiment B, leveraging a subset CS-KG-600 and a concrete human validator implementation.
+
+5. Experiment design and implementation
+To evaluate each of the nine SCICERO validation workflows described in Section 4, we designed two experiments that differ
+in the dataset used and the implementation of the validator modules. It is important to emphasize that this study does not aim to
+evaluate the HiL or LLM validation modules in isolation. Instead, our objective is to assess their integration within an existing KG
+generation pipeline and to analyze the benefits of incorporating both LLMs and HiL in the validation stage. Therefore, we do not
+assess these modules separately using standard triple classification benchmarks.
+An overview of the experimental investigation is illustrated in Fig. 11. We first conducted a large-scale simulation (Experiment A)
+using the adopted workflows to validate 3.6𝐾 triples. In this setting, the human validator module was simulated using the annotations
+of the original domain experts from the SCICERO evaluation (Dessí et al., 2022a), who manually classified each triple as either true or
+false. Our objective was to evaluate these collaborative workflows based on (1) precision, recall, and F1 scores, and (2) scalability,
+by analyzing the required number of HiL and LLM annotations. In Experiment B, we validated the findings of Experiment A by
+implementing an actual human validator module, comprising a pool of recruited domain experts. Given the additional manual
+effort required, this experiment was conducted on a representative subset of 600 triples from the original dataset.
+We introduce the used dataset in Section 5.1 and describe the experimental setups of experiments A and B in Sections 5.2 and
+5.3 respectively.
+5.1. Experimental data
+For the experimental investigations we make use of (1) CS-KG-3600: a gold standard created during the original SCICERO (Dessí
+et al., 2022a) evaluation,5 and (2) CS-KG-600: a subset of this gold standard allowing for testing of additional validation
+implementations.
+5 The gold standard is available under https://github.com/danilo-dessi/SKG-pipeline/tree/main/eval
+Information Processing and Management 62 (2025) 104145
+
+S. Tsaneva et al.
+Table 2
+Overview of the LLMs employed for the experiment, their version, and the date of the conducted experiment.
+ Model
+Version
+Experiment Date
+ GPT-4o
+gpt-4o-2024-05-13
+May 22nd, 2024
+ Claude Sonnet
+claude-3-5-sonnet-20241022
+Jan 31st, 2025
+
+ Llama 3.3 70B
+Llama-3.3-70B-Instructa
+Feb 14, 2025
+
+a We utilized the model available on Hugging Fac’s platform accessible at https://huggingface.co/meta-llama/Llama-3.3-70B-
+Instruct
+CS-KG-3600. For the SCICERO evaluation, a 3.6𝐾 triples set was sampled from the generated CS-KG, including equal amounts (600)
+of triples from each of the following categories:
+• triples with very high support levels (∈𝑇𝑟𝑒𝑙𝑖𝑎𝑏𝑙𝑒)
+• triples with high support levels (∈𝑇𝑟𝑒𝑙𝑖𝑎𝑏𝑙𝑒)
+• triples with low support levels (∈𝑇𝑐𝑜𝑛𝑠𝑖𝑠𝑡𝑒𝑛𝑡)
+• triples labeled as incorrect by the transformer validator (∈𝑇𝑡−𝑑𝑖𝑠𝑐𝑎𝑟𝑑𝑒𝑑)
+• triples removed by the ontology validator (∈𝑇𝑜−𝑑𝑖𝑠𝑐𝑎𝑟𝑑𝑒𝑑)
+• randomly produced triples (𝑇𝑟𝑎𝑛𝑑𝑜𝑚) generated by replacing the head or tail of CS-KG triples.
+The triples were manually evaluated by 3 senior researchers in the Computer Science field and the annotations were aggregated
+using a majority voting strategy to determine the ground truth value for each triple. Further details are available in Dessí et al.
+(2022a).
+CS-KG-600. We create a smaller representative dataset for exploration and findings validation purposes. CS-KG-600 is sampled from
+CS-KG-3600 and consists of 100 randomly selected triples from each of the six subsets contained within the gold standard.
+5.2. Experiment A: Large scale simulation on CS-KG-3600
+In this section, we describe the implementation of each newly added validation module for the first experiment (left-hand side
+of Fig. 11). This experiment was conducted on the full CS-KG-3600 gold standard.
+LLM validator. The LLM module is implemented as follows:
+• Binary triple validation task. Given a set of triples 𝑇, where each triple 𝑡 is represented as 𝑡= (𝑠𝑢𝑏𝑗𝑒𝑐𝑡, 𝑟𝑒𝑙𝑎𝑡𝑖𝑜𝑛, 𝑜𝑏𝑗𝑒𝑐𝑡), the
+goal is to classify each triple as true or false, formalized as 𝑉(𝑡) ∶𝑇→{0, 1}.
+• Employed LLMs. We employed three alternative LLMs in our experiment: GPT-4o,6 Claude Sonnet,7 and Llama 3.3.8 These
+models are among the highest-performing in the field and have each demonstrated superior performance across a wide range
+of tasks in previous studies. In particular, the GPT family has demonstrated excellent performance in class membership relation
+validation (Allen & Groth, 2024). Similarly, GPT-4o and Claude Sonnet have achieved expert-level ontology axiom validations,
+exceeding the results of open source models (Tsaneva, Herwanto et al., 2024).
+Additionally, we aimed to include an open model to accommodate scenarios where deploying a local solution is essential
+for validating private resources. While privacy concerns were not a factor in this study, since CS-KG exclusively extracts
+information from publicly available scholarly publications, we acknowledge that on-premise LLMs may be necessary in
+other applications. Since recent studies have shown that Llama 3 70B outperforms other open models in triple consistency
+validation (Regino & Dos Reis, 2025), we select its successor – Llama 3.3 – as on open source model for our experiments.
+Table 2 outlines the specific versions of the models employed in our study, along with the corresponding dates on which each
+experiment was performed.
+• LLM prompting. Fig. 12 shows the initial instructions sent to the LLM model, introducing the annotation task and specifying
+the expected format of the response. Initial investigation revealed that requesting only the triple id and a binary judgment
+often resulted in incomplete or excessive judgments, which was addressed by requiring the complete triples to be included in
+the response.
+After the behavior of the LLM is defined, batches of 100 triples without any additional contextual information are sent for
+validation. In cases where the response did not match the required response format, the annotation was ignored and the
+same batch was sent again. To mimic a typical crowdsourcing experiment, we used the model’s default parameters settings
+(e.g., temperature) and sent each batch of triples three consecutive times. The final judgment for each triple was determined
+using a majority vote aggregation of all responses.
+6 GPT-4o - https://openai.com/index/gpt-4o-system-card
+7 Claude Sonnet - https://www.anthropic.com/news/claude-3-5-sonnet
+8 Llama 3.3 - https://www.llama.com/docs/model-cards-and-prompt-formats/llama3_3
+Information Processing and Management 62 (2025) 104145
+
+S. Tsaneva et al.
+Fig. 12. Initial instructions prompt sent to the LLM, introducing the annotation task, expected behavior and response format to be followed.
+Human validator. Because of the large size of the dataset (3.6𝐾 triples), to reduce the annotation efforts of the experiment, we
+simulate human-in-the-loop validations for the complete dataset by leveraging the original expert annotations used to create the
+gold standard. For each triple 𝑡, the gold standard dataset contains three binary expert annotations and the aggregated final ground
+truth value 𝐴𝑡= {𝑎1, 𝑎2, 𝑎3, 𝑎𝑔𝑡}, 𝑎𝑖∈{0, 1}. For each triple 𝑡 we select a single random expert judgment 𝑎𝑟∈{𝑎1, 𝑎2, 𝑎3} to allow the
+reusability of the previously established gold standard while limiting biases introduced by the usage of the gold standard within the
+validation stage. Within the evaluation of the proposed SCICERO workflows, the selected random annotation 𝑎𝑟 is compared against
+the ground truth value 𝑎𝑔𝑡.
+5.3. Experiment B: Real-life validation of CS-KG-600
+The second experiment (right hand-side of Fig. 11) focuses on a realistic implementation of the human validator module. We
+perform the experiment on the subset CS-KG-600 to reduce additional manual annotation efforts.
+LLM validator. For the LLM validator implementation we reuse the produced LLM annotations previously described in Section 5.2.
+Since CS-KG-600 is sampled from CS-KG-3600, no additional LLM annotation had to be carried out.
+Human validator.
+• Binary triple validation task. Given a set of triples 𝑇, where each triple 𝑡 is represented as 𝑡= (𝑠𝑢𝑏𝑗𝑒𝑐𝑡, 𝑟𝑒𝑙𝑎𝑡𝑖𝑜𝑛, 𝑜𝑏𝑗𝑒𝑐𝑡),
+and triple context 𝐶𝑡= (𝑠𝑢𝑏𝑗𝑒𝑐𝑡_𝑡𝑦𝑝𝑒, 𝑜𝑏𝑗𝑒𝑐𝑡_𝑡𝑦𝑝𝑒, 𝑓𝑖𝑙𝑒_𝑖𝑑𝑠), containing the types of the subject and object nodes as well the
+identifiers of the files where the triples were extracted from. The goal is to classify each triple as true or false, formalized as
+𝑉(𝑡, 𝐶𝑡) ∶𝑇→{0, 1}.
+• Sample size. To minimize the annotation efforts, only triples which are sent to the human validator module in one of the
+workflows 2–9 are annotated. In total, 333 triples were reviewed.
+• Annotators background. The annotators were four advanced PhD researchers with Computer Science (or equivalent)
+background, who did not have any involvement in the creation of CS-KG, SCICERO or the initial gold standard creation. They
+were asked to judge whether a triple is correct or incorrect according to their expertise and support in scientific literature.
+• Annotation environment. The annotations were performed using Google Sheets, where each triple was presented in natural
+language, displaying the subject, object, and relation, along with the types of the subject and object. During the annotation
+process, participants had access to the files associated with the articles from which each triple was extracted and could use
+digital libraries such as Scopus9 to browse through additional scientific content in order to provide an informed decision.
+Example triples provided to the annotators with contextual information are shown in Table 3. The first columns represent
+the triple elements. Let us consider the validation of the triple <natural language processing, uses, word segmentation> as an
+example. As contextual information, the annotators are provided with the knowledge that both natural language processing and
+word segmentation are classified as Task. Additionally, they are given the identifiers of three files from which the triple was
+extracted. To access the original papers, they were instructed to use OpenAlex.10 For instance, the file identified as 2110300018
+can be accessed at https://openalex.org/works/w2110300018.
+• Annotation strategy. Each triple was first annotated by a single expert. In cases where the expert had doubts about the
+correctness of a triple, a second expert was asked for a judgment. If the annotations were inconclusive, a discussion among
+the two experts took place and if no agreement could be reached, a third expert was involved and the final decision was
+reached through majority vote. Each annotator worked at their own pace, and, following the necessary discussions, the final
+annotations were completed within a week.
+9 Scopus - https://www.scopus.com/
+10 OpenAlex - https://openalex.org/
+Information Processing and Management 62 (2025) 104145
+
+S. Tsaneva et al.
+Table 3
+Example triples and the provided context in the format presented to the annotators.
+ Subject
+Relation
+Object
+Subject
+type
+Object
+type
+Files
+
+ natural
+language
+processing
+uses
+word
+segmentation
+Task
+Task
+2110300018,
+158142204,
+
+ information
+integration
+acquires
+patient
+address
+Task
+Other
+Entity
+
+ semantic
+profile
+representation
+acquires
+document
+classification
+Method
+Task
+
+Table 4
+Experiment A results on the CS-KG-3600 dataset in terms of precision (P), recall
+(R), F1 scores and additional resource efforts provided as 𝑁𝐿𝐿𝑀 and 𝑁𝐻𝑢𝑚𝑎𝑛. The
+best score for each workflow across LLMs is shown in bold and the best scores per
+workflow type are underlined.
+Workflow
+Performance
+Annotations
+Fig.
+Model
+𝑁𝐿𝐿𝑀
+𝑁𝐻𝑢𝑚𝑎𝑛
+SCICERO
+Fig. 1
+75%
+79%
+77%
+Human Judgment
+Fig. 2
+88%
+87%
+87%
+3.6K
+Fig. 3
+93%
+71%
+81%
+1.8K
+Fig. 4
+83%
+77%
+80%
+AI Assistance
+Fig. 5
+gpt-4o
+90%
+66%
+76%
+1.2K
+claude sonnet
+87%
+69%
+77%
+1.2K
+llama 3.3 70B
+85%
+73%
+79%
+1.2K
+Human Verification
+Fig. 6
+gpt-4o
+80%
+82%
+81%
+1.1K
+claude sonnet
+78%
+86%
+82%
+1.1K
+llama 3.3 70B
+78%
+86%
+82%
+1.1K
+Fig. 7
+gpt-4o
+75%
+83%
+79%
+claude sonnet
+75%
+87%
+81%
+llama 3.3 70B
+75%
+86%
+80%
+Full Automation
+Fig. 8
+gpt-4o
+87%
+62%
+72%
+1.8K
+claude sonnet
+81%
+69%
+75%
+1.8K
+llama 3.3 70B
+80%
+73%
+76%
+1.8K
+Fig. 9
+gpt-4o
+78%
+77%
+77%
+1.1K
+claude sonnet
+74%
+87%
+80%
+1.1K
+llama 3.3 70B
+72%
+86%
+79%
+1.1K
+Fig. 10
+gpt-4o
+70%
+70%
+70%
+3.6K
+claude sonnet
+61%
+85%
+71%
+3.6K
+llama 3.3 70B
+58%
+89%
+70%
+3.6K

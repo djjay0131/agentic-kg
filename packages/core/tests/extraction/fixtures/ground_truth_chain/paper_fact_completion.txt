@@ -1,0 +1,582 @@
+ABSTRACT In the last few years, we have witnessed the emergence of several knowledge graphs that
+explicitly describe research knowledge with the aim of enabling intelligent systems for supporting and
+accelerating the scientiﬁc process. These resources typically characterize a set of entities in this space (e.g.,
+tasks, methods, evaluation techniques, proteins, chemicals), their relations, and the relevant actors (e.g.,
+researchers, organizations) and documents (e.g., articles, books). However, they are usually very partial
+representations of the actual research knowledge and may miss several relevant facts. In this paper, we introduce SciCheck, a new triple classiﬁcation approach for completing scientiﬁc statements in knowledge
+graphs. SciCheck was evaluated against other state-of-the-art approaches on seven benchmarks, yielding
+excellent results. Finally, we provide a real-world use case and applied SciCheck to the Artiﬁcial Intelligence Knowledge Graph (AI-KG), a large-scale automatically-generated open knowledge graph including
+1.2M statements extracted from the 333K most cited articles in the ﬁeld of Artiﬁcial Intelligence, and
+generated a new version of this knowledge graph with 300K additional triples.
+INDEX TERMS Knowledge graphs, science of science, knowledge graph completion, triple classiﬁcation,
+machine learning, semantic web.
+
+I. INTRODUCTION
+The rise of Open Science and the steady growth of the number
+of research publications, datasets, and other materials on the
+web is changing the way research outcomes are shared and
+explored, and is posing new challenges and opportunities.
+This large mass of open research outcomes has the potential of supporting a new generation of intelligent systems
+for actively supporting, automatizing, and accelerating the
+scientiﬁc effort [1].
+One of the main challenges in this space is to generate a semantically rich, interlinked, and machine readable
+description of the available research knowledge. This could
+enable more sophisticated techniques to analyze the scientiﬁc
+literature. As a consequence, more advanced services could
+The associate editor coordinating the review of this manuscript and
+approving it for publication was Ananya Sen Gupta
+be provided, e.g., forecasting research dynamics, generating scientiﬁc hypothesis, identifying key insights, informing
+funding decision, conﬁrming claims in news, or automatically running experiments [2], [3], [4].
+The Semantic Web community has been working for several years on semantically rich representations of research
+outcomes by creating bibliographic repositories in the Linked
+Data Cloud [5], annotating existing knowledge bases [6], [7],
+generating knowledge bases of biological data [8], advocating
+the Semantic Publishing paradigm [9], formalising research
+workﬂows [10], [11], implementing systems for managing nano-publications [12], [13], micropublications [14] and
+developing ontologies to describe scholarly data, e.g., BIBO,1
+CSO [15], or SPAR [16].2
+1BIBO - http://bibliontology.com
+2SPAR - http://www.sparontologies.net/
+VOLUME 10, 2022
+This work is licensed under a Creative Commons Attribution 4.0 License. For more information, see https://creativecommons.org/licenses/by/4.0/
+
+A. Borrego et al.: Completing Scientific Facts in Knowledge Graphs of Research Concepts
+In the last few years, we saw the emergence of several
+knowledge graphs (KGs) explicitly representing research
+knowledge. These KGs typically describe a set of entities
+in this space (for example, tasks, methods, evaluation techniques, datasets, proteins, chemicals), their relations, and the
+relevant actors (e.g., authors, organizations) and documents
+(articles, books...) [17], [18]. Some of these graphs are
+crowdsourced (e.g., ORKG [4], UMLS [19], Nanopublications [13]), while others are automatically generated from
+the text and metadata of research articles (e.g., AI-KG [2],
+CSO [20], TKG [21]).
+As many other KGs, those that describe research conceptsre
+suffer from incompleteness. They are typically very partial
+representations of the actual research knowledge and may
+lack several relevant facts, that were not identiﬁed by information extraction approaches or human experts. The issue of
+incompleteness in knowledge graphs is usually addressed by
+link prediction or triple classiﬁcation techniques [22], [23],
+which have proved to yield good results in several
+domains [17]. These methods typically use KG Embedding
+models (e.g. TransE [24], RotatE [25], ComplEx [26]), pathbased features [27], [28], or Graph Neural Networks [29].
+However, existing methods for knowledge graph completion
+under-perform on KGs of research concepts, as detailed in
+Section IV. In particular, they suffer from low precision,
+which is not acceptable in the scientiﬁc domain.
+To address the above issue, in this paper, we introduce
+SciCheck, a new approach for completing scientiﬁc facts in
+knowledge graphs of research concepts. SciCheck is built on
+top of the CAFE approach [27] and introduces several new
+features and heuristics for the scholarly domain.
+evaluated
+SciCheck
+two
+new
+benchmarks
+extracted from AI-KG (AIKG-1M and AIKG-500) and ﬁve
+well-known general benchmarks for triple classiﬁcation
+(FB13, WN11, WN18, WN18RR, and NELL). The evaluation shows that SciCheck signiﬁcantly outperforms nine
+alternative approaches in terms of precision, which we consider key for reliably extending knowledge graphs of research
+concepts, while still obtaining good values of recall. All the
+resources used for evaluation are available online.3
+As use case, we used SciCheck to enrich the Artiﬁcial Intelligence Knowledge Graph (AI-KG)4 [2], a largescale automatically-generated open KG including 14M RDF
+triples and 1.2M reiﬁed statements extracted from the 333K
+most cited articles in the ﬁeld of AI. We also made available to the scientiﬁc community a new version of AI-KG
+(version 1.2) with 300K additional triples5 that we generated
+with SciCheck.
+In summary, the main contributions of our work are the
+following:
+• We propose SciCheck, a new triple classiﬁcation technique that uses a variety of features to complete KGs of
+research concepts with a high precision.
+3Evaluation data - https://zenodo.org/record/5764114
+4AI-KG - http://w3id.org/aikg
+5AI-KG 1.2 - https://zenodo.org/record/7276434
+• We compare SciCheck with nine alternative KG completion methods on AIKG-1M, AIKG-500, FB13, WN11,
+WN18, WN18RR, and NELL, showing that it obtains
+excellent results.
+• We release two new datasets for KG completion:
+AIKG-1M, including 1M triples from AI-KG, and AIKG-
+500, including 500 manually annotated statements.
+• We provide a real-world use case and apply SciCheck on
+AI-KG and use it to generate a new version of AI-KG
+containing 300K additional triples.
+The remainder of this paper is organized as follows.
+Section II describes the related work. Section III describes
+SciCheck in detail, and Section IV discusses the evaluation
+results. Section V describes AI-KG and how SciCheck was
+applied to it in order to extend it. Finally, Section VI concludes the paper and presents future directions of research.
+
+III. SciCheck
+SciCheck6 is a novel approach for triple classiﬁcation
+designed to complete scientiﬁc statements in a knowledge
+graph. It is built on top of the CAFE approach [27] by incorporting a new set of features and heuristics tailored to capture
+scientiﬁc knowledge. SciCheck takes an entire KG in the
+form of triples as input, and produces one neural-based classi-
+ﬁer for each relation in the KG as output. Speciﬁcally, given a
+relationship r, SciCheck generates a model fr : (h, r, t) →s,
+that assigns a conﬁdence score s in the range [0, 1] to any
+arbitrary triple < h, r, t > to solve a binary classiﬁcation task
+(‘‘is the triple correct or not?’’). To feed the model, triples are
+converted into a numerical vector representation using ad-hoc
+features and contextual embedding representations. SciCheck
+can operate on any KG and focuses on optimizing precision,
+to ensure that the knowledge deemed correct is trustworthy.
+In the following subsections, we describe all the relevant
+steps for the workﬂow of SciCheck. For the sake of illustration, we provide a visual summary of this workﬂow in Fig. 1.
+Additionally, Fig. 2 displays a small KG that will be used to
+provide speciﬁc examples for some steps.
+A. LOADING THE KG
+The ﬁrst step of SciCheck takes as an input a set of triples
+from the target KG. Triples are transformed into a graph
+structure. Due to the generally large number of entities that
+comprise a KG and the high volume of read operations that
+are used in the following steps, the KG is stored in the form
+of adjacency hashmaps, which also preserve the types of the
+different relations.
+B. GENERATING NEGATIVE EXAMPLES
+Knowledge Graphs only contain positive knowledge, i.e.,
+triples for which their heads and tails are known to be related
+by means of a relationship. However, in order to train a
+classiﬁer, negative triples are also needed. To do this, Sci-
+Check follows the same approach as many other related
+techniques [27], [28], [38], [51], [52], [53] and generates
+negative triples by corrupting a positive triple < h, r, t >
+and replacing t with t′, in such a way that < h, r, t′ > is not
+part of the original graph.
+In order to produce more realistic negative triples, we randomly pick t′ such that its type is in the range of the relation r [54]. This can either be done automatically by using
+entities which appear as tail of that relation in the set of
+positive triples, or by using ontological information if it is
+available.
+C. CONVERTING TRIPLES INTO FEATURE VECTORS
+After both positive and negative examples are included in the
+graph, all triples are converted into labeled feature vectors
+that are provided to the neural classiﬁer for both training
+and testing. For this purpose, SciCheck uses an extensible
+set of neighbourhood-aware features speciﬁcally tailored to
+scholarly information, which represent the neighbourhoods
+6https://github.com/agu-borrego/SciCheck
+VOLUME 10, 2022
+
+A. Borrego et al.: Completing Scientific Facts in Knowledge Graphs of Research Concepts
+FIGURE 1. Workflow of SciCheck.
+FIGURE 2. A small KG containing research concepts relevant to the
+Semantic Web domain.
+of the two entities of a triple in a variety of ways. The
+neighbourhood of an entity is considered to be the set of all
+other entities that can be reached from it using an oriented
+path (i.e., the direction of links matters) in a certain number
+of hops. This number of hops is called the neighbourhood’s
+‘‘radius’’. Fig. 2 shows a KG that will be used as an example
+in the discussion of the features.
+Each triple is evaluated by all features. The values associated to the triple for each feature form the triple feature vector.
+Each feature can also depend on a number of parameters,
+such as a maximum neighbourhood radius. These features,
+and their rationales, are as follows:
+• f1: Number of entities in the neighbourhood of radius r
+of the head and the tail of a triple. For example,
+in Fig. 2, three entities can be reached in total using
+up to two hops from link_prediction, namely,
+neural_network, dbpedia,
+and
+triple_
+classification Note that the entity ‘accuracy’ is
+not reachable because the graph is oriented.
+• f2: Index of N-path centrality [55] of the head and tail
+of a triple. This feature assesses how well-connected an
+entity is to the rest of the graph in relative terms. It is
+deﬁned as follows: for every vertex v of a graph G =
+(V, E), the n-path centrality Ck(v) is deﬁned as the sum,
+over all possible source nodes s, of the probability that
+a message originating from s goes through v, assuming
+that the message traversals are only going along random
+simple paths of at most k edges. For example, in the KG
+shown in Fig. 2, the entity dbpedia has a higher N-path
+centrality than accuracy, since a random path from
+any entity in the graph is more likely to go through the
+former than the latter, considering the directionality of
+the graph.
+• f3: Cardinality of the intersection of the neighbourhoods
+of radius r of the head and tail of the triple. This feature
+measures the raw amount of common entities in the
+vicinities of the two entities in a triple. For example,
+using a radius r = 1 in the example shown in Fig. 2, the
+entities rdf_graph and neural_network have the
+common entity dbpedia in their neighbourhoods
+• f4: Jaccard index of the neighbourhoods of radius r of
+the head and tail of the triple. This feature provides a
+similar assessment as the previous one, but normalized
+in the interval [0, 1] The Jaccard index is deﬁned as:
+J(A, B) = |A ∩B|
+|A ∪B|
+• f5: Adamic/Adar index [56] between the head and tail.
+This index gives higher scores to entities whose neighbourhoods are smaller. It complements the previous two
+features, since a higher number of shared nearby entities
+is likely to be less signiﬁcant if head and tail have a
+very large amount of connections. It is deﬁned as the
+sum of the inverse logarithmic degree centrality of the
+neighbors shared by the two nodes:
+A(x, y) =
+u∈N(x)∩N(y)
+log|N(u)|
+where N(u) is the set of nodes adjacent to u
+• f6: Paths of length r between the head and tail. For
+example, in Fig. 2, the entities link_prediction
+and dbpedia are connected by a path of length 2,
+by means of the triples < link_prediction,
+usesMethod, neural_network> and < neu
+ral_network, usesMaterial, dbpedia>.
+Additionally, the relations that are present in those paths
+are also encoded using a r-hot vector.
+VOLUME 10, 2022
+
+A. Borrego et al.: Completing Scientific Facts in Knowledge Graphs of Research Concepts
+• f7: Cosine similarity of the word embeddings of the head
+and tail. This feature measures the semantic similarity of
+the two entities in a triple, using any entity embeddings
+If we consider A and B to be the embeddings of the head
+and tail entities of the triple respectively, it is deﬁned
+as:
+cos(A, B) =
+i=1 AiBi
+qPn
+i=1 (Ai)2
+qPn
+i=1 (Bi)2
+• f8: Dot product of the word embeddings of the head
+and tail entities. This feature complements the previous
+one by also taking into account the magnitudes of the
+embeddings of the entities If we consider A and B to be
+the embeddings of the head and tail entities of the triple
+respectively, it is deﬁned as:
+A · B =
+i=1
+AiBi
+• f9: Types of the head and tail entities according to
+the ontology of the KG. This feature encodes the
+known types of the entities according to the available
+ontology as two one-hot vectors. In Fig. 2, the entity
+dbpedia has type Resource, while accuracy is
+a Metric
+Regarding the rationales of the features, f1 and f2 leverage
+the fact that large neighbourhoods are more prone to contain
+unrelated information, while smaller ones are usually more
+speciﬁc. This is especially true in the scholarly domain,
+since, as an example, the entity neural_network may be
+mentioned in a large amount of papers and proposals that are
+not directly related to each other.
+The features that measure the similarities of two neighborhoods (f3, f4, and f5) follow the intuition that correct triples
+have a higher amount of shared entities in their respective
+neighbourhoods than incorrect ones, as shown by previous
+research efforts [18], [27], [57].
+Feature f6 measures the number of paths between two
+entities because a correct triple will typically have a larger
+number of unique paths of a given maximum length between
+head and tail than an incorrect one. Furthermore, the information about which relations are comprised by those paths
+can be useful since the semantic meaning of a path changes
+depending on the relevant relations.
+Features f7 and f8 incorporate information from the word
+embeddings of the two entities, which had been shown to
+be advantageous for triple classiﬁcation [25], [31]. SciCheck
+uses by default the RoBERTa model [37] to generate the word
+embeddings, since is able to capture and represent semantic
+similarities across a wide range of domains.
+Finally, feature f9 leverages the ontological schema of the
+KG. This allows SciCheck to include information regarding the types of the two entities in a triple into the
+feature vector for that triple. Furthermore, SciCheck can
+automatically classify a triple as incorrect if the triple
+does not respect the domains and ranges of the relation as deﬁned in the ontological schema. For example,
+in the KG shown in Fig. 2, the triple < accuracy,
+evaluatesTask, rdf_graph> would be considered
+incorrect without further evaluation, because the range of the
+relation evaluatesTask is Task, while rdf_graph is
+a Material.
+SciCheck makes use of a much more comprehensive set
+of features than the original CAFE, which in turn allows a
+better characterization of entities and predicates. In particular,
+the features based on word embeddings enable SciCheck to
+exploit the implicit contextual information from the training
+papers that may not be encoded in the KG. Additionally,
+the inclusion of ontology-based features allows SciCheck to
+take advantage of the available high-level knowledge about
+any speciﬁc domain. These improvements are particularly
+crucial for assessing scientiﬁc claims, which tend to use a
+speciﬁc jargon and to rely on a well deﬁned epistemological
+framework.
+Furthermore, different types of relations in the graph may
+carry speciﬁc insight that should be captured separately. For
+this reason, SciCheck ﬁrst computes all features in the input
+KG as-is, and then it computes them again in different versions of the KG where only relations of a single type are
+present. This is done for all the different relations in the KG.
+Additionally, in features that use the neighbourhoods of the
+head and tail entities such as f1 or f3, these two neighborhoods
+are calculated using all possible combinations of relations.
+Finally, SciCheck concatenates all the resulting features in
+the ﬁnal feature vector.
+The features which involve computing entity neighbourhoods or paths (from f1 to f6) use a maximum number of
+hops for their computations. Following the ﬁndings in [27],
+by default SciCheck computes them for a maximum number
+of hops numhops of 1, 2, and 3. The resulting set of features
+using different radii are eventually all added to the ﬁnal
+feature vector. Considering all the possible combinations with
+the number of different relations in the graph, which also
+affects the size of the feature vector as described previously,
+the number of total features is numhops × 6 × #rels2 +
+3 × #rels, where #rels is the number of distinct relations in
+the KG.
+D. GROUPING FEATURE VECTORS
+SciCheck creates one classiﬁer per each relation, under the
+assumption that the speciﬁc information needed to correctly
+classify triples may vary depending on the speciﬁc relation. After all triples have been converted into feature vectors in the previous step, they are grouped by the relation present in the triple, and passed on to the relevant
+classiﬁer.
+E. TRAINING AND EVALUATING THE MODELS
+SciCheck trains a neural network-based classiﬁer model for
+each relation using the resulting feature vectors. We generate
+VOLUME 10, 2022
+
+A. Borrego et al.: Completing Scientific Facts in Knowledge Graphs of Research Concepts
+multiple models, so that each classiﬁer has a high specialization in addressing the target relation.
+It is also advantageous to consider different neighbourhood
+radii that might carry information of different nature. For
+this reason, each of these classiﬁers is composed of several
+sub-models that consider only the features computed using a
+speciﬁc radius value on the sub-graph of a speciﬁc relation as
+in [27]. They are combined into a single classiﬁer model by
+using an additional layer with a single neuron, which receives
+the outputs of all sub-models and combines them into a single
+output.
+This step involves the use of a ﬂexible neural classi-
+ﬁer, which can be ﬁne-tuned for the KG in question. The
+hyperparameters used in the evaluation are discussed in
+Section IV-A.
+
+IV. EVALUATION
+This section reports and discusses the evaluation of Sci-
+Check. It also describes the evaluation data, including the
+new benchmarks that we created from the AI-KG Knowledge Graph (AIKG-1M and AIKG-500 are discussed in
+Section IV-A, and they are available at https://zenodo.org/
+record/5764114).
+A. EVALUATION PROTOCOL
+We evaluated the performance of SciCheck on seven benchmarks against nine alternative approaches. Five of the
+baselines are well-known embedding-based KG completion
+approaches: TransE, TransD, TransH, SimplE, and ComplEx [24], [26], [31], [53], [58]. To provide a common ground
+to train and test these techniques, we used the OpenKE [59]
+tool.
+In order to assess the contributions of the different components of SciCheck, we also considered ﬁve alternative
+versions of our approach:
+• CAFE Baseline, which uses solely the context-aware
+features for KG completion such as neighbourhood size,
+shared entities, connectivity, and so on from the original
+implementation [27].
+• CAFE + RoBERTa, which extends CAFE by considering features based on the similarity of the embeddings
+of head and tail, using the RoBERTa model.
+• CAFE + SciBERT, which extends CAFE by considering
+features based on the similarity of the embeddings of
+head and tail, using SciBERT, an alternative BERTbased text embedding model7 speciﬁcally tailored to
+scientiﬁc documents.
+• CAFE + Ontology, which extends CAFE by considering
+features that identify the types of head and tail according
+to the domain ontology (e.g., AI-KG ontology) and also
+ﬁlters triples whose entities are not consistent with the
+domain and range restrictions of the relation.
+7https://huggingface.co/sentence-transformers/paraphrase-distilrobertabase-v2
+• SciCheck, the full version of our approach, which
+incorporates both features based on word embeddings (RoBERTa in the current implementation) and
+features based on the ontology, as described in
+Section III.
+These methods were evaluated on the following benchmarks, whose characteristics are summarized in Table 1:
+• AIKG-1M, a new dataset that we created from AI-KG.
+We used a de-reiﬁed version of AI-KG, in order to consider only triples which involve tasks, methods, materials, metrics, and other scientiﬁc entities. As a result,
+1,075,652 triples were directly generated from scientiﬁc
+literature, without considering facts that were materialized using the domain semantics deﬁned in the AI-KG
+ontology (e.g. transitivity). Triples were split into a
+training and a testing set with a split ratio of 80%-20%,
+respectively. To generate negative triples in the testing
+split, each positive triple was corrupted once by randomly replacing the tail entity with another one within
+the domain of the relation in the triple, i.e., if the range of
+the tail entity is a Task, then it is substituted by another
+entity whose type is Task. We also make sure that the
+randomly generated negative triple is not already present
+in the KG, to prevent creating false negatives whenever possible. As an example, the triple < dbpedia,
+usesOtherEntity, sparql_query>
+correct,
+while
+the
+corrupted
+version
+< dbpedia,
+usesOtherEntity, cost_function> is considered incorrect, where sparql_query and cost_
+function are both of type OtherEntity. However,
+negative examples were not generated for the training
+split, as speciﬁc KG completion techniques usually have
+a preferred way to generate them automatically [60].
+In total, the training split comprised 860,512 positive
+triples and the testing split includes 430,280 triples (50%
+positive and 50% negative).
+• AIKG-500, a new dataset that we constructed by manually annotating triples in AI-KG about the Semantic
+Web. To construct it, we randomly selected 250 triples
+which had as their head one of the 24 sub-topics of
+the Semantic Web according to the CSO ontology [61]
+and were considered to be correct by at least 2 methods
+among TransE, TransD, TransH, SimplE, ComplEx, and
+SciCheck. Another 250 triples were randomly selected
+out of those deemed incorrect by at least 2 techniques.
+The resulting 500 triples were manually annotated by
+ﬁve domain experts, with an inter-reviewer agreement
+of 0.61 (according to Cohen’s kappa), which is typically considered a substantial agreement. A majority
+vote approach was used to determine that 221 triples
+were correct and 279 were incorrect. Since this dataset
+was created for the purpose of providing a small
+but high-quality and manually-annotated testing split,
+in this evaluation we used AIKG-1M for the training
+split.
+VOLUME 10, 2022
+
+A. Borrego et al.: Completing Scientific Facts in Knowledge Graphs of Research Concepts
+TABLE 1. Overview of the benchmarks used for evaluation.
+• FB13 [34], a subset of FreeBase [51] that focuses on
+relevant people and their family relations, locations,
+professions, and other personal data.
+• WN11 [34], a subset of WordNet centered around different semantic relations between over 38K words.
+• WN18 [62], which expands WN11 with additional
+relations.
+• WN18RR [63], which improves WN18 by removing
+reciprocal relations in the test set. This makes triple classiﬁcation more challenging, since otherwise the model
+can predict that a triple < a, hasChildren, b>
+is true whenever the triple < b, hasParent, a>
+appears in the training set.
+• NELL [39], a subset of the NELL KG [35] with information and relations about many different domains, e.g.,
+actors which starred in movies, writers and their works,
+or athletes and their teams.
+It is well-known [63] that these traditional benchmarks
+suffer from information leakage between the training and
+test sets, due to the presence of reciprocal relations. For this
+reason, we removed all reciprocal relations in all datasets
+except WN18, since we also include its previously discussed
+sanitized version, WN18RR.
+To predict the correctness of a triple, we used feedforward neural networks with 3 intermediate layers containing 128, 64 and 32 neurons, respectively. The output
+neuron uses a sigmoid function, returning a conﬁdence
+score in the interval [0, 1]. The classiﬁer was trained
+throughout 100 epochs, using a binary cross-entropy loss
+function.
+Since SciCheck is a triple classiﬁer, we evaluated its
+effectiveness by comparing the labels it predicted for the
+triples in the testing set against the ground truth. The results
+are thus reported in terms of precision and recall, which
+have been recently become standard metrics to evaluate
+KG completion, since they can be more informative than
+MRR and Hits@N in many practical settings [64], [65].
+In this paper, we speciﬁcally focus on precision, since we
+have the concrete objective of extending AI-KG and this
+can only be reliably done using a method with a high
+precision.
+B. RESULTS AND DISCUSSION
+Table 2 and Table 3 report the precision and recall of the KG
+completion techniques on AIKG-1M. To determine whether a
+triple was correct or incorrect, we used a conﬁdence threshold
+of 0.5 for SciCheck, as suggested in [27]. The thresholds
+of the other state-of-the-art techniques under evaluation and
+their results were obtained using the OpenKE [59] tool,
+allowing it to choose the optimal value for each one.
+All CAFE variants outperform embedding-based techniques in precision, achieving notably higher values. Including features from the text embeddings provides also an
+important improvement over the base version of CAFE. Both
+SciCheck and the variants that improve the baseline using
+embedding-based features rank consistently among those
+with the highest precision for all relations, with the differences between them being very narrow.
+The best performing method in terms of precision is the
+ﬁnal version of SciCheck (0.74), followed by RoBERTa
+(0.73), which can obtain better precision for some less
+common relationships. Interestingly, using text embeddings trained speciﬁcally on academic abstracts (SciBERT)
+yields a slightly worse performance than using the generic
+RoBERTa model. This may suggest that more general embeddings may sometimes produce better performance on KGs
+of research concepts, but this needs to be investigated
+further.
+The Ontology variation, which includes one-hot type
+vectors and domain/range checking for the relation, only
+slightly improves the baseline. This is most likely due to
+the type-constrained way in which the negative triples were
+generated, since it already guarantees that the domain and
+range types of the relation are preserved.
+The recall of SciCheck is naturally lower than that of the
+embedding-based approaches, in a typical precision-recall
+trade-off. However, this is acceptable since the main goal is
+to expand scientiﬁc KG with correct triples, hence, a high
+precision is necessary. SciCheck has also a generally higher
+recall than all other CAFE variants. Consequently, the results
+suggest that SciCheck is the best performing technique for
+the task of reliably completing scientiﬁc KGs.
+It is noteworthy that different relations can lead to
+very different performance. For instance, relations such
+as narrower, supportsTask and supportsMethod
+yield very good performance. Conversely, the methods did
+not perform as well on relations such as evaluatesTask
+and evaluatesOtherEntity. This may depend on the
+number of relevant examples or the fact that some relations
+are inherently harder to predict. The role of different relations
+in the context of completing scientiﬁc KG requires further
+analysis.
+In order to study the performance of the different techniques for all possible threshold values, we also report their
+corresponding ROC curves in Fig. 3. This analysis conﬁrms
+the previous ﬁndings: 1) SciCheck outperforms all the other
+methods, 2) text embedding features signiﬁcantly improve
+the baseline, and 3) the ontological features slightly improve
+the baseline. In addition, Fig. 3(b) conﬁrm that SciCheck
+outperforms the standard state-of-the art methods regardless
+of the threshold.
+VOLUME 10, 2022
+
+A. Borrego et al.: Completing Scientific Facts in Knowledge Graphs of Research Concepts
+TABLE 2. Precision values for AIKG-1M. Highest precision for each relation is marked in bold.
+TABLE 3. Recall values for AIKG-1M. Highest recall for each relation is marked in bold.
+VOLUME 10, 2022
+
+A. Borrego et al.: Completing Scientific Facts in Knowledge Graphs of Research Concepts
+FIGURE 3. ROC curves of the different methods on AIKG-1M.
+To check whether the differences between the methods
+were statistically signiﬁcant, we used DeLong’s test [66] to
+compare the areas under two curves. The p-values obtained
+when comparing the ROC curve of SciCheck with the alternative methods in Fig. 3(a) and Fig. 3(b) were all < 0.0001. This
+very high statistical conﬁdence is due to the large number of
+observations, since the testing set of AIKG-1M includes more
+than 400,000 triples.
+Table 4 shows the performance of the methods on
+AIKG-500, which are consistent with the previous ﬁndings.
+For the sake of brevity, here we do not report the results
+of all CAFE variants, which are in line with those obtained
+on AIKG-1M. Even in a smaller, manually annotated benchmark, SciCheck achieves a high precision, which conﬁrms
+that it is suitable for completing scientiﬁc KGs.
+Table 5 reports the performance of all the techniques on
+ﬁve standard benchmarks for triple classiﬁcation. The results
+show that SciCheck is able to outperform other techniques
+in almost all cases, thus being an effective triple classiﬁcation tool for KGs of many different natures. They also
+conﬁrm that completing scientiﬁc KGs is indeed a challenging task that requires specialized techniques, as the general
+purpose embedding-based approaches yield worse results on
+benchmarks extracted from AI-KG in comparison to generic
+ones.
+In order to assess the scalability of our solution, Table 6
+reports the seconds used by SciCheck to process the
+previously discussed datasets. To ensure statistical signiﬁcance, we measured the runtime for each benchmark
+10 times, and we report the average and the standard deviation
+for each one.
+Table 6 shows that the runtime ranges from a few seconds
+to over two hours according to the dataset. These differences
+are caused by mainly two factors. First, the amount of distinct entities corresponds directly to the number of RoBERTa
+embeddings that have to be computed, which are typically
+quite time-consuming. Hence, a larger number of entities has
+a negative impact on runtime. Second, and most importantly,
+the speciﬁc topology of every KG affects the size of the
+neighborhoods of the entities, and thus also affects the time
+it takes to compute features on them. The case of FB13
+is particularly noteworthy since, in contrast with the other
+datasets, it contains many entities with a very high cardinality.
+This causes the sizes of the entity neighborhoods to grow
+exponentially in size, resulting in longer runtimes.
+Finally, in order to establish a fair comparison with
+the existing embedding-based KG completion approaches,
+Table 7 reports their runtime in seconds compared to that of
+SciCheck for the AIKG-1M dataset. Embedding-based KG
+completion approaches were run using 1, 000 iterations, as it
+is commonly done by related studies [24], [26], [31], [53].
+SciCheck took considerably less time to run on the large
+AIKG-1M dataset than its state-of-the-art counterparts. This
+suggests that SciCheck is more scalable and can realistically
+be used on large-scale scientiﬁc KGs.

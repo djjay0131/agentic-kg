@@ -1,0 +1,89 @@
+Abstract
+With knowledge graphs (KGs) at the center of numerous applications such as
+recommender systems and question answering, the need for generalized pipelines
+to construct and continuously update such KGs is increasing. While the individual steps that are necessary to create KGs from unstructured (e.g. text)
+and structured data sources (e.g.
+databases) are mostly well-researched for
+their one-shot execution, their adoption for incremental KG updates and the
+interplay of the individual steps have hardly been investigated in a systematic
+manner so far. In this work, we first discuss the main graph models for KGs and
+introduce the major requirements for future KG construction pipelines. Next,
+we provide an overview of the necessary steps to build high-quality KGs, including cross-cutting topics such as metadata management, ontology development,
+and quality assurance. We then evaluate the state of the art of KG construction w.r.t the introduced requirements for specific popular KGs as well as some
+recent tools and strategies for KG construction. Finally, we identify areas in
+need of further research and improvement.
+Keywords:
+Knowledge Graph, Data Integration, Data Science
+
+1. Introduction
+Aggregated machine-readable information in the form of knowledge graphs
+(KG) serves as the backbone of numerous data science applications nowadays,
+ranging from question-answering [1] over recommendation systems [2] to predicting drug-target interactions [3]. The ever-changing nature of information
+necessitates the design of KG construction pipelines that are able to incorporate
+new information continuously. In the development of such a system, knowledge
+engineering teams have to deal with a variety of challenges from tackling scalability and heterogeneous data sources to tracking the provenance of data. Given
+the usually large volume of data that needs to be integrated, such pipelines have
+to be automatized as much as possible while aiming at a high degree of data
+quality.
+Knowledge graphs generally integrate heterogeneous data from a variety of
+sources with unstructured and semi-structured data of different modalities (e.g.,
+pictures, audio, text) as well as structured data such as databases or other KGs
+in a semantically rich way. The construction of a KG therefore encompasses
+a multi-disciplinary effort requiring expertise from research areas such as natural language processing (NLP), data integration, knowledge representation,
+and knowledge management. Knowledge graphs are at the center of numerous use-cases for data analysis and decision support. In the clinical setting,
+enriching patient data with medical background knowledge enables improved
+clinical decision support [4]. Sonntag et. al. [5] argue that properly aligning
+the semantic labels attached to the patient data with medical ontologies is crucial in creating meaningful access to the heterogeneous patient data. Knowledge
+graphs are also used to organize the relevant information for fast emerging global
+topics, such as pandemics (e.g., Covid-19) or natural disasters [6].
+Machine
+learning also benefits from KGs as a source of labeled training data or other
+input data [7, 8] thereby supporting the development of knowledge- and datadriven AI approaches [9]. KGs can further be combined with Large Language
+Models (LLMs) to improve factual correctness and explanations in questionanswering, e.g. with ChatGPT, thereby promoting quality and interpretability
+of AI decision-making [10, 11].
+Improving the pipelines that build such knowledge graphs and enabling them
+to efficiently keep current and semantically meaningful aggregated knowledge
+is therefore an effort that benefits a wide range of application areas. However,
+KGs are currently created often in a batch-like manner so that the respective pipelines are unfit to incorporate new incoming facts into a KG without
+full re-computation of the individual tasks. Furthermore, different steps of the
+pipelines often require manual intervention, thereby limiting scalability to large
+data volumes and increasing the time for updating a KG.
+There is a growing number of surveys about knowledge graphs, especially on
+their general characteristics and usage forms [7, 9, 8]. An excellent tutorial-style
+overview about the construction and curation of KGs is provided in [12] with
+a focus on integrating data from textual and semi-structured data sources such
+as Wikipedia. Other surveys focus on KG construction with specific technologies [13, 14] or only a single domain such as for geographical data [15]. We
+discuss related surveys on KG construction in Section 6 and contrast them with
+our approach.
+This survey article provides a concise yet comprehensive entry into the current state of the art in KG construction for readers new to the topic, as well
+as contributing valuable guidance for researchers, engineers, and experts by
+highlighting existing solution approaches, tools, and identifying open gaps in
+the areas.
+We first outline the main requirements for the construction and
+continuous maintenance of KGs distilled from the literature as well as our experience and reasoning. Next, we give an overview of the concrete subtasks of
+KG construction and current solution approaches. Furthermore, we select 23
+KG-specific construction approaches as well as generic toolsets based on the
+criteria discussed in Section 4.1 and evaluate and compare them w.r.t. the requirements introduced in Section 2.3. Finally, we identify open challenges and
+current limitations and thus areas for further research.
+Our survey builds on previous studies for KG construction but differs in
+essential aspects as will be explained in detail in Section 6. In contrast with most
+other surveys, we explicitly specify the main requirements for KG construction
+and use these as a guideline for evaluating current solutions and identifying
+open challenges. We are also more comprehensive in several important aspects
+as we cover different graph data models (RDF and property graphs) and deal
+with incremental KG construction and data integration including incremental
+entity resolution in much more detail. We also provide a comparison between
+many carefully selected KG-specific construction approaches and toolsets and
+identify open challenges that go beyond those discussed in previous surveys.
+The further structure of this survey is as follows:
+• After a definition of KGs and a comparative discussion of graph data
+models for KGs we introduce and categorize the general requirements for
+incremental KG construction in Section 2.
+• In Section 3 we provide an overview of the main tasks in incremental KG
+construction pipelines and proposed solution approaches for them.
+• We then investigate and compare existing construction efforts for selected
+KGs as well as within recent tools for KG construction w.r.t. the requirements introduced earlier. This also allows us to identify tasks that are not
+yet supported well.
+• Section 5 discusses open challenges for KG construction.
+• Section 6 contains a more in-depth comparison with the related work.
+• Finally, we offer concluding remarks and a summary.
