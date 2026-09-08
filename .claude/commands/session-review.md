@@ -6,7 +6,7 @@ Please perform an end-of-session review:
 
 1. **Memory Agent Update**: Run the memory-agent with the `update` command to:
    - Refresh activeContext.md with current work
-   - Sync phases.md with construction/ folder
+   - Sync phases.md with llm/sprints/ folder
    - Archive any stale decisions
    - Validate cross-references
 

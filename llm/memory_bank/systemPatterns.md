@@ -83,16 +83,15 @@ agentic-kg/
 ├── docker/
 │   └── Dockerfile.job                # Core-only image for Cloud Run Job (no API deps)
 ├── infra/                            # Terraform IaC (includes google_cloud_run_v2_job.ingest)
-├── llm/                              # LLM-related project files
+├── llm/                              # LLM control plane (agent-facing, not published)
 │   ├── features/                     # Feature specs (BACKLOG.md + 16 spec files)
-│   └── memory_bank/                  # Authoritative project context (this directory)
+│   ├── memory_bank/                  # Authoritative project context (this directory)
+│   ├── governance/                   # agentic-governance v0.5 delta + ADRs (ADR-0002 = this migration)
+│   └── sprints/                      # Sprint history archive (read by GitHub Pages generator)
 ├── docs/                             # Jekyll just-the-docs site → GitHub Pages
 │   ├── reference/                    # Domain Model & Taxonomy (entity-catalog, entity-relationships, topic-taxonomy; Mermaid)
 │   ├── design/                       # Per-completed-feature design notes (E-1..E-8, D-1/D-1a, CI smoke, ...)
-│   ├── adr/                          # Architecture Decision Records (ADR-0001 = governance adoption)
-│   ├── about/ · status/             # Overview + auto-generated dashboards
-│   └── governance-delta.md           # agentic-governance v0.2 localization
-├── construction/sprints/             # Sprint history archive (read by GitHub Pages generator)
+│   └── about/ · status/             # Overview + auto-generated dashboards
 ├── .claude/                          # Claude Code config
 │   ├── agents/                       # Project agent definitions
 │   └── skills/                       # Constellize skills (specify / implement / verify / memory)
