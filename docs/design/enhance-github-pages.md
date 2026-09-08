@@ -73,7 +73,7 @@ a page ships without valid frontmatter.
 - **Generator:**
   [`generate_site_data.py`](https://github.com/djjay0131/agentic-kg/blob/master/.github/scripts/generate_site_data.py)
   reads `llm/memory_bank/activeContext.md` (the `# docs-stats` block),
-  `llm/features/BACKLOG.md`, and `construction/sprints/sprint-*.md`, and writes
+  `llm/features/BACKLOG.md`, and `llm/sprints/sprint-*.md`, and writes
   `docs/_data/{status,backlog,sprints}.yml`.
 - **Templates:** `docs/status/*.md` render those data files via Liquid
   (`{% raw %}{% for item in site.data.backlog.items %}{% endraw %}`) and the partials in

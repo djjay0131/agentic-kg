@@ -323,5 +323,5 @@ gcloud run services logs read {service-name} --region=us-central1 --limit=50
 For issues or questions:
 
 - Check service logs: `gcloud run services logs read`
-- Review deployment docs: `construction/sprints/`
+- Review deployment docs: `llm/sprints/`
 - Contact: djjay0131@gmail.com

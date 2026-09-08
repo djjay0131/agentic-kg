@@ -12,7 +12,7 @@ ADR-0001 back-fills the decision to adopt agentic-governance v0.2 under
 the no-orphan-decisions rule. The pre-governance architecture decisions
 that predate this ADR trail (three-layer architecture, problems-as-first-
 class-entities, confidence-based matching, GCP Cloud Run deployment, Cloud
-Build CI/CD — currently recorded informally in `construction/sprints/*.md`
+Build CI/CD — currently recorded informally in `llm/sprints/*.md`
 and `llm/memory_bank/systemPatterns.md`) are noted as a retroactive
 cataloging follow-up in ADR-0001's Consequences; they are not yet
 individually numbered here.
