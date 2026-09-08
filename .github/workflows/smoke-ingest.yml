@@ -51,6 +51,13 @@ jobs:
 
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      # Unauthenticated S2 draws on a rate pool shared across ALL anonymous
+      # callers, so CI gets throttled unpredictably: the retries exhaust, the
+      # circuit breaker opens after 5 failures, every `populate_citations`
+      # call fails, and the CITES assertion sees 0 edges. An API key moves us
+      # to a dedicated 1 RPS tier. config.py reads this env var and sends it
+      # as the `x-api-key` header.
+      SEMANTIC_SCHOLAR_API_KEY: ${{ secrets.SEMANTIC_SCHOLAR_API_KEY }}
       NEO4J_URI: bolt://localhost:7687
       NEO4J_USERNAME: neo4j
       NEO4J_PASSWORD: testpassword
