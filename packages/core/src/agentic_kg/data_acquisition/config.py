@@ -19,11 +19,22 @@ class SemanticScholarConfig:
     )
     base_url: str = "https://api.semanticscholar.org/graph/v1"
 
-    # Rate limits (requests per second)
-    # Unauthenticated: 100 requests per 5 minutes = 0.33 req/sec
-    # Authenticated: 1 request per second
+    # Rate limits (requests per second).
+    # Unauthenticated callers share one global pool with every other anonymous
+    # client, so throughput is unpredictable and 429s are common. An API key
+    # grants a dedicated allowance — currently 1 request/second CUMULATIVE
+    # across all endpoints, which is what the default below encodes.
     rate_limit: float = field(
         default_factory=lambda: float(os.getenv("SEMANTIC_SCHOLAR_RATE_LIMIT", "1.0"))
+    )
+
+    # S2's 1 RPS is a hard cumulative ceiling, so this source gets NO burst
+    # allowance: capacity == rate. The registry-wide 1.5x default would let a
+    # cold bucket fire 1.5 requests back-to-back and trip the limit.
+    burst_multiplier: float = field(
+        default_factory=lambda: float(
+            os.getenv("SEMANTIC_SCHOLAR_BURST_MULTIPLIER", "1.0")
+        )
     )
 
     # Request settings

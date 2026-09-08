@@ -279,11 +279,18 @@ class TestEnvBlock:
             # SM-6: the throughput lever, CI-only
             "OPENAI_EXTRACTION_MODEL",
             "OPENAI_TPM",
+            # Authenticates S2 so populate_citations survives the shared
+            # anonymous rate pool; without it CITES lands 0 edges.
+            "SEMANTIC_SCHOLAR_API_KEY",
         }
 
     def test_openai_key_from_secret(self, workflow):
         env = _smoke_job(workflow)["env"]
         assert "secrets.OPENAI_API_KEY" in env["OPENAI_API_KEY"]
+
+    def test_s2_key_from_secret(self, workflow):
+        env = _smoke_job(workflow)["env"]
+        assert "secrets.SEMANTIC_SCHOLAR_API_KEY" in env["SEMANTIC_SCHOLAR_API_KEY"]
 
     def test_sm7_throttle_budget_at_real_ceiling(self, workflow):
         """AC-6: CI sets OPENAI_TPM to this org's REAL ceiling (30000) so the
