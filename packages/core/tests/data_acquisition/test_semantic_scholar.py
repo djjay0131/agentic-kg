@@ -55,6 +55,43 @@ class TestSemanticScholarClient:
             circuit_breaker=mock_circuit_breaker,
         )
 
+    @pytest.mark.asyncio
+    async def test_every_retry_acquires_its_own_token(
+        self, client, mock_rate_limiter
+    ):
+        """Each HTTP attempt must pay a rate-limit token, retries included.
+
+        Acquiring once outside the retry loop let a single call spend one
+        token on up to max_retries + 1 requests fired back-to-back, blowing
+        past S2's cumulative ceiling and driving the circuit breaker open
+        instead of backing off.
+        """
+        attempts = {"n": 0}
+
+        async def flaky_get(endpoint, params=None):
+            attempts["n"] += 1
+            if attempts["n"] < 3:
+                raise RateLimitError(source="semantic_scholar")
+            return {"paperId": "abc"}
+
+        with patch.object(client, "get", side_effect=flaky_get):
+            result = await client._make_request("GET", "paper/abc")
+
+        assert result == {"paperId": "abc"}
+        assert attempts["n"] == 3
+        # one token per attempt — not one for the whole call
+        assert mock_rate_limiter.acquire.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_cache_hit_consumes_no_token(self, client, mock_cache, mock_rate_limiter):
+        """A cached response must not spend rate-limit budget."""
+        mock_cache.get.return_value = {"paperId": "cached"}
+
+        result = await client._make_request("GET", "paper/abc", cache_key="k")
+
+        assert result == {"paperId": "cached"}
+        assert mock_rate_limiter.acquire.await_count == 0
+
     def test_default_paper_fields(self):
         """Test that default paper fields are defined."""
         assert "paperId" in DEFAULT_PAPER_FIELDS
@@ -307,6 +344,40 @@ class TestSemanticScholarClient:
             client._handle_response(response)
 
         assert exc_info.value.retry_after is None
+
+
+class TestRateLimitCeiling:
+    """S2's authenticated tier is 1 request/second CUMULATIVE across all
+    endpoints, so the client must never be able to exceed it."""
+
+    def test_default_rate_is_one_per_second(self):
+        assert SemanticScholarConfig().rate_limit == 1.0
+
+    def test_no_burst_allowance(self):
+        """capacity == rate. Any burst > 1.0 overshoots a hard ceiling."""
+        assert SemanticScholarConfig().burst_multiplier == 1.0
+
+    def test_rate_and_burst_are_env_overridable(self, monkeypatch):
+        monkeypatch.setenv("SEMANTIC_SCHOLAR_RATE_LIMIT", "0.5")
+        monkeypatch.setenv("SEMANTIC_SCHOLAR_BURST_MULTIPLIER", "1.0")
+        cfg = SemanticScholarConfig()
+        assert cfg.rate_limit == 0.5
+        assert cfg.burst_multiplier == 1.0
+
+    def test_all_endpoints_share_one_limiter(self):
+        """The limiter is keyed by source, so /paper, /paper/search,
+        /paper/{id}/references and the author endpoints all draw on the same
+        budget — which is what 'cumulative across all endpoints' requires."""
+        from agentic_kg.data_acquisition.rate_limiter import (
+            RateLimiterRegistry,
+        )
+
+        registry = RateLimiterRegistry()
+        a = registry.get(SemanticScholarClient.SOURCE, 1.0, burst_multiplier=1.0)
+        b = registry.get(SemanticScholarClient.SOURCE, 1.0, burst_multiplier=1.0)
+
+        assert a is b
+        assert a.capacity == 1.0
 
 
 class TestGetSemanticScholarClient:
