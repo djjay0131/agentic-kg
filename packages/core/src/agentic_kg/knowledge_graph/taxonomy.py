@@ -80,7 +80,7 @@ def parse_taxonomy(source: str | Path | list | dict) -> list[dict]:
         path = Path(source)
         if not path.exists():
             raise TaxonomyError(f"Taxonomy file not found: {path}")
-        raw = yaml.safe_load(path.read_text())
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     elif isinstance(source, str):
         raw = yaml.safe_load(source)
     else:

@@ -136,7 +136,7 @@ def load_concept_pairs(source: str | Path | list | None = None) -> list[ConceptP
         path = Path(source)
         if not path.exists():
             raise CalibrationError(f"Pair fixture not found: {path}")
-        raw = yaml.safe_load(path.read_text())
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     elif isinstance(source, str):
         raw = yaml.safe_load(source)
     else:

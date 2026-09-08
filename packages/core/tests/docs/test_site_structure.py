@@ -69,12 +69,12 @@ class TestSiteSkeleton:
         assert path.exists(), f"Missing site file: {path}"
 
     def test_config_declares_just_the_docs_theme(self):
-        cfg = yaml.safe_load((DOCS / "_config.yml").read_text())
+        cfg = yaml.safe_load((DOCS / "_config.yml").read_text(encoding="utf-8"))
         assert cfg.get("remote_theme") == "just-the-docs/just-the-docs"
         assert cfg.get("search_enabled") is True
 
     def test_gemfile_pins_just_the_docs(self):
-        gemfile = (DOCS / "Gemfile").read_text()
+        gemfile = (DOCS / "Gemfile").read_text(encoding="utf-8")
         assert re.search(r'gem ["\']jekyll["\']', gemfile)
         assert re.search(r'gem ["\']just-the-docs["\']', gemfile)
 
@@ -97,7 +97,7 @@ class TestFrontmatter:
         ids=lambda p: str(p.relative_to(REPO_ROOT)),
     )
     def test_page_has_frontmatter_with_title(self, page: Path):
-        text = page.read_text()
+        text = page.read_text(encoding="utf-8")
         match = FRONTMATTER_RE.match(text)
         assert match, f"{page} is missing '---' frontmatter"
         data = yaml.safe_load(match.group(1)) or {}
@@ -129,7 +129,7 @@ def _on_block(workflow: dict) -> dict:
 class TestUpdateDocsWorkflow:
     @pytest.fixture()
     def wf(self) -> dict:
-        return yaml.safe_load((WORKFLOWS / "update-docs.yml").read_text())
+        return yaml.safe_load((WORKFLOWS / "update-docs.yml").read_text(encoding="utf-8"))
 
     def test_triggers_on_push_to_master(self, wf):
         on = _on_block(wf)
@@ -181,7 +181,7 @@ class TestUpdateDocsWorkflow:
 class TestPreviewDocsWorkflow:
     @pytest.fixture()
     def wf(self) -> dict:
-        return yaml.safe_load((WORKFLOWS / "preview-docs.yml").read_text())
+        return yaml.safe_load((WORKFLOWS / "preview-docs.yml").read_text(encoding="utf-8"))
 
     def test_triggers_on_pull_request(self, wf):
         on = _on_block(wf)

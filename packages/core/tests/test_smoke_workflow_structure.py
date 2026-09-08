@@ -25,7 +25,7 @@ _WORKFLOW_PATH = _REPO_ROOT / ".github" / "workflows" / "smoke-ingest.yml"
 @pytest.fixture(scope="module")
 def workflow() -> dict:
     """Parse the workflow YAML once per module."""
-    with open(_WORKFLOW_PATH) as f:
+    with open(_WORKFLOW_PATH, encoding="utf-8") as f:
         # YAML's boolean coercion turns the top-level ``on`` key into
         # Python ``True``; we don't need to fight it here — the test
         # helpers below normalize.
@@ -303,7 +303,7 @@ class TestEnvBlock:
 
     def test_no_gcp_secrets_referenced(self, workflow):
         """No WIF auth, no GCP-scoped secrets."""
-        text = _WORKFLOW_PATH.read_text()
+        text = _WORKFLOW_PATH.read_text(encoding="utf-8")
         # Guard against accidental copy-paste of GCP integration tokens.
         assert "GCP_" not in text
         assert "workload_identity_provider" not in text

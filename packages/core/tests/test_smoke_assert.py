@@ -92,7 +92,10 @@ class TestLoadFailure:
         out = capsys.readouterr().out
         assert "FAIL:" in out
         assert "cannot open" in out
-        assert str(missing) in out
+        # The message quotes the path with !r, and repr() doubles
+        # backslashes -- so on Windows str(missing) is not a substring.
+        # Stripping repr's quotes matches on both platforms.
+        assert repr(str(missing))[1:-1] in out
 
     def test_invalid_json_returns_1(self, tmp_path, capsys):
         bad = _write_result(tmp_path, "not { valid json")
