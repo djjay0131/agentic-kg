@@ -104,7 +104,9 @@ class SemanticScholarClient(BaseAPIClient):
         # Infrastructure
         self._cache = cache or get_response_cache()
         self._rate_limiter = rate_limiter or get_rate_limiter_registry().get(
-            self.SOURCE, self.config.rate_limit
+            self.SOURCE,
+            self.config.rate_limit,
+            burst_multiplier=self.config.burst_multiplier,
         )
         self._circuit_breaker = circuit_breaker or get_circuit_breaker_registry().get(
             self.SOURCE
@@ -140,12 +142,17 @@ class SemanticScholarClient(BaseAPIClient):
         # Check circuit breaker
         await self._circuit_breaker.check()
 
-        # Acquire rate limit token
-        await self._rate_limiter.acquire()
-
         try:
-            # Make request with retry
+            # Make request with retry.
+            #
+            # The rate-limit token is acquired INSIDE this function, so every
+            # attempt pays for itself. Acquiring once outside the retry loop
+            # let a single call spend one token on up to max_retries + 1 HTTP
+            # requests (4 by default) fired back-to-back — a 4x overshoot of
+            # S2's cumulative ceiling, and the reason a rate-limited run
+            # spiralled into the circuit breaker instead of backing off.
             async def do_request() -> dict[str, Any]:
+                await self._rate_limiter.acquire()
                 if method == "GET":
                     return await self.get(endpoint, params=params)
                 else:
