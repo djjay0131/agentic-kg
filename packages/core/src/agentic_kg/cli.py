@@ -375,8 +375,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--query", help="Search query for paper discovery",
     )
     ingest.add_argument(
+        "--dois", nargs="+", metavar="DOI",
+        help="SM-10: ingest specific papers by DOI (space-separated), resolved "
+             "via the by-DOI path. Mutually exclusive with --query.",
+    )
+    ingest.add_argument(
+        "--dois-file",
+        help="SM-10: path to a file of DOIs (one per line; '#' comments and "
+             "blank lines ignored). Mutually exclusive with --query.",
+    )
+    ingest.add_argument(
         "--limit", type=int, default=20,
-        help="Maximum papers to fetch (default: 20)",
+        help="Maximum papers to fetch (default: 20). Ignored with --dois.",
     )
     ingest.add_argument(
         "--sources", nargs="+",
@@ -840,8 +850,33 @@ async def run_ingest(args) -> None:
         all_passed = all(c.passed for c in checks)
         sys.exit(0 if all_passed else 1)
 
-    if not args.query:
-        print("Error: --query is required (unless using --sanity-check-only)", file=sys.stderr)
+    # SM-10: DOI-targeted ingestion inputs (mutually exclusive with --query).
+    dois = None
+    if getattr(args, "dois", None):
+        dois = list(args.dois)
+    elif getattr(args, "dois_file", None):
+        try:
+            with open(args.dois_file) as f:
+                dois = [
+                    ln.strip() for ln in f
+                    if ln.strip() and not ln.lstrip().startswith("#")
+                ]
+        except OSError as e:
+            print(f"Error: cannot read --dois-file {args.dois_file!r}: {e}", file=sys.stderr)
+            sys.exit(1)
+        if not dois:
+            print(f"Error: --dois-file {args.dois_file!r} contained no DOIs", file=sys.stderr)
+            sys.exit(1)
+
+    if args.query and dois:
+        print("Error: --query and --dois/--dois-file are mutually exclusive", file=sys.stderr)
+        sys.exit(1)
+    if not args.query and not dois:
+        print(
+            "Error: one of --query, --dois, or --dois-file is required "
+            "(unless using --sanity-check-only)",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     def on_progress(phase, doi, detail):
@@ -853,6 +888,7 @@ async def run_ingest(args) -> None:
 
     result = await ingest_papers(
         query=args.query,
+        dois=dois,
         limit=args.limit,
         sources=args.sources,
         dry_run=args.dry_run,

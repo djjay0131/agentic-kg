@@ -260,7 +260,10 @@ class PDFExtractor:
             PDFExtractionError: If extraction fails.
         """
         try:
-            import fitz  # PyMuPDF
+            # Import the modern module name: `import fitz` emits a
+            # deprecation warning on STDOUT, which corrupts `ingest --json`
+            # output when callers redirect stdout to a file.
+            import pymupdf as fitz
         except ImportError as e:
             raise PDFExtractionError(
                 "PyMuPDF not installed. Install with: pip install PyMuPDF"

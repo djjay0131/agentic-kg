@@ -3,7 +3,7 @@
 Emit YAML data files for the Jekyll site.
 
 Replaces the previous HTML-manipulating generator. Reads from
-``llm/features/BACKLOG.md``, ``construction/sprints/*.md``, and the
+``llm/features/BACKLOG.md``, ``llm/sprints/*.md``, and the
 fenced ``# docs-stats`` YAML block in ``llm/memory_bank/activeContext.md``
 — emits ``docs/_data/{backlog,sprints,status}.yml`` for Liquid templates
 to consume.
@@ -103,7 +103,7 @@ class Paths:
 
     @property
     def sprints_dir(self) -> Path:
-        return self.root / "construction/sprints"
+        return self.root / "llm/sprints"
 
     @property
     def out_dir(self) -> Path:

@@ -7,7 +7,7 @@ nav_exclude: true
 
 Status: Approved (bootstrap)
 Last updated: 2026-07-22
-Governance: agentic-governance v0.2
+Governance: agentic-governance v0.5
 
 This file localizes [agentic-governance](https://github.com/djjay0131/agentic-governance)
 for this project.
@@ -72,6 +72,26 @@ them directly.
 - If this touches deploy or CI, does it respect the hard-won Deploy
   Master gate chain (see `llm/memory_bank/activeContext.md`)?
 
+## Repository Layout
+
+The paths this repo binds, per agentic-governance ADR-0001 (`llm/` control
+plane, `docs/` data plane). Only slots this repo has content for are declared;
+`--layout` asserts that every declared path exists.
+
+- Governance directory: `llm/governance/`
+- ADR directory: `llm/governance/adr/`
+- Features directory: `llm/features/`
+- Sprints directory: `llm/sprints/`
+- Memory-bank path: `llm/memory_bank/`
+- Artifacts directory (the data plane): `docs/`
+
+Not declared: constitution, spec and plans directories — this repo has no
+content for them.
+
+Sprint history lives at `llm/sprints/` (agentic-governance v0.5 added the
+`Sprints directory` slot). It is read by `preview-docs.yml`, `update-docs.yml`
+and `.github/scripts/generate_site_data.py`, all repointed in ADR-0002.
+
 ## Memory Bank
 
 Path: `llm/memory_bank/` (all 6 core files present: `activeContext.md`,
@@ -107,16 +127,16 @@ promote it in branch protection once it has run green across a few PRs.
 
 ```l0-allowlist
 allow llm/memory_bank/** path-only
-allow docs/adr/README.md index-table-rows
-allow docs/adr/[0-9][0-9][0-9][0-9]-*.md status-line-only
+allow llm/governance/adr/README.md index-table-rows
+allow llm/governance/adr/[0-9][0-9][0-9][0-9]-*.md status-line-only
 allow docs/** link-target-only
 deny src/**
 deny packages/**
 deny scripts/**
 deny .github/**
 deny docs/_config.yml
-deny docs/adr/0000-template.md
-deny docs/governance-delta.md
+deny llm/governance/adr/0000-template.md
+deny llm/governance/governance-delta.md
 ```
 
 ## Platform Enforcement Reality
@@ -186,7 +206,7 @@ None.
 - `agentic-kgis` — ships `kg_contracts` (domain-neutral ports layer) and
   `kgis` (ingestion implementations). agentic-kg is a **future consumer**,
   not a current one: the KGIS five-phase adoption plan
-  (`agentic-kgis/docs/governance-delta.md` §Related Repos, Phase 3) names
+  (`agentic-kgis/llm/governance/governance-delta.md` §Related Repos, Phase 3) names
   an "agentic-kg research-paper retrofit" as the migration acid test,
   gated on the six migration-minimum tools. As of this delta, agentic-kg
   has **zero references** to `kg_contracts` in its code — this is recorded

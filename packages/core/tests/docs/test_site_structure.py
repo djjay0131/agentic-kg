@@ -113,7 +113,7 @@ class TestFrontmatter:
 EXPECTED_PATHS = {
     "llm/memory_bank/**",
     "llm/features/**",
-    "construction/sprints/**",
+    "llm/sprints/**",
     "docs/**",
 }
 FORBIDDEN_PATHS = {"memory-bank/**"}

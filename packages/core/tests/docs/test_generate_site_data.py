@@ -36,7 +36,7 @@ def fixture_repo(tmp_path: Path) -> Path:
     """Assemble a mini-repo layout the generator can run against."""
     (tmp_path / "llm/memory_bank").mkdir(parents=True)
     (tmp_path / "llm/features").mkdir(parents=True)
-    (tmp_path / "construction/sprints").mkdir(parents=True)
+    (tmp_path / "llm/sprints").mkdir(parents=True)
     (tmp_path / "docs/_data").mkdir(parents=True)
 
     (tmp_path / "llm/memory_bank/activeContext.md").write_text(
@@ -46,7 +46,7 @@ def fixture_repo(tmp_path: Path) -> Path:
         (FIXTURE_DIR / "BACKLOG.md").read_text()
     )
     for src in sorted((FIXTURE_DIR / "sprints").glob("sprint-*.md")):
-        (tmp_path / "construction/sprints" / src.name).write_text(src.read_text())
+        (tmp_path / "llm/sprints" / src.name).write_text(src.read_text())
     return tmp_path
 
 
@@ -318,7 +318,7 @@ class TestMainExitCodes:
     def test_returns_two_when_docs_stats_missing(self, mod, tmp_path: Path):
         (tmp_path / "llm/memory_bank").mkdir(parents=True)
         (tmp_path / "llm/features").mkdir(parents=True)
-        (tmp_path / "construction/sprints").mkdir(parents=True)
+        (tmp_path / "llm/sprints").mkdir(parents=True)
         (tmp_path / "llm/memory_bank/activeContext.md").write_text(
             "# No stats block here.\n"
         )
@@ -330,7 +330,7 @@ class TestMainExitCodes:
     ):
         (tmp_path / "llm/memory_bank").mkdir(parents=True)
         (tmp_path / "llm/features").mkdir(parents=True)
-        (tmp_path / "construction/sprints").mkdir(parents=True)
+        (tmp_path / "llm/sprints").mkdir(parents=True)
         (tmp_path / "llm/memory_bank/activeContext.md").write_text(
             (FIXTURE_DIR / "activeContext.md").read_text()
         )
@@ -364,5 +364,5 @@ class TestPaths:
         assert p.root == tmp_path
         assert p.backlog == tmp_path / "llm/features/BACKLOG.md"
         assert p.active_context == tmp_path / "llm/memory_bank/activeContext.md"
-        assert p.sprints_dir == tmp_path / "construction/sprints"
+        assert p.sprints_dir == tmp_path / "llm/sprints"
         assert p.out_dir == tmp_path / "docs/_data"

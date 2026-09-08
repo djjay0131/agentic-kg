@@ -79,7 +79,7 @@ pip install -e ".[dev]"
 
 - **📖 Main Docs:** [GitHub Pages](https://djjay0131.github.io/agentic-kg/)
 - **📋 Service Inventory:** [docs/status/service-inventory.md](docs/status/service-inventory.md)
-- **🏗️ Architecture:** See [construction/sprints/](construction/sprints/) for detailed design docs
+- **🏗️ Architecture:** See [llm/sprints/](llm/sprints/) for detailed design docs
 - **💾 Project Context:** [llm/memory_bank/](llm/memory_bank/) for active development tracking
 - **📌 Feature Catalog:** [llm/features/BACKLOG.md](llm/features/BACKLOG.md) — every spec + status
 
@@ -117,7 +117,7 @@ make smoke-test
 
 ## Contributing
 
-We use a sprint-based development process. See [construction/sprints/](construction/sprints/) for active work.
+We use a sprint-based development process. See [llm/sprints/](llm/sprints/) for active work.
 
 ## License
 
