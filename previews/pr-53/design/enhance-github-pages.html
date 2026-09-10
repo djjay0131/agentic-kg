@@ -67,7 +67,7 @@ a page ships without valid frontmatter.</p>
   <li><strong>Generator:</strong>
 <a href="https://github.com/djjay0131/agentic-kg/blob/master/.github/scripts/generate_site_data.py"><code class="language-plaintext highlighter-rouge">generate_site_data.py</code></a>
 reads <code class="language-plaintext highlighter-rouge">llm/memory_bank/activeContext.md</code> (the <code class="language-plaintext highlighter-rouge"># docs-stats</code> block),
-<code class="language-plaintext highlighter-rouge">llm/features/BACKLOG.md</code>, and <code class="language-plaintext highlighter-rouge">construction/sprints/sprint-*.md</code>, and writes
+<code class="language-plaintext highlighter-rouge">llm/features/BACKLOG.md</code>, and <code class="language-plaintext highlighter-rouge">llm/sprints/sprint-*.md</code>, and writes
 <code class="language-plaintext highlighter-rouge">docs/_data/{status,backlog,sprints}.yml</code>.</li>
   <li><strong>Templates:</strong> <code class="language-plaintext highlighter-rouge">docs/status/*.md</code> render those data files via Liquid
 (<code class="language-plaintext highlighter-rouge">{% for item in site.data.backlog.items %}</code>) and the partials in

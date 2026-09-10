@@ -4,14 +4,47 @@
 curation task (<code class="language-plaintext highlighter-rouge">docs/ground-truth/README.md</code>).
 <strong>Affects:</strong> <code class="language-plaintext highlighter-rouge">packages/core/src/agentic_kg/extraction/section_segmenter.py</code>,
 and therefore every entity extracted by <code class="language-plaintext highlighter-rouge">ingest_papers</code>.
-<strong>Severity:</strong> High. One of eight papers yields <strong>zero</strong> extractor input and
-therefore zero entities, silently and with no error.</p>
+<strong>Severity:</strong> High. One of eight papers yields <strong>zero</strong> extractor input.</p>
 
 <p><strong>Update 2026-08-09:</strong> a seventh, independent cause was found — see
 <a href="#7-the-four-section-keep-list-loses-content-even-when-boundaries-are-perfect">(7)</a>.
 Causes (1)–(6) are about locating section boundaries; (7) is about which
 sections are kept once located, and it survives fixing all of them. It is also
 the only one that reaches the ground-truth labels.</p>
+
+<p><strong>Update 2026-09-06:</strong> an eighth cause was found while measuring the SEG-1 fix
+— see <a href="#8-single-word-body-lines-classify-as-headings">(8)</a>. Note the
+numbering convention breaks here: this document’s causes are numbered to match
+<code class="language-plaintext highlighter-rouge">SEG-n</code> backlog IDs, but <code class="language-plaintext highlighter-rouge">SEG-8</code>, <code class="language-plaintext highlighter-rouge">SEG-9</code> and <code class="language-plaintext highlighter-rouge">SEG-10</code> were already taken by
+non-cause items (test fixtures, hyphen normalization, a set-membership
+decision), so <strong>cause (8) is tracked as <code class="language-plaintext highlighter-rouge">SEG-11</code></strong>. Causes (1)–(7) still map
+to <code class="language-plaintext highlighter-rouge">SEG-1</code>–<code class="language-plaintext highlighter-rouge">SEG-7</code>.</p>
+
+<blockquote>
+  <h3 id="️-correction-2026-09-06-silently-and-with-no-error-is-out-of-date">⚠️ Correction (2026-09-06): “silently and with no error” is out of date</h3>
+
+  <p>This document originally said the zero-input paper produced “zero entities,
+silently and with no error.” <strong>SM-1</strong> (<code class="language-plaintext highlighter-rouge">content-acquisition-resilience</code>,
+merged as #44) moved <code class="language-plaintext highlighter-rouge">_build_extractor_section_text</code> to <em>before</em> the
+usability gate in <code class="language-plaintext highlighter-rouge">_acquire_full_text</code> (<code class="language-plaintext highlighter-rouge">ingestion.py:291-296</code>), so
+<code class="language-plaintext highlighter-rouge">fact_completion</code> now produces:</p>
+
+  <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>WARNING  PDF source too thin (&lt;url&gt;): 0 chars
+</code></pre></div>  </div>
+
+  <p>is counted as <code class="language-plaintext highlighter-rouge">failed_thin</code> in <code class="language-plaintext highlighter-rouge">result.acquisition_failures</code>, and is
+<strong>skipped</strong> (<code class="language-plaintext highlighter-rouge">ingestion.py:553-565</code>). The consequence is therefore a
+<strong>dropped paper</strong> — one carrying 32 of the 53 chain entities — not a silent
+zero.</p>
+
+  <p><strong>What is still silent is the <em>partial</em> case.</strong> <code class="language-plaintext highlighter-rouge">cskg</code> yields 8,917 chars
+with no abstract and no methods, clears the 250-char floor, logs
+<code class="language-plaintext highlighter-rouge">INFO Full text acquired</code>, and is indistinguishable from a healthy paper.
+SEG-1 added a WARNING for exactly this (<code class="language-plaintext highlighter-rouge">_missing_wanted_sections</code>,
+<code class="language-plaintext highlighter-rouge">ingestion.py</code>), plus a DEBUG line per rejected heading candidate in
+<code class="language-plaintext highlighter-rouge">_find_headings</code> so the misses in (3), (4) and (5) below are observable
+without writing a script.</p>
+</blockquote>
 
 <h2 id="summary">Summary</h2>
 
@@ -123,6 +156,55 @@ empire:          I. INTRODUCTION, II. BACKGROUND, III. RELATED WORK,
 
 <p><strong>Fix:</strong> extend the numeric prefix group to accept Roman numerals and letters,
 e.g. <code class="language-plaintext highlighter-rouge">(?:(?:\d+|[IVXLC]+|[A-Z])[\.\)]?\s*)?</code>.</p>
+
+<blockquote>
+  <p><strong>Fixed 2026-09-06 (SEG-1)</strong> — but <strong>not</strong> as proposed above. Measuring the
+candidates over all eight PDFs rejected the <code class="language-plaintext highlighter-rouge">[A-Z]</code> half of that pattern and
+the hierarchical form:</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Variant</th>
+        <th style="text-align: right"><code class="language-plaintext highlighter-rouge">fact_completion</code> extractor input</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>before</td>
+        <td style="text-align: right">0</td>
+      </tr>
+      <tr>
+        <td>Roman + Arabic (shipped)</td>
+        <td style="text-align: right"><strong>25,586</strong></td>
+      </tr>
+      <tr>
+        <td>Roman + Arabic + <code class="language-plaintext highlighter-rouge">[A-Z]</code></td>
+        <td style="text-align: right">12,449</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>IEEE uses letters for <em>subsections</em>, so <code class="language-plaintext highlighter-rouge">[A-Z]</code> promotes
+<code class="language-plaintext highlighter-rouge">B. RESULTS AND DISCUSSION</code> — a child of <code class="language-plaintext highlighter-rouge">IV. EVALUATION</code> — to a top-level
+<code class="language-plaintext highlighter-rouge">results</code> heading, truncating <code class="language-plaintext highlighter-rouge">experiments</code> from 3,045w to 1,032w and
+diverting 2,009w into a type the keep-list discards: a <strong>net loss of 13,137
+chars</strong>. Stripping hierarchical numbers (<code class="language-plaintext highlighter-rouge">4.4.</code>) does the same thing to
+<code class="language-plaintext highlighter-rouge">hypothesis_generation</code>, costing <strong>5,585 chars</strong> by promoting <code class="language-plaintext highlighter-rouge">4.4. Results</code>
+out of <code class="language-plaintext highlighter-rouge">4. Evaluation</code>.</p>
+
+  <p>Shipped instead: a flat Roman/Arabic enumerator (<code class="language-plaintext highlighter-rouge">_ROMAN</code> / <code class="language-plaintext highlighter-rouge">_ENUMERATOR</code>)
+stripped <strong>once</strong> in <code class="language-plaintext highlighter-rouge">_classify_heading</code>, with the per-pattern prefix groups
+deleted from all 34 literals — so the vocabulary additions in (3), (4) and
+(5) inherit numbering support and cannot forget it. Measured result:
+<code class="language-plaintext highlighter-rouge">fact_completion</code> 0 → 25,586, <code class="language-plaintext highlighter-rouge">empire</code> 12,405 → 17,953, the other six
+byte-identical. Spec: <code class="language-plaintext highlighter-rouge">llm/features/seg1-roman-numeral-headings.md</code>;
+regression guard: <code class="language-plaintext highlighter-rouge">scripts/measure_segmentation.py</code>.</p>
+
+  <p>Note what SEG-1 does <strong>not</strong> fix on these two papers: neither gains an
+abstract (run-in form, cause (3)) and neither gains a methods section
+(<code class="language-plaintext highlighter-rouge">III. SciCheck</code> / <code class="language-plaintext highlighter-rouge">IV. RESEARCH APPROACH</code>, cause (5)).</p>
+</blockquote>
 
 <h3 id="2-segment_with_abstract-can-never-match-an-abstract">2. <code class="language-plaintext highlighter-rouge">segment_with_abstract</code> can never match an abstract</h3>
 
@@ -494,6 +576,88 @@ set is drawn from the three papers reviewed so far, so the unreviewed papers are
 being measured with their neighbours’ vocabulary and their “in body” counts
 understate what is actually there.</p>
 
+<h3 id="8-single-word-body-lines-classify-as-headings">8. Single-word body lines classify as headings</h3>
+
+<p><strong>Found:</strong> 2026-09-06, while measuring the SEG-1 fix. Tracked as <strong><code class="language-plaintext highlighter-rouge">SEG-11</code></strong>
+(not <code class="language-plaintext highlighter-rouge">SEG-8</code> — see the numbering note at the top). Independent of (1)–(7).</p>
+
+<p><code class="language-plaintext highlighter-rouge">_find_headings</code> accepts <em>any</em> line shorter than <code class="language-plaintext highlighter-rouge">max_heading_length</code> (100
+chars) that matches a pattern. It requires nothing heading-shaped of the line:
+no blank-line delimitation, no capitalization check, no position or repetition
+check. Several METHODS patterns are bare single words:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">SectionType</span><span class="p">.</span><span class="n">METHODS</span><span class="p">:</span> <span class="p">[</span>
+    <span class="sa">r</span><span class="sh">"</span><span class="s">^method(?:s|ology)?\s*$</span><span class="sh">"</span><span class="p">,</span>
+    <span class="sa">r</span><span class="sh">"</span><span class="s">^approach\s*$</span><span class="sh">"</span><span class="p">,</span>
+    <span class="sa">r</span><span class="sh">"</span><span class="s">^(?:our\s+)?(?:proposed\s+)?(?:method|approach|framework|model)\s*$</span><span class="sh">"</span><span class="p">,</span>
+    <span class="sa">r</span><span class="sh">"</span><span class="s">^technique(?:s)?\s*$</span><span class="sh">"</span><span class="p">,</span>
+    <span class="bp">...</span>
+<span class="p">]</span>
+</code></pre></div></div>
+
+<p>So a table column header reading <code class="language-plaintext highlighter-rouge">MODEL</code> becomes a top-level methods section:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="o">&gt;&gt;&gt;</span> <span class="nc">SectionSegmenter</span><span class="p">().</span><span class="nf">_classify_heading</span><span class="p">(</span><span class="sh">"</span><span class="s">MODEL</span><span class="sh">"</span><span class="p">)</span>
+<span class="o">&lt;</span><span class="n">SectionType</span><span class="p">.</span><span class="n">METHODS</span><span class="p">:</span> <span class="sh">'</span><span class="s">methods</span><span class="sh">'</span><span class="o">&gt;</span>
+</code></pre></div></div>
+
+<p>Measured over the set:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Paper</th>
+      <th style="text-align: right">Phantom <code class="language-plaintext highlighter-rouge">methods</code> sections</th>
+      <th>Titles</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">llm_ontology_gen</code></td>
+      <td style="text-align: right">5</td>
+      <td><code class="language-plaintext highlighter-rouge">MODEL</code> ×5 (a table column header)</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">kg_validation_hitl</code></td>
+      <td style="text-align: right">4</td>
+      <td><code class="language-plaintext highlighter-rouge">Model</code> ×3, <code class="language-plaintext highlighter-rouge">Method</code> ×1</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">kg_construction_survey</code></td>
+      <td style="text-align: right">2</td>
+      <td><code class="language-plaintext highlighter-rouge">Model</code>, <code class="language-plaintext highlighter-rouge">Approach</code></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">empire</code></td>
+      <td style="text-align: right">1</td>
+      <td><code class="language-plaintext highlighter-rouge">Method</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>This distorts how the other causes read.</strong> <code class="language-plaintext highlighter-rouge">empire</code>’s only <code class="language-plaintext highlighter-rouge">methods</code> block
+is one of these phantoms — its actual method section, <code class="language-plaintext highlighter-rouge">IV. RESEARCH APPROACH</code>,
+is a cause-(5) miss. So the “one <code class="language-plaintext highlighter-rouge">methods</code> block” recorded for <code class="language-plaintext highlighter-rouge">empire</code> in the
+Observed output table above is not a real methods section, and SEG-1’s
++5,548 chars on that paper is entirely introduction/background recovery.</p>
+
+<p>Two further consequences worth noting:</p>
+
+<ul>
+  <li>A phantom heading does not just add a bogus section, it <strong>splits a real
+one</strong> — the span it opens is subtracted from whatever section legitimately
+contained that line.</li>
+  <li>Fixing (5) by relaxing the method/experiment anchors (its cheap option)
+widens this surface, because looser patterns match more stray lines. The two
+should be scheduled together.</li>
+</ul>
+
+<p><strong>Fix:</strong> a heading-context heuristic rather than a vocabulary change — some
+combination of blank-line delimitation, an all-caps/title-case test, and a
+repetition filter to drop running headers. Needs its own measurement; the
+cheap-looking version (require a blank line before the heading) has not been
+tested against PyMuPDF’s actual line breaks.</p>
+
 <h2 id="reproduction">Reproduction</h2>
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>python <span class="nt">-m</span> venv .venv-gt
@@ -503,6 +667,28 @@ understate what is actually there.</p>
 
 <p>To observe the defect itself, call <code class="language-plaintext highlighter-rouge">SectionSegmenter().segment(full_text)</code> on
 any PDF in <code class="language-plaintext highlighter-rouge">ground-truth-papers/</code> and inspect <code class="language-plaintext highlighter-rouge">doc.sections</code>.</p>
+
+<p><strong>Measuring it, per paper (added by SEG-1):</strong></p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>.venv/Scripts/python.exe scripts/measure_segmentation.py
+</code></pre></div></div>
+
+<p>Prints extractor-input chars per paper against <code class="language-plaintext highlighter-rouge">scripts/seg_baseline.json</code>
+and exits non-zero if any paper regresses. Causes (3), (4), (5) and (7) will
+each legitimately move those numbers — re-baseline with <code class="language-plaintext highlighter-rouge">--update-baseline</code>
+and justify the diff in the PR. Requires the gitignored PDFs, so it cannot
+run in CI; the PDF-free guards are
+<code class="language-plaintext highlighter-rouge">packages/core/tests/extraction/test_section_segmenter.py</code> and
+<code class="language-plaintext highlighter-rouge">packages/core/tests/test_measure_segmentation.py</code>.</p>
+
+<p>To see what the segmenter <em>rejected</em> — the (3)/(4)/(5) misses — raise the log
+level:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">logging</span><span class="p">.</span><span class="nf">getLogger</span><span class="p">(</span><span class="sh">"</span><span class="s">agentic_kg.extraction.section_segmenter</span><span class="sh">"</span><span class="p">).</span><span class="nf">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="p">.</span><span class="n">DEBUG</span><span class="p">)</span>
+<span class="c1"># unmatched candidate heading: 'III. SciCheck'
+# unmatched candidate heading: 'Technical Validation'
+# unmatched candidate heading: 'B. RESULTS AND DISCUSSION'
+</span></code></pre></div></div>
 
 <h2 id="suggested-test-coverage">Suggested test coverage</h2>
 
