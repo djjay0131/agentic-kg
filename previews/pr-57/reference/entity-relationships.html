@@ -1,0 +1,200 @@
+<h1 id="entity-relationships">Entity Relationships</h1>
+
+<p>The authoritative catalog of <strong>edge types</strong> in the knowledge graph — their
+endpoints, direction, cardinality, and semantics. Node types are defined in the
+<a href="entity-catalog">Entity Catalog</a>.</p>
+
+<p>Source of truth: <code class="language-plaintext highlighter-rouge">models/relationships.py</code> (typed relations + properties) and the
+Cypher <code class="language-plaintext highlighter-rouge">MERGE (...)-[:EDGE]-&gt;(...)</code> statements in <code class="language-plaintext highlighter-rouge">repository.py</code>.</p>
+
+<h2 id="graph-shape-diagram">Graph shape (diagram)</h2>
+
+<pre><code class="language-mermaid">graph LR
+    Paper --&gt;|AUTHORED_BY| Author
+    Paper --&gt;|CITES| Paper
+    Paper --&gt;|RESEARCHES| Topic
+    Paper --&gt;|DISCUSSES| ResearchConcept
+    Paper --&gt;|USES_MODEL| Model
+    Paper --&gt;|APPLIES_METHOD| Method
+
+    Problem --&gt;|EXTRACTED_FROM| Paper
+    Problem --&gt;|"EXTENDS / CONTRADICTS&lt;br/&gt;DEPENDS_ON / REFRAMES"| Problem
+
+    ProblemMention --&gt;|INSTANCE_OF| ProblemConcept
+    ProblemConcept --&gt;|INVOLVES_CONCEPT| ResearchConcept
+    ProblemConcept --&gt;|BELONGS_TO| Topic
+    ResearchConcept --&gt;|BELONGS_TO| Topic
+
+    Topic --&gt;|SUBTOPIC_OF| Topic
+
+    classDef research fill:#e8f0fe,stroke:#4285f4,color:#111;
+    classDef biblio fill:#fef7e0,stroke:#f9ab00,color:#111;
+    classDef concept fill:#e6f4ea,stroke:#34a853,color:#111;
+    class Problem,ProblemMention,ProblemConcept research;
+    class Paper,Author biblio;
+    class Topic,ResearchConcept,Model,Method concept;
+</code></pre>
+
+<h2 id="research--classification-edges">Research &amp; classification edges</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Edge</th>
+      <th>From → To</th>
+      <th>Cardinality</th>
+      <th>Semantics</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">EXTRACTED_FROM</code></td>
+      <td><code class="language-plaintext highlighter-rouge">Problem</code> → <code class="language-plaintext highlighter-rouge">Paper</code></td>
+      <td>many-to-one</td>
+      <td>Problem was extracted from this paper (carries <code class="language-plaintext highlighter-rouge">section</code>, <code class="language-plaintext highlighter-rouge">extraction_date</code>)</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">INSTANCE_OF</code></td>
+      <td><code class="language-plaintext highlighter-rouge">ProblemMention</code> → <code class="language-plaintext highlighter-rouge">ProblemConcept</code></td>
+      <td>many-to-one</td>
+      <td>This paper-specific mention is an instance of the canonical concept (carries <code class="language-plaintext highlighter-rouge">confidence</code>, <code class="language-plaintext highlighter-rouge">match_method</code>, <code class="language-plaintext highlighter-rouge">matched_by</code>)</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">INVOLVES_CONCEPT</code></td>
+      <td><code class="language-plaintext highlighter-rouge">ProblemConcept</code> → <code class="language-plaintext highlighter-rouge">ResearchConcept</code></td>
+      <td>many-to-many</td>
+      <td>The problem involves this research concept</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">BELONGS_TO</code></td>
+      <td><code class="language-plaintext highlighter-rouge">ProblemConcept</code> / <code class="language-plaintext highlighter-rouge">ResearchConcept</code> → <code class="language-plaintext highlighter-rouge">Topic</code></td>
+      <td>many-to-one(ish)</td>
+      <td>The problem-side node is classified under this topic</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">RESEARCHES</code></td>
+      <td><code class="language-plaintext highlighter-rouge">Paper</code> → <code class="language-plaintext highlighter-rouge">Topic</code></td>
+      <td>many-to-many</td>
+      <td>The paper researches this topic</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">DISCUSSES</code></td>
+      <td><code class="language-plaintext highlighter-rouge">Paper</code> → <code class="language-plaintext highlighter-rouge">ResearchConcept</code></td>
+      <td>many-to-many</td>
+      <td>The paper discusses this concept</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">USES_MODEL</code></td>
+      <td><code class="language-plaintext highlighter-rouge">Paper</code> → <code class="language-plaintext highlighter-rouge">Model</code></td>
+      <td>many-to-many</td>
+      <td>The paper uses/benchmarks this model</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">APPLIES_METHOD</code></td>
+      <td><code class="language-plaintext highlighter-rouge">Paper</code> → <code class="language-plaintext highlighter-rouge">Method</code></td>
+      <td>many-to-many</td>
+      <td>The paper applies this method</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">SUBTOPIC_OF</code></td>
+      <td><code class="language-plaintext highlighter-rouge">Topic</code> → <code class="language-plaintext highlighter-rouge">Topic</code></td>
+      <td>many-to-one</td>
+      <td>Child topic rolls up into its parent (<code class="language-plaintext highlighter-rouge">subtopic → area → domain</code>)</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="bibliographic-edges">Bibliographic edges</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Edge</th>
+      <th>From → To</th>
+      <th>Cardinality</th>
+      <th>Semantics</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">AUTHORED_BY</code></td>
+      <td><code class="language-plaintext highlighter-rouge">Paper</code> → <code class="language-plaintext highlighter-rouge">Author</code></td>
+      <td>many-to-many</td>
+      <td>Authorship; carries <code class="language-plaintext highlighter-rouge">author_position</code> (1 = first author)</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">CITES</code></td>
+      <td><code class="language-plaintext highlighter-rouge">Paper</code> → <code class="language-plaintext highlighter-rouge">Paper</code></td>
+      <td>many-to-many</td>
+      <td>Citation; populated from Semantic Scholar reference lists (E-5). Denormalized on <code class="language-plaintext highlighter-rouge">Paper.citation_count</code> / <code class="language-plaintext highlighter-rouge">reference_count</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="problem-to-problem-edges">Problem-to-problem edges</h2>
+
+<p>All four are typed <code class="language-plaintext highlighter-rouge">ProblemRelation</code>s with <code class="language-plaintext highlighter-rouge">confidence</code> (default 0.8) and an
+optional <code class="language-plaintext highlighter-rouge">evidence_doi</code>. Source of truth: <code class="language-plaintext highlighter-rouge">models/relationships.py</code>,
+<code class="language-plaintext highlighter-rouge">RelationType</code> in <code class="language-plaintext highlighter-rouge">enums.py</code>.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Edge</th>
+      <th>From → To</th>
+      <th>Extra fields</th>
+      <th>Semantics</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">EXTENDS</code></td>
+      <td><code class="language-plaintext highlighter-rouge">Problem</code> → <code class="language-plaintext highlighter-rouge">Problem</code></td>
+      <td><code class="language-plaintext highlighter-rouge">inferred_by</code></td>
+      <td>B builds on / extends A</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">CONTRADICTS</code></td>
+      <td><code class="language-plaintext highlighter-rouge">Problem</code> → <code class="language-plaintext highlighter-rouge">Problem</code></td>
+      <td><code class="language-plaintext highlighter-rouge">contradiction_type</code> (empirical / theoretical / methodological)</td>
+      <td>B presents conflicting findings to A</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">DEPENDS_ON</code></td>
+      <td><code class="language-plaintext highlighter-rouge">Problem</code> → <code class="language-plaintext highlighter-rouge">Problem</code></td>
+      <td><code class="language-plaintext highlighter-rouge">dependency_type</code> (prerequisite / data_dependency / methodological)</td>
+      <td>B requires A to be solved first</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">REFRAMES</code></td>
+      <td><code class="language-plaintext highlighter-rouge">Problem</code> → <code class="language-plaintext highlighter-rouge">Problem</code></td>
+      <td>—</td>
+      <td>B redefines the problem space of A</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="operational-edges-outside-the-research-schema">Operational edges (outside the research schema)</h2>
+
+<p>The review workflow uses additional edges (e.g. <code class="language-plaintext highlighter-rouge">REVIEWS</code>) that live in
+<code class="language-plaintext highlighter-rouge">review_queue.py</code> / <code class="language-plaintext highlighter-rouge">relations.py</code> and are not part of the core research graph.
+They are intentionally omitted from the diagram above.</p>
+
+<h2 id="the-evidence-chain-worked-example">The evidence chain (worked example)</h2>
+
+<p>A single ingested paper fans out across many of these edges:</p>
+
+<ol>
+  <li><code class="language-plaintext highlighter-rouge">Paper</code> is created (or a <code class="language-plaintext highlighter-rouge">CITES</code> stub is promoted to a full paper).</li>
+  <li><code class="language-plaintext highlighter-rouge">Author</code> nodes are linked via <code class="language-plaintext highlighter-rouge">AUTHORED_BY</code>.</li>
+  <li>The paper’s references become <code class="language-plaintext highlighter-rouge">CITES</code> edges to other <code class="language-plaintext highlighter-rouge">Paper</code> nodes.</li>
+  <li>Extraction produces <code class="language-plaintext highlighter-rouge">ProblemMention</code>s (each with <code class="language-plaintext highlighter-rouge">paper_doi</code>, <code class="language-plaintext highlighter-rouge">section</code>,
+<code class="language-plaintext highlighter-rouge">quoted_text</code>).</li>
+  <li>Each mention is matched to a <code class="language-plaintext highlighter-rouge">ProblemConcept</code> via <code class="language-plaintext highlighter-rouge">INSTANCE_OF</code>.</li>
+  <li>The paper is classified: <code class="language-plaintext highlighter-rouge">RESEARCHES</code> → <code class="language-plaintext highlighter-rouge">Topic</code>, <code class="language-plaintext highlighter-rouge">DISCUSSES</code> →
+<code class="language-plaintext highlighter-rouge">ResearchConcept</code>, <code class="language-plaintext highlighter-rouge">USES_MODEL</code> → <code class="language-plaintext highlighter-rouge">Model</code>, <code class="language-plaintext highlighter-rouge">APPLIES_METHOD</code> → <code class="language-plaintext highlighter-rouge">Method</code>.</li>
+  <li>Concepts roll up to topics via <code class="language-plaintext highlighter-rouge">BELONGS_TO</code>; topics roll up via
+<code class="language-plaintext highlighter-rouge">SUBTOPIC_OF</code>.</li>
+  <li>Cross-problem structure (<code class="language-plaintext highlighter-rouge">EXTENDS</code>, <code class="language-plaintext highlighter-rouge">DEPENDS_ON</code>, …) is inferred over
+<code class="language-plaintext highlighter-rouge">ProblemConcept</code>s.</li>
+</ol>
