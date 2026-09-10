@@ -9,9 +9,12 @@ stubs so no cloud calls happen.
 from __future__ import annotations
 
 import os
+import shutil
 import stat
 import subprocess
 from pathlib import Path
+
+import pytest
 
 _SCRIPT = (
     Path(__file__).resolve().parents[3] / "scripts" / "assert_deploy_parity.sh"
@@ -54,6 +57,43 @@ echo "$input" | sed -n 's/.*"commit_sha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\
 """
 
 
+
+def _bash_exe() -> str | None:
+    """Locate a bash that shares this process's view of the filesystem.
+
+    On Windows both ``shutil.which("bash")`` and a bare ``"bash"`` argv
+    entry resolve to ``C:/Windows/System32/bash.exe`` -- the WSL launcher --
+    which mounts the host drive at ``/mnt/c`` and therefore cannot open a
+    path built from ``Path.resolve()``. Git Bash accepts both ``/c/...``
+    and ``C:/...``, so prefer it explicitly rather than trusting PATH.
+    """
+    if os.name != "nt":
+        return shutil.which("bash")
+    roots = [
+        os.environ.get("PROGRAMFILES", "C:/Program Files"),
+        os.environ.get("PROGRAMFILES(X86)", "C:/Program Files (x86)"),
+    ]
+    # usr/bin/bash before bin/bash: the latter is the Git Bash *launcher*,
+    # which re-prepends /mingw64/bin to PATH on startup. mingw ships a real
+    # curl, so it would shadow the stub this test installs. usr/bin/bash
+    # honours the PATH it is handed.
+    for root in roots:
+        for parts in (("Git", "usr", "bin", "bash.exe"),
+                      ("Git", "bin", "bash.exe")):
+            candidate = Path(root).joinpath(*parts)
+            if candidate.exists():
+                return str(candidate)
+    return None
+
+
+_BASH = _bash_exe()
+
+pytestmark = pytest.mark.skipif(
+    _BASH is None,
+    reason="needs a POSIX bash; on Windows that means Git Bash, since WSL's "
+           "bash cannot open host paths",
+)
+
 def _make_stub_bin(tmp_path: Path) -> Path:
     """Create a bin dir with gcloud/curl/jq stubs and return it."""
     bin_dir = tmp_path / "bin"
@@ -64,7 +104,7 @@ def _make_stub_bin(tmp_path: Path) -> Path:
         ("jq", _JQ_STUB),
     ):
         p = bin_dir / name
-        p.write_text(body)
+        p.write_text(body, encoding="utf-8")
         p.chmod(p.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     return bin_dir
 
@@ -73,12 +113,19 @@ def _run(tmp_path: Path, *args: str, **env: str) -> subprocess.CompletedProcess:
     bin_dir = _make_stub_bin(tmp_path)
     full_env = {
         **os.environ,
-        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        # os.pathsep, not ":" -- Windows uses ";" and Git Bash converts the
+        # inherited Windows PATH on startup.
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
         "REGION": "us-central1",
         **env,
     }
     return subprocess.run(
-        ["bash", str(_SCRIPT), *args],
+        # as_posix(), not str() -- bash treats backslashes as escapes, so a
+        # Windows path arrives mangled ("C:Usersvrusa..."). Forward slashes
+        # are accepted by Git Bash and are what str() already gives on POSIX.
+        # Forward slashes: accepted by Git Bash, and already what
+        # str() yields on POSIX.
+        [_BASH, _SCRIPT.as_posix(), *args],
         capture_output=True,
         text=True,
         env=full_env,
@@ -209,7 +256,7 @@ def test_check_version_mismatch_exits_one(tmp_path: Path) -> None:
 def test_missing_expected_sha_fails(tmp_path: Path) -> None:
     bin_dir = _make_stub_bin(tmp_path)
     r = subprocess.run(
-        ["bash", str(_SCRIPT)],
+        [_BASH, _SCRIPT.as_posix()],
         capture_output=True,
         text=True,
         env={"PATH": f"{bin_dir}:{os.environ['PATH']}", "REGION": "us-central1"},

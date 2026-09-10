@@ -1,0 +1,348 @@
+Abstract. In recent years, we saw the emergence of several approaches
+for producing machine-readable, semantically rich, interlinked description of the content of research publications, typically encoded as knowledge graphs. A common limitation of these solutions is that they address
+a low number of articles, either because they rely on human experts to
+summarize information from the literature or because they focus on speciﬁc research areas. In this paper, we introduce the Computer Science
+Knowledge Graph (CS-KG), a large-scale knowledge graph composed by
+over 350M RDF triples describing 41M statements from 6.7M articles
+about 10M entities linked by 179 semantic relations. It was automatically
+generated and will be periodically updated by applying an information
+extraction pipeline on a large repository of research papers. CS-KG is
+much larger than all comparable solutions and oﬀers a very comprehensive representation of tasks, methods, materials, and metrics in Computer Science. It can support a variety of intelligent services, such as
+advanced literature search, document classiﬁcation, article recommendation, trend forecasting, hypothesis generation, and many others. CS-KG
+was evaluated against a benchmark of manually annotated statements,
+yielding excellent results.
+Keywords: Knowledge graph · Scholarly data · Information
+extraction · Natural language processing · Semantic Web · Artiﬁcial
+Intelligence
+
+Introduction
+In the last few years, we have witnessed a paradigm shift towards Open Science, greatly increasing the availability of scientiﬁc articles, datasets, software,
+and other research outcomes. This represents an historical opportunity to support researchers with new tools enabling more sophisticated search, exploration,
+and analytical services than the ones currently available. However, the current
+document-centric scholarly communication paradigm does not enable scholars to
+eﬃciently explore, categorize, and reason on this knowledge [17]. Scientists need
+instead to ﬁnd and manually analyze large number of static PDF ﬁles in order to
+gain a (often incomplete) understanding about recent research advancements [9].
+In recent years, we saw the emergence of several solutions for producing
+machine-readable, semantically rich, interlinked descriptions of the content of
+research publications, typically encoded as knowledge graphs [12,22,36,40,46].
+For instance, the Open Research Knowledge Graph1 [22] oﬀers an infrastructure
+for describing articles in a structured manner, making it easy to ﬁnd and compare
+them. The resulting knowledge graph includes about 10K articles, 4.5K research
+problems, and 3.3K datasets. Similarly, Nanopublications2 [19] allow users to
+represent scientiﬁc facts as knowledge graphs and have recently been used to
+support “living literature reviews”, which can be continuously amended with new
+ﬁndings [46]. A common drawback of these solutions is that they are limited to
+a relatively low number of articles, either because they rely on human experts to
+summarize information from the literature [22,24] or because they focus on very
+speciﬁc domains (e.g., computational linguistics [16], intrusion detection [48]).
+In order to address this issue, in 2020 we released the Artiﬁcial Intelligence
+Knowledge Graph (AI-KG) [15], the ﬁrst automatically generated large-scale
+knowledge graph of AI, which included 1.2M statements about 820K research
+entities. This resource was an important ﬁrst step in the large-scale generation
+of scientiﬁc knowledge graphs, inspiring further work in this direction [6,31] and
+supporting several methods for classifying and recommend scientiﬁc papers [8,21,
+25]. However, AI-KG still suﬀers from a number of signiﬁcant limitations, which
+emerged clearly during discussions with its users. First and most important, it
+only covers about 330K articles in AI: sizable compared to alternative solutions,
+but not quite representative of the millions of articles published in Computer
+Science. Second, the methodology for integrating diﬀerent lexical variations of
+entities did not always work, resulting in multiple versions of the same entity
+(e.g., recommendation_system and recommendation_framework). Finally, the
+mapping schema used for recognizing a relations (e.g., aikg-ont:supportsMethod)
+from verbal predicates in the articles (e.g., support, enable, foster) was quite
+limited. As a result, sentences using less frequent predicates were not considered.
+In this paper, we introduce the Computer Science Knowledge Graph (CS-
+KG), a large-scale knowledge graph composed by over 350M RDF triples describing 41M statements from 6.7M articles about 10M entities (e.g., tasks, methods,
+materials, metrics) linked by 179 semantic relations. Our objective is to make
+available and maintain a comprehensive representation of all the signiﬁcant concepts in this ﬁeld, in order to support a variety of intelligent services, such as
+advanced search, article recommendation, trend forecasting, hypothesis generation, and many others.
+CS-KG is an order of magnitude larger than AI-KG. Speciﬁcally, it is 34
+times larger in terms of number of statements and 20 times larger in terms of
+number of articles. It was generated by applying an improved version of the AI-
+KG pipeline [14] which includes the following advancements: 1) a novel module
+to merge diﬀerent lexical representations of the same entity based on transformers [32], 2) a new methodology to map verbal predicates to relations which
+exploits VerbNet [38], and 3) a richer domain ontology describing 179 semantic
+relations. CS-KG was evaluated on a benchmark of 1, 200 manually annotated
+statements, yielding excellent results in comparison with alternative solutions.
+CS-KG is licensed under a Creative Commons Attribution 4.0 International
+License (CC BY 4.0). It available as a dump3 or via a SPARQL endpoint4.
+In summary, the main contributions of this resource paper are:
+– The CS-KG knowledge graph, which includes 41M statements about 10M
+entities in Computer Science.
+– An improved pipeline for knowledge graph generation from research articles.
+– An analysis of the entities and statements extracted from 6.7M articles.
+– A ground truth5 of 1200 manually annotated statements, which can be used
+as a benchmark for statements validation.
+The remainder of this paper is organized as follows. Section 2 discusses the
+related work, pointing out the existing gaps. Section 3 describes CS-KG and its
+user cases. The pipeline used for its generation is discussed in Sect. 4. Section 5
+reports several statistics about CS-KG and Sect. 6 describes the evaluation.
+Finally, Sect. 7 concludes the paper, discusses the limitations, and deﬁnes future
+directions of research.
+
+The Computer Science Knowledge Graph
+The Computer Science Knowledge Graph (CS-KG) includes over 350M RDF
+triples that describe 41M statements and 10M entities extracted from a collection of 6.7M scientiﬁc papers in the period 2010–2021. These articles were
+selected by considering all papers from 2010 to 2019 with at least 1 citation
+(as of December 2021) and all the papers in 2020-2021 period from the set of
+articles from MAG [44] associated with the Field of Study “Computer Science”.
+Since MAG has been decommissioned in 2021, the following versions will adopt
+OpenAlex, which oﬀers a comparable publication coverage.
+The CS-KG ontology is available at https://scholkg.kmi.open.ac.uk/cskg/
+ontology and builds on top of SKOS8 and PROV-O9. Its documentation is
+available at https://scholkg.kmi.open.ac.uk/cskg/ontology.html. The current
+schema in CS-KG uses the namespaces http://scholkg.kmi.open.ac.uk/cskg/
+ontology# to refer to elements that belong to the ontology (preﬁx cskgont), and http://scholkg.kmi.open.ac.uk/cskg/resource/ for the instances (pre-
+ﬁx cskg). The ontology deﬁnes 179 relations (e.g., cskg-ont:usesMethod, cskgont:solvesTask) between ﬁve entity types: cskg-ont:Task, cskg-ont:Method, cskgont:Material, cskg-ont:Metric, cskg-ont:OtherEntity.
+In order to design the object properties, we started from a set of 39 high level
+predicates (e.g., uses, analyzes, includes) produced by the knowledge graph
+generation pipeline (see Sect. 4.2). We then associate speciﬁc domain and range
+constraints to them, which are used to drive and correct the automatic extraction
+process. For example, since a Method or a Task can use a Material, the predicate
+uses was used to create the object property cskg-ont:usesMaterial which has
+cskg:Method and cskg:Task in its domain as well as cskg:Material as its range.
+We instead considered incorrect to claim that a cskg:Material uses a cskg:Method,
+and therefore, the domain of the property cskg-ont:usesMethod does not include
+the class cskg:Material.
+A statement in CS-KG refers to a speciﬁc claim extracted from a research
+article, deﬁning a relationship between two entities, e.g., <cskg:web_ontology_
+language, skos:broader, cskg:semantic_web_standard_technology>. Naturally, it is not possible to verify the objective truth of every claim. As a consequence, within CS-KG and its potential use cases, a claim should be considered
+correct only in the context of the research papers linked to it. We also associate
+the statement with metadata about the original articles and other provenance
+information. Each statement in CS-KG includes:
+– rdf:subject, rdf:predicate, and rdf:object, which provide the reiﬁcation of triples
+within a rdf:Statement;
+– cskg-ont:hasSupport, which reports the number of articles that contributed to
+create the statement (support);
+– provo:wasDerivedFrom, which provides provenance information and lists the
+MAG IDs (now OpenAlex IDs) of the articles from which the statement was
+extracted;
+– provo:wasGeneratedBy, which provides provenance and versioning information of the tools used to detect the statement.
+The support score can be used to select subsets of statements that are supported
+by a good number of articles, and thus are typically more reliable (see evaluation
+in Sect. 6).
+In the following we report an exemplary statement:
+cskg:statement_4508242 a cskg-ont:Statement, provo:Entity;
+rdf:subject
+cskg:web_ontology_language;
+rdf:predicate
+skos:broader;
+rdf:object
+cskg:semantic_web_standard_technology;
+cskg-ont:hasSupport 6;
+provo:wasDerivedFrom cskg:2913757079,
+cskg:2145844448,
+...,
+cskg: 1551604567;
+provo:wasGeneratedBy cskg:DyGIEpp.
+This statement describes a claim which is extracted from 6 papers (MAG
+IDs 2913757079, 2145844448, etc.), by the tool DyGIEpp.
+Following the best practices of Linked Data, entities in CS-KG are associated with a set of alternative labels that are used to refer them in the scientiﬁc
+literature. For example, the entity cskg:recurrent_neural_network is associated
+with the labels recurrent neural network, recurrent trainable neural network, and
+recurrent neural network paradigm. CS-KG also provides 31K owl:sameAs links
+to DBPedia [4], 27K links to Wikidata10, and 6K to the Computer Science Ontology (CSO) [37]. For instance the entity cskg:feedforward_neural_network is
+linked to the CSO topic cso:feedforward_neural_network, to the DBpedia entity
+dbpedia:Feedforward_neural_network, and to the Wikidata entity wd:Q5441227.
+CS-KG can support several intelligent services that require a high quality
+representation of research concepts and currently rely on alternative knowledge bases which cover a smaller number of publications (e.g., AI-KG, ORKG,
+Nanopublications) or oﬀer a less granular conceptualization of the domain
+(SemanticScholar, OpenAlex, AIDA). These include systems for supporting
+machine-readable surveys [30,46], tools for generating research hypothesis [20]
+and detecting contradictory research claims [3], ontology-driven topic models (e.g., CoCoNoW [5]), recommender systems for articles (e.g., SBR [41])
+and video lessons [7], visualisation frameworks (e.g., ScholarLensViz [26], ConceptScope [47]), scholarly knowledge graph embeddings (e.g., Trans4E [29]),
+tools for identifying domain experts (e.g., VeTo [42]), and systems for predicting
+research impact (e.g., ArtSim [13]).
+We plan to keep maintaining and updating CS-KG in the following several
+years. We thus created a fully automatic pipeline that we will run every six
+months to produce new versions of CS-KG that will include recent papers from
+OpenAlex. Indeed, one of the advantage of our solution is that it does not require
+heavy workload for the maintainers. In order to cope with the ever increasing number of papers, we are also embedding big data technologies within the
+pipeline. We also plan to keep evolving the ontology by including new predicates
+according to patterns emerging from the data and the community feedback.
+10 https://www.wikidata.org/wiki/Wikidata:Main_Page.
+Fig. 1. Architecture of the automatic generation pipeline.
+
+Automatic Generation of CS-KG
+This section brieﬂy describes the methodology that we applied to build the CS-
+KG. It builds on top of the pipeline introduced in [14], which has already been
+successfully employed to build the Artiﬁcial Intelligence Knowledge Graph (AI-
+KG) [15]. Our new approach is more scalable, allowing to eﬃciently compute
+the much larger set of articles used for CS-KG. It also extends signiﬁcantly the
+range of semantic relations extracted from the literature by using VerbNet [38] to
+semi-automatically enrich the domain ontology. Finally, it can extract multiple
+relationships between a pair of entities, while the previous solution was limited
+to one. Figure 1 shows an overview of the automatic extraction pipeline.
+4.1
+Extraction Modules
+The proposed methodology employs four complementary tools to extract entities and relationships from plain text (typically the titles and abstracts of the
+articles). These tools are:
+– DyGIEpp [43]. This tool extracts a set of entities EDy of six pre-deﬁned
+types (Method, Task, Material, Metric, Other-Scientiﬁc-Term, and Generic)
+and seven kinds of relationship (Used-for, Hyponym-Of, Compare, Part-of,
+Conjunction, Feature-of, Evaluate-for). It is used to yield a set of entities
+EDy and a set of triples among them, TDy.
+– Computer Science Ontology Classiﬁer (CSO-C) [34]. CSO-C is a classiﬁer which exploits syntactic and semantic similarity to map text spans to
+topics in CSO. It extracts the set of entities ECSO.
+– OpenIE of the Stanford Core NLP suite [1]. This tool is used to extract open
+domain relationships from plain texts of the input dataset among the entities
+in the sets EDy and ECSO. The module considers only triples whose relations
+are composed by only one verb and yields the set of triples TOIE.
+– PoS Tagger (PoST). This module is built on top of the Stanford Core
+NLP suite [28]. It uses part-of-speech (PoS) tags to ﬁnd all verbs that exist in
+sentences between pairs of entities. For example, given a sentence s and two
+entities in it ei and ej where ei, ej ∈EDy ∪ECSO, this module builds triples
+<ei, v, ej>, where v is a verb in s between ei and ej. This module uses a
+window of size 15 as the maximum number of tokens that can occur between
+two entities to extract verb relations. It returns the set of triples TP oS.
+The sets TDy, TOIE, and TP oS are given as an input to the Entities and
+Relations Handler Module.
+4.2
+Entities and Relations Handler Module
+This module has been developed to integrate and clean up entities and relationships from the diﬀerent tools, in order to reduce noise and redundancies.
+Entities Handler. This module: (i) lemmatizes all entities to group singulars
+and plurals forms of the same entities; (ii) solves acronyms by exploiting the fact
+that they are usually placed in brackets near entities in the text; (iii) removes
+entities which appear in a handcrafted blacklist; (iv) removes generic entities
+which have an information content provided by WordNet equal to or lower than
+an empirically deﬁned threshold of 5. In order to not discard key entities for the
+this domain, the module uses a whitelist of research entities which includes the
+‘Fields of Study’ from MAG.
+Next, a sentence transformer model is used to detect and merge entities with
+the same meaning.
+Given the set of all entities, let us say E, the module creates an index based
+on the tokens contained by the entities. The index links each token to all the
+entities that include it. Then, it compares two entities ei, ej ∈E if they share at
+least one token. The comparison is performed by using the state-of-the-art framework SentenceTransformers [32] and encoding the entities with the paraphrasedistilroberta-base-v2 11 transformer model. Entities which have a cosine similarity
+equal to or greater than a threshold thmerge = 0.9 (empirically calculated) are
+merged together. For example, if the entity ei and ej have a cosine similarity
+greater than 0.9, then the module chooses ei as representative entity for both ei
+and ej, and uses ej as an alternative label of ei.
+Relationships Handler. The sets TDy, TOIE, and TP oS may contain several
+redundant triples that use diﬀerent predicates (e.g., includes, embeds, contains)
+to convey the same meaning. We address this issue by mapping similar verbs
+to the same predicate. The mapping schema has been built by enriching our
+previous handcrafted mapping [15] with VerbNet [38], which oﬀers a complete
+and coherent semantic representations of verbs [10]. Verbnet is a taxonomy of
+11 https://huggingface.co/sentence-transformers/paraphrase-distilroberta-base-v2.
+English verbs organized in classes whose verbs share syntactic and semantic
+coherence. It enables to build new taxonomies with domain-speciﬁc jargon while
+holding as a core the most common use of verbs based on their semantics in
+more general contexts. Speciﬁcally, we associated the extracted verbs with the
+high-level predicates of the previous mapping as well as relevant VerbNet classes.
+We then manually reﬁned this schema to produce a ﬁnal set of 39 representative
+predicates mapped to 464 verbs from the articles12. These same predicates were
+also used to produce the relevant relations in the CS-KG ontology.
+All verbs of sets TOIE, and TP oS are mapped using this schema. The relations
+generated by DyGIEpp in the set TDy are also mapped to the same representative
+predicates13. For example, two triples which share the same entities such as <a,
+embeds, b> and <a, contains, b> will be merged in a single triple <a, includes,
+b>, given that embeds and contains are mapped to includes. After mapping
+all the relations of the sets TDy, TOIE, and TP oS, the module yields the set of
+triples T.
+4.3
+Ontology-Based Checker Module
+In this phase, the CS-KG ontology is used to integrate entities from diﬀerent
+tools and discard triples that do not comply with domain and range of the
+relations. All triples of the set T are then represented according to the CS-KG
+ontology. The types of entities returned by the DyGIEpp tool are mapped to
+the relevant classes in the ontology. Speciﬁcally, methods, tasks, materials, and
+metrics are mapped to the homonymous classes in the ontology (e.g., material is
+mapped to the class cskg-ont:Material), while other-scientiﬁc-terms and generic
+entities are mapped to cskg-ont:OtherEntity. The predicates are mapped to the
+ontology object properties. For instance, <cskg:semantic_interoperability,
+uses, cskg:ontology_matching>, considering that <cskg:ontology_matching,
+rdf:type,
+cskg-ont:Task>,
+becomes
+<cskg:semantic_interoperability,
+cskgont:usesTask, cskg:ontology_matching>.
+In this phase, triples which do not comply with the semantics of the ontology are discarded. For example the triple <cskg:utk_face_dataset,uses,
+cskg:deep_learning>, where cskg:utk_face_dataset is a cskg-ont:Material and
+cskg: deep_learning is a cskg-ont:Method, is discarded because the class cskg-ont:
+Material is not in the domain of the property cskg-ont:usesMethod.
+4.4
+Machine Learning-Based Checker Module
+Triples obtained from several articles are typically of good quality, since the
+probability of extracting the same incorrect claim from multiple papers is fairly
+low. On the other hand, triples which appear in one or very few papers are more
+noisy and less reliable. We can thus use the number of papers associated with
+a triple, which we label support, to distinguish between reliable and uncertain
+Fig. 2. Distribution of the research areas in terms of relevant papers.
+triples. However, we do not want to automatically discard all uncertain triples,
+since many of them may be valid. Therefore, this module uses a classiﬁer to
+decide which triples need to be included in the knowledge graph. It ﬁrst splits T
+in two disjoint sets: Treliable (support ≥3) and Tuncertain (otherwise). The set
+Treliable is employed to train a Multi-Layer Perceptron classiﬁer which implements a function θ : t →{0, 1} that, given an input triple t, predicts 1 if the
+triple t is correct and can be included in the knowledge graph, and 0 if the triple t
+should be discarded. In order to generate negative triples for the training phase,
+each triple t ∈Treliable is corrupted by a triple t′|t′̸ ∈T by replacing the head or
+the tail with a random chosen entity. The set of the triples {t′
+0, . . . , t′
+n} constitutes the set of negative triples Tnegative. Therefore the set Treliable ∪Tnegative is
+actually used to train the model. The rationale behind this solution is to use the
+classiﬁer to identify high quality triples in the set Tuncertain which is consistent
+with triples of the set Treliable. The set of triples for which the classiﬁer predicts
+1 is referred as Tconsistent. Finally, the triples in sets Treliable and Tconsistent as
+well as all associated information (e.g., support, relevant articles, and so on) are
+reﬁed into statements and encoded as RDF in order to generate CS-KG.
+
+Evaluation
+In order to evaluate the automatic methodology used for producing CS-KG,
+we measured its performance on a manually annotated gold standard. To this
+purpose, we ﬁrst selected 1200 statements which contain as subject or object one
+of sub-topics of Machine Learning14 according to CSO. More speciﬁcally, the set
+of statements was created by aggregating: 1) 200 statements whose support is
+greater than 5, 2) 200 statements whose support is equal to or greater than 3, 3)
+200 statements whose support is lower than 3, 4) 400 statements discarded by
+the methodology, and 5) 200 randomly generated statements that are not part
+of CS-KG. The latter were produced by replacing the subject or the object of a
+statement from CS-KG.
+This set was then manually annotated by 3 senior computer science
+researchers. For each triple, the experts were asked to return 1 if a triple was
+correct, i.e., it appeared in literature, and 0 otherwise. They were also allowed
+to use online tools to check if a triple was consistent with the scientiﬁc literature. The Fleiss’ kappa agreement [18] between the annotators was 0.435,
+indicating a moderate agreement. The majority vote schema was employed to
+generate the gold standard. In order to show the advantage of our hybrid method
+that builds on top of multiple tools, we compared our full methodology against
+DyGIEpp [43], OpenIE [1], PoST [28], and against the union of their results
+14 https://cso.kmi.open.ac.uk/topics/machine_learning.
+Table 2. Precision (P) Recall (R) and F-measure (F1) over 1,200 annotated statements.
+Extraction tools
+DyGIEpp
+0.67
+0.37
+0.47
+OpenIE
+0.60
+0.24
+0.34
+PoST
+0.56
+0.46
+0.51
+DyGIEpp + OpenIE + PoST 0.55
+0.93 0.69
+CS-KG pipeline
+0.76 0.77
+0.76
+(DyGIEpp + OpenIE + PoST). Table 2 reports the results of the evaluation in
+terms of precision, recall, and f-measure. The CS-KG pipeline outperforms all
+the other tools yielding a overall f-measure of 0.76. This demonstrates how the
+checker modules (described in Sects. 4.3 and 4.4) are able to increase signiﬁcantly
+the accuracy of the statements (+21% in precision), paying a relatively low price
+in recall. An inspection of the results shows also that 86% of the statements with
+support greater than 5 are correct, consistently with the intuition that support
+is an indicator of a triple correctness. The method which aggregates all the basic
+tools (DyGIEpp+OpenIE+PoST) performs second best (0.69), highlighting the
+value of an hybrid approach that combines both unsupervised and supervised
+methods. Finally, DyGIEpp, OpenIE, and PoST obtain f-measures in the 0.47-
+0.51 range. Among them, DyGIEpp has the highest precision (0.67), while PoST
+has the highest recall (0.46).
+In summary, the evaluation suggests that i) CS-KG oﬀers good quality statements, in particular when associated to a good support, ii) the performance of
+each of the three tools is unsatisfactory and, therefore, it is worth to produce
+a pipeline that is able to combine them, and iii) the components of the CS-KG
+pipeline used to discriminate valid statements (i.e., the Machine Learning-based
+Checker Module and the Ontology-based Checker Module) play an important role
+in improving the overall quality and reducing noisy and incorrect statements.

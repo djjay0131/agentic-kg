@@ -1,0 +1,862 @@
+A B S T R A C T
+Generating research hypotheses is a crucial step in scientific investigation that involves the creation of precise,
+verifiable, and logically valid statements that can be empirically examined. Therefore, many efforts have
+been made to automate or assist this process through the use of various Artificial Intelligence solutions.
+However, most existing methods are tailored to very specific domains, particularly within the biomedical
+field. There have been recent attempts to formalize hypothesis generation as a link prediction task over
+knowledge graphs. This solution is potentially domain-independent and applicable across diverse disciplines.
+Nevertheless, current approaches for link prediction, which typically rely on embedding models or path-based
+methods, have shown limited success in accurately predicting new hypotheses. To address these limitations, this
+paper introduces ResearchLink, an innovative and domain-independent methodology for hypothesis generation
+over knowledge graphs. ResearchLink combines path-based features and knowledge graph embeddings with
+text embeddings, capturing the semantic context of entities within a given corpus, and integrates additional
+information from bibliometric databases to improve research collaboration predictions. To conduct a rigorous
+evaluation of ResearchLink, we constructed CSKG-600, a new dataset for hypothesis generation, consisting of
+600 statements that were manually labeled by domain experts. ResearchLink achieved outstanding performance
+(78.7% P@20), significantly outperforming alternative approaches such as TransH (71.8%), TransD (71.7%),
+and RotatE (70.7%).
+
+1. Introduction
+Research hypothesis generation is a fundamental process in scientific inquiry that involves the formulation of specific, testable, and
+logically sound hypotheses that can be subjected to empirical testing.
+Therefore, many efforts have been made to automate or assist this
+process through the use of various Artificial Intelligence (AI) solutions.
+Indeed, the automatic generation of research hypotheses represents one
+of the most intriguing tasks in the field of AI as it encompasses both
+a creative aspect, wherein computers attempt to emulate the intuition
+of human researchers, and a predictive component, where they strive
+to anticipate future developments within a specific domain [1–3].
+Furthermore, integrating AI-powered hypothesis generation into scientific practices can have a transformative impact, allowing scientists
+∗Corresponding author.
+E-mail addresses: borrego@us.es (A. Borrego), ddessi@sharjah.ac.ae (D. Dessì), dayala1@us.es (D. Ayala), inmahernandez@us.es (I. Hernández),
+francesco.osborne@open.ac.uk (F. Osborne), diego.reforgiato@unica.it (D. Reforgiato Recupero), davide.buscaldi@lipn.univ-paris13.fr (D. Buscaldi), druiz@us.es
+(D. Ruiz), enrico.motta@open.ac.uk (E. Motta).
+to effectively combine multidisciplinary information, accelerating the
+process of knowledge discovery, and leading to breakthroughs that
+might have otherwise remained elusive.
+The research community has been actively addressing the challenge of research hypothesis generation for several years [4,5]. Current
+approaches generally focus on proposing novel and non-trivial associations between existing concepts (e.g., chemical compounds and
+diseases) that could be interpreted as testable research hypotheses. The
+resulting hypotheses are then evaluated by human researchers, who
+choose the most promising ones for further investigation. However,
+most existing methods are tailored to highly specific domains, such
+as detecting new associations between drugs and diseases, particularly within the biomedical field [6–8]. This narrow specialization
+https://doi.org/10.1016/j.knosys.2025.113280
+Received 25 August 2023; Received in revised form 25 November 2024; Accepted 26 February 2025
+Knowledge-Based Systems 315 (2025) 113280
+Available online 8 March 2025
+0950-7051/© 2025 The Author(s). Published by Elsevier B.V. This is an open access article under the CC BY license ( http://creativecommons.org/licenses/by/4.0/ ).
+
+A. Borrego et al.
+significantly limits their versatility and applicability to other research
+areas.
+Recently, there have been some efforts to formalize hypothesis generation as a link prediction task over knowledge graphs of research concepts [3,9]. This solution is potentially domain-independent and applicable across diverse disciplines, provided they offer a machine-readable
+representation of the essential domain entities and their connections.
+Knowledge graphs (KGs) are data structures used for organizing and
+representing structured information semantically [10]. By effectively
+capturing relationships between entities and attributes, KGs facilitate
+the provision of machine-actionable insights into various intelligent
+services [11]. The relationship between two entities is typically formalized as a triple (sometimes called statement) in the form of <subject,
+predicate, object>, e.g., <Bill Gates, founderOf, Microsoft>, <Artificial_Intelligence, subtopicOf, Computer_Science>. In recent years, there has been
+a notable emergence of KGs specifically dedicated to representing
+research knowledge. These KGs typically contain a set of entities in
+this space (e.g., tasks, methods, evaluation techniques, datasets, proteins, chemicals), their relations, and the relevant actors (e.g., authors,
+organizations) and documents (e.g., articles, books) [11–18]. This resources can be further enriched by integrating the numerous knowledge
+organization systems developed across scientific disciplines to describe
+research fields at different levels of granularity [19].
+Link prediction involves the identification of additional relationships between entities in a graph [20,21]. It is commonly used for
+knowledge graph completion, whose aim is to discover missing links in the
+graph that may be absent due to various factors, including gaps in the
+process of constructing the KG [22]. In the context of hypothesis generation, link prediction solutions can utilize the contextual knowledge
+from a KG to identify promising but previously unknown connections
+between entities that may represent valid hypotheses. For example, a
+common pattern in Computer Science involves the reuse of algorithms
+developed for specific tasks on different ones. A notable instance of this
+concept is the recent application of BERT [23], a state-of-the-art model
+for Natural Language Processing, on protein prediction tasks, such as
+protein family classification and protein interaction prediction [24].
+The intuition behind this discovery can be represented as a new relationship of type usesMethod between the Protein_Prediction task and
+the BERT method.
+The standard solutions for link prediction over KGs are typically
+based on knowledge graph embedding (KGE) models [25,26] (e.g.,
+𝑇𝑟𝑎𝑛𝑠𝐸 [27], 𝑇𝑟𝑎𝑛𝑠𝐻 [28], 𝑇𝑟𝑎𝑛𝑠𝐷 [29], 𝑅𝑜𝑡𝑎𝑡𝐸 [30]), path-based approaches [31,32], or graph convolutional networks (e.g., 𝑅𝐺𝐶𝑁 [33]).
+However, while these solutions have demonstrated proficiency in KG
+completion tasks, their performance diminishes when tasked with predicting links that are not necessarily entailed by current knowledge,
+but may emerge in the future as research hypotheses. This limitation
+arises from two main factors. First, many statements produced by these
+techniques are trivial and do not necessarily qualify as hypotheses. For
+example, the triple <deep_learning, uses, electricity>, although true, does not represent a meaningful research hypothesis worth
+exploring. It is simply a piece of information absent from our current
+representation. Furthermore, predicting future links may necessitate
+incorporating data beyond the KG, such as the occurrences of relevant
+entities in bibliometric databases and their semantic meanings inferred
+from the scientific literature.
+To address these issues, we introduce ResearchLink, an innovative
+and domain-independent methodology for hypothesis generation over
+KGs. ResearchLink combines path-based features and KGEs with text
+embeddings, which capture the semantic context of an entity within
+a given corpus, and additional information about the occurrences of
+relevant entities in the literature. It is adaptable to any domain that
+provides a KG of relevant entities.
+To enable rigorous evaluation, we have developed CSKG-600, a
+new dataset for research hypothesis generation. Since ResearchLink
+is designed for generating hypotheses rather than identifying missing
+facts, it cannot be assessed using standard KG completion benchmarks
+such as FB15k and WN18RR. CSKG-600 contains 600 hypotheses derived from the Computer Science Knowledge Graph (CS-KG)1 [11]
+that were manually reviewed by three senior research scientists. CS-
+KG is an open large-scale knowledge graph comprising over 41M
+statements about 10M entities extracted automatically from 6.7M scientific articles. ResearchLink achieves remarkable performance without
+using any domain-specific features and outperforms several alternative
+approaches.
+In summary, the main contributions of this paper are the following:
+• We propose ResearchLink, a domain-independent methodology
+for research hypothesis generation over knowledge graphs.
+• We release a new dataset for hypothesis generation: CSKG-600,
+including 600 manually annotated triples.
+• We report an evaluation comparing ResearchLink against several
+alternative methods and analyze the impact of the novel features
+proposed in this paper on its overall performance.
+• We make available the full source code of ResearchLink at https:
+//github.com/dayala1/ResearchLink so that it can be easily reused
+in other fields.
+The remainder of this paper is organized as follows. Section 2
+discusses the related work. Section 3 describes ResearchLink in detail.
+Section 4 reports the evaluation. Section 5 discuss the limitations of the
+proposed approach. Finally, Section 6 concludes the paper and presents
+future directions of research.
+
+3. Methodology
+This paper introduces ResearchLink, a new domain-independent
+hypothesis generation methodology. ResearchLink takes in input a KG
+that describes the relations between research entities and returns a
+set of novel triples, establishing new connections between previously
+unrelated entities, that can be interpreted as plausible research hypotheses. Some examples of these KGs are CS-KG [11], ORKG [15],
+Nanopublications [18], and UMLS [16].
+The input KG contains a set of statements in the form of <subject,
+predicate, object>, connecting two entities (subject and object) through
+a relationship [10]. They can be any type of research element, such
+as methods, tasks, or materials. Relationships describe the connections,
+e.g., a task can be addressed using a certain method, or a given method
+can be employed to process a specific material. KGs are structured
+based on a domain ontology, which formally defines entity types and
+relations while supporting reasoning processes [88]. The ontology
+also defines the domain and range of relationships, ensuring that only
+specific types of entities can serve as the subject and object of a
+triple when a given relationship is used. For instance, in an ontology
+designed for a medical database, the relation ‘‘has symptom’’ might
+have a domain of ‘‘Diseases’’ and a range of ‘‘Symptoms’’. This means
+that only entities classified as diseases can be the subject of a triple
+whose predicate is ‘‘has symptom’’.
+Formally, the problem we aim to solve is: given a KG consisting of
+a set 𝑇 of triples ⟨𝑠, 𝑝, 𝑜⟩, where 𝑠 and 𝑜 are research entities and 𝑟 a
+relationship between them, we want to create a model 𝑓(𝑇) →𝐻 that,
+given a collection of triples belonging to 𝑇 and, optionally, additional
+information from external sources, it generates a set of triples 𝐻 where
+𝑇∩𝐻= ∅ and ⟨𝑠, 𝑝′, 𝑜⟩∈𝐻 is a plausible research hypothesis.
+It is important to note that, as discussed in the introduction, 𝑝′ does
+not correspond to a classic link prediction task. This is because research
+hypotheses are not merely missing facts; they possess very specific
+characteristics. In particular, the new link between 𝑠 and 𝑜 must suggest
+a novel and plausible piece of knowledge that warrants empirical
+testing by a human researcher. To evaluate this in Section 4.2, we
+introduce a gold standard based on manual annotations from senior
+researchers.
+ResearchLink aims to recognize sound hypotheses by integrating a
+variety of features, including path-based metrics, KGEs, text embeddings, and additional information about the occurrences of relevant
+entities. Fig. 1 shows the architecture of ResearchLink. It includes
+four main stages. First, we generate a number of candidate hypotheses
+that connect previously unrelated entities. Next, we prune this set by
+ranking the candidate hypotheses using SciCheck [62], a path-based
+link prediction technique. We then produce for each hypothesis a richer
+representation that includes a diverse set of features reflecting both the
+occurrence of the entities in the articles and their semantic context.
+Finally, we apply a supervised model on this representation for ranking
+the remaining hypotheses.
+Algorithm 1 contains a description of ResearchLink as pseudocode.
+Knowledge-Based Systems 315 (2025) 113280
+
+A. Borrego et al.
+Algorithm 1 ResearchLink Algorithm
+1: Input: Knowledge Graph (KG), Number of top entities (N),
+SciCheck threshold (0.5)
+2: Output: Classified triples as true or false hypotheses
+3: Step 1: Generate Candidate Triples
+4: Identify top N entities in KG
+5: for each entity 𝑒𝑖 in top N entities do
+Retrieve type of 𝑒𝑖 and possible relations 𝑟
+for each relation 𝑟 do
+Find compatible entities 𝑡 in top N entities
+for each entity 𝑡 do
+10:
+if (𝑒𝑖, 𝑟, 𝑡) ∉𝐾𝐺 then
+11:
+Add (𝑒𝑖, 𝑟, 𝑡) to candidate triples
+12:
+end if
+13:
+end for
+14:
+end for
+15: end for
+16: Step 2: Initial Pruning with SciCheck
+17: Train SciCheck on KG and compute confidence scores 𝑐 for
+candidate triples
+18: Prune triples with 𝑐< 0.5 and keep the rest as pruned triples
+19: Step 3: Pre-compute Information for Features
+20: Compute necessary pre-information (TransH embeddings, degrees,
+occurrences, joint occurrences)
+21: Step 4: Compute Features
+22: for each labeled and pruned triple (𝑠, 𝑝, 𝑜) do
+23:
+Compute features 𝑓1, 𝑓2, … , 𝑓8
+24: end for
+25: Step 5: Train Model for Hypothesis Classification
+26: Train model on labeled triples using computed features
+27: Step 6: Apply Model for Hypothesis Evaluation
+28: for each pruned triple (𝑠, 𝑝, 𝑜) do
+29:
+Apply model to compute classification
+30:
+Label the triple as true or false hypothesis
+31: end for
+In the following, we will describe in detail each step.
+3.1. Candidate Hypotheses Generation
+The initial step involves generating a number of new relationships
+between existing entities, that constitute the set of candidate research
+hypotheses. This set subsequently undergoes a process of cleaning,
+refinement, and ranking. This candidate set should be sufficiently
+expansive to encompass a broad range of potentially interesting triples,
+yet remain computationally manageable [89].
+To generate an initial set of candidate hypotheses from a KG, the
+following steps are undertaken. First, we identify the top 𝑁 entities
+based on their frequency in triples. This approach guarantees that
+each generated triple contains at least one highly-connected entity,
+ensuring richer informational context in subsequent steps. We then
+retrieve the type of each of the selected entities from KG’s ontology.
+For example, the entity random forest is a Method, sentiment analysis is
+a Task, Wikipedia is a Material, etc. This informs which relations can be
+employed to pair them, given that each relation has specific domain and
+range type constraints in the ontology. For instance, given the entity
+Wikipedia which is of type Material, it cannot appear as the subject of
+triples using relationships built on top of active verbs such as use, solve,
+and acquire.
+Finally, for each entity selected in the first step, the set of all triples
+that respect the ontology constraints is generated. These triples have
+the form (𝑒, 𝑟, 𝑡), where 𝑒 is one of the top 𝑁 entities, 𝑟 is one of the
+possible relations in the KG which have the type of 𝑒 in their domain
+and 𝑡 is one of the top 𝑁 entities whose type is in the range of 𝑟. Any
+generated triple already present in the KG is discarded. Consequently,
+for each entity 𝑒 selected in the first step, the maximum amount of
+triples that are generated is:
+𝑟∈𝑟𝑒
+where 𝑟𝑒 is the set of relations that allow the type of 𝑒 in their domain,
+and 𝑡𝑟 is the set of entities whose types are deemed by the KG’s ontology
+to be admissible in the range of 𝑟.
+3.2. Candidate Pruning with SciCheck
+Most of the previously generated candidates are not particularly
+promising, as they link entities without substantial affinity. Consequently, it is desirable to prune this set before engaging in more
+computationally intensive operations. We perform this pruning by ranking the best candidates with SciCheck [62], a path-based link prediction
+approach specifically tailored for scientific knowledge graphs. SciCheck
+evaluates the potential validity of triples, offering a confidence score
+based on both context-based and embedding-based features. In particular, SciCheck processes an entire KG composed of triples and generates
+a neural-based classifier for each relation in the KG. For a given relation
+𝑟, SciCheck creates a model 𝑓𝑟∶(ℎ, 𝑟, 𝑡) →𝑠, which assigns a confidence
+score 𝑠 between 0 and 1 to any given triple ⟨ℎ, 𝑟, 𝑡⟩, addressing the
+binary classification task of determining whether the triple is correct.
+To input data into the model, triples are transformed into numerical
+vector representations using specialized features and contextual embedding representations. Detailed insights about the features used are
+available in [62]. It should be noted that SciCheck must be first trained
+on a substantial portion of the KG. For instance, when training on the
+full CS-KG, the KG used in the evaluation, we consider all statements
+extracted from at least three papers, which yields a sizable set of about
+1M triples.
+To apply SciCheck on the set of candidate triples, we perform
+the following steps. First, we train SciCheck on the entire input
+knowledge graph. SciCheck requires this training process to learn what
+constitutes plausible knowledge in the context of the KG. SciCheck also
+autonomously produces negative triples for the training by corrupting
+triples from the KG, i.e., switching the subject or object of a triple with
+a different entity. As the candidate hypotheses do not exist in the KG,
+SciCheck possesses no prior knowledge about them.
+Following its training, SciCheck establishes a classification model
+for each KG relation. This is aimed at ensuring nuanced classification,
+as varied information might be optimal for different relations [31].
+Candidate hypotheses are grouped by their relation and submitted to
+the appropriate model. Each hypothesis is then assigned a confidence
+value within the range [0, 1]. Hypotheses with confidence values below
+a predefined threshold (set at 0.5 in our current configuration) are
+discarded. The threshold was empirically determined based on insights
+from [62].
+3.3. Hypotheses conversion into feature vectors
+To evaluate the candidate hypotheses using a supervised classification model, we produce a detailed vector representation for each,
+derived from a range of diverse features.
+More in detail, for an input triple ⟨𝑠, 𝑝, 𝑜⟩, the specific features
+employed in this process include:
+• Feature f1: SciCheck confidence score for the triple. The outcome of applying SciCheck to the triple, as outlined in the previous section, is retained and utilized as a classification feature. This
+value is a decimal number within the range of [0.5, 1.0]. Therefore,
+𝑓1 can be defined as:
+𝑓1 = SciCheck(𝑠, 𝑝, 𝑜)
+(1)
+Knowledge-Based Systems 315 (2025) 113280
+
+A. Borrego et al.
+• Feature f2: Degree of the two entities within the KG. This
+feature assesses the connectivity of the two entities in the input
+triple, serving as an indicator of their prominence. It is encoded
+as two integer values, representing the number of edges of the
+KG connected to the subject and object entities, respectively.
+More formally, let 𝑑𝑒𝑔(𝑒) denote the degree of entity 𝑒. Then, 𝑓2
+can be defined as:
+𝑓2 = (deg(𝑠), deg(𝑜))
+(2)
+• Feature f3: Number of occurrences of the two entities in
+scientific abstracts. This feature quantifies the prevalence of the
+subject and object within the scientific literature. It is computed
+by performing text matching against a collection of research paper abstracts to determine the absolute frequency of each entity,
+which is defined as the total number of times the entity appears
+in the abstracts. This feature is encoded as three integer numbers:
+one for the subject, one for the object, and one for their harmonic
+mean.
+More formally, let freqabs(𝑒) denote the frequency of entity 𝑒 in
+scientific abstracts. Then, 𝑓3 can be expressed as:
+𝑓3 = (freqabs(𝑠), freqabs(𝑜), 2 ⋅freqabs(𝑠) ⋅freqabs(𝑜)
+freqabs(𝑠) + freqabs(𝑜) )
+(3)
+• Feature f4: Number of joint occurrences of the two entities
+in scientific abstracts. This feature measures how often entities
+have appeared together in scientific literature. It is calculated by
+counting how many times they appeared in the same abstract. It
+is encoded as an integer number.
+Let freqjoint(𝑒1, 𝑒2) denote the frequency of joint occurrences of
+entities 𝑒1 and 𝑒2 in scientific abstracts. Then, 𝑓4 can be defined
+as:
+𝑓4 = freqjoint(𝑠, 𝑜)
+(4)
+• Feature f5: Minimum embedding cosine distance between the
+triple and all the other triples in the KG. This feature assesses
+the novelty level of a triple by comparing it to the existing
+knowledge in the input KG. This assessment holds significance as
+it can highlight scenarios where a closely related concept already
+exists, potentially indicating limited novelty. To compute this
+feature, all triples are converted into sentences by concatenating
+their subject, predicate, and object with spaces as separators.
+Then, the MiniLM [90] embedding model is applied to these
+sentences, generating a numerical vector representation for each
+entity based on the text’s semantics. These vectors are used to
+identify the triple in the KG that has the highest cosine similarity
+(i.e., the lowest cosine distance) to the triple under evaluation.
+The resulting value is thus a decimal number between 0 and 1. For
+instance, if this feature is computed for the triple <machine learning, applied to, plane trajectory prediction> and the graph contains
+a highly similar triple <machine learning, applied to, satellite orbit
+prediction>, the cosine distance will be relatively low, indicating
+the presence of research closely related to the evaluated triple.
+More formally, let MiniLM(sentence) denote the MiniLM embedding of a sentence, concat(𝑥, 𝑦, 𝑧) represents the string concatenation of the three entities 𝑥, 𝑦 and 𝑧 resulting in the string ‘‘x 𝑦 z’’,
+and let cos(𝑥, 𝑦) denote the cosine distance between vectors 𝑥 and
+𝑦. Then, 𝑓5 can be expressed as:
+𝑓5 =
+min
+∀(𝑠′,𝑝′,𝑜′)∈KG cos(MiniLM(concat(𝑠, 𝑝, 𝑜)), MiniLM(concat(𝑠′, 𝑝′, 𝑜′)))
+(5)
+• Feature f6: Minimum embedding Euclidean distance between
+the triple and all the other triples in the KG. This feature
+also evaluates the novelty of a triple, but it uses Euclidean distance instead of the cosine distance. Unlike cosine similarity,
+which measures the alignment or angular similarity between embeddings, Euclidean distance considers the absolute differences
+in embedding magnitudes. This approach can capture nuances
+that cosine similarity might overlook, such as disparities in the
+embedding space caused by variations in the semantic intensity
+or specificity of the triples. For instance, if two triples share a
+similar direction in the embedding space but differ significantly in
+their distances from the origin, the Euclidean distance will better
+capture this difference. A smaller Euclidean distance indicates
+a closer semantic relationship, while a larger distance suggests
+greater novelty.
+This feature is also computed using the MiniLM model. Therefore,
+𝑓6 can be expressed as:
+𝑓6 =
+min
+∀(𝑠′,𝑝′,𝑜′)∈KG ‖MiniLM(concat(𝑠, 𝑝, 𝑜))−MiniLM(concat(𝑠′, 𝑝′, 𝑜′))‖
+(6)
+• Feature f7: Graph embedding similarity between the two
+entities. This feature quantifies the semantic similarity between
+two entities by calculating the cosine similarity of their graph embeddings. The embeddings are generated by using TransH [91], a
+well-known general-purpose KG embedding model.
+Graph embeddings provide a numerical representation of the
+elements within a graph, typically including nodes and, in many
+cases, their relationships [25]. These embeddings are generated
+by training a neural network to optimize an objective function that captures the structural properties of the graph, often
+by minimizing the distance between selected representations.
+This process encodes meaningful information about the graph’s
+structure and relationships into a compact, continuous vector
+space. The embeddings associated with each node are expected
+to reflect their structural properties, capture their semantics, and
+support various machine learning tasks. For instance, if two nodes
+share connections with several common nodes in the graph, their
+embeddings are likely to be close in the vector space.
+Let TransH(𝑒) denote the TransH embedding of entity 𝑒. Then, 𝑓7
+can be represented as:
+𝑓7 = cos(TransH(𝑠), TransH(𝑜))
+(7)
+• Feature f8: Word embedding similarity between the two entities. This feature measures the similarity between the text representations of the subject and object. It is calculated as the cosine
+similarity of the word embeddings for the two entities, generated
+using the MiniLM model. The resulting value is a decimal ranging
+from 0 to 1. Therefore, 𝑓8 can be expressed as:
+𝑓8 = cos(MiniLM(𝑠), MiniLM(𝑜))
+(8)
+In conclusion, since features 𝑓2 and 𝑓3 produce two values each (one
+for the subject and another for the object), each triple is represented by
+a feature vector of 10 values.
+3.4. Hypothesis classification
+ResearchLink applies a set of random forest classification models to
+the representation of the candidate hypotheses in order to assess which
+one is valid.
+Each hypothesis deemed valid through classification is also associated to the confidence values derived from the classifier. This allows
+ResearchLink to provide a ranked list of the generated hypotheses.
+This aids researchers that have then to manually inspect and interpret
+the hypotheses, enabling them to promptly identify the more plausible
+ones.
+Knowledge-Based Systems 315 (2025) 113280
+
+A. Borrego et al.
+
+4. Evaluation
+This section presents the evaluation of ResearchLink compared to
+alternative approaches, along with an ablation study analyzing the
+benefits provided by the features discussed in Section 3.3.
+It is important to note that ResearchLink is designed for hypothesis
+generation rather than KG completion. Consequently, it cannot be evaluated using standard KG completion datasets (e.g., FB15k, WN18RR)
+as they primarily focus on missing facts, many of which are trivial
+and not suitable as hypotheses. Moreover, they lack essential features
+required for ResearchLink, such as collections of scientific abstracts
+containing relevant entities. Therefore, to conduct a rigorous evaluation
+of ResearchLink, we constructed CSKG-600, a new dataset for research
+hypothesis generation derived from the Computer Science Knowledge
+Graph.
+We acknowledge that this evaluation is limited to a single scientific
+domain; however, this restriction is due to the substantial complexity
+and data requirements involved in creating a benchmark for hypothesis
+generation that covers all eight feature types examined in this study.
+Specifically, this process requires a comprehensive knowledge graph of
+research entities linked by relationships that could support hypothesis
+generation, an associated bibliographic dataset to assess entity frequencies and the manual annotation of potential research hypotheses by
+multiple senior researchers. CS-KG enables this approach by offering
+a wealth of entities, relationships, and pertinent bibliographic data.
+In the following, we first describe the use case based on CS-KG that
+we adopted for evaluating our methodology. We then describe the
+generation of CSKG-600 and discuss the experimental design. Finally,
+we report the performance of the various techniques.
+4.1. Use case: CS-KG
+The Computer Science Knowledge Graph (CS-KG) [11,92] is an
+open, large-scale, automatically built knowledge graph describing 41M
+statements related to the Computer Science domain. It has been generated using the titles and abstracts of more than 6.7M research papers about Computer Science ranging from the year 2010 to the first
+semester of the year 2021, using the Microsoft Academic Graph2 as
+a data source. CS-KG includes more than 10M research entities that
+can belong to 5 different classes (cskg-ont:Material, cskg-ont:Task, cskgont:Method, cskg-ont:Metric, cskg-ont:OtherEntity) described by 179 relations such as cskg-ont:usesMethod, cskg-ont:includesMaterial, skos:broader,
+etc. CS-KG statements describe the relationship that stands between
+two entities based on the content of scientific abstracts as a piece of
+information. For instance, a triple <cskg:generative_model, usesMethod, cskg:generative_adversarial_network> from
+the papers [93,94] describes the fact that there exist generative models
+that use generative adversarial networks. The reader can find details
+about CS-KG content and its ontology online.3
+4.2. Gold standard generation
+In order to evaluate our approach, we constructed CSKG-600,4 a
+gold standard of 600 human-labeled research hypotheses. We generated
+these hypotheses starting from a version of CS-KG containing only
+data up to 2017. This enabled us to emulate the hypothesis generation
+process as it would have been conducted in 2017, and then validate
+the accuracy of the hypotheses by assessing if they were verified in the
+following years (2018–2023). If a triple is not present in this set, it
+could be due to its absence in the literature sample used to create CS-
+KG or because the KG generation method failed to extract it. Therefore,
+2 https://www.microsoft.com/en-us/research/project/microsoft-academicgraph/
+3 https://w3id.org/cskg/cskg/documentation.php
+4 https://github.com/dayala1/ResearchLink/blob/master/CSKG-600.csv
+any additional triple can be considered novel within the context of
+the KG, which is a necessary (but not sufficient) condition for a valid
+hypothesis.
+We generated an initial set of novel triples by following the methodology for producing candidate hypotheses described in Sections 3.1 and
+3.2. We first materialized the Cartesian combination of all possible entities for each of the three most frequent relations in CS-KG: usesMethod,
+usesTask, and usesMaterial. We then discarded the triples that were
+invalid according to the ontology of CS-KG5 or that were already in the
+KG. Next, we used SciCheck [62] to prune these candidate hypotheses
+by computing a confidence score for each of them. This was done by
+training SciCheck using only triples introduced in CS-KG before 2017,
+so as to not bias the classifier with the most recent scientific knowledge.
+Finally, SciCheck was used to evaluate the generated triples, and those
+with a confidence value below 0.5 were discarded.
+To reduce the number of hypotheses manually assessed by human evaluators, we then selected a subset of 20 popular entities
+from CS-KG, covering a variety of different topics in Computer Science, e.g., autonomous_vehicle, sentiment_analysis, wearable_technology,
+face_recognition, deep_learning, game_theory. For each of them, we generated 30 hypotheses. Specifically, we generated ten hypotheses for
+each of the three adopted relations. This process resulted in a set of
+600 candidate hypotheses, with 200 hypotheses generated for each of
+the three relations under analysis.
+The 600 resulting hypotheses were labeled by three senior researchers as either valid or invalid. To ensure objectivity, a hypothesis
+was deemed valid if sufficiently precise and supported by at least a scientific article published post-2017. The scientists were asked to locate
+relevant evidence in the literature before assessing each hypothesis.
+It is crucial to highlight that both the positive and negative examples
+were drawn from the same pool of candidates, all of whom had high
+SciCheck scores. As a result, incorporating the SciCheck score as a
+feature in ResearchLink does not introduce any bias into the evaluation
+process. This systematic approach to constructing the gold standard
+ensures that all valid hypotheses are manually verified and supported
+by recent literature. In contrast, invalid hypotheses, though generated
+by a link prediction system and therefore realistic, are deemed invalid
+due to being trivial, too vague, or lacking support in current literature.
+The resulting statement can be readily translated into research
+hypotheses, as they facilitate the combination of the three primary
+types of entities in CS-KG (methods, tasks, and materials). The sound
+hypotheses generally recommend adopting specific methods, tasks, or
+materials to address particular challenges.
+For example, the triple <deep_learning, usesMethod, extended_kalman_filter> described in a paper from 2019 [95]
+proposes incorporating an extended Kalman filter within a deep learning framework. Similarly, the triple <wearable_ technology, usesTask, emotion_recognition> has been studied in the year
+2023 [96] and suggests integrating emotion recognition techniques
+within wearable technologies. A third example we would like to mention is <data_compression, usesMethod, gaussian_mixture
+_model> from the year 2024 [97] where data quantity minimization
+is studied for real-time ambulatory and telemedicine systems with
+limited storage. As previously discussed, negative examples usually
+refer to trivial ideas that do not contribute to additional knowledge
+(e.g., <game_theory, usesMaterial, renewable_energy>) or
+are too vague (e.g., <decision_support_system, usesMaterial, geometry>).
+5 https://scholkg.kmi.open.ac.uk/cskg/ontology.html
+Knowledge-Based Systems 315 (2025) 113280
+
+A. Borrego et al.
+4.3. Evaluation setup
+This section outlines the tested methods and the metrics we adopted
+for their evaluation. We compare ResearchLink to five alternative approaches generally used for link prediction and knowledge graph completion [63]: 𝑇𝑟𝑎𝑛𝑠𝐸 [27], 𝑇𝑟𝑎𝑛𝑠𝐻 [28], 𝑇𝑟𝑎𝑛𝑠𝐷 [29], 𝑅𝑜𝑡𝑎𝑡𝐸 [30],
+and 𝑅𝐺𝐶𝑁 [33]. We used the PyKEEN’s implementation of these
+models [98].
+We evaluate these methods by assessing their ability to assign a
+score to each hypothesis in the test set of CSKG-600, reflecting its
+validity. This evaluation strategy aligns with established methodologies
+for applying link prediction techniques to the hypothesis generation
+task [3]. It is important to highlight that, since all methods are tested
+on the same set of candidate hypotheses, ResearchLink is exclusively
+used to evaluate these hypotheses, as described in Sections 3.3 and 3.4
+(illustrated by the blue and yellow boxes in Fig. 1).
+All the methods that required training on a knowledge graph were
+trained on the version of CS-KG, which contained only information
+before 2017. Once trained, these methods are capable of scoring any
+triple whose subject, relation, and object appeared in the training set.
+Each method was then applied to the entire test set, producing a ranked
+list of the candidate hypotheses. The performance of the methods was
+measured using Precision@N over these ranked lists. Precision@N
+(P@N) is defined as P@N = TP@N
+, where TP@N represents the number
+of true positives among the top 𝑁 predictions. It is often employed in
+information retrieval and ranking problems to gauge the effectiveness
+of the system in identifying the most relevant items within a specific
+subset of the total results. For example, if a method produces 7 valid
+hypotheses in the top 10 positions, its Precision@10 would be 70%. We
+computed the average P@5, P@10, P@15, and P@20 across the four
+cross-validation runs. In this domain, we particularly aim to achieve
+better results for higher values of N, such as P@15 and P@20. These
+measures are less sensitive to randomness and provide a realistic goal
+of presenting researchers with 15 to 20 hypotheses, aiming for about
+70%–75% to be of good quality. Conversely, P@5 was quite unstable across different experiments, as the position of a single item can
+significantly affect it. Nonetheless, we still report it for the sake of
+completeness.
+To assess the contribution of the features discussed in Section 3.3,
+we also conducted an ablation study by testing 15 versions of Researchlink using various combinations of these features. Specifically,
+we evaluated four groups of features:
+• SciCheck feature (𝑓1 in Section 3.3), the confidence score for the
+candidate hypothesis according to SciCheck [62], a path-based
+link prediction technique specifically designed for scientific KGs.
+• Frequency features (𝑓2, 𝑓3, 𝑓4), which evaluate the frequency of
+the entities in the KG and the literature.
+• Similarity features (𝑓5, 𝑓6), which assess the similarity of the
+candidate hypothesis with other triples in the KG.
+• Embedding features (𝑓7, 𝑓8), which assess the similarity of the
+subject and object according to their word and graph embeddings.
+We then run on the gold standard 15 versions of ResearchLink
+using all possible combinations of these four groups. As for the other
+methods, all the features were computed on the version of CS-KG that
+only contained information available before 2017.
+We evaluated all approaches using k-fold cross-validation (𝑘= 4)
+over the gold standard defined in Section 4.2. In each of the four
+iterations, we chose a subset of 5 entities and the corresponding 150
+hypotheses. These served as the test set, while the remaining 15 entities
+associated with 450 hypotheses formed the training set.
+Fig. 2. Results summary of each tested method. ResearchLink (best) denotes the version
+of ResearchLink that obtained the best results at each metric in the ablation study.
+4.4. Results
+Table 2 presents the results of all experiments. The upper section
+details the 15 versions of ResearchLink obtained by combining the
+four groups of features discussed in the previous section. Each column
+indicates whether a specific feature set was used, with True denoting
+its inclusion and False indicating its exclusion. For instance, the first
+row corresponds to the version of ResearchLink that utilizes only
+the embedding features. The final row represents the full version of
+ResearchLink that incorporates all features. The lower section of the
+table reports the performance of the five alternative methods. Fig. 2
+provides a summary, comparing the five baselines to the best results
+achieved by the different versions of ResearchLink for each P@N.
+The version of ResearchLink that utilizes the complete set of features
+outperformed the five alternative approaches for P@10, P@15, and
+P@20. Notably, it was able to identify several triples representing significant hypotheses that were then materialized in recent years, such as
+<face_detection, usesMethod, ensemble_learning> [99], <autonomous_vehicle, usesMethod, disturbance_observer> [100], or <structural_health_monitoring, usesTask, deep_learning> [101]. The results for P@5 are more
+erratic, with TransD and TransH surpassing the full version of Research-
+Link. However, the overall best method for P@5 is actually a version
+of ResearchLink that uses only similarity and embedding features.
+It is also beneficial to examine each set of features individually to
+understand their distinct contributions. Focusing on the first part of
+Table 2, we can see that each feature group tends to enhance Research-
+Link’s performance. Using all features achieves the best performance
+for P@20 and P@10. However, other combinations are also effective
+and may warrant further investigation in future work. Notably, the
+version excluding the embedding features achieves the same performance as the full feature set for P@10, although with slightly lower
+performance for P@15 and P@20. The adoption of different embedding
+techniques may potentially further improve this approach. Similarly,
+the version excluding the frequency features performs best for P@15,
+suggesting that in some cases, integrating information about an entity’s
+popularity is less beneficial. This may also be due to using a relatively
+simple proxy, namely the number of occurrences and co-occurrences
+of subjects and objects in scientific abstracts. We plan to explore more
+nuanced metrics, such as normalizing the occurrence number according
+to the year or the scientific field.
+Finally, Fig. 2 summarizes the results, demonstrating that the general approach presented in this paper, which integrates various features
+relevant to the specific hypothesis generation task, is clearly superior to
+alternative methods designed for link prediction and knowledge graph
+completion. This superiority is particularly evident in the most reliable
+metrics, such as P@15 and P@20.
+Knowledge-Based Systems 315 (2025) 113280
+
+A. Borrego et al.
+Table 2
+Average Precision@N for all approaches. The best result for each metric is shown in bold.
+ Scicheck
+feat.
+Frequency
+feat.
+Similarity
+feat.
+Embedding
+feat.
+P@5
+P@10
+P@15
+P@20
+
+False
+False
+False
+True
+0.80000
+0.75000
+0.73333
+0.73750
+
+True
+False
+0.65000
+0.70000
+0.66667
+0.68750
+
+True
+0.85000
+0.72500
+0.73333
+0.75000
+
+True
+False
+False
+0.50000
+0.52500
+0.60000
+0.65000
+
+True
+0.80000
+0.65000
+0.71667
+0.72500
+
+True
+False
+0.75000
+0.75000
+0.76667
+0.72500
+
+True
+0.75000
+0.70000
+0.73333
+0.73750
+
+True
+False
+False
+False
+0.70000
+0.70000
+0.65000
+0.66250
+
+True
+0.80000
+0.75000
+0.73333
+0.72500
+
+True
+False
+0.70000
+0.70000
+0.73333
+0.71250
+
+True
+0.80000
+0.77500
+0.81667
+0.77500
+
+True
+False
+False
+0.70000
+0.72500
+0.70000
+0.70000
+
+True
+0.70000
+0.77500
+0.73333
+0.73750
+
+True
+False
+0.70000
+0.77500
+0.78333
+0.76250
+
+True
+0.75000
+0.77500
+0.76667
+0.78750
+ TransE
+0.63000
+0.63750
+0.63500
+0.63375
+ TransH
+0.79000
+0.77250
+0.73667
+0.71125
+ TransD
+0.80500
+0.74250
+0.71833
+0.71750
+ RotatE
+0.72500
+0.73250
+0.71667
+0.70750
+ RGCN
+0.65000
+0.65000
+0.63333
+0.60000
+Table 3
+Precision@N for the hypotheses generated by 𝑅𝑒𝑠𝑒𝑎𝑟𝑐ℎ𝐿𝑖𝑛𝑘 for a sample of entities.
+ Entity
+P@5
+P@10
+P@15
+P@20
+ 𝑎𝑐𝑡𝑖𝑜𝑛_𝑟𝑒𝑐𝑜𝑔𝑛𝑖𝑡𝑖𝑜𝑛
+1.000
+1.000
+0.800
+0.800
+ 𝑝𝑎𝑡𝑡𝑒𝑟𝑛_𝑟𝑒𝑐𝑜𝑔𝑛𝑖𝑡𝑖𝑜𝑛
+1.000
+0.900
+0.867
+0.850
+ 𝑖𝑚𝑎𝑔𝑒_𝑎𝑛𝑎𝑙𝑦𝑠𝑖𝑠
+1.000
+0.900
+0.800
+0.800
+ 𝑡𝑟𝑎𝑐𝑘𝑖𝑛𝑔_𝑠𝑦𝑠𝑡𝑒𝑚
+1.000
+0.900
+0.733
+0.750
+ 𝑑𝑒𝑐𝑖𝑠𝑖𝑜𝑛_𝑠𝑢𝑝𝑝𝑜𝑟𝑡_𝑠𝑦𝑠𝑡𝑒𝑚
+1.000
+0.800
+0.800
+0.800
+ 𝑓𝑎𝑐𝑒_𝑑𝑒𝑡𝑒𝑐𝑡𝑖𝑜𝑛
+1.000
+0.800
+0.600
+0.550
+ 𝑛𝑒𝑢𝑟𝑎𝑙_𝑛𝑒𝑡𝑤𝑜𝑟𝑘
+1.000
+0.700
+0.667
+0.600
+ 𝑑𝑎𝑡𝑎_𝑐𝑜𝑚𝑝𝑟𝑒𝑠𝑠𝑖𝑜𝑛
+0.800
+0.500
+0.533
+0.550
+ 𝑑𝑒𝑒𝑝_𝑙𝑒𝑎𝑟𝑛𝑖𝑛𝑔
+0.800
+0.800
+0.867
+0.850
+ 𝑒𝑣𝑜𝑙𝑢𝑡𝑖𝑜𝑛𝑎𝑟𝑦_𝑎𝑙𝑔𝑜𝑟𝑖𝑡ℎ𝑚
+0.800
+0.800
+0.667
+0.500
+ 𝑤𝑒𝑎𝑟𝑎𝑏𝑙𝑒_𝑡𝑒𝑐ℎ𝑛𝑜𝑙𝑜𝑔𝑦
+0.800
+0.800
+0.600
+0.650
+ 𝑎𝑢𝑡𝑜𝑛𝑜𝑚𝑜𝑢𝑠_𝑣𝑒ℎ𝑖𝑐𝑙𝑒
+0.800
+0.700
+0.733
+0.600
+ 𝑠𝑒𝑛𝑡𝑖𝑚𝑒𝑛𝑡_𝑎𝑛𝑎𝑙𝑦𝑠𝑖𝑠
+0.800
+0.700
+0.667
+0.750
+ 𝑔𝑟𝑎𝑝ℎ𝑖𝑐𝑠_𝑝𝑟𝑜𝑐𝑒𝑠𝑠𝑖𝑛𝑔_𝑢𝑛𝑖𝑡
+0.800
+0.700
+0.600
+0.650
+ 𝑔𝑎𝑚𝑒_𝑡ℎ𝑒𝑜𝑟𝑦
+0.400
+0.700
+0.667
+0.550
+ 𝑚𝑢𝑙𝑡𝑖𝑎𝑔𝑒𝑛𝑡_𝑠𝑦𝑠𝑡𝑒𝑚
+0.400
+0.400
+0.267
+0.300
+Table 3 reports the performance of ResearchLink on a sample of
+entities. Generally, the results are satisfactory, with valid hypotheses involving most entities ranked at the top. However, notable performance
+variations exist between them, implying that specific characteristics
+of the entities might substantially influence our ability to evaluate
+relevant research hypotheses. For instance, the system obtains perfect
+accuracy for the top 5 hypotheses on entities such as 𝑎𝑐𝑡𝑖𝑜𝑛_𝑟𝑒𝑐𝑜𝑔𝑛𝑖𝑡𝑖𝑜𝑛
+and 𝑓𝑎𝑐𝑒_𝑑𝑒𝑡𝑒𝑐𝑡𝑖𝑜𝑛. Conversely, it obtains sub-par results for other ones,
+such as 𝑚𝑢𝑙𝑡𝑖𝑎𝑔𝑒𝑛𝑡_𝑠𝑦𝑠𝑡𝑒𝑚. A more in-depth investigation of this aspect
+will necessitate further future work.

@@ -2,6 +2,7 @@
 Unit tests for paper processing pipeline.
 """
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -492,7 +493,7 @@ class TestPaperProcessingPipeline:
                         paper_title="Test Paper",
                     )
 
-        assert result.source_path == "/path/to/paper.pdf"
+        assert Path(result.source_path) == Path("/path/to/paper.pdf")
         assert len(result.stages) >= 1
 
     @pytest.mark.asyncio

@@ -70,7 +70,7 @@ def parse_seed_models(source: Union[str, Path, list]) -> list[SeedModelEntry]:
         path = Path(source)
         if not path.exists():
             raise FileNotFoundError(f"Seed file not found: {path}")
-        raw = yaml.safe_load(path.read_text())
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     elif isinstance(source, str):
         raw = yaml.safe_load(source)
     else:

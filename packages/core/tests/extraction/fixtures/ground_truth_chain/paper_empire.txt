@@ -1,0 +1,412 @@
+Abstract—[Background.] Empirical research in requirements
+engineering (RE) is a constantly evolving topic, with a growing
+number of publications. Several papers address this topic using
+literature reviews to provide a snapshot of its “current” state and
+evolution. However, these papers have never built on or updated
+earlier ones, resulting in overlap and redundancy. The underlying problem is the unavailability of data from earlier works.
+Researchers need technical infrastructures to conduct sustainable
+literature reviews. [Aims.] We examine the use of the Open
+Research Knowledge Graph (ORKG) as such an infrastructure
+to build and publish an initial Knowledge Graph of Empirical
+research in RE (KG-EmpiRE) whose data is openly available.
+Our long-term goal is to continuously maintain KG-EmpiRE with
+the research community to synthesize a comprehensive, up-todate, and long-term available overview of the state and evolution
+of empirical research in RE. [Method.] We conduct a literature
+review using the ORKG to build and publish KG-EmpiRE
+which we evaluate against competency questions derived from a
+published vision of empirical research in software (requirements)
+engineering for 2020 – 2025. [Results.] From 570 papers of the
+IEEE International Requirements Engineering Conference (2000
+– 2022), we extract and analyze data on the reported empirical
+research and answer 16 out of 77 competency questions. These
+answers show a positive development towards the vision, but also
+the need for future improvements. [Conclusions.] The ORKG is a
+ready-to-use and advanced infrastructure to organize data from
+literature reviews as knowledge graphs. The resulting knowledge
+graphs make the data openly available and maintainable by
+research communities, enabling sustainable literature reviews.
+Index Terms—Knowledge graph, empirical research, requirements engineering, infrastructure, sustainability, literature review
+
+I. INTRODUCTION
+Empirical research in requirements engineering (RE) is a
+constantly evolving topic, with a growing number of publications [1]–[3]. Several publications examined how empirical
+research in RE is conducted and how it should be conducted
+in the future [2], [4]. Over the years, they presented snapshots
+of the “current” state and evolution of empirical research in
+RE [1]–[3], [5], [6] and, more generally, in software engineering (SE) [7]–[15]. They share the same goal of synthesizing a
+comprehensive, up-to-date, and long-term available overview
+of the state and evolution of empirical research in RE and SE.
+Although they share the same goal, use similar methods, i.a.,
+(systematic) literature reviews, and even examine overlapping
+periods, venues, and themes (cf. Table I) [16], they have not
+collaborated to build on and update earlier works, which are
+known challenges of literature reviews [17]–[20]. Overcoming
+these challenges is critical to ensure the quality, reliability, and
+timeliness of research results from literature reviews [19], [21].
+Recent research addresses these challenges by focusing
+on when and how to update (systematic) literature reviews
+in SE and its subfields [4], [21]–[23]. While these works
+mainly provide social and economic decision support and
+guidance for updating literature reviews [4], [20], the underlying problem is the unavailability of the extracted and
+analyzed data, corresponding to open science in SE [23], [24].
+Unavailable data complicates collaboration among researchers
+and updating literature reviews, as the entire data collection,
+extraction, and analysis must be repeated and expanded for
+comprehensive results. Researchers need support in the form
+of technical infrastructures and services to conduct sustainable
+literature reviews so that all data is openly available in the long
+term [5], [17], [18], [20] according to the Findable, Accessible,
+Interoperable, and Reusable (FAIR) data principles [25], [26].
+For this purpose, the data must be organized in a flexible,
+fine-grained, context-sensitive, and semantic representation to
+be understandable, processable, and usable by humans and machines [5], [13], [27]. Over the last decade, Knowledge Graphs
+(KGs) have become an emerging technology in industry and
+academia as they enable this versatile data representation [28]–
+[30]. Besides well-known KGs for encyclopedic and factual
+data, such as DBpedia [31] and WikiData [32], using socalled Research Knowledge Graphs (RKGs) for scientific data
+is a rather new approach [28], [29], [33]. RKGs include
+bibliographic metadata, e.g., titles, authors, and venues, as
+well as scientific data, e.g., research designs, methods, and
+results [34]–[39]. They are a promising technology to sustainably organize scientific data so that the data is openly available
+for long-term collaborations [27], [40].
+We examine the use of RKGs as technical infrastructure
+by building, publishing, and evaluating an initial KG of
+Empirical research in RE (KG-EmpiRE). Similar to Frattini
+et al. [41], our long-term goal is to continuously maintain,
+This is the author’s version of the work. It is posted here for your personal use. The definitive version was published in
+
+(re-)use, update, and expand KG-EmpiRE with the research
+community to synthesize a comprehensive, up-to-date, and
+long-term available overview of the state and evolution of
+empirical research in RE. In this way, we can divide the efforts
+to conquer the EmpiRE. We use the Open Research Knowledge Graph (ORKG), a RKG with services that combine manual crowdsourcing and automated approaches to organize scientific data [27]. Karras et al. [42] have successfully used the
+ORKG to organize qualitative and quantitative data [43], [44]
+from two systematic literature reviews in CrowdRE [45], [46].
+Based on 570 papers from the IEEE International Requirements Engineering Conference (2000 – 2022), we show how
+scientific data on empirical research in RE can be consistently
+organized in the ORKG. In this way, we build and publish
+the initial KG-EmpiRE that the research community can
+constantly maintain, (re-)use, update, and expand. Similar to
+Abualhaija et al. [47], we evaluate KG-EmpiRE by analyzing
+its data to provide initial insights into the state and evolution of
+empirical research in RE. In particular, we answer competency
+questions [48], [49] derived from the vision by Sjøberg et
+al. [50] of how researchers should conduct empirical research
+in all fields of SE, including RE, in the period 2020 – 2025.
+The initial insights show a positive development towards the
+vision [50], but also the need for future improvements. We
+provide the following contributions:
+Contribution:
+1) The openly available KG-EmpiRE which the research
+community can maintain, (re-)use, update, and expand.
+2) A reusable and expandable ORKG template for organizing scientific data on empirical research.
+3) A set of 77 competency questions, the answers to which
+provide insights into the state and evolution of empirical
+research in SE and its subfields for the period 2020 – 2025.
+4) A reproducible data analysis of KG-EmpiRE to answer
+16 of 77 competency questions, providing initial insights
+into the state and evolution of empirical research in RE.
+This paper is structured as follows: Section II explains
+the background. Section III discusses related work. While
+Section IV describes the approach, Section V reports the
+results. Section VI discusses threats to validity, and we discuss
+the findings in Section VII. Section VIII concludes the paper.
+
+IV. RESEARCH APPROACH
+The research approach and reporting essentially follow the
+Empirical Standards for Software Engineering Research [73].
+We first define the research goal and research question
+to ensure that the scope of our research approach is clearly
+defined before presenting its details. We defined the research
+goal in detail using the goal definition template [74]:
+Goal definition: We analyze the ORKG for the purpose
+of organizing scientific data in an openly available and
+long-term way with respect to building, publishing, and
+evaluating an initial KG of empirical research in RE that
+the research community can constantly maintain, (re-)use,
+update, and expand, from the point of view of ORKG users
+in the context of enabling sustainable literature reviews
+to synthesize a comprehensive, up-to-date, and long-term
+available overview of the state and evolution of empirical
+research in RE.
+Based on this goal, we ask the following research question:
+Research question: How can we use the ORKG as a
+technical infrastructure to organize scientific data in an
+openly available and long-term way by building, publishing, and evaluating a KG of empirical research in RE that
+the research community can constantly maintain, (re-)use,
+update, and expand to enable sustainable literature reviews?
+We frame our research approach using the design science
+paradigm [75]. We collect papers from the field of RE and
+extract data on the empirical research reported. In this way, we
+build and publish the initial KG-EmpiRE as a solution design,
+which we analyze for evaluation. For this reason, our research
+approach consists of the three main steps: Data collection, data
+extraction, and data analysis (see Figure 2).
+Data analysis
+Data extraction
+Add all papers to
+the ORKG.
+Develop a data
+extraction sheet for
+empirical research
+as ORKG template.
+Data collection
+Select venue.
+Select track.
+Download all
+papers as PDFs.
+Run queries and
+analyze the data in a
+Jupyter Notebook.
+Describe all papers
+using the developed
+ORKG template.
+Identify competency
+questions.
+Specify SPARQL
+queries for
+competency questions.
+Figure 2: Activity diagram of the research approach.
+A. Data Collection
+Many related publications collected data on empirical research in RE and SE from papers (cf. Section III). However,
+the only available data set is small and covers only a subset
+of the frequently examined themes (cf. Table I) [16]. For this
+reason, we conducted another data collection (see Figure 2).
+We considered only papers from one venue similar to other
+related publications [5], [8]–[11], [15] to simplify the search
+and selection. The selected venue is the IEEE International
+Requirements Engineering Conference, as authors from related
+publications reported that most of the papers they identified as
+relevant came from this conference [2], [3]. We selected the
+research track of the conference, as it is the main track where
+we expect most papers applying empirical research1.
+For data collection, we downloaded the papers as PDF files
+from IEEE Xplore, where all proceedings of the IEEE International Requirements Engineering Conference from 1994 –
+2022 can be found. So far, we downloaded all 570 papers
+from the research track of the conference from 2000 – 2022
+for data extraction. The collection of the missing years (1994 –
+1999) is future work. We did not need to exclude any paper, as
+each paper reported at least partial information about empirical
+research that we could extract.
+B. Data Extraction
+The data extraction is the essential step in building and
+publishing the initial KG-EmpiRE. The basis of data extraction
+are the related publications with their data extraction sheets,
+themes, and contents (cf. Table I) [16].
+We focused on the themes examined in more than five
+related publications. These themes are data collection, research method, bibliographic metadata, data analysis, research paradigm, and research design. For each theme, we
+analyzed the related publications to determine the analyzed
+content and possible values (see Table II). In this way, we determined the content for the data extraction covering the most
+frequently examined themes. Table II provides an overview
+1The selected venue and track are only a starting point for our work. We
+know that the other tracks of the IEEE International Requirements Engineering Conference are also relevant and that there are other important venues
+on the topic of empirical research in RE, such as the Empirical Software
+Engineering journal, IEEE Software journal, or Requirements Engineering
+journal, etc. (cf. Table I) [16].
+
+of a subset of the content identified for data extraction. For a
+complete overview of all content identified for data extraction,
+refer to our supplementary materials [76].
+Instead of a spreadsheet, we implemented the data extraction
+sheet as a so-called ORKG template [77] to organize the
+scientific data (see Figure 2). ORKG templates are an implementation of a subset of SHACL [78] and allow specifying the
+structure of ORKG contributions to describe a paper (cf. Section II). In this way, we determined which data to extract and
+ensured that all the semantic descriptions of scientific data are
+consistent and comparable across all considered papers.
+The first two authors of this paper developed the ORKG
+template in four iterations over a period of two months. When
+developing the ORKG template, we focused on a generic
+design to ensure its reusability. Starting from an initial draft,
+we applied the (revised) template to five randomly selected
+papers from the data collection in each iteration. Based on
+our experiences in data extraction, we continuously adapted
+the template and always updated the descriptions of all papers
+from which we had previously extracted data. After the
+fourth iteration, there were no more changes. The remaining
+two authors reviewed the final version of the template and
+confirmed its suitability for data extraction. Figure 3 shows
+an excerpt from the ORKG template to illustrate the structure
+for describing the data collected (theme: data collection) and
+research question(s) posed (theme: research design) in a paper.
+Our ORKG template excludes bibliographic metadata, as the
+ORKG (semi-)automatically compiles the bibliographic metadata of a paper when the paper is added. For an overview of the
+ORKG template, refer to our supplementary materials [76].
+For data extraction, we added each paper from data collection to the ORKG using its Digital Object Identifier (DOI).
+In this way, the ORKG automatically compiles the bibliographic metadata of the papers. The second author applied
+the developed ORKG template to each paper and extracted the
+corresponding data from all papers, using the terminology used
+in the paper to ensure an accurate and consistent description.
+The first and the third author reviewed each description by
+comparing the extracted data with the respective paper. In
+the case of inconsistencies or ambiguities, the three authors
+discussed and resolved the issues identified.
+Legend:
+Bibliographic
+metadata
+ORKG
+Template
+Research
+question
+String
+highlighted
+Boolean
+Boolean
+Question type
+question
+hidden
+question_type
+Paper
+Data
+collection
+Data
+Data type
+String
+Boolean
+Boolean
+research_question
+data
+url
+qualitative
+quantitative
+data_type
+data_collection
+Contribution
+Author
+author
+contribution
+String
+doi
+Integer
+String
+Venue
+year
+month
+url
+venue
+Integer
+Integer
+Atomic
+data type
+Class
+Relation
+String
+title
+Figure 3: Excerpt from the ORKG template for data extraction.
+C. Data Analysis
+The data analysis serves two purposes: (P1) We evaluate the
+coverage of the curated topic of empirical research in RE by
+the initial KG-EmpiRE, and (P2) We get initial insights into
+the state and evolution of empirical research in RE.
+Competency questions are an established method for analyzing and evaluating KGs [48]. A competency question is a
+natural language question that represents an information need
+related to the content of a KG and for which a KG must
+provide relevant information to answer the question [49]. Thus,
+the number of questions answered reflects the coverage of the
+curated topic in a KG (P1), and the answers to competency
+questions provide insights into the curated topic (P2).
+Following our approach (see Figure 2), we identified relevant competency questions about the state and evolution of
+empirical research. We selected the vision of Sjøberg et al. [50]
+regarding the role of empirical methods in all fields of SE,
+including RE, to identify competency questions, as the vision
+precisely targets the current period of 2020 – 2025. Sjøberg et
+al. [50] present their vision by describing and comparing the
+“current” state of practice (2007) and their targeted state (2020
+Table II: Overview of a subset of the content identified for data extraction.
+Related Publications
+Theme
+Analyzed content
+Possible values
+[2], [3], [6]–[15]
+Data collection
+Data
+Type of data: Qualitative, Quantitative
+Location of the data: URL
+Collection method
+Case study, Survey, Interview, Experiment, etc.
+[3], [5], [7]–[15]
+Research method
+Analysis method
+Comparative analysis, Content analysis, Grounded theory, etc.
+[1], [6], [7], [9]–[11],
+[13], [14]
+Data analysis
+Inferential statistic
+Statistical test: t-test, ANOVA, Logistic regression, etc.
+Descriptive statistic
+Type of measure: Frequency, Central tendency, Position, etc.
+[3], [6]–[9], [13], [15]
+Research paradigm
+Type of paradigm
+Exploratory, Explanatory, Descriptive, Predictive, etc.
+[1],
+[3],
+[6],
+[10],
+[13]–[15]
+Research design
+Research question
+Formulated question
+Presentation: Explicitly highlighted, Implicitly hidden
+Type of question: Exploratory, Explanatory, Descriptive, etc.
+Threats to Validity
+Type of validity: Internal, External, Construct, Conclusion, etc.
+[2], [3], [7]–[14]
+Bib. metadata
+Metadata
+Title, Authors, Venue, Publication date, URL, DOI
+
+– 2025). The first three authors analyzed these descriptions by
+manually coding them in terms of textual elements that led
+to a question related to the state and evolution of empirical
+research. In this way, we derived the competency questions
+and captured their associated origins so that third parties
+better understand our analysis and its results. Subsequently,
+the first three authors matched each identified competency
+question with the analyzed questions and content of the
+related publications (cf. Section III) to determine how many
+times similar questions have been analyzed. Table III shows
+three examples of identified competency questions, including
+excerpts from the vision [50] with light gray highlighting
+of the coded text elements that led to the question and the
+references to related publications with a similar question. In
+total, we identified 77 competency questions about the state
+and evolution of empirical research in SE, including RE, of
+which 42 questions have been asked similarly in at least one
+related publication. For the detailed list of all 77 competency
+questions, refer to our supplementary materials [76].
+For data analysis, we specified queries with a query language for KGs to retrieve the extracted data from the ORKG.
+This specification requires knowledge of the data structure,
+i.e., the ORKG template, so we can only specify queries
+for competency questions that can be answered with the
+extracted data. We used the query language SPARQL [79] as
+the ORKG provides a SPARQL endpoint for accessing all its
+data. Listing 1 exemplary shows the specified SPARQL query
+for competency question 1 (cf. Table III). In this case, we
+present the query with human-readable identifiers to facilitate
+understanding the query. This human-readable query is not
+executable in the ORKG as the ORKG uses alphanumeric
+identifiers (similar to WikiData [32]). For the executable
+queries, refer to our supplementary materials [76].
+Listing 1: SPARQL query for competency question 1.
+PREFIX r: <http://orkg.org/orkg/resource/>
+PREFIX c: <http://orkg.org/orkg/class/>
+PREFIX p: <http://orkg.org/orkg/predicate/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema\#>
+SELECT ?paper, ?year, ?dc_label, ?da_label
+WHERE {
+?paper p:contribution ?contri;
+p:publication_year ?year.
+?contri. a c:C27001.
+OPTIONAL{?contri p:data_collection_method ?dc.
+?dc rdfs:label ?dc_label.}
+OPTIONAL{?contri p:data_analysis_method ?da.
+?da rdfs:label ?da_label.}
+We implemented the analysis using a Jupyter Notebook [76]
+with Python, published on GitHub [76] with the latest release
+archived on Zenodo [76]. We also hosted the repository on
+mybinder [76]. In this way, the analysis is always available to
+anyone for interactive reproduction and (re-)use, retrieving the
+latest data from the ORKG. Due to the uniform data structure
+provided by the developed ORKG template, we can always
+retrieve newly added papers that use the ORKG template and
+include them in the analysis by simply rerunning the script.

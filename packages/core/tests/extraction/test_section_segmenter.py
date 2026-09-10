@@ -2,6 +2,10 @@
 Unit tests for section segmentation.
 """
 
+import logging
+import re
+from pathlib import Path
+
 import pytest
 from agentic_kg.extraction.section_segmenter import (
     SECTION_PRIORITY,
@@ -452,6 +456,404 @@ threshold to be satisfied in our testing scenario today.
         # Results variations
         assert segmenter._classify_heading("Results") == SectionType.RESULTS
         assert segmenter._classify_heading("Results and Analysis") == SectionType.RESULTS
+
+
+# =============================================================================
+# SEG-1 — Roman-numeral section headings
+# See llm/features/seg1-roman-numeral-headings.md
+# =============================================================================
+
+
+class TestSEG1RomanNumeralHeadings:
+    """AC-1: Roman-numeral headings classify correctly.
+
+    Every one of these returned UNKNOWN before SEG-1, which is why an
+    IEEE paper produced no usable extractor input at all.
+    """
+
+    @pytest.fixture
+    def segmenter(self):
+        return SectionSegmenter()
+
+    @pytest.mark.parametrize(
+        "heading,expected",
+        [
+            # fact_completion (IEEE Access) and empire (IEEE ESEM), verbatim.
+            ("I. INTRODUCTION", SectionType.INTRODUCTION),
+            ("II. BACKGROUND", SectionType.BACKGROUND),
+            ("II. RELATED WORK", SectionType.RELATED_WORK),
+            ("IV. EVALUATION", SectionType.EXPERIMENTS),
+            ("V. RESULTS", SectionType.RESULTS),
+            ("VI. THREATS TO VALIDITY", SectionType.LIMITATIONS),
+            ("VII. DISCUSSION", SectionType.DISCUSSION),
+            ("VIII. CONCLUSION", SectionType.CONCLUSION),
+            # Numeral-form coverage: close-paren, no separator dot, lowercase,
+            # and the subtractive/additive forms (IX, XI).
+            ("XI) Results", SectionType.RESULTS),
+            ("I Introduction", SectionType.INTRODUCTION),
+            ("iv. evaluation", SectionType.EXPERIMENTS),
+            ("IX. Appendix", SectionType.APPENDIX),
+        ],
+    )
+    def test_roman_numeral_heading_is_classified(self, segmenter, heading, expected):
+        assert segmenter._classify_heading(heading) == expected
+
+    @pytest.mark.parametrize(
+        "heading",
+        [
+            # AC-3 (Decision 1): IEEE letters mark SUBSECTIONS. Promoting them
+            # to top level truncates the parent — measured at -13,137 chars on
+            # fact_completion, where "B. RESULTS AND DISCUSSION" is a child of
+            # "IV. EVALUATION".
+            "B. RESULTS AND DISCUSSION",
+            "A. EVALUATION PROTOCOL",
+            "C. Data Analysis",
+            # AC-4 (Decision 3): hierarchical numbering is the same failure
+            # mode — "4.4. Results" inside "4. Evaluation" cost
+            # hypothesis_generation 5,585 chars.
+            "4.4. Results",
+            "4.4. Experimental setup",
+            "3.1 Methods",
+            "II.B. Results",
+            # AC-4: a numeral needs a separator, so no bare-letter smuggling.
+            "Vresults",
+            "Xmethods",
+            # AC-4: Roman-looking English words. "Vision" has no separator;
+            # "Civil" is not a supported numeral value.
+            "Vision",
+            "Civil Approach",
+            "Introductory Remarks",
+        ],
+    )
+    def test_non_top_level_prefix_stays_unknown(self, segmenter, heading):
+        assert segmenter._classify_heading(heading) == SectionType.UNKNOWN
+
+    @pytest.mark.parametrize(
+        "heading,expected",
+        [
+            # Upper end of the supported range (XXX + VIII).
+            ("XXXVIII. Results", SectionType.RESULTS),
+            ("XXIII. Discussion", SectionType.DISCUSSION),
+            ("XIV. Conclusion", SectionType.CONCLUSION),
+            # Subtractive forms.
+            ("IX. Results", SectionType.RESULTS),
+            ("XIX. Results", SectionType.RESULTS),
+        ],
+    )
+    def test_multi_character_numerals(self, segmenter, heading, expected):
+        """Papers never reach XL, but XIV/XIX/XXIII are ordinary."""
+        assert segmenter._classify_heading(heading) == expected
+
+    @pytest.mark.parametrize("heading", ["IIII. Results", "VV. Results"])
+    def test_invalid_numeral_forms_are_not_enumerators(self, segmenter, heading):
+        """`IIII` and `VV` are not Roman numerals. Rejecting them keeps the
+        enumerator from being a general 'strip leading letters' rule."""
+        assert segmenter._classify_heading(heading) == SectionType.UNKNOWN
+
+    @pytest.mark.parametrize("heading", ["", "   ", "\t", ".", "IV."])
+    def test_degenerate_headings_are_unknown(self, segmenter, heading):
+        """Empty, whitespace-only, and a numeral with no title at all. The
+        last one matters: "IV." alone must not classify as anything."""
+        assert segmenter._classify_heading(heading) == SectionType.UNKNOWN
+
+    def test_raw_heading_text_is_preserved_as_title(self, segmenter):
+        """Only the classification input is normalized; Section.title keeps
+        the numeral so an operator can still find the heading in the PDF."""
+        text = """
+I. INTRODUCTION
+
+Enough words here to clear the minimum section length for this test so
+that the section survives the short-section filter applied afterwards.
+"""
+        result = segmenter.segment(text)
+
+        intro = result.get_sections_by_type(SectionType.INTRODUCTION)
+        assert len(intro) == 1
+        assert intro[0].title == "I. INTRODUCTION"
+
+
+class TestSEG1PatternTableIntegrity:
+    """AC-5: guards the 34-literal prefix-group removal.
+
+    Four of these types (background, discussion, acknowledgments, appendix)
+    had no coverage at all before SEG-1, so a keyword dropped during the
+    edit would have failed silently.
+    """
+
+    @pytest.fixture
+    def segmenter(self):
+        return SectionSegmenter()
+
+    @pytest.mark.parametrize(
+        "heading,expected",
+        [
+            ("Abstract", SectionType.ABSTRACT),
+            ("IV. Introduction", SectionType.INTRODUCTION),
+            ("II. Related Work", SectionType.RELATED_WORK),
+            ("II. Background", SectionType.BACKGROUND),
+            ("III. Methods", SectionType.METHODS),
+            ("IV. Experiments", SectionType.EXPERIMENTS),
+            ("V. Results", SectionType.RESULTS),
+            ("VI. Discussion", SectionType.DISCUSSION),
+            ("VII. Limitations", SectionType.LIMITATIONS),
+            ("Future Work", SectionType.FUTURE_WORK),
+            ("VIII. Conclusion", SectionType.CONCLUSION),
+            ("Acknowledgments", SectionType.ACKNOWLEDGMENTS),
+            ("References", SectionType.REFERENCES),
+            ("Appendix A", SectionType.APPENDIX),
+        ],
+    )
+    def test_every_section_type_has_a_working_pattern(
+        self, segmenter, heading, expected
+    ):
+        assert segmenter._classify_heading(heading) == expected
+
+    def test_every_section_type_except_unknown_has_patterns(self):
+        """A type present in the enum but absent from the table can never be
+        detected — a silent hole."""
+        missing = [
+            t.value
+            for t in SectionType
+            if t is not SectionType.UNKNOWN
+            and not SectionSegmenter.SECTION_PATTERNS.get(t)
+        ]
+        assert missing == []
+
+    def test_compiled_cache_covers_the_source_table(self):
+        """`_compiled_patterns` is a CLASS attribute compiled once per process
+        behind `if not self._compiled_patterns`, so it never recompiles. A
+        stale cache would silently classify against the previous table."""
+        segmenter = SectionSegmenter()
+
+        assert set(segmenter._compiled_patterns) == set(
+            SectionSegmenter.SECTION_PATTERNS
+        )
+        for section_type, patterns in SectionSegmenter.SECTION_PATTERNS.items():
+            assert len(segmenter._compiled_patterns[section_type]) == len(
+                patterns
+            ), section_type
+
+    def test_patterns_carry_no_numeric_prefix_group(self):
+        """AC-11: numbering is stripped in _classify_heading, so a pattern
+        re-introducing its own prefix group means two mechanisms."""
+        offenders = [
+            pattern
+            for patterns in SectionSegmenter.SECTION_PATTERNS.values()
+            for pattern in patterns
+            if r"\d" in pattern
+        ]
+        assert offenders == []
+
+
+class TestSEG1UnmatchedHeadingDebugLog:
+    """AC-14: the segmenter's rejections are the only record of
+    SEG-3/4/5-class misses, and were previously unobservable."""
+
+    @pytest.fixture
+    def segmenter(self):
+        return SectionSegmenter(min_section_words=5)
+
+    TEXT = """
+I. INTRODUCTION
+
+Body text long enough to survive the minimum section word filter here.
+
+III. SciCheck
+
+Body text long enough to survive the minimum section word filter here.
+
+IV. EVALUATION
+
+Body text long enough to survive the minimum section word filter here.
+
+B. RESULTS AND DISCUSSION
+
+Body text long enough to survive the minimum section word filter here.
+"""
+
+    def test_unmatched_candidate_headings_logged_at_debug(self, segmenter, caplog):
+        with caplog.at_level(
+            logging.DEBUG, logger="agentic_kg.extraction.section_segmenter"
+        ):
+            segmenter.segment(self.TEXT)
+
+        logged = "\n".join(r.getMessage() for r in caplog.records)
+        # SEG-5: named after the contribution. SEG-1 does not fix it, but it
+        # should at least be visible.
+        assert "'III. SciCheck'" in logged
+        # Decision 1: a lettered subsection, correctly rejected.
+        assert "'B. RESULTS AND DISCUSSION'" in logged
+
+    def test_nothing_logged_above_debug(self, segmenter, caplog):
+        """An unmatched heading is normal for real papers — it must not be
+        noise at INFO or WARNING."""
+        with caplog.at_level(
+            logging.INFO, logger="agentic_kg.extraction.section_segmenter"
+        ):
+            segmenter.segment(self.TEXT)
+
+        assert caplog.records == []
+
+
+class TestSEG1RealIEEEExcerpt:
+    """AC-6: document-level behaviour on real PyMuPDF output.
+
+    This is the assertion that catches the *silent* failure mode. A test that
+    only checks "some sections were returned" passes on every paper in the
+    ground-truth set today, including the one that yielded zero extractor
+    input. Fixture provenance: fixtures/segmenter/README.md.
+    """
+
+    FIXTURE = (
+        Path(__file__).parent / "fixtures" / "segmenter" / "ieee_roman_excerpt.txt"
+    )
+
+    @pytest.fixture
+    def excerpt(self):
+        return self.FIXTURE.read_text(encoding="utf-8")
+
+    @pytest.fixture
+    def doc(self, excerpt):
+        return SectionSegmenter().segment(excerpt)
+
+    def test_extractor_wanted_types_are_recovered(self, doc):
+        """Pre-SEG-1 this document produced only `references`, so the
+        extractor input was the empty string."""
+        types = {s.section_type for s in doc.sections}
+        assert SectionType.INTRODUCTION in types
+        assert SectionType.EXPERIMENTS in types
+
+    def test_extractor_input_is_non_empty(self, doc):
+        """The headline SEG-1 outcome: 0 chars becomes non-zero, so the paper
+        stops being skipped as `failed_thin`."""
+        wanted = {
+            SectionType.ABSTRACT,
+            SectionType.INTRODUCTION,
+            SectionType.METHODS,
+            SectionType.EXPERIMENTS,
+        }
+        kept = sum(
+            len(s.content) for s in doc.sections if s.section_type in wanted
+        )
+        assert kept > 0
+
+    def test_lettered_subsections_do_not_become_sections(self, doc):
+        """Decision 1, measured at -13,137 chars on the full paper."""
+        # Any single leading uppercase letter EXCEPT I/V/X, which are numerals
+        # and are supposed to match ("I. INTRODUCTION").
+        lettered = re.compile(r"^[A-HJ-UWY-Z][.)]\s")
+        titles = [s.title for s in doc.sections]
+        assert not [t for t in titles if lettered.match(t)]
+
+    def test_running_header_does_not_become_a_section(self, doc):
+        """`A. Borrego et al.: ...` is 88 chars — under max_heading_length,
+        so it is offered to the classifier on every page."""
+        assert not [s for s in doc.sections if s.title.startswith("A. Borrego")]
+        assert not [s for s in doc.sections if "VOLUME" in s.title]
+
+    def test_subsection_content_stays_inside_its_parent(self, doc):
+        """The point of leaving `B.` unmatched: its content must remain in
+        the `experiments` span, not leak into a discarded `results` one."""
+        experiments = doc.get_sections_by_type(SectionType.EXPERIMENTS)
+        assert len(experiments) == 1
+        # A phrase that appears only beneath "B. RESULTS AND DISCUSSION".
+        assert "All CAFE variants outperform" in experiments[0].content
+
+    def test_contribution_named_heading_still_missed(self, doc):
+        """`III. SciCheck` is a SEG-5 miss and SEG-1 does not fix it. Pinned
+        so the SEG-5 work has a red test to turn green."""
+        assert not [s for s in doc.sections if s.title == "III. SciCheck"]
+        assert SectionType.METHODS not in {s.section_type for s in doc.sections}
+
+    def test_run_in_abstract_still_missed(self, doc):
+        """Likewise SEG-3. Neither IEEE paper gains an abstract from SEG-1."""
+        assert doc.get_sections_by_type(SectionType.ABSTRACT) == []
+
+    def test_ingestion_would_no_longer_drop_this_paper(self, doc):
+        """The claim SEG-1 actually makes, across the segmenter → ingestion
+        boundary that the unit tests above each test only one side of.
+
+        Pre-fix, `_build_extractor_section_text` returned "" for this
+        document, which is below MIN_USABLE_CHARS, so `_acquire_full_text`
+        categorized the paper `failed_thin` and `ingest_papers` skipped it —
+        a paper carrying 32 of the 53 chain entities, dropped.
+        """
+        from agentic_kg.ingestion import (
+            MIN_USABLE_CHARS,
+            _build_extractor_section_text,
+            _missing_wanted_sections,
+        )
+
+        section_text = _build_extractor_section_text(doc)
+
+        assert len(section_text.strip()) >= MIN_USABLE_CHARS
+        # And the residual gaps are reported rather than passing silently.
+        assert _missing_wanted_sections(doc) == ["abstract", "methods"]
+
+
+class TestSEG1SegmentWithAbstractUntouched:
+    """AC-12: SEG-2 owns the fix-or-delete decision on
+    segment_with_abstract. SEG-1 must not silently resolve it."""
+
+    def test_segment_with_abstract_still_matches_plain_segment(self):
+        """The defect is that `^` anchors to the document start without
+        re.MULTILINE, so a real paper's title block defeats it. Preserved."""
+        segmenter = SectionSegmenter(min_section_words=5)
+        text = """
+SciCheck: Completing Scientific Facts in Knowledge Graphs
+Ana Borrego, Daniel Ayala, Inma Hernandez
+
+ABSTRACT In the last few years we have witnessed the emergence of several
+knowledge graphs that describe research knowledge.
+
+I. INTRODUCTION
+
+Body text long enough to survive the minimum section word filter here.
+"""
+        plain = segmenter.segment(text)
+        with_abstract = segmenter.segment_with_abstract(text)
+
+        assert [(s.section_type, s.title) for s in plain.sections] == [
+            (s.section_type, s.title) for s in with_abstract.sections
+        ]
+
+    def test_abstract_branch_fires_only_at_the_very_start_of_the_document(self):
+        """Pins the exact shape of the SEG-2 defect, so SEG-2 can decide from
+        evidence rather than re-derive it.
+
+        The regex is built with re.IGNORECASE | re.DOTALL but **no
+        re.MULTILINE**, so `^` anchors to offset 0 of the whole document. It
+        therefore fires only when the literal word "Abstract" is the first
+        thing in the text — which no PDF is, because every one opens with a
+        title and author block. This synthetic document is the only kind that
+        reaches the branch.
+        """
+        segmenter = SectionSegmenter(min_section_words=5)
+        text = (
+            "Abstract: this synthetic document begins with the abstract label "
+            "at offset zero, which is the only way the branch is reachable.\n"
+            "Introduction\n"
+            "Body text long enough to survive the minimum word filter here.\n"
+        )
+
+        doc = segmenter.segment_with_abstract(text)
+
+        abstracts = doc.get_sections_by_type(SectionType.ABSTRACT)
+        assert len(abstracts) == 1
+        assert abstracts[0].title == "Abstract"
+        assert "synthetic document begins" in abstracts[0].content
+        # Offsets of the trailing sections are shifted past the abstract.
+        intro = doc.get_sections_by_type(SectionType.INTRODUCTION)[0]
+        assert intro.start_char > abstracts[0].end_char - len(text)
+
+    def test_abstract_branch_skipped_when_the_abstract_is_too_short(self):
+        """The inner min_section_words guard: matched, but not kept."""
+        segmenter = SectionSegmenter(min_section_words=50)
+        text = "Abstract: too short.\nIntroduction\n" + "word " * 100
+
+        doc = segmenter.segment_with_abstract(text)
+
+        assert doc.get_sections_by_type(SectionType.ABSTRACT) == []
 
 
 class TestGetSectionSegmenter:

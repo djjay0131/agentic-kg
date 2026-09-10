@@ -21,8 +21,8 @@ You are the Construction Lead — responsible for planning and executing AI-assi
 
 ## Skills You Use
 
-- `/constellize:feature:implement`
-- `/constellize:feature:verify`
+- `/constellize-feature-implement`
+- `/constellize-feature-verify`
 
 ## When to Invoke
 

@@ -258,11 +258,11 @@ Prioritized, actionable list. Each item includes:
 ## Review References
 
 For detailed standards, consult the TUI Designer skill's reference materials:
-- [ASCII Design Patterns](../design:tui-designer/references/ascii-patterns.md)
-- [TUI Style Guide](../design:tui-designer/references/style-guide.md)
-- [Renaissance Manifesto](../design:tui-designer/references/manifesto.md)
-- [Textual Framework Reference](../design:tui-designer/references/textual-reference.md)
-- [Bubble Tea Framework Reference](../design:tui-designer/references/bubbletea-reference.md)
+- [ASCII Design Patterns](../design-tui-designer/references/ascii-patterns.md)
+- [TUI Style Guide](../design-tui-designer/references/style-guide.md)
+- [Renaissance Manifesto](../design-tui-designer/references/manifesto.md)
+- [Textual Framework Reference](../design-tui-designer/references/textual-reference.md)
+- [Bubble Tea Framework Reference](../design-tui-designer/references/bubbletea-reference.md)
 
 ---
 

@@ -219,6 +219,43 @@ def _build_extractor_section_text(seg: Any) -> str:
     return "\n\n".join(parts)
 
 
+def _found_section_types(seg: Any) -> set[str]:
+    """The set of section-type values a ``SegmentedDocument`` actually
+    contributed, lowercased.
+
+    A section with **empty content counts as not found**, matching
+    ``_build_extractor_section_text``, which skips it. Otherwise a document
+    carrying an empty `abstract` section would suppress the AC-13 warning
+    while contributing nothing to the extractor input.
+    """
+    if seg is None or not getattr(seg, "sections", None):
+        return set()
+    found: set[str] = set()
+    for section in seg.sections:
+        content = getattr(section, "content", "") or ""
+        if not content.strip():
+            continue
+        section_type = getattr(section, "section_type", None)
+        value = getattr(section_type, "value", None) or str(section_type or "")
+        if value:
+            found.add(value.lower())
+    return found
+
+
+def _missing_wanted_sections(seg: Any) -> list[str]:
+    """SEG-1 AC-13: which of the four extractor-input sections the segmenter
+    failed to find, in the canonical prompt order.
+
+    This is **not** the ``failed_thin`` check. That one fires below
+    ``MIN_USABLE_CHARS`` and drops the paper. This one fires on papers that
+    *pass* the gate while missing sections — the case that is still silent.
+    `cskg` clears the gate at 8,917 chars with no abstract and no methods and
+    logs `INFO Full text acquired`, indistinguishable from a healthy paper.
+    """
+    found = _found_section_types(seg)
+    return [w for w in _EXTRACTOR_WANTED_SECTIONS if w not in found]
+
+
 # SM-1: minimum extractor-input characters for a full-text acquisition to count
 # as usable. Below this the source is treated as failed_thin and the next
 # candidate is tried. A real paper body yields thousands of chars; this only
@@ -597,6 +634,22 @@ async def ingest_papers(
                 proc = outcome.proc
                 section_text = outcome.section_text
                 result.pdf_ok += 1
+
+                # SEG-1 AC-13: the text cleared MIN_USABLE_CHARS, but the
+                # segmenter may still have missed whole sections. Say so —
+                # otherwise a paper at 66% coverage is indistinguishable from
+                # a healthy one, which is how the segmenter defects went
+                # unnoticed until someone hand-prepared labeling input.
+                missing_sections = _missing_wanted_sections(
+                    proc.segmented_document
+                )
+                if missing_sections:
+                    logger.warning(
+                        f"[{trace_id}] Partial segmentation {doi}: missing "
+                        f"{missing_sections} (found "
+                        f"{sorted(_found_section_types(proc.segmented_document))}, "
+                        f"{len(section_text)} chars) — entity recall will be limited"
+                    )
                 problems = proc.get_high_confidence_problems(
                     min_extraction_confidence,
                 )

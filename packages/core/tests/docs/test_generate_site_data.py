@@ -40,13 +40,17 @@ def fixture_repo(tmp_path: Path) -> Path:
     (tmp_path / "docs/_data").mkdir(parents=True)
 
     (tmp_path / "llm/memory_bank/activeContext.md").write_text(
-        (FIXTURE_DIR / "activeContext.md").read_text()
+        (FIXTURE_DIR / "activeContext.md").read_text(encoding="utf-8"),
+        encoding="utf-8",
     )
     (tmp_path / "llm/features/BACKLOG.md").write_text(
-        (FIXTURE_DIR / "BACKLOG.md").read_text()
+        (FIXTURE_DIR / "BACKLOG.md").read_text(encoding="utf-8"),
+        encoding="utf-8",
     )
     for src in sorted((FIXTURE_DIR / "sprints").glob("sprint-*.md")):
-        (tmp_path / "llm/sprints" / src.name).write_text(src.read_text())
+        (tmp_path / "llm/sprints" / src.name).write_text(
+            src.read_text(encoding="utf-8"), encoding="utf-8"
+        )
     return tmp_path
 
 
@@ -118,13 +122,13 @@ class TestLoadDocsStats:
 
     def test_invalid_yaml_raises(self, mod, tmp_path: Path):
         bad = tmp_path / "ac.md"
-        bad.write_text("```yaml\n# docs-stats\nkey: [unterminated\n```\n")
+        bad.write_text("```yaml\n# docs-stats\nkey: [unterminated\n```\n", encoding="utf-8")
         with pytest.raises(mod.DocsStatsError, match="not valid YAML"):
             mod.load_docs_stats(bad)
 
     def test_non_mapping_raises(self, mod, tmp_path: Path):
         bad = tmp_path / "ac.md"
-        bad.write_text("```yaml\n# docs-stats\n- just\n- a\n- list\n```\n")
+        bad.write_text("```yaml\n# docs-stats\n- just\n- a\n- list\n```\n", encoding="utf-8")
         with pytest.raises(mod.DocsStatsError, match="must be a mapping"):
             mod.load_docs_stats(bad)
 
@@ -270,12 +274,12 @@ class TestParseSprints:
         assert any("sprints dir not found" in m for m in caplog.messages)
 
     def test_defaults_status_when_missing(self, mod, tmp_path: Path):
-        (tmp_path / "sprint-09-test.md").write_text("# Sprint 09: Noteless\n\nNo status.")
+        (tmp_path / "sprint-09-test.md").write_text("# Sprint 09: Noteless\n\nNo status.", encoding="utf-8")
         items = mod.parse_sprints(tmp_path)
         assert items[0]["status"] == "Unknown"
 
     def test_warns_on_bad_heading(self, mod, tmp_path: Path, caplog):
-        (tmp_path / "sprint-05-weird.md").write_text("No heading at all\n")
+        (tmp_path / "sprint-05-weird.md").write_text("No heading at all\n", encoding="utf-8")
         with caplog.at_level(logging.WARNING, logger="generate_site_data"):
             items = mod.parse_sprints(tmp_path)
         assert items == []
@@ -289,8 +293,8 @@ class TestParseSprints:
 
 class TestSnapshot:
     def _assert_matches_golden(self, produced: Path, golden: Path) -> None:
-        produced_data = yaml.safe_load(produced.read_text())
-        golden_data = yaml.safe_load(golden.read_text())
+        produced_data = yaml.safe_load(produced.read_text(encoding="utf-8"))
+        golden_data = yaml.safe_load(golden.read_text(encoding="utf-8"))
         assert produced_data == golden_data, (
             f"{produced.name} drifted from golden fixture"
         )
@@ -321,7 +325,7 @@ class TestMainExitCodes:
         (tmp_path / "llm/sprints").mkdir(parents=True)
         (tmp_path / "llm/memory_bank/activeContext.md").write_text(
             "# No stats block here.\n"
-        )
+        , encoding="utf-8")
         rc = mod.main(["--root", str(tmp_path)])
         assert rc == 2
 
@@ -332,7 +336,7 @@ class TestMainExitCodes:
         (tmp_path / "llm/features").mkdir(parents=True)
         (tmp_path / "llm/sprints").mkdir(parents=True)
         (tmp_path / "llm/memory_bank/activeContext.md").write_text(
-            (FIXTURE_DIR / "activeContext.md").read_text()
+            (FIXTURE_DIR / "activeContext.md").read_text(encoding="utf-8")
         )
         (tmp_path / "llm/features/BACKLOG.md").write_text(
             "## Category 1: Bad\n\n"

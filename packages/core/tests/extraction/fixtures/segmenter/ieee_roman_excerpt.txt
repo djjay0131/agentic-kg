@@ -1,0 +1,125 @@
+excellent results. Finally, we provide a real-world use case and applied SciCheck to the Artiﬁcial Intelligence Knowledge Graph (AI-KG), a large-scale automatically-generated open knowledge graph including
+1.2M statements extracted from the 333K most cited articles in the ﬁeld of Artiﬁcial Intelligence, and
+generated a new version of this knowledge graph with 300K additional triples.
+INDEX TERMS Knowledge graphs, science of science, knowledge graph completion, triple classiﬁcation,
+machine learning, semantic web.
+I. INTRODUCTION
+The rise of Open Science and the steady growth of the number
+of research publications, datasets, and other materials on the
+web is changing the way research outcomes are shared and
+explored, and is posing new challenges and opportunities.
+This large mass of open research outcomes has the potential of supporting a new generation of intelligent systems
+for actively supporting, automatizing, and accelerating the
+scientiﬁc effort [1].
+One of the main challenges in this space is to generate a semantically rich, interlinked, and machine readable
+description of the available research knowledge. This could
+enable more sophisticated techniques to analyze the scientiﬁc
+literature. As a consequence, more advanced services could
+
+[... 12 lines elided ...]
+
+1BIBO - http://bibliontology.com
+2SPAR - http://www.sparontologies.net/
+VOLUME 10, 2022
+This work is licensed under a Creative Commons Attribution 4.0 License. For more information, see https://creativecommons.org/licenses/by/4.0/
+
+A. Borrego et al.: Completing Scientific Facts in Knowledge Graphs of Research Concepts
+In the last few years, we saw the emergence of several
+knowledge graphs (KGs) explicitly representing research
+knowledge. These KGs typically describe a set of entities
+
+[... 61 lines elided ...]
+
+II. RELATED WORK
+The majority of related proposals in this ﬁeld are nowadays
+based on embedding models, i.e., producing a translation
+from the entities and relations in the graph into vectors that
+preserve their semantics. In this area, experts usually distinguish between knowledge graph embeddings, and language
+models.
+KG embeddings [23], [30] learn embedded representations
+of KGs entities and relations, performing different transformations in an embedding space [24], [25], [26], [31], [32],
+[33], [34]. The resulting embedding space is subsequently
+used to evaluate the likelihood of a candidate triple to be
+correct or incorrect, since entities that are supposed to be
+related by means of a certain relation are expected to be closer
+to each other in the embedding space. They have also been
+
+[... 21 lines elided ...]
+
+VOLUME 10, 2022
+
+A. Borrego et al.: Completing Scientific Facts in Knowledge Graphs of Research Concepts
+process to ﬁnd which paths may be useful to predict a certain relation. An evolution of PRA named Subgraph Feature
+Extraction (SFE) by Gardner and Mitchell [39] achieves
+better performance than PRA and produces more expressive
+results. Mazumder et al. [40] propose a random walk-based
+
+[... 52 lines elided ...]
+
+III. SciCheck
+SciCheck6 is a novel approach for triple classiﬁcation
+designed to complete scientiﬁc statements in a knowledge
+graph. It is built on top of the CAFE approach [27] by incorporting a new set of features and heuristics tailored to capture
+scientiﬁc knowledge. SciCheck takes an entire KG in the
+form of triples as input, and produces one neural-based classi-
+ﬁer for each relation in the KG as output. Speciﬁcally, given a
+relationship r, SciCheck generates a model fr : (h, r, t) →s,
+that assigns a conﬁdence score s in the range [0, 1] to any
+arbitrary triple < h, r, t > to solve a binary classiﬁcation task
+(‘‘is the triple correct or not?’’). To feed the model, triples are
+converted into a numerical vector representation using ad-hoc
+features and contextual embedding representations. SciCheck
+can operate on any KG and focuses on optimizing precision,
+
+[... 228 lines elided ...]
+
+IV. EVALUATION
+This section reports and discusses the evaluation of Sci-
+Check. It also describes the evaluation data, including the
+new benchmarks that we created from the AI-KG Knowledge Graph (AIKG-1M and AIKG-500 are discussed in
+Section IV-A, and they are available at https://zenodo.org/
+record/5764114).
+A. EVALUATION PROTOCOL
+We evaluated the performance of SciCheck on seven benchmarks against nine alternative approaches. Five of the
+baselines are well-known embedding-based KG completion
+approaches: TransE, TransD, TransH, SimplE, and ComplEx [24], [26], [31], [53], [58]. To provide a common ground
+to train and test these techniques, we used the OpenKE [59]
+tool.
+In order to assess the contributions of the different components of SciCheck, we also considered ﬁve alternative
+versions of our approach:
+• CAFE Baseline, which uses solely the context-aware
+features for KG completion such as neighbourhood size,
+shared entities, connectivity, and so on from the original
+implementation [27].
+
+[... 102 lines elided ...]
+
+B. RESULTS AND DISCUSSION
+Table 2 and Table 3 report the precision and recall of the KG
+completion techniques on AIKG-1M. To determine whether a
+triple was correct or incorrect, we used a conﬁdence threshold
+of 0.5 for SciCheck, as suggested in [27]. The thresholds
+of the other state-of-the-art techniques under evaluation and
+their results were obtained using the OpenKE [59] tool,
+allowing it to choose the optimal value for each one.
+All CAFE variants outperform embedding-based techniques in precision, achieving notably higher values. Including features from the text embeddings provides also an
+important improvement over the base version of CAFE. Both
+SciCheck and the variants that improve the baseline using
+embedding-based features rank consistently among those
+with the highest precision for all relations, with the differences between them being very narrow.
+The best performing method in terms of precision is the
+ﬁnal version of SciCheck (0.74), followed by RoBERTa
+
+[... 212 lines elided ...]
+
+VI. CONCLUSION
+In this paper, we introduced SciCheck, a new approach
+for completing scientiﬁc facts in knowledge graphs of
+research concepts. We evaluated SciCheck on two new benchmarks extracted from the Artiﬁcial Intelligence Knowledge
+Graph (AI-KG) [2], a large-scale KG of research concepts,
+(AIKG-1M and AIKG-500) and ﬁve well-known general
+benchmarks for link prediction (FB13, WN11, WN18,
+WN18RR, and NELL). The experiments show that SciCheck
+outperforms nine alternative approaches in terms of precision. Furthermore, we have shown a real-world use case
+and used SciCheck to complete AI-KG, producing a new
+version of it including more than 300K additional statements

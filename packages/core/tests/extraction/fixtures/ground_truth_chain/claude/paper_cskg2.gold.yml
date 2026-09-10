@@ -1,0 +1,405 @@
+# Independent Claude review — produced from paper_cskg2.txt only.
+# Neither a human review nor the importer's output (docs/ground-truth/
+# importer-output/2-cs-kg-2-0.yml) was consulted. See ../SCHEMA.md for the
+# field contract.
+#
+# Quote convention: verbatim from paper_cskg2.txt with internal whitespace
+# normalised to single spaces. This paper is a Nature Scientific Data article,
+# so the extractor glues superscript reference numerals onto the preceding
+# token — "SciBERT59", "TransR65", "CS-KG50". Quotes preserve that, and the
+# glued forms are listed as aliases where an entity name is affected. See notes.
+
+paper_id: "doi:10.1038/s41597-025-05200-8"
+slug: "cskg2"
+title: "CS-KG 2.0: A Large-scale Knowledge Graph of Computer Science"
+doi: "10.1038/s41597-025-05200-8"
+s2_paper_id: null
+year: 2025
+source_pdf: "ground-truth-papers/CS_KG_2.0_2025.pdf"
+reviewer: "claude"
+reviewed_at: "2026-08-03"
+
+# --------------------------------------------------------------- scored keys
+
+expected_topics:
+  - name: "Knowledge Graphs"
+    level: "subtopic"
+  - name: "Information Extraction"
+    level: "subtopic"
+
+expected_concepts:
+  - canonical: "scientific knowledge graph"
+    acceptable_aliases:
+      - "scientific knowledge graphs"
+      - "scholarly knowledge graph"
+      - "scholarly knowledge graphs"
+      - "scholarly knowledge"
+    quoted_text: "the research community has successfully used knowledge graphs (KGs) for creating semantically enriched representations of data in various domains, including scholarly knowledge"
+    confidence: 0.9
+
+  - canonical: "information extraction pipeline"
+    acceptable_aliases:
+      - "information extraction"
+      - "information extraction method"
+      - "knowledge graph generation"
+      - "knowledge graph generation pipeline"
+    quoted_text: "The resource released in this paper is built using an automatic pipeline named SCICERO"
+    confidence: 0.8
+
+  - canonical: "link prediction"
+    acceptable_aliases:
+      - "knowledge graph completion"
+    quoted_text: "Link prediction is a widely studied task in machine learning that involves predicting the existence (or likelihood) of (typed) edges in a graph"
+    confidence: 0.9
+
+  - canonical: "reification"
+    acceptable_aliases:
+      - "triple reification"
+      - "statement reification"
+    quoted_text: "Reification is a data modeling solution used to provide additional information regarding specific triples within an RDF graph"
+    confidence: 0.85
+
+  - canonical: "temporal information"
+    acceptable_aliases:
+      - "temporal data"
+      - "time-related information"
+    quoted_text: "the incorporation of temporal data linked with entities and statements, which facilitates the analysis of research trends over time"
+    confidence: 0.8
+
+  - canonical: "contextual information"
+    acceptable_aliases:
+      - "context information"
+      - "co-occurrence patterns"
+    quoted_text: "This extra information enhances the comprehension and analysis of the data contained within its statements, highlighting, for instance, the co-occurrence patterns among entities and statements"
+    confidence: 0.75
+
+  # Canonical differs from cskg's reconciled record ("support score") because
+  # this paper's own phrasing is the bare noun. Aliases cover both, so scoring
+  # is unaffected — but the pair should be unified. Flagged in notes.
+  - canonical: "support"
+    acceptable_aliases:
+      - "support score"
+      - "statement support"
+    quoted_text: "we introduce the concept of support denoting the number of papers associated with a specific triple"
+    confidence: 0.6
+
+  - canonical: "knowledge-centric paradigm"
+    acceptable_aliases:
+      - "knowledge-centric approach"
+    quoted_text: "To address these challenges, a knowledge-centric paradigm has been suggested"
+    confidence: 0.55
+
+expected_models:
+  - canonical: "SciBERT"
+    acceptable_aliases:
+      - "SciBERT59"          # glued reference numeral, as extracted
+    architecture: "transformer"
+    model_type: "language_model"
+    quoted_text: "is utilized to fine-tune a SciBERT59 classifier on a binary classification task"
+    confidence: 0.9
+
+  - canonical: "DyGIEpp"
+    acceptable_aliases:
+      - "DyGIE++"
+      - "DyGIE"
+      - "DyGIEpp Module"
+    architecture: "transformer"
+    quoted_text: "The DyGIEpp Module leverages the tool described in Wadden et al.53, which adopts a BERT-based model pre-trained on the SciERC54 dataset"
+    confidence: 0.9
+
+  - canonical: "Word2Vec"
+    acceptable_aliases:
+      - "word2vec"
+      - "word2vec embedding model"
+    model_type: "embedding_model"
+    quoted_text: "similarity computed via a Word2Vec model to map a text span with topics in CSO"
+    confidence: 0.8
+
+  - canonical: "BERT"
+    acceptable_aliases:
+      - "BERT-based model"
+    architecture: "transformer"
+    model_type: "language_model"
+    quoted_text: "which adopts a BERT-based model pre-trained on the SciERC54 dataset"
+    confidence: 0.6
+
+  # The four link-prediction baselines. The model prompt covers models the paper
+  # "introduces, uses, or evaluates against", and these are evaluated against.
+  - canonical: "TransR"
+    acceptable_aliases:
+      - "TransR65"
+    quoted_text: "four of the most prominent state-of-the-art solutions for link prediction: TransR65, ComplEx66, DistMul67, and RESCAL68"
+    confidence: 0.85
+
+  - canonical: "ComplEx"
+    acceptable_aliases:
+      - "ComplEx66"
+    quoted_text: "four of the most prominent state-of-the-art solutions for link prediction: TransR65, ComplEx66, DistMul67, and RESCAL68"
+    confidence: 0.85
+
+  # The paper spells it "DistMul"; the model's actual name is DistMult. Both are
+  # accepted — the importer's LLM may well correct the spelling.
+  - canonical: "DistMult"
+    acceptable_aliases:
+      - "DistMul"
+      - "DistMul67"
+    quoted_text: "four of the most prominent state-of-the-art solutions for link prediction: TransR65, ComplEx66, DistMul67, and RESCAL68"
+    confidence: 0.8
+
+  - canonical: "RESCAL"
+    acceptable_aliases:
+      - "RESCAL68"
+    quoted_text: "four of the most prominent state-of-the-art solutions for link prediction: TransR65, ComplEx66, DistMul67, and RESCAL68"
+    confidence: 0.85
+
+  # Kept at low confidence to stay consistent with cskg's reconciled record,
+  # which kept it as a model at 0.5 knowingly against the prompt's definition.
+  # This paper makes the case weaker, not stronger — it calls the components
+  # "unsupervised" — so this is the entry most likely to move at reconciliation.
+  - canonical: "CSO Classifier"
+    acceptable_aliases:
+      - "CSO-C"
+      - "Computer Science Ontology Classifier"
+      - "CSO Classifier Module"
+    quoted_text: "The CSO Classifier Module36, based on the Computer Science Ontology (CSO)55, identifies research topics within textual content"
+    confidence: 0.5
+
+expected_methods:
+  - canonical: "fine-tuning"
+    acceptable_aliases:
+      - "finetuning"
+      - "fine tuning"
+    method_type: "training"
+    quoted_text: "is utilized to fine-tune a SciBERT59 classifier on a binary classification task"
+    confidence: 0.9
+
+  - canonical: "part-of-speech tagging"
+    acceptable_aliases:
+      - "PoS tagging"
+      - "POS tagging"
+      - "part of speech tagging"
+      - "PoS Tagger"
+      - "PoS Tagger Module"
+    method_type: "data_processing"
+    quoted_text: "The PoS Tagger Module is designed for extracting triples and is based on the part of speech component from the Stanford Core NLP suite56"
+    confidence: 0.85
+
+  - canonical: "dependency parsing"
+    acceptable_aliases:
+      - "dependency parser"
+      - "Dependency Module"
+    method_type: "data_processing"
+    quoted_text: "The Dependency Module extracts triples by extending the functionality of the Stanford Core NLP Dependency Parser"
+    confidence: 0.85
+
+  - canonical: "lemmatization"
+    acceptable_aliases:
+      - "lemmatisation"
+      - "lemmatizes"
+    method_type: "data_processing"
+    quoted_text: "it lemmatizes all entities to map singular and plural forms to the same text representation"
+    confidence: 0.85
+
+  - canonical: "open information extraction"
+    acceptable_aliases:
+      - "OpenIE"
+      - "Open IE"
+      - "OpenIE Module"
+      - "OpenIE annotator"
+    method_type: "data_processing"
+    quoted_text: "The OpenIE Module extracts triples using the Stanford Core NLP56 suite and its OpenIE annotator57"
+    confidence: 0.85
+
+  - canonical: "predicate mapping"
+    acceptable_aliases:
+      - "verb mapping"
+      - "verb-to-predicate mapping"
+      - "relationship integration"
+    method_type: "data_processing"
+    quoted_text: "we associate similar verbs with an exemplary predicate"
+    confidence: 0.8
+
+  - canonical: "ontology-based consistency checking"
+    acceptable_aliases:
+      - "ontology validation"
+      - "ontology-based validation"
+      - "domain and range checking"
+    method_type: "data_processing"
+    quoted_text: "uses the CS-KG50 ontology to consolidate triples generated by the various tools and discards those that do not adhere to the specified domain and range constraints"
+    confidence: 0.8
+
+  - canonical: "acronym resolution"
+    acceptable_aliases:
+      - "acronym expansion"
+    method_type: "data_processing"
+    quoted_text: "it solves acronyms by leveraging their common placement in brackets near relevant entities"
+    confidence: 0.8
+
+  - canonical: "negative sampling"
+    acceptable_aliases:
+      - "triple corruption"
+      - "negative triple generation"
+    method_type: "training"
+    quoted_text: "Triples corruption involves replacing either the head or the tail with a randomly chosen entity, resulting in the set of negative triples denoted as Tnegative"
+    confidence: 0.8
+
+  - canonical: "majority vote"
+    acceptable_aliases:
+      - "majority voting"
+    method_type: "evaluation"
+    quoted_text: "We have then created a gold standard based on the majority vote"
+    confidence: 0.7
+
+  - canonical: "co-occurrence analysis"
+    acceptable_aliases:
+      - "co-occurrence computation"
+      - "context enrichment"
+    method_type: "data_processing"
+    quoted_text: "The objective is to analyze each statement to identify the statements and entities that most frequently co-occur with it"
+    confidence: 0.65
+
+  - canonical: "relation clustering"
+    acceptable_aliases:
+      - "verb clustering"
+    method_type: "data_processing"
+    quoted_text: "This mapping schema is built by combining relation clustering using the word2vec embedding model58"
+    confidence: 0.6
+
+  - canonical: "entity filtering"
+    acceptable_aliases:
+      - "denylist filtering"
+      - "blocklist filtering"
+      - "information content filtering"
+    method_type: "data_processing"
+    quoted_text: "it discards entities included in a manually curated denylist"
+    confidence: 0.6
+
+  - canonical: "Levenshtein similarity"
+    acceptable_aliases:
+      - "Levenshtein distance"
+      - "edit distance"
+    method_type: "data_processing"
+    quoted_text: "employs the Levenshtein similarity to compare these n-grams with topics in the CSO"
+    confidence: 0.6
+
+# ------------------------------------------------------------- unscored keys
+
+problems:
+  - statement: "The volume of scientific literature grows by roughly 2.5 million articles a year, mostly as hard-to-parse PDFs or unstructured plain text, which outstrips the ability of AI tools to interpret and explore it."
+    quoted_text: "a significant challenge remains: processing the vast quantity of scientific papers, which continues to expand at a rate of approximately 2.5 million new articles each year"
+    involves_concepts:
+      - "scientific knowledge graph"
+      - "information extraction pipeline"
+
+  - statement: "LLMs that answer questions about a single paper do not scale to understanding the entities and narratives of a whole research field spanning millions of papers, and retrieval-augmented generation does not close the gap."
+    quoted_text: "does not extend to understanding the key entities, narratives, and concepts of a research field represented by millions of such papers"
+    involves_concepts:
+      - "scientific knowledge graph"
+
+  # The problem that makes this paper the anchor's successor — it critiques
+  # cskg directly. Most load-bearing entry for the citation chain.
+  - statement: "CS-KG 1.0 carries no time-related information for its entities, includes only papers cited at least once, and is built on the now-discontinued Microsoft Academic Graph, so it cannot be updated or linked to a current metadata catalog."
+    quoted_text: "CS-KG lacks time-related information for its entities, which is essential for analyzing trends in the adoption and evolution of various methods and materials"
+    involves_concepts:
+      - "scientific knowledge graph"
+      - "temporal information"
+
+  - statement: "AI-KG covers only 330,000 papers, its entity relationships are semantically shallow, and its scope is confined to artificial intelligence rather than computer science as a whole."
+    quoted_text: "its coverage is restricted to 330,000 research papers, the semantic depth of the relationships between entities is relatively shallow, and its scope is confined exclusively to the domain of artificial intelligence"
+    involves_concepts:
+      - "scientific knowledge graph"
+
+  - statement: "Triples extracted from only one or a few papers are prone to noise, but discarding every low-support triple would throw away a large number of valid statements."
+    quoted_text: "However, discarding all uncertain triples could lead to significant information loss, since many of these triples may still be valid"
+    involves_concepts:
+      - "support"
+
+  - statement: "The link-prediction benchmarks the community relies on hold only tens of thousands of triples, which is too small by current standards to test the scalability of link-prediction methods."
+    quoted_text: "usually feature tens of thousands of triples. By current standards, these datasets are considered small"
+    involves_concepts:
+      - "link prediction"
+
+# Per the verified OpenAlex edge list: cskg2 → cskg, fact_completion.
+# The reference list is not in the extracted text, so this is taken from the
+# curated chain rather than re-derived from the PDF.
+cites_within_set:
+  - "cskg"
+  - "fact_completion"
+
+notes: >-
+  Judgment calls and flags for reconciliation.
+
+  GLUED REFERENCE NUMERALS ARE A NEW EXTRACTION HAZARD ON THIS PAPER. Nature
+  uses superscript citations, and the extractor glues them onto the preceding
+  token: "SciBERT59", "TransR65", "ComplEx66", "DistMul67", "RESCAL68",
+  "CS-KG50", "Dessí et al.52". Every affected entity name carries the glued form
+  as an alias. This is worse than cskg's ligature problem, because it hits model
+  names rather than prose — if the importer echoes the glued form, a correct
+  extraction looks like a miss. Worth checking whether the segmenter can strip
+  these before extraction.
+
+  "DistMul" IS THE PAPER'S TYPO. The model is DistMult. Scored canonical is the
+  correct name with the paper's spelling as an alias, on the grounds that the
+  answer key should not propagate a typo into the graph — but a reviewer could
+  reasonably argue the paper's own terminology rule wins here.
+
+  CSO CLASSIFIER IS THE ENTRY MOST LIKELY TO MOVE. Kept as a model at 0.5 purely
+  for consistency with cskg's reconciled record. This paper actually weakens the
+  case: it describes the classifier as leveraging "two unsupervised components",
+  one rule-based with Levenshtein similarity, one using Word2Vec. If we revisit
+  the cskg call, revisit both papers together — the whole point of a chain is
+  that the same component is labeled the same way twice.
+
+  MODEL COUNT IS HIGH AND THAT IS REAL. Nine models, against three on cskg. The
+  paper genuinely names more: it upgrades the validator from an MLP to a
+  fine-tuned SciBERT, states DyGIEpp's BERT backbone explicitly (cskg did not),
+  uses Word2Vec in two separate modules, and evaluates four link-prediction
+  baselines. Only the CSO Classifier is a judgment call.
+
+  SUPPORT CANONICAL DIVERGES FROM cskg ON PURPOSE. This paper says "the concept
+  of support"; cskg said both "support" and "support score", and its reconciled
+  record chose "support score". Aliases cover both forms in both files so no
+  score changes, but the chain should settle on one canonical — this is exactly
+  the recurring concept the set was built to watch accumulate, and it should not
+  accumulate under two names.
+
+  TOPICS. Two again. "Ontology Engineering" is the same arguable-and-dropped
+  call as on cskg (this paper's ontology has 2,275 axioms and 39 predicates
+  mapped to 464 verbs), so if the reconciled record puts it in
+  acceptable_extras there, do the same here. "Large Language Models" and
+  "Retrieval-Augmented Generation" are both legal taxonomy names and both appear
+  in the introduction, but only as motivation for why KGs are needed — the paper
+  neither builds nor evaluates either. I expect the importer to emit at least
+  one of them.
+
+  RAG AND LLMs EXCLUDED AS CONCEPTS for the same reason: SCHEMA.md asks for
+  concepts the paper "relies on", and these are cited as insufficient, not
+  relied upon. Likely importer false positives, recorded here deliberately.
+
+  NAMED RESOURCES, same open question as cskg and denser here: SCICERO (the
+  pipeline's own name), CS-KG, CS-KG 1.0, AI-KG, ORKG, SoftwareKG, SemOpenAlex,
+  Nanopublications, OpenAlex, MAG, CSO, VerbNet, WordNet, DBpedia, Wikidata,
+  YAGO, BabelNet, Google Knowledge Graph, Stanford Core NLP, SciERC, plus the
+  benchmark datasets CSKG-2M, CSKG-490K, CSKG-132K, WN18 and FB15k. None is
+  scored. Note that the benchmarks and SciERC are datasets, which the Problem
+  schema has a `datasets` field for but the entity model does not — see
+  docs/ground-truth/named-resources.md.
+
+  SIX PROBLEMS, TWO OF WHICH ARE ABOUT OTHER RESOURCES. P3 (CS-KG 1.0's
+  limitations) and P4 (AI-KG's) are limitations of prior work rather than of the
+  field, and a reviewer might argue they are not this paper's problems at all. I
+  kept both, and P3 emphatically: it is the direct critique of the chain's
+  anchor, so it is the single best test of whether the importer can represent a
+  paper superseding its predecessor. If it survives reconciliation it should
+  become a targeted assertion in the eval harness.
+
+  WEAKEST ENTRIES: CSO Classifier (0.5, see above); knowledge-centric paradigm
+  (0.55 — a framing the paper adopts in one sentence); relation clustering,
+  entity filtering and Levenshtein similarity (0.6 — real steps, each stated
+  once); BERT (0.6 — named only as DyGIEpp's backbone, and arguably subsumed by
+  it); support (0.6 — defined here but not a contribution of this paper).
+
+  SECTION SCOPE: abstract, Background & Summary, Methods, Technical Validation.
+  Data Records and Usage Notes are absent from the extracted text, so the
+  reified-statement example and the SPARQL/dump access details were not
+  available; entities appearing only there are deliberately missing.

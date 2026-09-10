@@ -2,6 +2,7 @@
 Unit tests for PDF text extraction.
 """
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -213,7 +214,9 @@ class TestPDFExtractor:
             extractor.extract_from_file("/nonexistent/path.pdf")
 
         assert "not found" in str(exc_info.value).lower()
-        assert exc_info.value.pdf_path == "/nonexistent/path.pdf"
+        # Production stores str(Path(input)), so the separator is the
+        # platform's. Compare as paths, not as strings.
+        assert Path(exc_info.value.pdf_path) == Path("/nonexistent/path.pdf")
 
     def test_extract_from_file_not_pdf(self, extractor, tmp_path):
         """Test error when file is not a PDF."""

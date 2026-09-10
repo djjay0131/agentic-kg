@@ -1,0 +1,456 @@
+# Independent Claude review — produced from paper_fact_completion.txt only.
+# No human review of this paper exists yet, and the importer's output
+# (docs/ground-truth/importer-output/) was deliberately not opened. The two
+# already-reconciled files (cskg, cskg2) WERE consulted, but only for alias sets
+# and canonical spellings of recurring entities — that is the chain-consistency
+# rule those files established, not a leak of a competing review of this paper.
+# See ../SCHEMA.md for the field contract.
+#
+# Quote convention: verbatim from paper_fact_completion.txt with internal
+# whitespace normalised to single spaces. This paper carries BOTH extraction
+# hazards seen so far: IEEE Access ligatures (ﬁ x104, ﬂ x4 — as in cskg) AND
+# glued footnote numerals ("SciCheck6", "model7" — as in cskg2). Quotes preserve
+# both. It also splits five tokens across line breaks ("classi- ﬁer",
+# "Sci- Check", "AIKG- 500"); quotes avoid those spans. See notes.
+
+paper_id: "doi:10.1109/access.2022.3220241"
+slug: "fact_completion"
+title: "Completing Scientific Facts in Knowledge Graphs of Research Concepts"
+doi: "10.1109/access.2022.3220241"
+s2_paper_id: null
+source_pdf: "ground-truth-papers/Completing_Scientific_Facts_in_Knowledge_Graphs_of_Research_Concepts.pdf"
+year: 2022
+reviewer: "claude"
+reviewed_at: "2026-08-08"
+
+# --------------------------------------------------------------- scored keys
+
+# ONE topic, against two on both previous papers — see notes. This paper does
+# not do information extraction; it completes a graph that already exists, so
+# "Information Extraction" would be wrong here rather than merely over-general.
+expected_topics:
+  - name: "Knowledge Graphs"
+    level: "subtopic"
+
+expected_concepts:
+  # The chain's spine concept, third occurrence. Canonical held at the cskg /
+  # cskg2 spelling even though this paper's own phrase is "knowledge graphs of
+  # research concepts" (it is in the title) — that phrase is an alias instead.
+  - canonical: "scientific knowledge graph"
+    acceptable_aliases:
+      - "scientific knowledge graphs"
+      - "scholarly knowledge graph"
+      - "scholarly knowledge graphs"
+      - "large-scale knowledge graph"
+      - "knowledge graph of research concepts"
+      - "knowledge graphs of research concepts"
+      - "KGs of research concepts"
+    quoted_text: "we have witnessed the emergence of several knowledge graphs that explicitly describe research knowledge with the aim of enabling intelligent systems for supporting and accelerating the scientiﬁc process"
+    confidence: 0.9
+
+  - canonical: "triple classification"
+    acceptable_aliases:
+      - "triple classiﬁcation"     # ligature form, as extracted
+      - "triple classifier"
+    quoted_text: "we introduce SciCheck, a new triple classiﬁcation approach for completing scientiﬁc statements in knowledge graphs"
+    confidence: 0.95
+
+  # NOT aliased to link prediction here, unlike cskg2 — this paper treats the
+  # two as sibling techniques in one sentence. Direct chain conflict, flagged
+  # in notes as the most important thing in this file.
+  - canonical: "knowledge graph completion"
+    acceptable_aliases:
+      - "KG completion"
+      - "knowledge graph completion methods"
+    quoted_text: "existing methods for knowledge graph completion under-perform on KGs of research concepts"
+    confidence: 0.9
+
+  - canonical: "link prediction"
+    acceptable_aliases: []      # deliberately NOT "knowledge graph completion" — see above
+    quoted_text: "The issue of incompleteness in knowledge graphs is usually addressed by link prediction or triple classiﬁcation techniques"
+    confidence: 0.7
+
+  - canonical: "knowledge graph embedding"
+    acceptable_aliases:
+      - "KG Embedding"
+      - "KG embeddings"
+      - "knowledge graph embeddings"
+      - "embedding-based KG completion"
+    quoted_text: "These methods typically use KG Embedding models (e.g. TransE [24], RotatE [25], ComplEx [26])"
+    confidence: 0.85
+
+  # The paper's actual technical contribution, and the aggregate under which
+  # the nine individual features f1–f9 are deliberately NOT scored separately.
+  - canonical: "neighbourhood-aware features"
+    acceptable_aliases:
+      - "neighborhood-aware features"
+      - "context-aware features"
+      - "neighbourhood features"
+    quoted_text: "SciCheck uses an extensible set of neighbourhood-aware features speciﬁcally tailored to scholarly information"
+    confidence: 0.8
+
+  - canonical: "word embeddings"
+    acceptable_aliases:
+      - "word embedding"
+      - "text embeddings"
+      - "contextual embeddings"
+      - "contextual embedding representations"
+    quoted_text: "Features f7 and f8 incorporate information from the word embeddings of the two entities, which had been shown to be advantageous for triple classiﬁcation"
+    confidence: 0.7
+
+  # Third occurrence across the chain (cskg, cskg2, here). Weaker grounding than
+  # on either predecessor — this paper consumes reified data rather than
+  # producing it — but scored so the accumulation signal is not broken by a
+  # labeling gap.
+  - canonical: "reification"
+    acceptable_aliases:
+      - "reiﬁcation"              # ligature form, as extracted
+      - "reified statements"
+      - "reiﬁed statements"
+      - "de-reification"
+      - "triple reification"
+      - "statement reification"
+    quoted_text: "1.2M reiﬁed statements extracted from the 333K most cited articles in the ﬁeld of AI"
+    confidence: 0.6
+
+expected_models:
+  - canonical: "RoBERTa"
+    acceptable_aliases:
+      - "RoBERTa model"
+    architecture: "transformer"
+    model_type: "language_model"
+    quoted_text: "SciCheck uses by default the RoBERTa model [37] to generate the word embeddings"
+    confidence: 0.95
+
+  # Chain link: also scored on cskg2, where it is the triple validator. Here it
+  # is an ablation variant that loses to RoBERTa.
+  - canonical: "SciBERT"
+    acceptable_aliases:
+      - "CAFE + SciBERT"
+    architecture: "transformer"
+    model_type: "language_model"
+    quoted_text: "using SciBERT, an alternative BERTbased text embedding model7 speciﬁcally tailored to scientiﬁc documents"
+    confidence: 0.9
+
+  # Same basis as cskg2's BERT entry (named only as another model's lineage),
+  # and weaker here: cskg2 at least stated a pretrained backbone. Scored only
+  # to hold the chain; the likeliest entry to be dropped at reconciliation.
+  - canonical: "BERT"
+    acceptable_aliases:
+      - "BERT-based"
+      - "BERTbased"               # dehyphenated at a line break, as extracted
+    architecture: "transformer"
+    model_type: "language_model"
+    quoted_text: "an alternative BERTbased text embedding model7 speciﬁcally tailored to scientiﬁc documents"
+    confidence: 0.5
+
+  # The five evaluated baselines. Same "evaluates against" basis that admitted
+  # cskg2's four link-prediction baselines.
+  - canonical: "TransE"
+    acceptable_aliases: []
+    quoted_text: "Five of the baselines are well-known embedding-based KG completion approaches: TransE, TransD, TransH, SimplE, and ComplEx"
+    confidence: 0.9
+
+  - canonical: "TransD"
+    acceptable_aliases: []
+    quoted_text: "Five of the baselines are well-known embedding-based KG completion approaches: TransE, TransD, TransH, SimplE, and ComplEx"
+    confidence: 0.9
+
+  - canonical: "TransH"
+    acceptable_aliases: []
+    quoted_text: "Five of the baselines are well-known embedding-based KG completion approaches: TransE, TransD, TransH, SimplE, and ComplEx"
+    confidence: 0.9
+
+  - canonical: "SimplE"
+    acceptable_aliases: []
+    quoted_text: "Five of the baselines are well-known embedding-based KG completion approaches: TransE, TransD, TransH, SimplE, and ComplEx"
+    confidence: 0.9
+
+  # Chain link: ComplEx is also one of cskg2's four link-prediction baselines.
+  # First model to recur across the set.
+  - canonical: "ComplEx"
+    acceptable_aliases: []
+    quoted_text: "Five of the baselines are well-known embedding-based KG completion approaches: TransE, TransD, TransH, SimplE, and ComplEx"
+    confidence: 0.9
+
+  # Mentioned as an example of KG embedding models, never evaluated against —
+  # a case the model prompt's "introduces, uses, or evaluates against" does not
+  # cleanly cover. See notes.
+  - canonical: "RotatE"
+    acceptable_aliases: []
+    quoted_text: "These methods typically use KG Embedding models (e.g. TransE [24], RotatE [25], ComplEx [26])"
+    confidence: 0.6
+
+expected_methods:
+  # The paper's own named approach. Scored as a Method on the strength of the
+  # paper's own word — "approach" — but this DIRECTLY CONFLICTS with cskg2,
+  # where SCICERO (also the paper's own named pipeline) was parked in
+  # acceptable_extras.named_resources. Flagged in notes; reconciliation should
+  # settle the rule once for the whole chain.
+  - canonical: "SciCheck"
+    acceptable_aliases:
+      - "SciCheck6"               # glued footnote numeral, as extracted
+    method_type: "data_processing"
+    quoted_text: "SciCheck6 is a novel approach for triple classiﬁcation designed to complete scientiﬁc statements in a knowledge graph."
+    confidence: 0.75
+
+  - canonical: "CAFE"
+    acceptable_aliases:
+      - "CAFE approach"
+      - "CAFE Baseline"
+    method_type: "data_processing"
+    quoted_text: "SciCheck is built on top of the CAFE approach [27] and introduces several new features and heuristics for the scholarly domain."
+    confidence: 0.65
+
+  # Third occurrence across the chain (cskg, cskg2, here) and the strongest
+  # grounding of the three. Alias set mirrors both predecessors.
+  - canonical: "negative sampling"
+    acceptable_aliases:
+      - "negative triple generation"
+      - "triple corruption"
+      - "generating negative examples"
+      - "corrupting a positive triple"
+    method_type: "training"
+    quoted_text: "generates negative triples by corrupting a positive triple"
+    confidence: 0.9
+
+  # Third occurrence across the chain. Alias set mirrors cskg / cskg2.
+  - canonical: "ontology-based consistency checking"
+    acceptable_aliases:
+      - "ontology-based checking"
+      - "ontology-based verification"
+      - "ontology-based validation"
+      - "ontology validation"
+      - "domain and range checking"
+      - "CAFE + Ontology"
+    method_type: "data_processing"
+    quoted_text: "SciCheck can automatically classify a triple as incorrect if the triple does not respect the domains and ranges of the relation as deﬁned in the ontological schema"
+    confidence: 0.8
+
+  # Third occurrence across the chain. Same gold-standard-construction role on
+  # all three papers.
+  - canonical: "majority vote"
+    acceptable_aliases:
+      - "majority voting"
+      - "majority vote approach"
+      - "majority vote schema"
+    method_type: "evaluation"
+    quoted_text: "A majority vote approach was used to determine that 221 triples were correct and 279 were incorrect."
+    confidence: 0.85
+
+  - canonical: "DeLong's test"
+    acceptable_aliases:
+      - "DeLong’s test"           # curly apostrophe (U+2019), as extracted
+      - "DeLong test"
+    method_type: "evaluation"
+    quoted_text: "we used DeLong’s test [66] to compare the areas under two curves"
+    confidence: 0.65
+
+# ------------------------------------------------------------- unscored keys
+
+problems:
+  # The chain link back to cskg's P1 — the same "we need machine-readable
+  # research knowledge" framing, three years earlier in the lineage.
+  - statement: "Research knowledge on the web is not available as a semantically rich, interlinked, machine-readable description, which is what would enable sophisticated automated analysis of the scientific literature."
+    quoted_text: "One of the main challenges in this space is to generate a semantically rich, interlinked, and machine readable description of the available research knowledge."
+    involves_concepts:
+      - "scientific knowledge graph"
+
+  - statement: "Knowledge graphs describing research concepts are very partial representations of the actual research knowledge and miss relevant facts that neither information extraction approaches nor human experts identified."
+    quoted_text: "They are typically very partial representations of the actual research knowledge and may lack several relevant facts, that were not identiﬁed by information extraction approaches or human experts."
+    involves_concepts:
+      - "scientific knowledge graph"
+      - "knowledge graph completion"
+
+  # The paper's headline problem and its reason for existing.
+  - statement: "Existing knowledge graph completion methods under-perform specifically on knowledge graphs of research concepts, and in particular suffer from low precision, which is unacceptable in the scientific domain."
+    quoted_text: "existing methods for knowledge graph completion under-perform on KGs of research concepts, as detailed in Section IV. In particular, they suffer from low precision, which is not acceptable in the scientiﬁc domain."
+    involves_concepts:
+      - "knowledge graph completion"
+      - "triple classification"
+
+  - statement: "Knowledge graphs record only positive knowledge, so there are no negative triples available to train a classifier against, and they must be manufactured."
+    quoted_text: "Knowledge Graphs only contain positive knowledge, i.e., triples for which their heads and tails are known to be related by means of a relationship. However, in order to train a classiﬁer, negative triples are also needed."
+    involves_concepts:
+      - "triple classification"
+
+  # Direct counterpart of cskg2's benchmark problem — both papers independently
+  # say the community's standard link-prediction/triple-classification
+  # benchmarks are inadequate, for different reasons.
+  - statement: "The traditional benchmarks used for triple classification leak information between their training and test sets because they contain reciprocal relations, which inflates measured performance."
+    quoted_text: "It is well-known [63] that these traditional benchmarks suffer from information leakage between the training and test sets, due to the presence of reciprocal relations."
+    involves_concepts:
+      - "knowledge graph completion"
+
+# Per the verified OpenAlex edge list, this paper is cited BY cskg2,
+# kg_validation_hitl and hypothesis_generation, and cites none of the set
+# itself. The reference list is not in the extracted text, so this is taken from
+# the curated chain rather than re-derived. Note it does NOT cite cskg, despite
+# both being 2022 and sharing authors — worth a second look before treating a
+# live edge as an importer bug.
+cites_within_set: []
+
+notes: >-
+  Judgment calls and flags for reconciliation.
+
+  SECTION SCOPE IS DELIBERATE AND GOLD IS RIGHT TO FOLLOW IT. Only the
+  abstract, I. Introduction, III. SciCheck and IV. Evaluation are in
+  paper_fact_completion.txt. My first pass called this a truncated extract and
+  said the review might need redoing; that was wrong. scripts/segment_ground_
+  truth.py names all six sections explicitly and keeps only the four that
+  ingestion.py's _build_extractor_section_text feeds the extractors
+  (abstract / introduction / methods / experiments). Section II (Related Work),
+  Section V (Use Case: AI-KG) and Section VI (Conclusion) are excluded on
+  purpose, and gold must exclude them too: an entity the importer cannot read
+  is a guaranteed recall miss, not a labeling target. Nothing below changes.
+
+  BUT SECTION V WAS AUDITED AGAINST THE PDF, AND IT IS WHERE THIS PAPER'S CHAIN
+  LINKS LIVE. This is a finding about the segmenter's section policy, not about
+  this file. Section V is 6,502 characters and contains at least five entities
+  that recur elsewhere in the citation chain and appear NOWHERE in the
+  extractor's input for this paper:
+
+    - "support score" — "the authors adopted a support score deﬁned as the
+      number of research papers where the fact was extracted from". This is the
+      chain's recurring concept, the one cskg and cskg2 were just reconciled to
+      share a single canonical. It occurs zero times in the extractor input.
+      The five "support" hits there are the verb "supporting" and the AI-KG
+      relation names supportsTask / supportsMethod — not the concept.
+    - "TransR" — scored as a model on cskg2; here only in "state-of-the-art
+      methods developed for general-domain KGs such as TransE, TransR, RotatE".
+    - the CSO topic classifier — "a topic classiﬁer developed on top of the CSO
+      ontology"; CSO Classifier is a scored model on both previous papers.
+    - verb clustering — "The relations were created by clustering frequent
+      verbs"; this is cskg/cskg2's "predicate mapping" and the "relation
+      clustering" that cskg2 parked in acceptable_extras.
+    - "information extraction pipeline" — a scored concept on both previous
+      papers; the exact phrase appears in Section V ("missed by the information
+      extraction pipeline") and zero times in the extractor input.
+
+  THE CONSEQUENCE IS SPECIFIC AND IT LANDS ON THE POINT OF THE WHOLE SET. This
+  collection exists to watch a concept accumulate evidence across a citation
+  chain. On this paper, five of those recurring entities are present in the
+  paper and invisible to the importer, purely because of which sections get fed
+  to the extractors. When the diff is run, the resulting gap will look like an
+  importer recall failure and will actually be a segmentation policy decision.
+  Gold cannot fix this — the right fix is upstream, and it is a production
+  question, not a fixture one: should a "use case" or "application" section be
+  in _build_extractor_section_text's keep-list? On this paper it is the single
+  densest source of chain-recurring entities in the document.
+
+  NOW LOGGED AND MEASURED ACROSS ALL EIGHT PAPERS — see
+  docs/ground-truth/segmenter-findings.md cause (7), added 2026-08-09. The audit
+  found this is not the worst case: keep-list coverage of body text ranges from
+  3.9% (kg_construction_survey, abstract + introduction only, 18 of its 22 chain
+  entities invisible) to 71.7%, with llm_ontology_gen at 20.6% and losing the
+  spine concept "scientific knowledge graph" outright. fact_completion sits at
+  69.7% and loses 5, but its losses are the most targeted, because Section V is
+  precisely where this paper touches the rest of the chain. If the keep-list
+  changes, paper_fact_completion.txt must be regenerated and this review redone
+  rather than patched — that caveat was wrong as a description of the current
+  fixture, but it becomes correct the moment the policy changes.
+
+  BOTH EXTRACTION HAZARDS APPEAR ON THIS PAPER AT ONCE. cskg had ligatures,
+  cskg2 had glued reference numerals, and IEEE Access has both: 104 "ﬁ" and 4
+  "ﬂ" ligatures, plus glued footnote markers ("SciCheck6", "model7"). It adds a
+  third: five tokens split across line breaks, which whitespace normalisation
+  turns into "classi- ﬁer", "Sci- Check" and "AIKG- 500". Quotes here avoid
+  those spans, but the importer's LLM will see them, and "Sci- Check" in
+  particular could plausibly surface as a mangled entity name. It adds a fourth
+  on top: curly quotation marks (U+2019 x8, U+2018 x5), which is what made
+  "DeLong's test" fail the verbatim check on the first pass — the quote needed
+  "DeLong’s", and the ASCII form is an alias. Three papers, three publishers,
+  four distinct artifact classes — the segmenter fix should probably be
+  publisher-agnostic Unicode normalisation rather than per-case patching, and
+  validate_ground_truth.py catching this is a point in favour of running it on
+  reviewer files, not just reconciled ones.
+
+  THE BIGGEST FLAG: THIS PAPER CONTRADICTS cskg2's ALIASING OF LINK PREDICTION.
+  cskg2's reconciled record lists "knowledge graph completion" as an alias of
+  "link prediction" — reasonable there, since that paper says link prediction
+  "is also known as knowledge graph completion". This paper puts them side by
+  side as two different techniques in one sentence: incompleteness "is usually
+  addressed by link prediction or triple classiﬁcation techniques", with KG
+  completion as the umbrella task both serve. I have scored them as separate
+  concepts here and deliberately left link prediction's alias list empty. Both
+  files cannot be right. Whichever way reconciliation goes, it has to change
+  one of the two files, and it matters more than it looks: link prediction is
+  a recurring chain concept, and if the two papers disagree about what it is
+  an alias of, the accumulation signal is measuring our inconsistency.
+
+  SciCheck AS A METHOD CONTRADICTS SCICERO AS A NAMED RESOURCE. cskg2 parked
+  SCICERO — that paper's own named pipeline — in
+  acceptable_extras.named_resources, pending the schema decision. I have scored
+  SciCheck as a Method here instead, because this paper calls it "a new triple
+  classiﬁcation approach" and "a novel approach", and an approach is a recipe.
+  I am not confident this is right, only that it is what the paper says. The
+  general question reconciliation needs to answer: does a paper's own named
+  system go in Method, in named_resources, or in a Resource node type if E-9
+  ever happens? It recurs on every paper in this set and currently has two
+  different answers. CAFE (0.65) rides on the same decision.
+
+  THE NINE FEATURES ARE DELIBERATELY NOT SCORED INDIVIDUALLY. f1–f9 include
+  N-path centrality, the Jaccard index, the Adamic/Adar index, cosine
+  similarity, dot product, and one-hot type vectors — each named, each grounded,
+  each stated in exactly one bullet. Scoring them would add nine recall
+  obligations for sub-components of a single contribution, which is the same
+  call reconciliation already made against "relation clustering" and
+  "Levenshtein similarity" on cskg2. The aggregate is scored instead, as the
+  concept "neighbourhood-aware features". If reconciliation prefers the
+  granular treatment, it should revisit cskg2 in the same change.
+
+  ONE TOPIC, WHICH BREAKS THE PATTERN OF THE FIRST TWO PAPERS. Both cskg and
+  cskg2 scored "Knowledge Graphs" + "Information Extraction". Information
+  Extraction is wrong here — this paper never extracts anything from text, it
+  completes a graph that already exists. I considered and rejected: "Machine
+  Learning" and "Deep Learning" (the authors' own INDEX TERMS do list "machine
+  learning", and the classifier is a feedforward network, so an emission is
+  plausible — but both are over-general and the prompt asks for the smallest
+  set); "Graph Neural Networks" (named once, in related work, as an approach
+  the paper does NOT use — a likely and clearly wrong importer emission);
+  "Knowledge Representation" (the parent area of the scored subtopic, the same
+  extra recorded on both previous papers). All four belong in
+  acceptable_extras.topics at reconciliation.
+
+  FALSE FRIEND — "FINE-TUNED" DOES NOT MEAN FINE-TUNING HERE. The paper says
+  the neural classifier "can be ﬁne-tuned for the KG in question", immediately
+  followed by "The hyperparameters used in the evaluation are discussed in
+  Section IV-A". That is hyperparameter tuning, not the transfer-learning
+  method scored as "fine-tuning" on cskg2. I have not scored it. I expect the
+  importer to extract it anyway, and if it does, that is a genuine
+  false positive worth keeping in the diff rather than excusing.
+
+  NOT SCORED, RECORDED SO THE OMISSIONS ARE VISIBLE: manual annotation (five
+  domain experts annotated AIKG-500 — real, but one step from the banned
+  generic "evaluation", and parked in acceptable_extras on cskg for exactly
+  this reason); inter-annotator agreement / Cohen's kappa (same, and cskg's
+  Fleiss' kappa was treated the same way); ROC curve analysis and binary
+  cross-entropy loss (real but closer to "evaluation" and "training" than to
+  named recipes); "incompleteness" (the paper's motivation, but a property
+  rather than a technique — it is carried by the problems instead);
+  type-constrained negative sampling (a refinement of the scored negative
+  sampling, folded in as an alias rather than split out).
+
+  NAMED RESOURCES, same open question as both predecessors: AI-KG, AI-KG 1.2,
+  ORKG, UMLS, Nanopublications, CSO, TKG, FreeBase, WordNet, NELL, DBpedia,
+  BIBO, SPAR, OpenKE, plus the benchmark datasets AIKG-1M, AIKG-500, FB13,
+  WN11, WN18, WN18RR and NELL. Two things make this paper harder than the
+  others. First, AI-KG is not merely mentioned — it is the object of the
+  paper's use case, and the paper releases a new version of it. Second, the
+  benchmarks here are contributions, not just references: AIKG-1M and AIKG-500
+  are datasets this paper creates and releases. A resource the paper *produces*
+  is a stronger case for a first-class node than one it cites. See
+  docs/ground-truth/named-resources.md.
+
+  WEAKEST ENTRIES, IN ORDER: BERT (0.5) — named only as SciBERT's lineage, via
+  the dehyphenated "BERTbased", and scored only to match cskg2; reification
+  (0.6) — third chain occurrence but the thinnest of the three, since this
+  paper consumes reified data rather than producing it; RotatE (0.6) —
+  mentioned, never evaluated; CAFE (0.65) and DeLong's test (0.65); word
+  embeddings (0.7) — real and load-bearing for two features, but close to the
+  concept prompt's generic line; link prediction (0.7) — see the aliasing
+  conflict above.
+
+  STILL OPEN: s2_paper_id, unresolved on all three papers so far. Also the
+  source_pdf filename above is a guess — README.md abbreviates it as
+  "Completing_Scientific_Facts_...pdf" and I could not verify the real name.

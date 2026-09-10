@@ -1,0 +1,72 @@
+# ---------------------------------------------------------------- identity
+paper_id: "doi:10.1007/978-3-031-19433-7_39"   # "doi:<doi>" | "arxiv:<id>"
+slug: "empire"
+title: "Divide and Conquer the EmpiRE: A Community-Maintainable Knowledge Graph of Empirical Research in Requirements Engineering"
+doi: "10.1007/978-3-031-19433-7_39"
+s2_paper_id: null            # Semantic Scholar paperId; null until looked up
+year: 2023
+source_pdf: "ground-truth-papers/KG_EmpiRE.pdf"
+reviewer: "human"            # "human" | "claude" | "reconciled"
+reviewed_at: "2026-08-08"
+
+# ------------------------------------------------- scored (e8_eval-compatible)
+expected_topics:
+  - name: "Knowledge Graphs" # CLOSED SET — must appear in seed_taxonomy.yml
+    level: "subtopic"        # domain | area | subtopic. NOT scored; for humans.
+
+expected_concepts:
+  - canonical: "requirements engineering"
+    acceptable_aliases: 
+      - "requirements management"
+      - "requirements analysis"
+    quoted_text: "Empirical research in requirements engineering (RE) is a constantly evolving topic, with a growing number of publications."       # unscored; >=10 chars, verbatim
+    confidence: 0.9     
+  
+  - canonical: "information extraction pipeline"
+    acceptable_aliases:
+      - "information extraction"
+      - "information extraction method"
+      - "knowledge graph generation"
+      - "knowledge graph generation pipeline"
+    quoted_text: "We collect papers from the field of RE and extract data on the empirical research reported. In this way, we build and publish the initial KG-EmpiRE as a solution design, which we analyze for evaluation. For this reason, our research approach consists of the three main steps: Data collection, data extraction, and data analysis"
+    confidence: 0.7  
+
+  - canonical: "scientific knowledge graph"
+    acceptable_aliases:
+      - "scientific knowledge graphs"
+      - "scholarly knowledge graph"
+      - "scholarly knowledge graphs"
+      - "scholarly knowledge"
+      - "large-scale knowledge graph"
+    quoted_text: "We examine the use of the Open Research Knowledge Graph (ORKG) as such an infrastructure to build and publish an initial Knowledge Graph of Empirical research in RE (KG-EmpiRE) whose data is openly available."       # unscored; >=10 chars, verbatim
+    confidence: 0.9
+  
+  - canonical: "systematic literature review"
+    acceptable_aliases:
+    - "literature review"
+    - "literature reviews"
+    quoted_text: "Although they share the same goal, use similar methods, i.a., (systematic) literature reviews, and even examine overlapping periods, venues, and themes"
+
+expected_models: []          # same entry shape; [] is valid but see "Empty lists"
+
+expected_methods:
+  - canonical: "entity linking"
+    acceptable_aliases: ["entity resolution"]
+    quoted_text: "..."
+    confidence: 0.8
+
+# ------------------------------------------------------------------ unscored
+problems:                    # ExtractedProblem is a LIST per paper, not one
+  - statement: "Papers that create snapshots of the current state of requirements engineering do not build upon earlier papers, resulting in redundancy and a lack of overall structure."         # >=20 chars (importer's own floor)
+    quoted_text: "Several papers address this topic using literature reviews to provide a snapshot of its “current” state and evolution. However, these papers have never built on or updated earlier ones, resulting in overlap and redundancy."       # >=10 chars
+    involves_concepts: ["requirements engineering"]
+  
+  - statement: "Data from earlier works in the field is often not readily available to researchers, preventing them from conducting proper literature reviews that take them into account."
+    quoted_text: "The underlying problem is the unavailability of data from earlier works. Researchers need technical infrastructures to conduct sustainable literature reviews."
+    involves_concepts:
+    - "information extraction pipeline"
+
+cites_within_set: ["cskg", "fact_completion"]   # slugs only, this set only
+
+notes: >-
+  1. Literature review is listed specifically as a method, while                  # ambiguity, low confidence, judgment calls

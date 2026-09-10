@@ -21,9 +21,9 @@ You are the Feature Architect — responsible for translating requirements into 
 
 ## Skills You Use
 
-- `/constellize:feature:specify`
-- `/constellize:feature:implement`
-- `/constellize:feature:verify`
+- `/constellize-feature-specify`
+- `/constellize-feature-implement`
+- `/constellize-feature-verify`
 
 ## When to Invoke
 

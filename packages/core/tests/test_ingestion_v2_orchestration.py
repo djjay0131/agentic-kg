@@ -5,6 +5,7 @@ flag combos, skip check, error injection, helpers. No testcontainers;
 no real LLM calls; uses the existing test_ingestion.py mocking style.
 """
 
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -984,3 +985,111 @@ class TestProgressCallbackPhases:
 
         phases = {e[0] for e in emitted}
         assert "skipped_complete" in phases
+
+
+# =============================================================================
+# SEG-1 AC-13: the per-paper loop reports partial segmentation
+# See llm/features/seg1-roman-numeral-headings.md
+# =============================================================================
+
+
+def _processing_result_with_types(*type_values):
+    """A successful PaperProcessingResult whose segmented document yields
+    exactly the given section types, each with enough text to clear
+    MIN_USABLE_CHARS."""
+    r = MagicMock()
+    r.success = True
+    r.problem_count = 0
+    sections = []
+    for value in type_values:
+        section = MagicMock()
+        section.section_type = MagicMock()
+        section.section_type.value = value
+        section.content = f"{value} body text " * 40
+        sections.append(section)
+    seg = MagicMock()
+    seg.sections = sections
+    r.segmented_document = seg
+    r.stages = [MagicMock(success=True, error=None)]
+    r.get_high_confidence_problems = MagicMock(return_value=[])
+    return r
+
+
+class TestPartialSegmentationWarning:
+    """A paper that clears MIN_USABLE_CHARS while missing wanted sections is
+    the case `failed_thin` does NOT cover, and was silent before SEG-1."""
+
+    @pytest.mark.asyncio
+    async def test_warns_naming_missing_types_and_doi(
+        self, common_mocks, caplog,
+    ):
+        """The cskg shape: introduction + experiments present, no abstract and
+        no methods, comfortably over the 250-char floor."""
+        papers = [_normalized_paper(doi="10.1/cskg")]
+        _wire_basic_search(common_mocks, papers)
+        common_mocks["pipe"].return_value.process_pdf_url = AsyncMock(
+            return_value=_processing_result_with_types(
+                "introduction", "related_work", "experiments", "references",
+            ),
+        )
+
+        with caplog.at_level(logging.WARNING, logger="agentic_kg.ingestion"):
+            await ingest_papers("q", limit=10)
+
+        warnings = [
+            r.getMessage()
+            for r in caplog.records
+            if "Partial segmentation" in r.getMessage()
+        ]
+        assert len(warnings) == 1
+        message = warnings[0]
+        assert "10.1/cskg" in message
+        assert "'abstract'" in message
+        assert "'methods'" in message
+        # Reports what it DID find, so the operator can tell a segmenter miss
+        # from a paper that genuinely has no methods section.
+        assert "'introduction'" in message
+        assert "'experiments'" in message
+
+    @pytest.mark.asyncio
+    async def test_silent_when_all_four_sections_present(
+        self, common_mocks, caplog,
+    ):
+        """No crying wolf on a healthy paper."""
+        papers = [_normalized_paper(doi="10.1/healthy")]
+        _wire_basic_search(common_mocks, papers)
+        common_mocks["pipe"].return_value.process_pdf_url = AsyncMock(
+            return_value=_processing_result_with_types(
+                "abstract", "introduction", "methods", "experiments",
+            ),
+        )
+
+        with caplog.at_level(logging.WARNING, logger="agentic_kg.ingestion"):
+            await ingest_papers("q", limit=10)
+
+        assert not [
+            r for r in caplog.records if "Partial segmentation" in r.getMessage()
+        ]
+
+    @pytest.mark.asyncio
+    async def test_does_not_duplicate_the_failed_thin_path(
+        self, common_mocks, caplog,
+    ):
+        """A paper below MIN_USABLE_CHARS is already reported as failed_thin
+        and skipped — it must not also produce a partial-segmentation warning,
+        or every acquisition failure gets two lines."""
+        papers = [_normalized_paper(doi="10.1/thin")]
+        _wire_basic_search(common_mocks, papers)
+        thin = _processing_result_with_types("references")
+        thin.segmented_document.sections[0].content = "tiny"
+        common_mocks["pipe"].return_value.process_pdf_url = AsyncMock(
+            return_value=thin,
+        )
+
+        with caplog.at_level(logging.WARNING, logger="agentic_kg.ingestion"):
+            result = await ingest_papers("q", limit=10)
+
+        assert result.acquisition_failures.get("failed_thin") == 1
+        assert not [
+            r for r in caplog.records if "Partial segmentation" in r.getMessage()
+        ]

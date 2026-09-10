@@ -32,7 +32,7 @@ def load_deny_list(path: Union[str, Path]) -> frozenset[str]:
     if not path.exists():
         raise FileNotFoundError(f"Deny-list fixture not found: {path}")
 
-    raw = yaml.safe_load(path.read_text()) or {}
+    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     if "deny_list" not in raw:
         raise ValueError(
             f"Deny-list fixture root must contain 'deny_list' key: {path}"

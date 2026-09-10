@@ -196,7 +196,7 @@ async def extract_batch(
     # Parse batch file
     papers = []
     if path.suffix == ".json":
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
             if isinstance(data, list):
                 papers = data
@@ -206,7 +206,7 @@ async def extract_batch(
                 print("Error: JSON must be a list or have a 'papers' key", file=sys.stderr)
                 sys.exit(1)
     elif path.suffix == ".csv":
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#"):
@@ -220,7 +220,7 @@ async def extract_batch(
                                 else {"path": entry}
                             )
     elif path.suffix == ".txt":
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#"):
@@ -451,7 +451,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=True,
         help=(
             "Run the 4 entity extractors but skip the cross-entity "
-            "routing LLM (E-7). Concept ↔ Method double-edges may land "
+            "routing LLM (E-7). Concept <-> Method double-edges may land "
             "in the graph; trade quality for cost ceiling."
         ),
     )
@@ -856,7 +856,7 @@ async def run_ingest(args) -> None:
         dois = list(args.dois)
     elif getattr(args, "dois_file", None):
         try:
-            with open(args.dois_file) as f:
+            with open(args.dois_file, encoding="utf-8") as f:
                 dois = [
                     ln.strip() for ln in f
                     if ln.strip() and not ln.lstrip().startswith("#")

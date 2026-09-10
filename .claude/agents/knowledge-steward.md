@@ -21,10 +21,10 @@ You are the Knowledge Steward — responsible for maintaining accurate, useful p
 
 ## Skills You Use
 
-- `/constellize:memory:establish`
-- `/constellize:memory:update`
-- `/constellize:memory:revise`
-- `/constellize:memory:recover`
+- `/constellize-memory-establish`
+- `/constellize-memory-update`
+- `/constellize-memory-revise`
+- `/constellize-memory-recover`
 
 ## When to Invoke
 

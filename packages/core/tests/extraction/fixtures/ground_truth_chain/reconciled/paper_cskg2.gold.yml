@@ -1,0 +1,820 @@
+# Reconciled answer key — human/paper_cskg2.gold.yml + claude/paper_cskg2.gold.yml,
+# adjudicated against paper_cskg2.txt line by line and agreed 2026-08-08.
+# Every disagreement is recorded in `disagreements:`; nothing was resolved silently.
+#
+# Quote convention: quoted_text is verbatim from paper_cskg2.txt with internal
+# whitespace normalised to single spaces. Unlike paper_cskg.txt, this file has NO
+# ligatures (ﬁ/ﬀ count is zero) — Nature's typesetting differs from Springer LNCS.
+# It has a different artifact instead: superscript reference numerals are glued
+# onto the preceding token ("SciBERT59", "TransR65", "CS-KG50"). Quotes preserve
+# that, and every affected entity carries the glued form as an alias.
+#
+# Alias policy for this file: where an entity also appears in
+# reconciled/paper_cskg.gold.yml, its alias set MIRRORS that file and adds only
+# forms grounded in cskg2. Chain consistency is the point of this set — the same
+# importer output must score the same way on both papers, or "concept accumulates
+# across the citation chain" measures our labeling drift instead.
+
+# ---------------------------------------------------------------- identity
+paper_id: "doi:10.1038/s41597-025-05200-8"
+slug: "cskg2"
+title: "CS-KG 2.0: A Large-scale Knowledge Graph of Computer Science"
+doi: "10.1038/s41597-025-05200-8"
+s2_paper_id: null            # not looked up; same open item as cskg
+year: 2025
+source_pdf: "ground-truth-papers/CS_KG_2.0_2025.pdf"
+reviewer: "reconciled"
+reviewed_at: "2026-08-06"
+
+# ------------------------------------------------- scored (e8_eval-compatible)
+
+# Both reviews independently returned exactly these two — same pair as cskg.
+# "Ontology Engineering", "Large Language Models" and "Retrieval-Augmented
+# Generation" were all considered and are recorded under acceptable_extras.
+expected_topics:
+  - name: "Knowledge Graphs"
+    level: "subtopic"
+  - name: "Information Extraction"
+    level: "subtopic"
+
+expected_concepts:
+  - canonical: "scientific knowledge graph"
+    acceptable_aliases:
+      - "scientific knowledge graphs"
+      - "scholarly knowledge graph"
+      - "scholarly knowledge graphs"
+      - "scholarly knowledge"
+      - "large-scale knowledge graph"
+    quoted_text: "the Computer Science Knowledge Graph (CS-KG 2.0), an extensive knowledge base generated from 15 million research papers."
+    confidence: 0.95
+
+  - canonical: "information extraction pipeline"
+    acceptable_aliases:
+      - "information extraction"
+      - "information extraction framework"
+      - "knowledge graph generation pipeline"
+      - "extraction pipeline"
+    quoted_text: "The resource released in this paper is built using an automatic pipeline named SCICERO presented in Dessí et al."
+    confidence: 0.9
+
+  - canonical: "link prediction"
+    acceptable_aliases:
+      - "knowledge graph completion"
+    quoted_text: "Link prediction is a widely studied task in machine learning that involves predicting the existence (or likelihood) of (typed) edges in a graph"
+    confidence: 0.85
+
+  - canonical: "reification"
+    acceptable_aliases:
+      - "triple reification"
+      - "statement reification"
+    quoted_text: "Reification is a data modeling solution used to provide additional information regarding specific triples within an RDF graph"
+    confidence: 0.8
+
+  # New in 2.0 and the paper's headline advance over cskg. Paired with the
+  # "temporal enrichment" method below.
+  - canonical: "temporal information"
+    acceptable_aliases:
+      - "temporal data"
+      - "time-related information"
+    quoted_text: "the incorporation of temporal data linked with entities and statements, which facilitates the analysis of research trends over time"
+    confidence: 0.8
+
+  - canonical: "contextual information"
+    acceptable_aliases:
+      - "context information"
+      - "contextual framework"
+      - "co-occurrence patterns"
+    quoted_text: "This extra information enhances the comprehension and analysis of the data contained within its statements, highlighting, for instance, the co-occurrence patterns among entities and statements"
+    confidence: 0.75
+
+  # Canonical CHANGED from cskg's "support score" to the bare "support" —
+  # see disagreement 1. reconciled/paper_cskg.gold.yml was edited to match.
+  - canonical: "support"
+    acceptable_aliases:
+      - "support score"
+      - "statement support"
+      - "hasSupport"
+    quoted_text: "we introduce the concept of support denoting the number of papers associated with a specific triple"
+    confidence: 0.6
+
+  - canonical: "knowledge-centric paradigm"
+    acceptable_aliases:
+      - "knowledge-centric approach"
+    quoted_text: "To address these challenges, a knowledge-centric paradigm has been suggested"
+    confidence: 0.6
+
+# Nine models against cskg's three, and the count is real rather than lax
+# labeling: 2.0 upgrades the validator from a classifier to a fine-tuned
+# SciBERT, states DyGIEpp's BERT backbone explicitly (cskg did not), uses
+# Word2Vec in two modules, and evaluates four link-prediction baselines.
+# Both reviews returned this exact nine-model set independently.
+expected_models:
+  - canonical: "SciBERT"
+    acceptable_aliases:
+      - "SciBERT59"          # glued reference numeral, as extracted
+    architecture: "transformer"
+    model_type: "language_model"
+    quoted_text: "is utilized to fine-tune a SciBERT59 classifier on a binary classification task"
+    confidence: 0.85
+
+  - canonical: "DyGIEpp"
+    acceptable_aliases:
+      - "DyGIE++"
+      - "DyGIE"
+      - "DyGIEpp Module"
+    architecture: "transformer"
+    quoted_text: "The DyGIEpp Module leverages the tool described in Wadden et al.53, which adopts a BERT-based model pre-trained on the SciERC54 dataset"
+    confidence: 0.85
+
+  - canonical: "Word2Vec"
+    acceptable_aliases:
+      - "word2vec embedding model"
+      - "Word2Vec model"
+    model_type: "embedding_model"
+    quoted_text: "The semantic component utilizes a combination of part-of-speech tagging and similarity computed via a Word2Vec model"
+    confidence: 0.75
+
+  - canonical: "BERT"
+    acceptable_aliases:
+      - "BERT-based model"
+    architecture: "transformer"
+    model_type: "language_model"
+    quoted_text: "which adopts a BERT-based model pre-trained on the SciERC54 dataset"
+    confidence: 0.6
+
+  # The four link-prediction baselines. The model prompt covers models the paper
+  # "introduces, uses, or evaluates against", and these are evaluated against.
+  - canonical: "TransR"
+    acceptable_aliases:
+      - "TransR65"
+    quoted_text: "four of the most prominent state-of-the-art solutions for link prediction: TransR65, ComplEx66, DistMul67, and RESCAL68."
+    confidence: 0.75
+
+  - canonical: "ComplEx"
+    acceptable_aliases:
+      - "ComplEx66"
+    quoted_text: "four of the most prominent state-of-the-art solutions for link prediction: TransR65, ComplEx66, DistMul67, and RESCAL68."
+    confidence: 0.75
+
+  # "DistMul" is this paper's typo; the model is DistMult. See disagreement 4.
+  - canonical: "DistMult"
+    acceptable_aliases:
+      - "DistMul"
+      - "DistMul67"
+    quoted_text: "four of the most prominent state-of-the-art solutions for link prediction: TransR65, ComplEx66, DistMul67, and RESCAL68."
+    confidence: 0.7
+
+  - canonical: "RESCAL"
+    acceptable_aliases:
+      - "RESCAL68"
+    quoted_text: "four of the most prominent state-of-the-art solutions for link prediction: TransR65, ComplEx66, DistMul67, and RESCAL68."
+    confidence: 0.75
+
+  # Kept as a model at 0.5, matching cskg's deliberate exception to
+  # MODEL_SYSTEM_PROMPT_V1. Both reviewers put it here independently on both
+  # papers. This paper weakens the case rather than strengthening it — see
+  # disagreement 5 and notes.
+  - canonical: "CSO Classifier"
+    acceptable_aliases:
+      - "CSO-C"
+      - "Computer Science Ontology Classifier"
+      - "CSO Classifier Module"
+    quoted_text: "The CSO Classifier Module36, based on the Computer Science Ontology (CSO)55, identifies research topics within textual content."
+    confidence: 0.5
+
+expected_methods:
+  - canonical: "open information extraction"
+    acceptable_aliases:
+      - "OpenIE"
+      - "Open IE"
+      - "OpenIE Module"
+      - "OpenIE annotator"
+    method_type: "data_processing"
+    quoted_text: "The OpenIE Module extracts triples using the Stanford Core NLP56 suite and its OpenIE annotator57."
+    confidence: 0.85
+
+  - canonical: "part-of-speech tagging"
+    acceptable_aliases:
+      - "PoS tagging"
+      - "part of speech tagging"
+      - "PoST"
+      - "PoS Tagger"
+      - "PoS Tagger Module"
+      - "Part-of-Speech Tagger"
+    method_type: "data_processing"
+    quoted_text: "The PoS Tagger Module is designed for extracting triples and is based on the part of speech component from the Stanford Core NLP suite56."
+    confidence: 0.85
+
+  # No cskg counterpart — 2.0 adds a fifth extractor module.
+  - canonical: "dependency parsing"
+    acceptable_aliases:
+      - "dependency parser"
+      - "Dependency Module"
+    method_type: "data_processing"
+    quoted_text: "The Dependency Module extracts triples by extending the functionality of the Stanford Core NLP Dependency Parser."
+    confidence: 0.85
+
+  - canonical: "lemmatization"
+    acceptable_aliases:
+      - "lemmatisation"
+      - "lemmatize"
+      - "lemmatizes"
+    method_type: "data_processing"
+    quoted_text: "it lemmatizes all entities to map singular and plural forms to the same text representation;"
+    confidence: 0.85
+
+  - canonical: "acronym resolution"
+    acceptable_aliases:
+      - "acronym expansion"
+      - "acronym solving"
+    method_type: "data_processing"
+    quoted_text: "it solves acronyms by leveraging their common placement in brackets near relevant entities;"
+    confidence: 0.75
+
+  - canonical: "predicate mapping"
+    acceptable_aliases:
+      - "verb mapping"
+      - "verb-to-predicate mapping"
+      - "relationship merging"
+      - "relationship integration"
+    method_type: "data_processing"
+    quoted_text: "To address this issue, we associate similar verbs with an exemplary predicate."
+    confidence: 0.75
+
+  # "blacklist"/"whitelist" appear zero times in this paper — 2.0 says
+  # "denylist" — but the cskg aliases are retained so one importer output scores
+  # identically on both papers. See disagreement 9.
+  - canonical: "entity filtering"
+    acceptable_aliases:
+      - "denylist filtering"
+      - "blocklist filtering"
+      - "blacklist filtering"
+      - "whitelist filtering"
+      - "blacklisting"
+      - "whitelisting"
+      - "information content filtering"
+    method_type: "data_processing"
+    quoted_text: "it discards entities included in a manually curated denylist; and (iv) it identifies and removes generic entities by assessing their information content score"
+    confidence: 0.65
+
+  - canonical: "ontology-based consistency checking"
+    acceptable_aliases:
+      - "ontology-based checking"
+      - "ontology-based verification"
+      - "ontology-based validation"
+      - "ontology validation"
+      - "domain and range checking"
+    method_type: "data_processing"
+    quoted_text: "This component uses the CS-KG50 ontology to consolidate triples generated by the various tools and discards those that do not adhere to the specified domain and range constraints of the defined object properties."
+    confidence: 0.75
+
+  - canonical: "negative sampling"
+    acceptable_aliases:
+      - "negative triple generation"
+      - "triple corruption"
+    method_type: "training"
+    quoted_text: "Triples corruption involves replacing either the head or the tail with a randomly chosen entity, resulting in the set of negative triples denoted as Tnegative."
+    confidence: 0.75
+
+  # Answers the human review's question 5: fine-tuning is on SCHEMA.md's
+  # positive-example list for Method, alongside contrastive learning and LoRA.
+  # It is "training" that is banned as generic, not this.
+  - canonical: "fine-tuning"
+    acceptable_aliases:
+      - "finetuning"
+      - "fine tuning"
+      - "model fine-tuning"
+      - "classifier fine-tuning"
+    method_type: "training"
+    quoted_text: "is utilized to fine-tune a SciBERT59 classifier on a binary classification task"
+    confidence: 0.8
+
+  # Named after the paper's own "Context Enrichment Module" heading — see
+  # disagreement 7.
+  - canonical: "context enrichment"
+    acceptable_aliases:
+      - "context analysis"
+      - "co-occurrence analysis"
+      - "co-occurrence computation"
+      - "Context Enrichment Module"
+    method_type: "data_processing"
+    quoted_text: "The objective is to analyze each statement to identify the statements and entities that most frequently co-occur with it."
+    confidence: 0.7
+
+  # Single-sourced (human only) and the most consequential recall gap in the
+  # Claude review — see disagreement 8.
+  - canonical: "temporal enrichment"
+    acceptable_aliases:
+      - "time enrichment"
+      - "Time Enrichment Module"
+      - "temporal augmentation"
+      - "augmentation with temporal data"
+    method_type: "data_processing"
+    quoted_text: "Time Enrichment Module. This module is engineered to augment statements and entities with temporal data, derived from the publication years of the source papers from which they are extracted."
+    confidence: 0.8
+
+  - canonical: "majority vote"
+    acceptable_aliases:
+      - "majority voting"
+      - "majority vote schema"
+    method_type: "evaluation"
+    quoted_text: "We have then created a gold standard based on the majority vote."
+    confidence: 0.7
+
+# ------------------------------------------------------------------ unscored
+
+# Correct-if-emitted, not required. Never counted as a false positive, never
+# counted as a recall miss. See SCHEMA.md — "acceptable_extras".
+acceptable_extras:
+  topics:
+    - name: "Knowledge Representation"
+      why: >-
+        The parent AREA of the scored "Knowledge Graphs" subtopic, and the most
+        likely over-emission of any entry here — an extractor asked for the
+        deepest applicable topic can reasonably return the area as well as, or
+        instead of, the child. Not scored, because the paper is specifically
+        about knowledge graphs and the prompt asks for the smallest set. Note
+        the same string also sits in acceptable_extras.concepts below, for a
+        different reason: as a topic it is over-general, as a concept it
+        shadows the topic layer. Neither is an error worth counting.
+    - name: "Ontology Engineering"
+      why: >-
+        Same arguable-and-dropped call as on cskg. This paper's ontology carries
+        2,275 axioms and maps 39 predicates to 464 verbs, so an emission is a
+        plausible false positive rather than a wrong one — but the extractor is
+        told to return "the SMALLEST number… usually one or two".
+    - name: "Large Language Models"
+      why: >-
+        A legal taxonomy name, and LLMs appear six times in the introduction —
+        but only as motivation for why KGs are needed. The paper neither builds
+        nor evaluates one. Both reviewers expect the importer to emit it.
+    - name: "Retrieval-Augmented Generation"
+      why: >-
+        Same as above: "Even the adoption of techniques such as
+        Retrieval-Augmented Generation (RAG)20 does not solve this problem".
+        Cited as insufficient, not used.
+
+  concepts:
+    - name: "knowledge representation"
+      why: >-
+        Human review scored it at 0.65; demoted here. The exact term appears
+        zero times in the extracted text, its grounding span is the same one
+        that grounds "scientific knowledge graph" ("semantically enriched
+        representations of data"), and it collides head-on with the taxonomy
+        AREA name "Knowledge Representation" — scoring it as a concept blurs
+        the Topic and Concept layers. Answers the human review's question 1.
+    - name: "linked data"
+      why: >-
+        Scored on cskg at 0.65, where the paper actually followed the practice
+        ("Following the best practices of Linked Data, entities in CS-KG are
+        associated with…"). Here there is one passing related-work mention of
+        the "Linked Data Cloud31" and nothing else, so the same entity does not
+        earn the same treatment. A deliberate chain inconsistency, recorded.
+    - name: "binary classification"
+      why: >-
+        Real and grounded once ("fine-tune a SciBERT59 classifier on a binary
+        classification task") but an incidental training detail, and close to
+        the concept prompt's banned generics. Contrast "link prediction", which
+        is scored because the entire Technical Validation section is that task.
+        Answers the human review's questions 5 and 6: an ML task is a concept
+        when the paper's contribution engages with it, not when it is an
+        implementation detail.
+    - name: "reliability"
+      why: >-
+        A property that support indicates, not another name for it. Dropped as
+        an alias on cskg for the same reason; recorded here so the two files
+        agree.
+
+  methods:
+    - name: "relation clustering"
+      why: >-
+        Claude review scored it at 0.6; demoted here. It is how the scored
+        "predicate mapping" schema is built ("combining relation clustering
+        using the word2vec embedding model58 with the VerbNet taxonomy"), so
+        scoring both turns one correct prediction into a half-miss.
+    - name: "Levenshtein similarity"
+      why: >-
+        Claude review scored it at 0.6; demoted here. It is the internals of
+        the CSO Classifier's syntactic component — a third-party tool — one
+        level below anything this paper does itself.
+    - name: "filtering"
+      why: >-
+        Same as cskg: the step is real but the bare name is on
+        METHOD_SYSTEM_PROMPT_V1's banned-generic list. Scored as "entity
+        filtering"; the generic form is tolerated here rather than counted
+        either way.
+    - name: "manual annotation"
+      why: >-
+        Annotators built the gold standard that "majority vote" aggregates.
+        Real, but one step from the banned generic "evaluation". Mirrors cskg.
+
+  models: []   # No cskg-style borderline entries here. Note in particular that
+               # cskg's "Multi-Layer Perceptron" extra does NOT recur: MLP
+               # appears zero times in this paper, because 2.0 replaced that
+               # classifier with the fine-tuned SciBERT scored above.
+
+  # DECISION PENDING — do not diff against this paper until it is settled.
+  # Write-up and options: docs/ground-truth/named-resources.md
+  # This paper is denser with named resources than cskg, which is the strongest
+  # argument yet that the holding pattern is not sustainable.
+  named_resources:
+    - names:
+        - "SCICERO"
+        - "CS-KG"
+        - "CS-KG 1.0"
+        - "AI-KG"
+        - "ORKG"
+        - "SoftwareKG"
+        - "SemOpenAlex"
+        - "Nanopublications"
+        - "OpenAlex"
+        - "MAG"
+        - "Microsoft Academic Graph"
+        - "CSO"
+        - "Computer Science Ontology"
+        - "VerbNet"
+        - "WordNet"
+        - "DBpedia"
+        - "Wikidata"
+        - "YAGO"
+        - "BabelNet"
+        - "Google Knowledge Graph"
+        - "Stanford Core NLP"
+      why: >-
+        Named resources — knowledge graphs, ontologies, corpora, lexicons,
+        frameworks — with no home in the E-8 entity model. All are grounded in
+        this paper and several are near-certain importer emissions as concepts
+        or models. Parked here so they neither inflate recall nor register as
+        false positives while the schema question is open. SCICERO is the
+        pipeline's own name and is the single most likely emission of the set.
+    - names:
+        - "SciERC"
+        - "CSKG-2M"
+        - "CSKG-490K"
+        - "CSKG-132K"
+        - "WN18"
+        - "FB15k"
+      why: >-
+        Datasets and benchmarks — a subclass of the same problem, and arguably
+        a worse fit for `ResearchConcept` than the resources above. Note the
+        asymmetry flagged in named-resources.md: the Problem schema has a
+        `datasets` field but the entity model does not, so these can be
+        referenced from a Problem and yet cannot exist as nodes.
+
+problems:
+  # P1–P5 and P7 were found by both reviewers; statements merged.
+  - statement: "The volume of scientific literature grows by roughly 2.5 million articles a year, mostly published as hard-to-parse PDFs or unstructured plain text, which outstrips the ability of AI tools to interpret and explore it."
+    quoted_text: "The large number of research articles, often found in hard-to-parse PDF files or, at best, as unstructured plain text, poses significant challenges for AI technologies12."
+    involves_concepts:
+      - "scientific knowledge graph"
+      - "information extraction pipeline"
+
+  # Single-sourced (human only) — see disagreement 12.
+  - statement: "Current search engines over the research literature are limited to simple keyword or semantic-similarity matching against titles and abstracts, so they cannot support real analysis of a research field."
+    quoted_text: "current search engines are limited, mainly performing simple searches based on keywords or the semantic similarity of a query with titles and abstracts."
+    involves_concepts:
+      - "information extraction pipeline"
+
+  - statement: "LLMs that answer questions about a single paper do not scale to understanding the entities, narratives and concepts of a whole research field spanning millions of papers, and retrieval-augmented generation does not close the gap."
+    quoted_text: "does not extend to understanding the key entities, narratives, and concepts of a research field represented by millions of such papers"
+    involves_concepts:
+      - "scientific knowledge graph"
+
+  # The problem that makes this paper the anchor's successor — it critiques cskg
+  # directly, and is the single best test of whether the importer can represent
+  # a paper superseding its predecessor. Should become a targeted assertion in
+  # the eval harness.
+  - statement: "CS-KG 1.0 carries no time-related information for its entities, includes only papers cited at least once, and is built on the now-discontinued Microsoft Academic Graph, so it cannot be kept current."
+    quoted_text: "CS-KG lacks time-related information for its entities, which is essential for analyzing trends in the adoption and evolution of various methods and materials. Second, it only includes research papers that are cited at least once, thereby excluding some of the most recent publications. Finally, CS-KG is based on the Microsoft Academic Graph (MAG), a resource that has since been discontinued."
+    involves_concepts:
+      - "scientific knowledge graph"
+      - "temporal information"
+
+  - statement: "AI-KG covers only 330,000 papers, its entity relationships are semantically shallow, and its scope is confined to artificial intelligence rather than computer science as a whole."
+    quoted_text: "its coverage is restricted to 330,000 research papers, the semantic depth of the relationships between entities is relatively shallow, and its scope is confined exclusively to the domain of artificial intelligence"
+    involves_concepts:
+      - "scientific knowledge graph"
+
+  # Single-sourced (Claude only), and the direct counterpart of cskg's
+  # single-sourced P3 — see disagreement 13.
+  - statement: "Triples extracted from only one or a few papers are prone to noise, but discarding every low-support triple would throw away a large number of statements that are still valid."
+    quoted_text: "However, discarding all uncertain triples could lead to significant information loss, since many of these triples may still be valid."
+    involves_concepts:
+      - "support"
+
+  - statement: "The link-prediction benchmarks the community relies on hold only tens of thousands of triples, which is too small by current standards to test how these methods scale."
+    quoted_text: "Specifically, the link prediction benchmarks commonly used in the community, such as WN1851 and FB15k51, usually feature tens of thousands of triples. By current standards, these datasets are considered small."
+    involves_concepts:
+      - "link prediction"
+
+# Both reviews agree, and both took this from the curated OpenAlex edge list
+# rather than re-deriving it — the reference list is not in the extracted text.
+cites_within_set:
+  - "cskg"
+  - "fact_completion"
+
+# ---------------------------------------------------------------- disagreements
+disagreements:
+  - field: "expected_concepts"
+    item: "support vs. support score (cross-file)"
+    human: "canonical 'support' (0.6)"
+    claude: "canonical 'support' (0.6), flagged as diverging from cskg on purpose"
+    resolution: "canonical 'support' here AND in reconciled/paper_cskg.gold.yml, which was edited to match"
+    rationale: >-
+      Both reviewers chose the bare form independently, and it is the only form
+      this paper uses — "support score" appears zero times in paper_cskg2.txt,
+      against "the concept of support". SCHEMA.md prefers the paper's own
+      terminology, and this is the recurring concept the whole citation-chain
+      set was built to watch accumulate; it must not accumulate under two names.
+      cskg's original rationale (that "support score" is the less ambiguous
+      canonical) is real but is a graph-readability argument, not a scoring one:
+      every scorer matches {canonical} | aliases case-insensitively, so with
+      "support score" retained as an alias in both files the numbers are
+      identical either way. cskg's disagreement block records the reversal.
+
+  - field: "expected_concepts"
+    item: "knowledge representation"
+    human: "present (0.65), self-flagged as possibly mergeable with scientific knowledge graph"
+    claude: "absent"
+    resolution: "moved to acceptable_extras"
+    rationale: >-
+      Answers the human review's question 1. Zero verbatim occurrences of the
+      term; the grounding quote ("semantically enriched representations of
+      data") is the same span Claude used to ground "scientific knowledge
+      graph", so scoring both double-counts one sentence. It is also the name
+      of a taxonomy AREA, and a concept that shadows a topic name makes the
+      Topic/Concept boundary untestable. Not merged into scientific knowledge
+      graph either — they are different referents, so an alias would be wrong.
+
+  - field: "expected_concepts"
+    item: "linked data"
+    human: "present (0.5)"
+    claude: "absent"
+    resolution: "moved to acceptable_extras — deliberately inconsistent with cskg, which scores it at 0.65"
+    rationale: >-
+      The grounding differs materially between the two papers. cskg applies the
+      practice ("Following the best practices of Linked Data, entities in CS-KG
+      are associated with a set of alternative labels"); cskg2 mentions the
+      "Linked Data Cloud31" once in related work, describing what other people
+      built. Same string, different evidentiary weight. Recorded as a knowing
+      chain inconsistency rather than smoothed over in either direction.
+
+  - field: "expected_concepts"
+    item: "binary classification"
+    human: "present (0.5), self-flagged as possibly too generic"
+    claude: "absent"
+    resolution: "moved to acceptable_extras"
+    rationale: >-
+      Answers the human review's questions 5 and 6. The line drawn: an ML task
+      is a scored concept when the paper's contribution engages with it, and an
+      extra when it is an implementation detail. "link prediction" clears that
+      bar — the entire Technical Validation section is that task, on three
+      purpose-built benchmarks. "binary classification" is how one validator
+      component happens to be framed, in one sentence. The related question
+      about fine-tuning resolves the other way: it stays scored as a method,
+      because SCHEMA.md lists it as a positive Method example.
+
+  - field: "expected_models"
+    item: "DistMul vs DistMult"
+    human: "canonical 'DistMul' (the paper's spelling)"
+    claude: "canonical 'DistMult' (the correct name), 'DistMul' as alias"
+    resolution: "canonical 'DistMult'"
+    rationale: >-
+      The paper's spelling is a typo, not its terminology, so the
+      prefer-the-paper's-own-terminology rule does not apply. The answer key
+      should not propagate a typo into the graph. Both "DistMul" and the glued
+      "DistMul67" are aliases, so an importer echoing the paper still scores a
+      hit and the choice costs nothing.
+
+  - field: "expected_models"
+    item: "CSO Classifier"
+    human: "present (model, 0.4)"
+    claude: "present (model, 0.5)"
+    resolution: "kept as a model at 0.5"
+    rationale: >-
+      No disagreement about placement — both reviewers put it in models on both
+      papers — only about confidence, and 0.5 matches cskg. Worth stating that
+      this is the second paper on which the reconciled record knowingly departs
+      from MODEL_SYSTEM_PROMPT_V1's "named artifact with weights" test, and that
+      cskg2 makes the case weaker, not stronger: it describes the classifier as
+      "two unsupervised components", one rule-based over Levenshtein similarity
+      and one using Word2Vec. Neither is a weights-bearing artifact. Held for
+      chain consistency; if this is ever revisited, revisit both papers in the
+      same change.
+
+  - field: "expected_methods"
+    item: "context enrichment vs. co-occurrence analysis"
+    human: "canonical 'context enrichment' (0.7)"
+    claude: "canonical 'co-occurrence analysis' (0.65)"
+    resolution: "canonical 'context enrichment'; Claude's name kept as an alias"
+    rationale: >-
+      The paper's own section heading is "Context Enrichment Module".
+      Co-occurrence analysis is what the module does, not what the paper calls
+      it, and SCHEMA.md prefers the paper's terminology. Both surface forms are
+      in the match set, so this is a naming decision only.
+
+  - field: "expected_methods"
+    item: "temporal enrichment"
+    human: "present (0.7)"
+    claude: "absent"
+    resolution: "kept at 0.8, above the human's own confidence"
+    rationale: >-
+      The most consequential recall gap in either review. Temporal information
+      is the flagship difference between 2.0 and 1.0 — it is the first
+      limitation of CS-KG named in the paper's own critique (problem 4 above),
+      the concept "temporal information" is scored, and the paper gives the
+      step its own module and heading. Confidence raised on that basis. Claude
+      captured the concept and missed the method that produces it, which is a
+      recognisable failure mode worth watching for in the importer too.
+
+  - field: "expected_methods / acceptable_aliases"
+    item: "denylist vs blacklist on 'entity filtering'"
+    human: "blacklist/whitelist aliases only (carried from cskg)"
+    claude: "denylist/blocklist aliases only (from this paper's text)"
+    resolution: "both sets retained"
+    rationale: >-
+      "blacklist" appears zero times in cskg2 and "denylist" zero times in cskg
+      — the group changed its terminology between 2022 and 2025 for the same
+      pipeline step. Keeping both sets in both files is the only way one
+      importer output scores identically across the chain. This is a small,
+      concrete instance of the general hazard: the same component renamed
+      across a citation chain looks like two entities unless gold says
+      otherwise.
+
+  - field: "expected_methods"
+    item: "relation clustering, Levenshtein similarity"
+    human: "absent"
+    claude: "present (0.6 each)"
+    resolution: "both moved to acceptable_extras"
+    rationale: >-
+      Real, named, verbatim-grounded, and each stated exactly once — but each
+      sits one level below a scored entry. Relation clustering is how the
+      scored "predicate mapping" schema gets built, so scoring both makes a
+      single correct prediction read as a half-miss. Levenshtein similarity is
+      inside the CSO Classifier, a third-party tool. Correct if emitted, not
+      required, which is what acceptable_extras is for.
+
+  - field: "expected_topics"
+    item: "Large Language Models, Retrieval-Augmented Generation, Ontology Engineering"
+    human: "absent"
+    claude: "absent (all three considered and dropped)"
+    resolution: "left out of the scored list; all three recorded in acceptable_extras"
+    rationale: >-
+      All three are legal seed_taxonomy names and all three appear. None is
+      what the paper is about: LLMs and RAG are named only as the approaches
+      that do not solve the problem, and the ontology work — though real, at
+      2,275 axioms — is infrastructure for the KG rather than the subject.
+      Agreed, but recorded because emissions here are plausible false positives
+      rather than wrong ones.
+
+  - field: "problems"
+    item: "P2 (search engines limited to keyword matching)"
+    human: "present"
+    claude: "absent"
+    resolution: "kept, single-sourced"
+    rationale: >-
+      Grounded in its own sentence and distinct from P3: P2 is about keyword
+      and similarity search over titles and abstracts, P3 is about LLMs and RAG
+      over full papers. The paper makes them as two separate steps in the same
+      argument, and PROBLEM_SYSTEM_PROMPT allows multiple distinct problems per
+      section, so merging them would score a correct extraction as noise.
+
+  - field: "problems"
+    item: "P6 (support / information-loss tradeoff)"
+    human: "absent"
+    claude: "present"
+    resolution: "kept, single-sourced"
+    rationale: >-
+      The direct counterpart of cskg's single-sourced P3, grounded here in a
+      sentence cskg does not have ("discarding all uncertain triples could lead
+      to significant information loss"). Keeping it on one paper and not the
+      other would have manufactured a chain inconsistency out of a review gap.
+
+  - field: "problems"
+    item: "quote length"
+    human: "long spans covering whole problem definitions; self-flagged in notes"
+    claude: "short spans"
+    resolution: "short spans except on P4 and P7, where the long span is kept"
+    rationale: >-
+      Answers the human review's question 2. Shorter is better where one clause
+      carries the problem. P4 is the exception on purpose: its three
+      limitations of CS-KG 1.0 are three separate sentences and the statement
+      asserts all three, so a one-clause quote would under-ground it. P7 keeps
+      the benchmark names in the quote for the same reason.
+
+  - field: "acceptable_aliases"
+    item: "alias hygiene"
+    human: "two typos; a ligature form; several related-but-different terms"
+    claude: "cleaner, but some padding of its own"
+    resolution: "typos and ungrounded forms dropped; cskg alias sets mirrored"
+    rationale: >-
+      Dropped as typos: "classfication", "representaton of scientific
+      knowledge". Dropped as not applicable to this paper: "Computer Science
+      Ontology Classiﬁer" — the ligature form is a paper_cskg.txt artifact and
+      paper_cskg2.txt contains no ligatures at all. Dropped as
+      different-referent rather than surface forms: "edge existence prediction"
+      (a definition of link prediction, not a name for it), "support level",
+      "inferred information", "co-occurring information", "time-related
+      metadata". Case-only variants dropped as no-ops, since every scorer
+      lowercases both sides: "POS tagging", "word2vec". Where an entity exists
+      in cskg's reconciled file, its alias set here starts from that file's.
+
+  - field: "quoted_text"
+    item: "verbatim check"
+    human: "all quotes verbatim"
+    claude: "all quotes verbatim"
+    resolution: "no changes needed"
+    rationale: >-
+      Unlike cskg, where seven human quotes had to be re-transcribed from the
+      extracted text, every quote in both cskg2 reviews matches
+      paper_cskg2.txt verbatim modulo whitespace. Worth recording as a process
+      improvement rather than a disagreement.
+
+  - field: "file validity"
+    item: "human file does not parse as YAML"
+    human: "yaml.safe_load raises at line 294"
+    claude: "parses"
+    resolution: "fixed in this file; the human source file is left as-is"
+    rationale: >-
+      Three defects, none of them substantive but all of them blocking: the
+      AI-KG problem quote is an unquoted scalar containing "AI-KG:", which YAML
+      reads as a nested mapping; problem 6 uses the key "quoted-text" with a
+      hyphen, which validate_ground_truth.py would read as a missing quote; and
+      the concept list is indented one space where the rest of the file uses
+      two. A pre-commit run of scripts/validate_ground_truth.py on the two
+      reviewer directories, not just reconciled/, would catch all three before
+      reconciliation.
+
+notes: >-
+  Reconciled 2026-08-06 from two independent reviews, both worked from
+  paper_cskg2.txt. Section scope: abstract, Background & Summary, Methods and
+  Technical Validation. Data Records and Usage Notes are absent from the
+  extracted text, so the reified-statement example and the SPARQL/dump access
+  details were unavailable and entities appearing only there are deliberately
+  missing.
+
+  THE HEADLINE RESULT IS THAT cskg's HEADLINE RISK DID NOT RECUR. On cskg the
+  tool/model/method seam produced four separate disagreements: the human review
+  classed DyGIEpp, CSO-C, OpenIE and the PoS Tagger all as models, and
+  reconciliation demoted two of them. On cskg2, both reviews independently
+  returned the same nine models and independently placed OpenIE, PoS tagging
+  and dependency parsing in methods. The rule transferred across papers without
+  being restated, which is the strongest available evidence that it is a usable
+  rule rather than a one-off adjudication. Agreement is high across the board:
+  identical topics, identical model set, eight of eight Claude concepts shared,
+  twelve of thirteen methods shared, five of seven problems shared.
+
+  EVERY REMAINING DISAGREEMENT IS ABOUT SCOPE, NOT CATEGORY. Nothing in this
+  file turns on "is X a model or a method". The open seams here are (a) how
+  granular a pipeline sub-step must be before it earns a recall obligation —
+  relation clustering, Levenshtein similarity, binary classification all failed
+  that test — and (b) whether an entity's treatment should follow the chain or
+  the paper when the grounding differs, which is the "linked data" question.
+  Both are labeling-policy questions, and both are now answered in
+  disagreements rather than left to per-paper instinct.
+
+  CHAIN CONSISTENCY WAS TREATED AS A FIRST-CLASS CONSTRAINT AND IT COST ONE
+  EDIT TO A COMMITTED FILE. reconciled/paper_cskg.gold.yml was changed: the
+  concept canonical "support score" became "support", with "support score"
+  demoted to an alias, so the chain's recurring concept accumulates under one
+  name. The reverse case is "linked data", where the two papers' grounding is
+  genuinely different and the files were allowed to diverge. The rule that
+  emerged: unify the canonical when the entity is the same and the evidence is
+  comparable; diverge, loudly, when the evidence is not. Alias sets are always
+  unified — see the denylist/blacklist entry, which is the cleanest example of
+  a component the group renamed between 2022 and 2025.
+
+  GLUED REFERENCE NUMERALS ARE A NEW EXTRACTION HAZARD, AND WORSE THAN cskg's.
+  Nature uses superscript citations and the extractor glues them onto the
+  preceding token: "SciBERT59", "TransR65", "ComplEx66", "DistMul67",
+  "RESCAL68", "CS-KG50", "Dessí et al.52". cskg's ligature problem hit prose;
+  this one hits model names, so if the importer echoes the glued form a correct
+  extraction reads as a miss. Every affected entity carries the glued form as
+  an alias, which protects the score but not the graph — a node called
+  "SciBERT59" is still wrong. Worth checking whether the segmenter can strip
+  trailing digits from entity spans before extraction. Note the two hazards are
+  mutually exclusive: paper_cskg2.txt contains no ligatures at all, so this is
+  per-publisher and each of the remaining six papers may bring its own.
+
+  NAMED RESOURCES ARE STILL UNDECIDED AND STILL BLOCK THE DIFF, AND THIS PAPER
+  MAKES THE CASE HARDER. Twenty-one named resources plus six datasets and
+  benchmarks, against eleven on cskg. SCICERO — the pipeline's own name, and
+  the paper's central artifact — has no home in the entity model at all. The
+  dataset subclass is worse: the Problem schema has a `datasets` field, so a
+  Problem can reference CSKG-2M while CSKG-2M cannot exist as a node. Parked in
+  acceptable_extras pending the A/B/C/D decision in
+  docs/ground-truth/named-resources.md. Whatever is decided applies to all
+  eight papers.
+
+  WEAKEST ENTRIES, IN ORDER: CSO Classifier (0.5) — kept against the model
+  rubric on purpose, for the second time; support (0.6) — defined here but not
+  a contribution of this paper; BERT (0.6) — named only as DyGIEpp's backbone
+  and arguably subsumed by it; knowledge-centric paradigm (0.6) — a framing
+  adopted in one sentence; entity filtering (0.65) — real step, name fights the
+  anti-generic rule. P2 and P6 are the two single-sourced problems, and
+  temporal enrichment is the one single-sourced method.
+
+  STILL OPEN: s2_paper_id, unresolved on both papers so far. Since the importer
+  sources CITES from Semantic Scholar and this file asserts two edges, it needs
+  resolving before cites_within_set can be checked against what the importer
+  will actually populate.

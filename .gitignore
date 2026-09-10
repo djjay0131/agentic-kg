@@ -71,3 +71,5 @@ node_modules/
 
 # Scratch tool binaries (e.g. downloaded actionlint)
 .tmpbin/
+.venv-gt/
+ground-truth-papers/

@@ -14,6 +14,21 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+# SEG-1: Roman numerals I..XXXVIII. The lookahead guarantees a non-empty
+# match, so "C. Data Analysis" cannot match an empty numeral and then eat the
+# ".". L/C/D/M are deliberately excluded — a paper with 40+ top-level sections
+# is out of scope, and admitting them would widen the false-positive surface.
+_ROMAN = r"(?=[IVX])X{0,3}(?:IX|IV|V?I{0,3})"
+
+# A separator is REQUIRED after the numeral. That is what keeps single letters
+# out ("B. RESULTS" offers no numeral; "Vision" offers no separator), and it is
+# flat by design — no (?:\.\d+)* — so a numbered SUBSECTION like "4.4. Results"
+# stays UNKNOWN and its content remains inside its parent span. Admitting
+# either form was measured to lose more content than it recovers; see
+# llm/features/seg1-roman-numeral-headings.md, Decisions 1 and 3.
+_ENUMERATOR = re.compile(rf"^(?:\d+|{_ROMAN})(?:[.)]\s*|\s+)", re.IGNORECASE)
+
+
 class SectionType(str, Enum):
     """Types of sections commonly found in academic papers."""
 
@@ -108,70 +123,74 @@ class SectionSegmenter:
     classify them into standard section types.
     """
 
-    # Heading patterns with section type mappings
+    # Heading patterns with section type mappings.
+    #
+    # SEG-1: patterns carry NO section-number prefix group. Numbering (Arabic
+    # or Roman) is stripped once in ``_classify_heading`` via ``_ENUMERATOR``,
+    # so new vocabulary added here supports "IV." and "4." for free — and
+    # cannot forget to.
     SECTION_PATTERNS = {
         SectionType.ABSTRACT: [
             r"^abstract\s*$",
             r"^summary\s*$",
         ],
         SectionType.INTRODUCTION: [
-            r"^(?:\d+\.?\s*)?introduction\s*$",
-            r"^(?:\d+\.?\s*)?overview\s*$",
-            r"^1\.?\s*introduction\s*$",
+            r"^introduction\s*$",
+            r"^overview\s*$",
         ],
         SectionType.RELATED_WORK: [
-            r"^(?:\d+\.?\s*)?related\s+work\s*$",
-            r"^(?:\d+\.?\s*)?prior\s+work\s*$",
-            r"^(?:\d+\.?\s*)?literature\s+review\s*$",
-            r"^(?:\d+\.?\s*)?related\s+research\s*$",
+            r"^related\s+work\s*$",
+            r"^prior\s+work\s*$",
+            r"^literature\s+review\s*$",
+            r"^related\s+research\s*$",
         ],
         SectionType.BACKGROUND: [
-            r"^(?:\d+\.?\s*)?background\s*$",
-            r"^(?:\d+\.?\s*)?preliminaries\s*$",
-            r"^(?:\d+\.?\s*)?problem\s+(?:statement|formulation|definition)\s*$",
+            r"^background\s*$",
+            r"^preliminaries\s*$",
+            r"^problem\s+(?:statement|formulation|definition)\s*$",
         ],
         SectionType.METHODS: [
-            r"^(?:\d+\.?\s*)?method(?:s|ology)?\s*$",
-            r"^(?:\d+\.?\s*)?approach\s*$",
-            r"^(?:\d+\.?\s*)?(?:our\s+)?(?:proposed\s+)?(?:method|approach|framework|model)\s*$",
-            r"^(?:\d+\.?\s*)?technique(?:s)?\s*$",
-            r"^(?:\d+\.?\s*)?algorithm\s*$",
+            r"^method(?:s|ology)?\s*$",
+            r"^approach\s*$",
+            r"^(?:our\s+)?(?:proposed\s+)?(?:method|approach|framework|model)\s*$",
+            r"^technique(?:s)?\s*$",
+            r"^algorithm\s*$",
         ],
         SectionType.EXPERIMENTS: [
-            r"^(?:\d+\.?\s*)?experiment(?:s|al)?\s*(?:setup|settings)?\s*$",
-            r"^(?:\d+\.?\s*)?evaluation\s*$",
-            r"^(?:\d+\.?\s*)?empirical\s+(?:study|evaluation|analysis)\s*$",
-            r"^(?:\d+\.?\s*)?(?:experimental\s+)?setup\s*$",
+            r"^experiment(?:s|al)?\s*(?:setup|settings)?\s*$",
+            r"^evaluation\s*$",
+            r"^empirical\s+(?:study|evaluation|analysis)\s*$",
+            r"^(?:experimental\s+)?setup\s*$",
         ],
         SectionType.RESULTS: [
-            r"^(?:\d+\.?\s*)?results?\s*$",
-            r"^(?:\d+\.?\s*)?(?:experimental\s+)?results?\s+(?:and\s+)?(?:analysis|discussion)?\s*$",
-            r"^(?:\d+\.?\s*)?findings\s*$",
-            r"^(?:\d+\.?\s*)?results?\s+and\s+discussion\s*$",
+            r"^results?\s*$",
+            r"^(?:experimental\s+)?results?\s+(?:and\s+)?(?:analysis|discussion)?\s*$",
+            r"^findings\s*$",
+            r"^results?\s+and\s+discussion\s*$",
         ],
         SectionType.DISCUSSION: [
-            r"^(?:\d+\.?\s*)?discussion\s*$",
-            r"^(?:\d+\.?\s*)?analysis\s*$",
-            r"^(?:\d+\.?\s*)?interpretation\s*$",
+            r"^discussion\s*$",
+            r"^analysis\s*$",
+            r"^interpretation\s*$",
         ],
         SectionType.LIMITATIONS: [
-            r"^(?:\d+\.?\s*)?limitation(?:s)?\s*$",
-            r"^(?:\d+\.?\s*)?limitation(?:s)?\s+(?:and\s+)?(?:future\s+work|directions)?\s*$",
-            r"^(?:\d+\.?\s*)?(?:current\s+)?limitation(?:s)?\s*$",
-            r"^(?:\d+\.?\s*)?threats?\s+to\s+validity\s*$",
-            r"^(?:\d+\.?\s*)?(?:potential\s+)?(?:limitation(?:s)?|weakness(?:es)?)\s*$",
+            r"^limitation(?:s)?\s*$",
+            r"^limitation(?:s)?\s+(?:and\s+)?(?:future\s+work|directions)?\s*$",
+            r"^(?:current\s+)?limitation(?:s)?\s*$",
+            r"^threats?\s+to\s+validity\s*$",
+            r"^(?:potential\s+)?(?:limitation(?:s)?|weakness(?:es)?)\s*$",
         ],
         SectionType.FUTURE_WORK: [
-            r"^(?:\d+\.?\s*)?future\s+(?:work|directions?|research)\s*$",
-            r"^(?:\d+\.?\s*)?(?:directions?\s+for\s+)?future\s+(?:work|research)\s*$",
-            r"^(?:\d+\.?\s*)?open\s+(?:problems?|questions?|issues?)\s*$",
-            r"^(?:\d+\.?\s*)?next\s+steps?\s*$",
+            r"^future\s+(?:work|directions?|research)\s*$",
+            r"^(?:directions?\s+for\s+)?future\s+(?:work|research)\s*$",
+            r"^open\s+(?:problems?|questions?|issues?)\s*$",
+            r"^next\s+steps?\s*$",
         ],
         SectionType.CONCLUSION: [
-            r"^(?:\d+\.?\s*)?conclusion(?:s)?\s*$",
-            r"^(?:\d+\.?\s*)?concluding\s+remarks?\s*$",
-            r"^(?:\d+\.?\s*)?conclusion(?:s)?\s+(?:and\s+)?(?:future\s+work)?\s*$",
-            r"^(?:\d+\.?\s*)?summary\s+and\s+conclusion(?:s)?\s*$",
+            r"^conclusion(?:s)?\s*$",
+            r"^concluding\s+remarks?\s*$",
+            r"^conclusion(?:s)?\s+(?:and\s+)?(?:future\s+work)?\s*$",
+            r"^summary\s+and\s+conclusion(?:s)?\s*$",
         ],
         SectionType.ACKNOWLEDGMENTS: [
             r"^acknowledgment(?:s)?\s*$",
@@ -291,6 +310,13 @@ class SectionSegmenter:
             if section_type != SectionType.UNKNOWN:
                 end_pos = current_pos + len(line)
                 headings.append((current_pos, end_pos, stripped, section_type))
+            else:
+                # SEG-1: what the segmenter *rejects* is the only record of a
+                # SEG-3/4/5-class miss (a heading named after the paper's
+                # contribution, a journal-specific name, a run-in abstract).
+                # Without this, diagnosing bad segmentation means writing a
+                # script. DEBUG-only: unmatched lines are normal and frequent.
+                logger.debug("unmatched candidate heading: %r", stripped)
 
             current_pos += len(line) + 1
 
@@ -305,8 +331,19 @@ class SectionSegmenter:
 
         Returns:
             SectionType for the heading, or UNKNOWN if no match.
+
+        SEG-1: any leading section number is stripped before matching, so
+        "IV. EVALUATION" and "4. Evaluation" both reach the ``evaluation``
+        pattern. Only ONE enumerator is ever removed — ``_ENUMERATOR`` is
+        ``^``-anchored without ``re.MULTILINE``, so no second match is
+        reachable, and ``count=1`` states that intent explicitly. Hence
+        "II.B. Results" becomes "B. Results" and stays UNKNOWN: a
+        Roman-then-letter subsection is still a subsection.
+
+        The caller keeps the raw text as ``Section.title``; only the
+        classification input is normalized.
         """
-        cleaned = heading_text.strip()
+        cleaned = _ENUMERATOR.sub("", heading_text.strip(), count=1)
 
         for section_type, patterns in self._compiled_patterns.items():
             for pattern in patterns:
