@@ -162,6 +162,45 @@ The workflow uses `env.OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}`. GHA's def
 
 LLM cost is a single-digit % of the Cloud Run Job's existing monthly bill. Not a budget concern.
 
+### Timeout budget amendment (2026-09-10)
+
+AC-1 originally capped `timeout-minutes` at 15. Measured on run 34514500297,
+a **successful** ingest no longer fits:
+
+| Phase | Duration |
+|---|---|
+| setup (containers 35s, install 16s, schema, seed) | 1m 01s |
+| `Ingest (with single retry)` | 14m 01s |
+| **total** | **15m 04s** |
+| cap | 15m 00s |
+
+Four seconds over. The ingest reached
+`Ingest summary: papers=6 pdf_ok=3` at 18:59:47.136 and the job was cancelled
+at 18:59:47.638 — half a second later, before it could `exit 0`, so
+`Assert graph shape` never ran.
+
+**Why raising the cap does not weaken the cost model.** The ceiling above is
+driven by LLM calls (~$0.01/run), not wall clock, and runner minutes are
+within the free-tier allocation. A longer cap does not authorize more LLM
+calls; the `--limit` input still bounds those.
+
+**Why the old cap actively wasted money.** AC-14 notes that cancelled runs
+leave already-made LLM calls sunk. Cancelling at 15m00s meant paying for a
+complete ingest and then discarding it seconds before the assertion that gives
+it value. The failure mode was not "we saved runner time" but "we paid and
+learned nothing."
+
+**It also makes the documented retry real.** The step is named
+`Ingest (with single retry)` and loops `MAX=2` with a 30s sleep, but a first
+attempt consumed 14 of the 15 available minutes, so attempt 2 could never
+complete. The workflow advertised resilience it did not have. 30 minutes fits
+setup plus two full attempts and the sleep.
+
+This does not revisit TL Q1 (real-data smoke is nondeterministic; red is a
+real signal). It removes a *deterministic* failure that was masquerading as
+that nondeterminism: between 2026-09-01 and 2026-09-10 the scheduled run on
+`master` failed far more often than it passed, on unchanged code.
+
 ## Sample Implementation
 
 ```yaml
@@ -198,7 +237,7 @@ jobs:
   smoke:
     name: Ingest + Assert
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     services:
       neo4j:
@@ -455,7 +494,7 @@ if __name__ == "__main__":
 - **Given** `.github/workflows/smoke-ingest.yml` exists in the repo
 - **When** GHA evaluates the workflow file
 - **Then** the workflow is active with three triggers: `workflow_dispatch` (with `query` and `limit` inputs), `pull_request` on `master` (path-filtered), and `schedule` at `17 6 * * *` UTC
-- **And** the workflow's `timeout-minutes` is at most 15
+- **And** the workflow's `timeout-minutes` is at most 30 (amended 2026-09-10; was 15 — see §Timeout budget amendment)
 
 ### AC-2: Path filter scope
 - **Given** a PR opens against `master`
