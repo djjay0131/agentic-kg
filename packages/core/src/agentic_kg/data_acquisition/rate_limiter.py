@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from agentic_kg.data_acquisition.config import RateLimitConfig
 
@@ -206,21 +206,33 @@ class RateLimiterRegistry:
     config: RateLimitConfig = field(default_factory=RateLimitConfig)
     _limiters: dict[str, TokenBucketRateLimiter] = field(default_factory=dict)
 
-    def get(self, source: str, rate: float) -> TokenBucketRateLimiter:
+    def get(
+        self,
+        source: str,
+        rate: float,
+        burst_multiplier: float | None = None,
+    ) -> TokenBucketRateLimiter:
         """
         Get or create a rate limiter for a source.
 
         Args:
             source: Source identifier
             rate: Requests per second for this source
+            burst_multiplier: Overrides the registry-wide burst allowance for
+                this source only. Pass 1.0 for an API whose published rate is a
+                hard cumulative ceiling (Semantic Scholar), where the default
+                1.5x burst would overshoot it.
 
         Returns:
             Rate limiter for the source
         """
         if source not in self._limiters:
+            config = self.config
+            if burst_multiplier is not None:
+                config = replace(config, burst_multiplier=burst_multiplier)
             self._limiters[source] = TokenBucketRateLimiter(
                 rate=rate,
-                config=self.config,
+                config=config,
                 source=source,
             )
         return self._limiters[source]

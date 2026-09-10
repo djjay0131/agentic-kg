@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-09-06
+Last updated: 2026-07-22
 
 ## What Is Built and Working
 
@@ -32,20 +32,6 @@ Last updated: 2026-09-06
 - **E-5 Citation graph (VERIFIED)**: `(:Paper)-[:CITES]->(:Paper)` self-reference; stub Paper promotion; `populate_citations` async helper (wired into `PaperImporter` by E-8 V2); citation-graph CLI subcommand
 - **E-6 Entity descriptions (VERIFIED)**: `generate_description=False` kwarg on `create_or_merge_X` (sync guards raise `NotImplementedError`); async siblings `acreate_or_merge_X`; `DescriptionWithSelfCheck` Pydantic with 4 self-validation gates; CLI `--no-generate-description` flag; silent fallback on missing `OPENAI_API_KEY`
 
-### Extraction hardening — the SM-* chain (smoke-driven, 2026-07-14 → 2026-08)
-Each fix unmasked the next; all merged. Specs in `llm/features/`, index in `BACKLOG.md`.
-- **SM-4 (IMPLEMENTED, `#36`)**: removed the unused `denario` dep whose transitive `openai==1.99.9` hard-pin made a working `instructor` unresolvable; both `_get_instructor_client` except blocks now distinguish "not installed" from "failed to import"
-- **SM-1 (VERIFIED, `#44`)**: PDF acquisition reliability — published/`openAccessPdf` first, arXiv fallback, request headers + bounded retry, **no abstract fallback**; failures categorized `failed_blocked`/`failed_404`/`failed_thin`/`failed_no_pdf_source` in run metrics. **Side effect that matters for the segmenter work:** `_build_extractor_section_text` now runs *before* the `MIN_USABLE_CHARS=250` gate, so a paper the segmenter empties is reported and skipped rather than silently yielding zero entities
-- **SM-6 (IMPLEMENTED, `#47`)**: `ingestion.py` read `v1_integration.mentions`; real field is `mention_results` — every V2 counter sat at 0 behind an `AttributeError` swallowed by the per-paper try/except
-- **SM-7 (VERIFIED, `#46`)**: OpenAI TPM throttle + model lever so 5-way parallel extraction stops self-inflicting 429s
-- **SM-8 (IMPLEMENTED, `#48`)**: `MentionIntegrationResult` gains `statement`/`quoted_text`/`.id` so it is a valid B3-linker input — the third latent `AttributeError` in the chain. **SM-8b (`#49`)**: smoke seeds the Topic taxonomy (Topic is a closed set, so unseeded topics were all "not found" → `topic_edges=0`)
-
-### Ground-truth validation set (in progress)
-- 8-paper CS-KG citation chain selected and OpenAlex-verified; PDFs in gitignored `ground-truth-papers/`
-- `scripts/segment_ground_truth.py` produces `paper_<slug>.txt` extractor-input fixtures from **hand-verified** boundaries, deliberately bypassing the defective segmenter so gold describes what the importer *intends* to read
-- Gold files under `fixtures/ground_truth_chain/{claude,human,reconciled}/`; `cskg` dual review reconciled (paper 1 of 8, `53c1258`)
-- `docs/ground-truth/segmenter-findings.md` records 7 root causes; SEG-1 specification added an 8th (see Known Bugs)
-
 ### CI + Ops
 - **CI health**: master lint debt cleared, integration-tests workflow installs core/api packages directly, e2e tests isolated
 - **ci-smoke-test-ingestion (VERIFIED)**: `.github/workflows/smoke-ingest.yml` triggers on PR (path-filtered) + daily cron (06:17 UTC) + `workflow_dispatch`; testcontainers Neo4j inside runner; single-retry ingest with 30s sleep; `scripts/smoke_assert.py` runs 6-count Cypher check; artifact upload with 14-day retention; concurrency group cancels stale runs; `make smoke-local` mirrors CI workflow for local reproduction
@@ -60,10 +46,7 @@ Each fix unmasked the next; all merged. Specs in `llm/features/`, index in `BACK
 ### Immediate / actionable
 - **`deploy-pipeline-fix` — PR-1 DONE (2026-07-14).** Structural recovery complete: Deploy Master green, ingest-Job deploy step live, `/version` shipped, SHA-parity verified (AC-6). **Remaining: PR-2** (Terraform lifecycle guardrail + AC-8 lint) and **PR-3** (version pinning). No longer blocking other work.
 - **`human-review-ui` (not spec'd yet)**: `/api/reviews` backend exists (`packages/api/src/agentic_kg_api/routers/reviews.py`), no Next.js page. Needed for user's stated goal of human-reviewing extracted nodes + testing review-queue action items. Spec after deploy-pipeline-fix ships.
-- **SEG-1 (SPECIFIED 2026-09-06, 15 ACs)** — `seg1-roman-numeral-headings.md`. Ready to implement. Roman-numeral headings never match, so no IEEE heading is recognized; measured `fact_completion` 0 → 25,586 chars, `empire` 12,405 → 17,953, other six byte-identical. **Gates the importer-vs-gold diff**, and through it D-2 / V-1
-- **SEG-3 (run-in abstracts)** — agreed next spec. Neither IEEE paper gets an abstract from SEG-1 alone
-- **SEG-7 keep-list + SEG-5 methods naming** — still **Needs Decision**; SEG-7 is the only cause that reaches the gold labels, and changing it forces regenerating `paper_<slug>.txt` fixtures and redoing their reviews
-- ~~**SM-1** (aggregator normalizer)~~ shipped as `content-acquisition-resilience` (VERIFIED, `#44`). **SM-2 (preflight WARN on empty section_text)** is now partly subsumed: SM-1 made the *empty* case loud (`failed_thin`), and SEG-1 AC-13 covers the *partial* case that is still silent
+- **SM-1 (Investigate aggregator normalizer)** + **SM-2 (Preflight WARN on empty section_text)** — carried forward from 2026-07-02 smoke run finding
 - **Real-data eval calibration** (E-7 AC-21 + E-8 V2 AC-17 + entity-pipeline-orchestration follow-up): hand-labeled 5-10 collision-pair fixture set + precision/recall floors for the routing LLM
 - **Cloud Run Job verification post-orchestration**: production `agentic-kg-ingest-staging` Cloud Run Job hasn't been executed since the BREAKING CHANGE landed. **Blocked by deploy-pipeline-fix** — cannot verify until we can actually deploy current code to the Job.
 - **Cost telemetry** (deferred from E-7, E-8 V2, entity-pipeline-orchestration): per-batch LLM-call counter surfaced in `IngestionResult`; needed once bulk ingestion runs land
@@ -87,9 +70,6 @@ Each fix unmasked the next; all merged. Specs in `llm/features/`, index in `BACK
 
 ## Known Bugs / Tech Debt
 
-- **`SectionSegmenter` mis-segments every paper in the ground-truth set** — 8 root causes now, tracked SEG-1..SEG-11 in `BACKLOG.md`, documented in `docs/ground-truth/segmenter-findings.md`. SEG-1 is SPECIFIED; the rest are open. Two things worth carrying:
-  - **The doc's "silent, no error" framing is stale.** Post-SM-1 a segmenter-emptied paper is logged, counted `failed_thin`, and **skipped** — so `fact_completion` (32 of the 53 chain entities) is *dropped*, not silently zeroed. Still silent: **partial** segmentation, e.g. `cskg` clearing the gate at 8,917 chars with no abstract and no methods.
-  - **SEG-11 (new, found 2026-09-06 while measuring SEG-1)**: bare `model`/`method`/`approach`/`technique` patterns match single-word body and table lines, because `_find_headings` requires nothing heading-shaped of a candidate line. `_classify_heading("MODEL") == methods`. 5 phantom `methods` sections in `llm_ontology_gen`, 4 in `kg_validation_hitl`, 2 in `kg_construction_survey`, 1 in `empire`. **`empire`'s only "methods" block is one of these phantoms**, so any recall number read off it today is wrong. Fix needs a heading-context heuristic (blank-line delimitation, caps/title-case, or a repeated-running-header filter) and its own measurement.
 - **(RESOLVED 2026-07-13/14) `Deploy Master` never worked** — root cause was NOT the "missing staging env" story but a reusable-workflow `id-token` permissions gap (PR #29) plus an undefined `needs.build` reference (PR #28). Fixed across PRs #27–#32; **first green run in repo history 2026-07-13**, and **AC-6 (SHA parity across api/ui/job) VERIFIED 2026-07-14** on the SM-4 service-code deploy. Entity-expansion code (E-3..E-8 V2, E-7, orchestration) + the ingest Cloud Run Job now deploy on every service-code push. `deploy-master.yml` deploys the ingest Job; `docker/Dockerfile.worker` deleted; `/version` shipped — all via `deploy-pipeline-fix` PR-1.
 - **`cleanup-preview` GHA job failing** on recent PRs (e.g. #40) — unrelated to feature work; needs triage.
 - (RESOLVED 2026-07-22) `docs/governance-delta.md` Platform Enforcement Reality reconciled — now records branch protection LIVE + the `test (3.12)` / `Governance Checks` split.
@@ -149,7 +129,7 @@ Each cycle: spec → implement → verify.
 
 ## Governance
 
-- 2026-08-31: **Migrated** to the `llm/` control plane (ADR-0002) — delta and ADRs moved out of `docs/`, pin v0.2 → v0.4.
+- 2026-08-31: **Migrated** to the `llm/` control plane (ADR-0002) — delta and ADRs moved out of `docs/`, sprint history to `llm/sprints/`, pin v0.2 → v0.5.
 - 2026-07-13: **Adopted** agentic-governance v0.2 (`docs/governance-delta.md`, ADR-0001 declares `systemPatterns.md` interim design authority; Steward: INACTIVE).
 - 2026-07-21: **Enforced.** Audit (`governance:audit`, verdict DRIFTING) acted on:
   - PR #39 — pinned `--base origin/master` (fixes the `main`/`master` check blocker); fixed SM-3 broken doc links; added CODEOWNERS + issue templates.

@@ -259,6 +259,30 @@ class TestRateLimiterRegistry:
         assert limiter1.rate == 5.0
         assert limiter2.rate == 10.0
 
+    def test_burst_override_shrinks_capacity_for_one_source(self, rate_limit_config):
+        """A per-source burst override must not leak into other sources.
+
+        S2's 1 RPS is a hard cumulative ceiling, so its bucket capacity must
+        equal its rate; the registry-wide 1.5x default would let a cold bucket
+        fire 1.5 requests back-to-back and trip the limit.
+        """
+        registry = RateLimiterRegistry(config=rate_limit_config)
+
+        strict = registry.get("semantic_scholar", 1.0, burst_multiplier=1.0)
+        default = registry.get("other_source", 1.0)
+
+        assert strict.capacity == 1.0
+        assert default.capacity == 1.0 * rate_limit_config.burst_multiplier
+        # the registry's own config is untouched by the override
+        assert registry.config.burst_multiplier == rate_limit_config.burst_multiplier
+
+    def test_burst_override_absent_uses_registry_default(self, rate_limit_config):
+        registry = RateLimiterRegistry(config=rate_limit_config)
+
+        limiter = registry.get("src", 2.0)
+
+        assert limiter.capacity == 2.0 * rate_limit_config.burst_multiplier
+
     def test_get_all_stats(self, rate_limit_config):
         """Test that get_all_stats returns stats for all limiters."""
         registry = RateLimiterRegistry(config=rate_limit_config)

@@ -56,8 +56,9 @@ agentic-kg/
 │   └── terraform/      # Infrastructure as code
 ├── llm/
 │   ├── memory_bank/    # Project documentation and context
-│   └── features/       # Feature specs + master catalog (BACKLOG.md)
-├── construction/       # Historical design + sprint archive (read-only)
+│   ├── features/       # Feature specs + master catalog (BACKLOG.md)
+│   ├── governance/     # Governance delta + ADRs (control plane)
+│   └── sprints/        # Historical sprint archive (read-only)
 └── files/              # Reference materials
 ```
 
