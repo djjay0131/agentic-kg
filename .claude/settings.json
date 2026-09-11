@@ -23,5 +23,17 @@
         ]
       }
     ]
+  },
+  "extraKnownMarketplaces": {
+    "agentic-governance": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/djjay0131/agentic-governance.git"
+      },
+      "autoUpdate": true
+    }
+  },
+  "enabledPlugins": {
+    "governance@agentic-governance": true
   }
 }
