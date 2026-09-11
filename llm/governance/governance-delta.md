@@ -6,8 +6,8 @@ nav_exclude: true
 # Governance Delta: agentic-kg
 
 Status: Approved (bootstrap)
-Last updated: 2026-07-22
-Governance: agentic-governance v0.5
+Last updated: 2026-09-10
+Governance: agentic-governance v0.7
 
 This file localizes [agentic-governance](https://github.com/djjay0131/agentic-governance)
 for this project.
@@ -107,21 +107,66 @@ outgrown a single "current focus" file).
 Path: `llm/features/BACKLOG.md` (live feature catalog) and
 `llm/memory_bank/progress.md` (M0-M14 milestone table).
 
+## Canon Location
+
+Where the canonical `agentic-governance` repo lives, declared once. **This is
+the only machine-specific path this repo is permitted to contain** — every
+canon citation in `CLAUDE.md`, `AGENTS.md` and the check command below resolves
+against it, so it changes in one place instead of a dozen.
+
+- Canon checkout: `~/code/agentic-governance`
+- Canon repository: `https://github.com/djjay0131/agentic-governance`
+- Plugin registered: `repo` (`.claude/settings.json`)
+
+Skills and agents running as the installed plugin resolve canon from
+`${CLAUDE_PLUGIN_ROOT}/..` and need none of this; the declaration exists for
+everything that is read *without* the plugin loaded — static instructions in
+`CLAUDE.md`, and a check command run from a plain shell.
+
+**Deliberately not verified by `--layout`.** A canon checkout is
+environment-specific: CI fetches canon into a runner temp directory and has no
+such path, so asserting it would fail every CI run for a repo whose local
+declaration is perfectly correct. Verify it yourself when you change it —
+`ls <canon checkout>/VERSION`.
+
 ## Governance Check Command
 
-`node ~/code/agentic-governance/governance/scripts/governance-checks.mjs --base origin/master`
-(canonical script from the agentic-governance checkout). **The `--base
-origin/master` flag is required** — this repo's default branch is `master`,
-and the script defaults to `origin/main`; without the flag the `adr-status`
-and `l0-allowlist` checks error out on `fatal: ambiguous argument
-'origin/main'`. With it, all three checks run (see below).
+Preferred, when the plugin is loaded (see §Canon Location):
+
+`node "${CLAUDE_PLUGIN_ROOT}/scripts/governance-checks.mjs" --base origin/master --layout`
+
+Fallback, from a plain shell — resolve `<canon checkout>` against the
+`Canon checkout` declared in §Canon Location above; never write a bare
+machine path here:
+
+`node <canon checkout>/plugin/scripts/governance-checks.mjs --base origin/master --layout`
+
+**The `--base origin/master` flag is required** — this repo's default branch
+is `master`, and the script defaults to `origin/main`; without the flag the
+`adr-status` and `l0-allowlist` checks error out on `fatal: ambiguous
+argument 'origin/main'`.
+
+`--layout` asserts that every path declared in §Repository Layout exists and
+that no source-of-truth document sits under the declared artifacts
+directory; without it the two-plane rule is enforced only at onboarding. It
+is additive to the default checks. All four checks run — `governance-links`,
+`adr-index`, `adr-status`, `layout`.
 
 CI wiring: **live** via `.github/workflows/governance-checks.yml` (runs on
 every PR and on pushes to master). Because the canonical script lives
-outside this repo, the workflow fetches the public agentic-governance repo
-pinned to a commit SHA (kept in sync with the governance version above) and
-runs it with `--base origin/master`. Not yet a *required* status check —
-promote it in branch protection once it has run green across a few PRs.
+outside this repo, the workflow clones the public agentic-governance repo
+into `$RUNNER_TEMP` — outside the workspace, so the checker's own file scan
+does not walk into it — and runs it with `--base origin/master`.
+
+**Known divergence, not yet fixed here.** That workflow pins
+`GOVERNANCE_REF` to `31f2771` (canon **v0.2.0**) and invokes
+`governance/scripts/governance-checks.mjs`, the pre-v0.3.0 payload path. It
+is green only because both the pin and the path are from the same old
+commit. So CI enforces a five-release-old ruleset — it predates the two
+checker defects v0.6.0 fixed, and it does not pass `--layout`. Bumping the
+pin changes what CI enforces and is its own change; tracked separately from
+this one. Not yet a *required* status check either — promote it in branch
+protection once it has run green across a few PRs.
 
 ## L0 Path Allowlist
 
