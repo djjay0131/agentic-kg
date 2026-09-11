@@ -7,7 +7,7 @@ nav_exclude: true
 
 Status: Approved (bootstrap)
 Last updated: 2026-09-10
-Governance: agentic-governance v0.7
+Governance: agentic-governance v0.8
 
 This file localizes [agentic-governance](https://github.com/djjay0131/agentic-governance)
 for this project.
@@ -147,8 +147,10 @@ is `master`, and the script defaults to `origin/main`; without the flag the
 `adr-status` and `l0-allowlist` checks error out on `fatal: ambiguous
 argument 'origin/main'`.
 
-`--layout` asserts that every path declared in §Repository Layout exists and
-that no source-of-truth document sits under the declared artifacts
+`--layout` asserts that every path declared in §Repository Layout exists,
+that every canonical slot directory holding content is declared (the
+`exists → declared` direction, added in canon v0.8.0), and that no
+source-of-truth document sits under the declared artifacts
 directory; without it the two-plane rule is enforced only at onboarding. It
 is additive to the default checks. All four checks run — `governance-links`,
 `adr-index`, `adr-status`, `layout`.
@@ -159,7 +161,7 @@ outside this repo, the workflow clones the public agentic-governance repo
 into `$RUNNER_TEMP` — outside the workspace, so the checker's own file scan
 does not walk into it — and runs it with `--base origin/master --layout`.
 
-That workflow pins `GOVERNANCE_REF` to `395eb40` (canon **v0.7.1**) and
+That workflow pins `GOVERNANCE_REF` to `34fb5a2` (canon **v0.8.0**) and
 invokes `plugin/scripts/governance-checks.mjs` with
 `--base origin/master --layout`, so CI runs the same four checks as the
 command above. Keep the pin, the payload path and the version recorded in
