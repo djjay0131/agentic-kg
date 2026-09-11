@@ -82,11 +82,12 @@ plane, `docs/` data plane). Only slots this repo has content for are declared;
 - ADR directory: `llm/governance/adr/`
 - Features directory: `llm/features/`
 - Sprints directory: `llm/sprints/`
+- Plans directory: `llm/plans/`
 - Memory-bank path: `llm/memory_bank/`
 - Artifacts directory (the data plane): `docs/`
 
-Not declared: constitution, spec and plans directories — this repo has no
-content for them.
+Not declared: constitution and spec directories — this repo has no content
+for them (`llm/constitution/` and `llm/specs/` do not exist).
 
 Sprint history lives at `llm/sprints/` (agentic-governance v0.5 added the
 `Sprints directory` slot). It is read by `preview-docs.yml`, `update-docs.yml`

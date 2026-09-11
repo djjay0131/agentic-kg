@@ -170,6 +170,7 @@ exists to prevent; the reverse is cheap to correct.
 | Governance policy, the delta, patterns | `llm/governance/` |
 | Architecture Decision Records | `llm/governance/adr/` |
 | Sprint plans and sprint history | `llm/sprints/` |
+| Implementation plans | `llm/plans/` |
 | Feature specs and backlog | `llm/features/` |
 | Memory bank | `llm/memory_bank/` |
 | Product/domain docs, external material, published views | `docs/` |
@@ -216,10 +217,8 @@ document plainly belongs to, or escalate to the Repository Steward.
 **Never** write to `docs/superpowers/specs/`, and never create a
 `docs/superpowers/` directory.
 
-**Implementation plans.** This repo declares no plans directory
-either. Same rule: follow §Canonical destinations above — write
-under the declared `llm/` path the plan plainly belongs to, or
-escalate to the Repository Steward. **Never** write to
+**Implementation plans.** Write every implementation plan to
+`llm/plans/YYYY-MM-DD-<feature-name>.md`. **Never** write to
 `docs/superpowers/plans/`, and never create a `docs/superpowers/`
 directory.
 
