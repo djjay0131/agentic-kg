@@ -11,8 +11,9 @@ name: Governance Checks
 #
 # `--base origin/master` is required: this repo's default branch is master, and
 # the script defaults to origin/main. `--layout` asserts that every path declared
-# in llm/governance/governance-delta.md §Repository Layout exists and that no
-# source-of-truth document sits under the declared artifacts directory.
+# in llm/governance/governance-delta.md §Repository Layout exists, that every
+# canonical slot directory holding content is declared (added in canon v0.8.0),
+# and that no source-of-truth document sits under the declared artifacts directory.
 
 on:
   pull_request:
@@ -29,9 +30,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GOVERNANCE_REPO: djjay0131/agentic-governance
-      # agentic-governance v0.7.1 (VERSION 0.7.1). Bump alongside the version
+      # agentic-governance v0.8.0 (VERSION 0.8.0). Bump alongside the version
       # pinned in llm/governance/governance-delta.md when adopting a newer ruleset.
-      GOVERNANCE_REF: 395eb403194c1dc9fc48d679b4d1a7838e9c5f8a
+      GOVERNANCE_REF: 34fb5a25e5a9820b013ef5f0248095106d1217ac
     steps:
       - name: Check out repo (full history so origin/master exists for the diff)
         uses: actions/checkout@v4
