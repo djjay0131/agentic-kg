@@ -10,7 +10,9 @@ name: Governance Checks
 # scan (rooted at `git rev-parse --show-toplevel`) does not walk into it.
 #
 # `--base origin/master` is required: this repo's default branch is master, and
-# the script defaults to origin/main.
+# the script defaults to origin/main. `--layout` asserts that every path declared
+# in llm/governance/governance-delta.md §Repository Layout exists and that no
+# source-of-truth document sits under the declared artifacts directory.
 
 on:
   pull_request:
@@ -27,9 +29,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GOVERNANCE_REPO: djjay0131/agentic-governance
-      # agentic-governance v0.2.0 (VERSION 0.2.0). Bump alongside the version
+      # agentic-governance v0.7.1 (VERSION 0.7.1). Bump alongside the version
       # pinned in llm/governance/governance-delta.md when adopting a newer ruleset.
-      GOVERNANCE_REF: 31f2771149bca78acdd8fbcac53f0b4a94f1bb0c
+      GOVERNANCE_REF: 395eb403194c1dc9fc48d679b4d1a7838e9c5f8a
     steps:
       - name: Check out repo (full history so origin/master exists for the diff)
         uses: actions/checkout@v4
@@ -51,4 +53,4 @@ jobs:
           git -C "${RUNNER_TEMP}/governance-src" checkout --quiet "${GOVERNANCE_REF}"
 
       - name: Run governance checks
-        run: node "${RUNNER_TEMP}/governance-src/governance/scripts/governance-checks.mjs" --base origin/master
+        run: node "${RUNNER_TEMP}/governance-src/plugin/scripts/governance-checks.mjs" --base origin/master --layout
