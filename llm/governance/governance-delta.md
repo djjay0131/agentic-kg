@@ -156,17 +156,19 @@ CI wiring: **live** via `.github/workflows/governance-checks.yml` (runs on
 every PR and on pushes to master). Because the canonical script lives
 outside this repo, the workflow clones the public agentic-governance repo
 into `$RUNNER_TEMP` — outside the workspace, so the checker's own file scan
-does not walk into it — and runs it with `--base origin/master`.
+does not walk into it — and runs it with `--base origin/master --layout`.
 
-**Known divergence, not yet fixed here.** That workflow pins
-`GOVERNANCE_REF` to `31f2771` (canon **v0.2.0**) and invokes
-`governance/scripts/governance-checks.mjs`, the pre-v0.3.0 payload path. It
-is green only because both the pin and the path are from the same old
-commit. So CI enforces a five-release-old ruleset — it predates the two
-checker defects v0.6.0 fixed, and it does not pass `--layout`. Bumping the
-pin changes what CI enforces and is its own change; tracked separately from
-this one. Not yet a *required* status check either — promote it in branch
-protection once it has run green across a few PRs.
+That workflow pins `GOVERNANCE_REF` to `395eb40` (canon **v0.7.1**) and
+invokes `plugin/scripts/governance-checks.mjs` with
+`--base origin/master --layout`, so CI runs the same four checks as the
+command above. Keep the pin, the payload path and the version recorded in
+this delta in sync: before v0.7.1 the workflow pinned `31f2771`
+(canon v0.2.0) and invoked the pre-v0.3.0 `governance/scripts/` path, and
+was green only because the stale pin and the stale path came from the same
+old commit — it enforced a five-release-old ruleset, predating the two
+checker defects v0.6.0 fixed, and never ran `--layout`. Not yet a
+*required* status check — promote it in branch protection once it has run
+green across a few PRs.
 
 ## L0 Path Allowlist
 
