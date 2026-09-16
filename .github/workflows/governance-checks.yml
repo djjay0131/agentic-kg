@@ -30,9 +30,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GOVERNANCE_REPO: djjay0131/agentic-governance
-      # agentic-governance v0.8.0 (VERSION 0.8.0). Bump alongside the version
+      # agentic-governance v0.9.0 (VERSION 0.9.0). Bump alongside the version
       # pinned in llm/governance/governance-delta.md when adopting a newer ruleset.
-      GOVERNANCE_REF: 34fb5a25e5a9820b013ef5f0248095106d1217ac
+      GOVERNANCE_REF: 851a50a0692d4409cbd255e3b3be111d863ae264
     steps:
       - name: Check out repo (full history so origin/master exists for the diff)
         uses: actions/checkout@v4

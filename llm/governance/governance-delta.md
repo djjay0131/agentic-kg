@@ -6,8 +6,8 @@ nav_exclude: true
 # Governance Delta: agentic-kg
 
 Status: Approved (bootstrap)
-Last updated: 2026-09-10
-Governance: agentic-governance v0.8
+Last updated: 2026-09-16
+Governance: agentic-governance v0.9
 
 This file localizes [agentic-governance](https://github.com/djjay0131/agentic-governance)
 for this project.
@@ -161,7 +161,7 @@ outside this repo, the workflow clones the public agentic-governance repo
 into `$RUNNER_TEMP` — outside the workspace, so the checker's own file scan
 does not walk into it — and runs it with `--base origin/master --layout`.
 
-That workflow pins `GOVERNANCE_REF` to `34fb5a2` (canon **v0.8.0**) and
+That workflow pins `GOVERNANCE_REF` to `851a50a` (canon **v0.9.0**) and
 invokes `plugin/scripts/governance-checks.mjs` with
 `--base origin/master --layout`, so CI runs the same four checks as the
 command above. Keep the pin, the payload path and the version recorded in
@@ -205,6 +205,15 @@ deny llm/governance/governance-delta.md
   PR + push to master but is **not yet required** — promote it once it has
   a green track record. `smoke-ingest.yml` is path-filtered, unsuitable as
   a blanket required check.
+- **Branch cleanup: `delete_branch_on_merge` is `true`** (verified
+  2026-09-16 via `gh api repos/djjay0131/agentic-kg -q
+  .delete_branch_on_merge`). This is a **repository** setting, not branch
+  protection, so it is available on every plan — including the
+  private-repo-on-a-free-plan case where the protection call 403s. It is
+  what finally makes the PR lifecycle's closing clause ("Branch deleted
+  post-merge") a platform fact rather than a flag the merger has to
+  remember; canon states the default in agentic-governance
+  `llm/governance/branch-protection.md` §Branch Cleanup (v0.9.0).
 - **Token/identity model:** agent sessions authenticate with the owner's
   token — steward/auditor/architect are procedural roles, not distinct
   identities; independence is temporal/artifactual, same as the siblings.
