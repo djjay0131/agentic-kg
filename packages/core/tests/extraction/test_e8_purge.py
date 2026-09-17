@@ -143,9 +143,69 @@ class TestPurgeHappyPath:
         assert "Problem" in all_queries
         assert "ProblemMention" in all_queries
         assert "BELONGS_TO" in all_queries
+        assert "RESEARCHES" in all_queries
         assert "DISCUSSES" in all_queries
         assert "INVOLVES_CONCEPT" in all_queries
         assert "EXTRACTED_FROM" in all_queries
+
+    def test_paper_topic_purge_targets_researches_not_belongs_to(self, mock_repo):
+        """Paper → Topic is RESEARCHES; Problem-side → Topic is BELONGS_TO.
+
+        The purge matched BELONGS_TO for the Paper edge, so it deleted nothing
+        and every re-ingestion left the prior run's topic edges behind. Assert
+        on the Paper-anchored query specifically — a bare "BELONGS_TO in
+        queries" check passes on the buggy version, because the Problem-side
+        purge legitimately uses it.
+        """
+        session = mock_repo.session.return_value
+        empty = MagicMock()
+        empty.single.return_value = {"deleted_problems": 0, "deleted_mentions": 0}
+        empty.__iter__ = lambda self: iter([])
+        session.run.return_value = empty
+
+        purge_paper_extraction(mock_repo, paper_doi="10.1/abc", force_rewrite=False)
+
+        queries = [c.args[0] for c in session.run.call_args_list]
+        paper_topic = [
+            q for q in queries
+            if "(p:Paper {doi: $doi})-[r:" in q and ":Topic)" in q
+        ]
+        assert paper_topic, "no Paper→Topic purge query was issued"
+        joined = " ".join(paper_topic)
+        assert "RESEARCHES" in joined
+        assert "BELONGS_TO" not in joined
+
+    def test_problem_side_topic_purge_uses_belongs_to_not_has_topic(self, mock_repo):
+        """Problem-side → Topic is BELONGS_TO. HAS_TOPIC is written nowhere in
+        the codebase — vocabulary from a spec that never shipped — so the old
+        query could never match."""
+        session = mock_repo.session.return_value
+        empty = MagicMock()
+        empty.single.return_value = {"deleted_problems": 0, "deleted_mentions": 0}
+        empty.__iter__ = lambda self: iter([])
+        session.run.return_value = empty
+
+        purge_paper_extraction(mock_repo, paper_doi="10.1/abc", force_rewrite=False)
+
+        all_queries = " ".join(c.args[0] for c in session.run.call_args_list)
+        assert "HAS_TOPIC" not in all_queries
+        problem_topic = [
+            q for q in (c.args[0] for c in session.run.call_args_list)
+            if "ProblemConcept" in q and ":Topic)" in q
+        ]
+        assert problem_topic, "no Problem-side→Topic purge query was issued"
+        assert "BELONGS_TO" in " ".join(problem_topic)
+
+    def test_researches_is_declared_extraction_footprint(self):
+        """RESEARCHES is written by the extraction pipeline, so it must count
+        as footprint — otherwise the guardrail could treat a paper's own topic
+        edges as foreign and refuse to purge."""
+        from agentic_kg.extraction.re_ingestion import _EXTRACTION_EDGE_TYPES
+
+        assert "RESEARCHES" in _EXTRACTION_EDGE_TYPES
+        assert "BELONGS_TO" in _EXTRACTION_EDGE_TYPES
+        # dead vocabulary — nothing writes it
+        assert "HAS_TOPIC" not in _EXTRACTION_EDGE_TYPES
 
     def test_shared_topic_and_concept_nodes_not_deleted(self, mock_repo):
         """AC-13 critical: shared Topic and ResearchConcept nodes must NOT
