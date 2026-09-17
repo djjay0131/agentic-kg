@@ -1,6 +1,6 @@
 # System Patterns
 
-Last updated: 2026-07-21
+Last updated: 2026-09-17
 
 > **Published design docs (2026-07-21):** the node/edge ontology and per-feature
 > design rationale now live on the docs site, not only here.
@@ -86,8 +86,9 @@ agentic-kg/
 ├── llm/                              # LLM control plane (agent-facing, not published)
 │   ├── features/                     # Feature specs (BACKLOG.md + 16 spec files)
 │   ├── memory_bank/                  # Authoritative project context (this directory)
-│   ├── governance/                   # agentic-governance v0.5 delta + ADRs (ADR-0002 = this migration)
-│   └── sprints/                      # Sprint history archive (read by GitHub Pages generator)
+│   ├── governance/                   # agentic-governance v0.9.0 delta + ADRs (ADR-0002 = the llm/ migration)
+│   ├── sprints/                      # Sprint history archive (read by GitHub Pages generator)
+│   └── plans/                        # Plans slot, declared in v0.9 (#62)
 ├── docs/                             # Jekyll just-the-docs site → GitHub Pages
 │   ├── reference/                    # Domain Model & Taxonomy (entity-catalog, entity-relationships, topic-taxonomy; Mermaid)
 │   ├── design/                       # Per-completed-feature design notes (E-1..E-8, D-1/D-1a, CI smoke, ...)
