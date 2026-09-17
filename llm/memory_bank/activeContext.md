@@ -69,6 +69,25 @@ Plans slot declared (`llm/plans/`), and an artifact-routing rule installed in
   the circuit breaker still opened once even with correct pacing, so 1 RPS is
   tight for this workload.
 
+<!-- docs-stats: authoritative source for the Pages status dashboard.
+     Machine-read by .github/scripts/generate_site_data.py — removing or
+     renaming this block fails `build-preview` with exit 2. Keep in sync
+     with prose. -->
+```yaml
+# docs-stats
+last_updated: 2026-09-17
+# graph_* / problem_* were last measured against staging Neo4j on 2026-05-20
+# and have NOT been re-measured since; the entity-expansion pipeline has run
+# many times since, so treat them as a floor, not a current count.
+graph_nodes: 282
+graph_edges: 151
+problem_mentions: 18
+problem_concepts: 18
+sanity_checks: "5/5 passing"
+completed_sprints: 11
+tests_passing: 2207
+```
+
 ---
 
 ## SEG-1 VERIFIED (2026-09-07)
