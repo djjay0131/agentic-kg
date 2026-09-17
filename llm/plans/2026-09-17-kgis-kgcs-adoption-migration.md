@@ -4,381 +4,285 @@ Date: 2026-09-17
 Status: Proposed execution plan
 Target: `djjay0131/agentic-kg`
 Source platform: `djjay0131/agentic-kgis` + `djjay0131/agentic-kgcs`
-Governance: obey the repository's current `llm/governance/governance-delta.md` and canonical agentic-governance pin at execution time.
 
-## 1. Mission
+## Mission
 
-Adopt KGIS and KGCS as the reusable ingestion/curation platform underneath agentic-kg without a big-bang rewrite.
+Adopt KGIS and KGCS underneath agentic-kg without a big-bang rewrite. Preserve or improve the research graph on real evidence before retiring the legacy path. Non-production GCP environments may be used throughout; production/master cutover remains an explicit owner gate.
 
-The migration must prove that the new platform preserves or improves the existing research-paper graph on real evidence before any legacy path is retired. Development may deploy to a non-production GCP environment for integration and live-data validation. Production/master cutover remains a human-owner decision.
+Target flow:
 
-The target architecture is:
+`research sources -> KGIS -> Candidate + Evidence -> ledger -> KGCS -> CurationPlan -> executor -> canonical graph/epoch -> agentic-kg agents/retrieval`
 
-```
-research sources / PDFs / structured metadata
-        |
-        v
-      KGIS
-  extraction/sync
-        |
-Candidate + Evidence
-        |
- candidate ledger
-        |
-        v
-      KGCS
- validation -> ER -> deterministic policy -> bounded LLM advice/review
-        |
-   CurationPlan
-        |
-    executor
-        |
- canonical graph / curation epoch
-        |
- agentic-kg application agents and retrieval
-```
+KGIS/KGCS own reusable admission/curation. agentic-kg retains research-domain ontology mapping, application agents, retrieval, API/UI and deployment.
 
-KGIS/KGCS own reusable knowledge admission and curation. agentic-kg retains domain-specific research semantics, application orchestration, research agents, retrieval, UI/API, and deployment.
+## Baseline
 
-## 2. Current baseline and why this is a migration, not a rewrite
+- agentic-kg currently has a bespoke Neo4j ingestion path in `packages/core/src/agentic_kg/ingestion.py`; its governance delta explicitly records KGIS/KGCS as future dependencies and says there are currently zero `kg_contracts` references.
+- The 8-paper connected ground-truth chain at `packages/core/tests/extraction/fixtures/ground_truth_chain/` was built specifically for live importer validation. It records 10 verified citation edges and recurring concepts. Only `reconciled/` is authoritative; human/Claude files are evidence.
+- Ground truth is incomplete and the segmenter backlog can confound recall. Do not score unreconciled material as negative evidence.
+- Issue #58 is a real legacy defect: current smoke ingestion writes zero `CITES` edges while the other five graph-shape assertions pass.
+- KGIS and KGCS v1 implementation is merged and their cross-repo E2E includes evidence-driven re-curation.
+- Multiple GCP environments are available; use an isolated development/shadow environment and graph.
 
-agentic-kg currently has a mature bespoke research ingestion pipeline (`packages/core/src/agentic_kg/ingestion.py`) feeding Neo4j, including Topic, ResearchConcept, Model, Method, Problem and Citation behavior. Its governance delta explicitly records agentic-kg as a future consumer of KGIS/KGCS, with zero current `kg_contracts` references.
-
-The repository also has an 8-paper connected ground-truth chain under:
-
-`packages/core/tests/extraction/fixtures/ground_truth_chain/`
-
-It was designed specifically to validate the live importer end-to-end and contains 10 verified citation edges plus recurring concepts across papers. Only reconciled fixtures are authoritative; human and Claude reviews remain evidence.
-
-Important current constraints:
-
-- the ground-truth program is incomplete: the repo README currently records reconciled Output B for only part of the 8-paper set;
-- segmentation backlog (especially SEG-3/4/5/6/7) can confound extraction-vs-gold comparisons and must be dispositioned before interpreting recall gaps;
-- open Issue #58 records a real legacy-path defect: `CITES` edges are currently absent in smoke ingestion while the other five graph-shape assertions pass;
-- GCP deployment already exists and multiple environments are available, so a development/shadow environment may be used for migration tests without replacing production;
-- agentic-kg, KGIS and KGCS are all on current portfolio governance and KGIS/KGCS v1 implementation is merged.
-
-This migration therefore uses the existing path as a baseline/oracle where trustworthy, the reconciled ground truth as the semantic oracle, and the new KGIS/KGCS path as a shadow candidate until explicit cutover gates pass.
-
-## 3. Non-negotiable migration rules
+## Non-negotiable rules
 
 1. No big-bang replacement.
-2. No direct application-facing canonical writes are introduced. New canonical mutation flows through KGCS `CurationPlan` + executor.
-3. Preserve source provenance/evidence through KGIS candidates into KGCS audit/canonical assertions.
-4. Do not make agentic-kg depend on KGIS/KGCS implementation internals where a public contract/adapter exists.
-5. Domain-specific ontology mapping belongs in the adopter adapter/configuration, not in reusable KGIS/KGCS core.
-6. Existing production remains authoritative until the cutover gate is explicitly approved.
-7. Shadow results must not mutate production canonical state.
-8. A green node-count comparison is insufficient: semantic quality, evidence, identity and edge correctness are required.
-9. LLM nondeterminism must be controlled in CI with recorded/replay fixtures; live-model tests run only in designated integration environments.
-10. Every migration PR follows current governance, independent review and required CI. No agent self-merges to production/master unless governance explicitly authorizes it.
-11. GCP development deployments are permitted for migration validation. Production promotion requires owner approval.
-12. Existing agent/retrieval behavior must remain functional against the chosen canonical graph before legacy removal.
+2. Production remains authoritative until explicit cutover approval.
+3. Shadow work never mutates production canonical state.
+4. New canonical mutations flow only through KGCS `CurationPlan` + executor.
+5. Preserve evidence/provenance end to end.
+6. Domain ontology mapping stays in the adopter layer, not reusable KGIS/KGCS core.
+7. Do not duplicate reusable KGIS/KGCS functionality in agentic-kg merely to ease migration.
+8. Semantic quality beats node-count parity.
+9. Recorded/replay LLM clients are mandatory in deterministic CI; live models belong in integration environments.
+10. Every semantic task uses implementer -> independent reviewer -> fix loop -> tests -> PR -> CI.
+11. Agents may manage and approve intermediate PRs only as current governance permits; never weaken branch protection, fabricate approvals, bypass checks, or merge production/master without authority.
+12. Production promotion is a human-owner decision.
 
-## 4. Success criteria
+## Success / cutover gates
 
-The migration is ready for cutover only when all of the following are demonstrated:
+Before production cutover prove:
 
-- KGIS can ingest the target research-paper sources and emit typed Candidates + Evidence for the agentic-kg ontology mapping;
-- KGCS can curate those candidates into the required canonical graph semantics;
-- the 8-paper evaluation set is sufficiently reconciled to support a meaningful comparison, with incomplete gold explicitly excluded rather than treated as negatives;
-- extraction/curation metrics are computed using `kg_eval` or an adapter over its metric-provider seam;
-- no material regression in required entity/edge recall versus reconciled gold;
-- false merges, false splits and provenance/evidence defects are within an owner-approved risk budget;
-- citation semantics are tested independently of the legacy Issue #58 failure;
-- the evidence-evolution scenario works: later paper evidence can corroborate, conflict with or supersede an existing assertion while retaining history;
-- current agentic-kg query/retrieval/agent paths can consume the new canonical graph through a compatibility/projection layer;
-- staging/development GCP deployment is stable through ingest + curate + query smoke tests;
-- rollback to the legacy production path is documented and tested before production cutover;
-- final owner decision explicitly authorizes cutover.
+- typed KGIS Candidates + Evidence for required research semantics;
+- KGCS canonicalization with conservative ER and governed LLM advice;
+- meaningful evaluation against sufficiently reconciled gold, with honest-null treatment of missing labels;
+- no material required-entity/edge regression and acceptable false-merge/false-split risk;
+- citation semantics verified independently of legacy #58;
+- evidence evolution/re-curation with history retained;
+- current research agents/retrieval work against the canonical projection;
+- GCP development deployment passes ingest -> curate -> query -> agent smoke;
+- rollback to legacy production is tested;
+- owner explicitly approves cutover.
 
-## 5. Orchestration model
+## Orchestration roles
 
-A top-level Orchestrator coordinates specialist subagents in isolated worktrees. Parallelize discovery/evaluation work aggressively, but serialize changes that touch the same migration seam.
+Top-level Orchestrator plus isolated-worktree subagents:
 
-Recommended roles:
-
-- Repository/Governance Steward
+- Governance/Repository Steward
 - Legacy Pipeline Archaeologist
 - KGIS Integration Architect
 - KGCS Integration Architect
 - Ontology/Mapping Agent
-- Ground-Truth & Evaluation Agent
+- Ground-Truth/Evaluation Agent
 - Segmenter/Corpus Readiness Agent
 - Neo4j/Projection Adapter Agent
-- GCP Deployment Agent
 - Issue-58 Citation Investigator
 - Research-Agent Compatibility Agent
-- Security/Secrets/Config Reviewer
+- GCP Deployment Agent
+- Security/Secrets Reviewer
 - Independent Architecture Reviewer
 - Independent Test/Adversarial Reviewer
 - Release/Cutover Steward
 
-Required semantic task loop:
+Parallelize discovery and non-overlapping implementation; serialize shared seams.
 
-```
-implementer -> targeted tests -> independent reviewer -> fix loop
-            -> branch-wide tests -> PR -> CI -> review disposition
-```
+## Branch/environment strategy
 
-Subagents may approve/recommend downstream integration PRs when repository governance permits, but the top-level orchestrator must not weaken branch protection, bypass required checks, fabricate approvals, or merge production/master without the authority current governance grants. Human-owner approval remains the final cutover gate.
+Create `integration/kgis-kgcs-adoption` from current `master`. Feature PRs target it during migration. Keep it current with master. Do not develop directly on master.
 
-## 6. Branch and environment strategy
+Use a dedicated GCP development/shadow environment. Isolate Neo4j canonical state, KGIS ledger/evidence, KGCS review/audit, service configuration and deployment manifests from production. Use existing secret management. Record agentic-kg/KGIS/KGCS commit SHAs in live-test reports.
 
-Create a long-lived integration branch, recommended:
+## Phase 0 — Preflight and reproducible baseline
 
-`integration/kgis-kgcs-adoption`
+1. Refresh master, open PRs/issues, governance, memory bank, BACKLOG and deploy docs.
+2. Record exact KGIS/KGCS package/tag/commit pins; do not float migration dependencies.
+3. Run current unit/integration/governance gates; separate known-red from migration regressions.
+4. Reproduce #58 or preserve latest reproducible evidence if an external service prevents it.
+5. Inventory direct Neo4j write surfaces and current schema.
+6. Create integration branch and migration status record under current governance.
+7. Inspect current GCP deployment/environment mechanism before naming or changing environments.
 
-Feature PRs should target this integration branch while the shadow migration is being assembled. Keep each PR independently reviewable. Periodically rebase/merge current `master` into the integration branch so the migration does not drift from active application development.
+Exit: baseline report, dependency pins, known-red list, integration branch, no production change.
 
-GCP:
+## Phase 1 — Compatibility and mapping specification
 
-- deploy the integration branch to a dedicated development/shadow environment;
-- use a separate Neo4j database/instance or clearly isolated database namespace from production;
-- use separate KGIS ledger/evidence persistence and KGCS review/audit persistence;
-- do not point the migration executor at production canonical graph state during shadow validation;
-- secrets come from the existing secret-management mechanism, never committed fixtures;
-- record deployed commit SHAs for agentic-kg, KGIS and KGCS in every live test report.
+Run four parallel analyses, then reconcile into one reviewed spec:
 
-The orchestrator must inspect the current deploy pipeline before deciding exact branch/environment names; do not assume old environment wiring still matches this plan.
+A. Trace every Paper/Topic/ResearchConcept/Model/Method/Problem/CITES and related write. Classify as source acquisition, extraction, candidate construction, curation, projection or application-only.
 
-## 7. Phase 0 — Preflight, authority and dependency pinning
+B. Map legacy outputs to KGIS candidate variants: stable semantic keys/aliases, evidence/source coordinates, score axes, validity, model/extractor/prompt versions and ontology requirements.
 
-### Goal
+C. Map KGCS canonical identities/assertions to the Neo4j shape current application queries expect. Prefer a projection/compatibility adapter over domain pollution in KGCS.
 
-Establish a reproducible baseline before code changes.
+D. Define deterministic legacy-ID <-> canonical-ID migration and collision handling. No silent identity fork.
 
-### Tasks
+Deliverable: migration mapping spec + ADR for durable adopter decisions. No implementation before review.
 
-1. Refresh `master`, open issues/PRs, governance delta, activeContext, systemPatterns, BACKLOG and deployment docs.
-2. Record exact current KGIS and KGCS release/commit SHAs and their package-install mechanism.
-3. Run existing agentic-kg unit/integration/governance checks and record known-red checks separately.
-4. Reproduce Issue #58 or record the latest reproducible evidence if external dependencies prevent a deterministic reproduction.
-5. Inventory existing direct Neo4j write surfaces in ingestion/extraction/normalization/citation code.
-6. Inventory current domain entity/relationship schema and map which pieces are ingestion, curation, projection or application concerns.
-7. Create the integration branch and a migration status document under `llm/` according to current governance.
-8. Decide dependency pinning for KGIS/KGCS during migration: exact commit/tag pins for reproducibility, not floating branches.
+## Phase 2 — Evaluation corpus readiness
 
-### Exit
+1. Audit all eight papers for human/Claude/reconciled completeness. Never fabricate missing reconciliation.
+2. Resolve the named-resource question currently blocking importer diffing.
+3. Disposition SEG-3/4/5/6/7. Implement prerequisites that materially affect scoring, or freeze/version the segmentation input and state which recall claims are invalid.
+4. Finish a deterministic reconciled-fixture loader/runner.
+5. Reuse `kg_eval` via a narrow provider/adapter where possible.
+6. Measure entity and relation P/R, citation P/R, evidence validity, provenance completeness, false merge/split, abstention/review, calibration where supported, latency and LLM cost.
+7. Exclude `acceptable_extras` from precision denominator per fixture contract.
 
-- reproducible baseline report;
-- known-red list separated from migration regressions;
-- exact dependency SHAs;
-- integration branch established;
-- no production behavior changed.
+Exit: deterministic evaluation report with counts and honest nulls.
 
-## 8. Phase 1 — Compatibility inventory and mapping specification
+## Phase 3 — KGIS shadow ingestion
 
-### Goal
+1. Add pinned KGIS/KGCS dependencies behind an opt-in migration configuration.
+2. Reuse existing source/PDF acquisition where sensible; adapt it to KGIS documents/structured inputs.
+3. Configure extractors/builders for the domain types approved by the mapping spec.
+4. Register quoted passage/source Evidence with stable coordinates.
+5. Persist to isolated ledger/evidence stores only.
+6. Recorded/replay LLM fixtures in CI; live provider only in GCP dev.
+7. Compare candidates against legacy output and gold before allowing KGCS shadow writes.
 
-Define the adapter contract between agentic-kg domain semantics and generic KGIS/KGCS contracts before implementation.
+Exit: reproducible candidate/evidence set; no production graph writes.
 
-### Parallel workstreams
+## Phase 4 — KGCS shadow curation and Neo4j projection
 
-#### 1A — Legacy write-path inventory
+1. Implement or reuse conforming Neo4j GraphReader/GraphMutationStore adapter and run shared contract suites.
+2. Configure research-paper curation profiles and conservative ER; prefer abstention/review over false merge.
+3. Wire bounded KGCS advisers with recorded CI client and approved live dev provider.
+4. Materialize only to isolated shadow canonical graph.
+5. Build compatibility projection for existing Cypher/read expectations at a published curation epoch.
+6. Prove application code cannot obtain a raw KGCS write surface.
 
-Trace every path that creates/updates:
+Exit: KGIS -> ledger/evidence -> KGCS -> shadow Neo4j -> compatibility query passes.
 
-- Paper
-- Topic / Research Area
-- ResearchConcept
-- Model
-- Method
-- Problem
-- CITES and other domain relationships
-- taxonomy hashes
-- descriptions/embeddings
-- normalization/audit records
+## Phase 5 — Three-way shadow comparison + Issue #58
 
-Classify each as:
-
-`source acquisition | extraction | candidate construction | curation | projection | application-only`
-
-#### 1B — Candidate mapping
-
-Specify how legacy outputs map to KGIS candidate variants and evidence:
-
-- stable semantic keys and external aliases;
-- candidate kind;
-- evidence span/source coordinates;
-- extraction/source-reliability scores;
-- valid/transaction time where applicable;
-- model/extractor/prompt versions;
-- ontology term requirements.
-
-#### 1C — Canonical graph mapping
-
-Specify how KGCS canonical identities/assertions project to the Neo4j shape current application agents expect. Prefer a projection/compatibility adapter over contaminating KGCS with agentic-kg labels.
-
-#### 1D — Migration identity strategy
-
-Define equivalence between legacy Neo4j IDs and new canonical IDs. No silent identity fork. Produce deterministic mapping and collision tests.
-
-### Deliverable
-
-A reviewed migration mapping spec in the repository control plane. If it makes durable architecture decisions, create an agentic-kg ADR.
-
-### Exit
-
-No code implementation until the mapping spec is reviewed.
-
-## 9. Phase 2 — Evaluation corpus readiness
-
-### Goal
-
-Make semantic comparison trustworthy before judging the new pipeline.
-
-### Tasks
-
-1. Audit all 8 ground-truth papers: human, Claude and reconciled fixture completeness.
-2. Do not fabricate missing reconciliation. Incomplete papers are marked not-scoreable.
-3. Resolve the open `named-resources` ground-truth question that currently blocks importer diffing.
-4. Disposition SEG-3/4/5/6/7 for the migration evaluation:
-   - implement prerequisites that materially affect the corpus before scoring; or
-   - freeze a clearly-versioned segmentation input and state which recall questions cannot be answered.
-5. Build/finish a loader/runner over reconciled fixtures. Reuse `kg_eval` metrics where compatible; write a narrow provider/adapter rather than duplicate metric definitions.
-6. Establish metrics:
-   - entity precision/recall by type;
-   - relation precision/recall;
-   - citation edge recall/precision;
-   - evidence-span validity;
-   - provenance completeness;
-   - false merge / false split;
-   - abstention/review rate;
-   - calibration where gold supports it;
-   - LLM calls/tokens/cost and latency.
-7. Explicitly exclude `acceptable_extras` from the precision denominator as the fixture schema requires.
-
-### Exit
-
-A deterministic evaluation command produces an honest report with sample counts and nulls for insufficient evidence.
-
-## 10. Phase 3 — KGIS shadow ingestion adapter
-
-### Goal
-
-Run the existing research sources through KGIS without changing production graph state.
-
-### Tasks
-
-1. Add KGIS/KGCS dependencies behind an opt-in migration feature/config flag.
-2. Build agentic-kg source/document adapters around existing acquisition/PDF extraction where reuse is cheaper than replacing it.
-3. Configure KGIS per-entity-type extractors/mappings for Paper, Topic, ResearchConcept, Model, Method, Problem and Citation/relationship candidates as justified by the mapping spec.
-4. Register Evidence for quoted passages/source records with stable coordinates.
-5. Persist candidates to an isolated ledger/evidence store.
-6. Add recorded/replay LLM fixtures for deterministic CI.
-7. Add live-model integration tests only in the GCP dev environment.
-8. Compare KGIS candidate output with legacy extractor output and reconciled gold before KGCS is allowed to write a shadow canonical graph.
-
-### Exit
-
-Same corpus -> reproducible candidate/evidence set in CI replay mode; live dev run completes with no production graph writes.
-
-## 11. Phase 4 — KGCS shadow curation + Neo4j adapter/projection
-
-### Goal
-
-Materialize a separate canonical graph using KGCS and make it query-compatible with agentic-kg.
-
-### Tasks
-
-1. Implement/configure the Neo4j `GraphReader` / `GraphMutationStore` adapter required by current `kg_contracts`, or reuse an existing conforming adapter if one now exists.
-2. Run the shared reusable contract suites against the adapter.
-3. Configure agentic-kg curation profile(s): research-paper evidence is not client-authoritative identity by default; deterministic metadata sources may have stronger authority.
-4. Configure ER blocking/features/calibration with conservative initial automation; prefer review/abstention over false merge.
-5. Wire bounded KGCS advisers using recorded completion in CI and the approved live provider in dev.
-6. Materialize only into the isolated shadow graph.
-7. Build a projection/compatibility layer so current application queries can consume canonical state at a published curation epoch.
-8. Prove no agentic-kg code obtains a raw KGCS graph-write surface.
-
-### Exit
-
-KGIS -> ledger/evidence -> KGCS -> shadow Neo4j -> compatibility query works end-to-end.
-
-## 12. Phase 5 — Shadow comparison and Issue #58 treatment
-
-### Goal
-
-Compare legacy and new pipelines without letting legacy defects become false requirements.
-
-Run the same frozen corpus through:
-
-- legacy agentic-kg pipeline;
-- KGIS + KGCS shadow pipeline.
-
-Produce a three-way comparison:
+Run the frozen corpus through legacy and new paths and report:
 
 `legacy vs gold | new vs gold | legacy vs new`
 
-Issue #58 rule:
+Investigate #58 in parallel. Never make `CITES=0` expected merely because legacy is broken. Gold/source verification is the oracle. Classify every material delta as new regression, legacy defect, gold ambiguity, expected architecture difference, improvement, or insufficient evidence.
 
-- investigate the legacy citation failure in parallel;
-- do not encode `CITES=0` as expected behavior merely because legacy currently does it;
-- use reconciled citation gold/source verification as the semantic oracle;
-- if the new path fixes citations, record it as an improvement;
-- if both fail, block cutover until citation semantics are understood.
+Exit: no unexplained material differences.
 
-Classify every material difference:
+## Phase 6 — Evidence-evolution acceptance
 
-`new regression | legacy defect | gold ambiguity | expected architecture difference | improvement | insufficient evidence`
+Use two connected papers touching the same concept/assertion:
 
-### Exit
+1. Paper A -> curate -> epoch N.
+2. Capture canonical/evidence/audit state.
+3. Paper B adds corroborating/conflicting/superseding evidence.
+4. Targeted CurationTrigger selects affected knowledge.
+5. Deterministic baseline runs first; adviser is optional and evidence-citing.
+6. Deterministic policy gates recommendation.
+7. Execute -> epoch N+1.
+8. Old assertion/history remains queryable; both papers' evidence remains traceable.
+9. Replay recorded semantic decision and detect divergence.
 
-No unexplained material differences.
+Also run a non-paper synthetic fixture to prove reusable KGCS behavior is not hard-coded to research papers.
 
-## 13. Phase 6 — Evidence-evolution / re-curation acceptance test
+Exit: replay CI and live GCP dev both pass.
 
-### Goal
+## Phase 7 — Application-agent/retrieval compatibility
 
-Prove the capability that motivated KGCS rather than merely reproducing static ingestion.
+1. Inventory Cypher/query assumptions in Ranking, Continuation, Evaluation, Synthesis, API and retrieval paths.
+2. Run read-only compatibility tests against legacy and shadow graphs.
+3. Add projection aliases/fields only when the mapping spec requires them.
+4. Never expose ledger/provisional state to application reads.
+5. Compare deterministic pre-LLM context/retrieved evidence for frozen research queries; do not demand exact live-LLM prose equality.
 
-Use at least two papers from the connected ground-truth chain where later evidence touches the same concept/assertion.
+Exit: no blocking read-path regression.
 
-Required scenario:
+## Phase 8 — GCP development deployment and soak
 
-1. ingest Paper A;
-2. curate to epoch N;
-3. capture canonical identity/assertion/evidence/audit state;
-4. ingest Paper B with corroborating, conflicting or superseding evidence;
-5. trigger targeted re-curation;
-6. deterministic baseline runs first;
-7. if routed, adviser reasons only over cited evidence;
-8. deterministic policy gates the recommendation;
-9. execute plan to epoch N+1;
-10. assert old assertion/history remains queryable;
-11. assert evidence from both papers is traceable;
-12. replay the semantic decision from recorded inputs and detect divergence if altered.
+1. Deploy the integration branch to the designated non-production GCP environment using the repo's current deployment mechanism.
+2. Pin and record exact three-repo SHAs.
+3. Provision/isolate shadow graph + ledger/evidence + review/audit persistence.
+4. Run migrations/bootstrap twice to prove idempotency.
+5. Execute 8-paper ingest/curate/eval.
+6. Execute evidence-evolution scenario.
+7. Execute representative API/query/research-agent smoke tests.
+8. Exercise retry, partial failure, LLM timeout/malformed output, stale-plan rejection and review-queue failure paths.
+9. Observe latency, cost, queue depth, review rate, error rate and time-to-canonicalization.
+10. Soak for an owner-approved interval or repeated batch count; do not invent a production SLA if none exists.
 
-Also run one synthetic/non-paper fixture through the same curation machinery to guard against accidental research-paper hard-coding in the reusable layer.
+Exit: documented green development deployment with reproducible test report and no production mutation.
 
-### Exit
+## Phase 9 — Cutover rehearsal
 
-The evolution test passes in deterministic CI replay and live dev GCP.
+Create a release-candidate branch from the integrated result. Rehearse, in non-production:
 
-## 14. Phase 7 — Application-agent compatibility
+- fresh install/deploy from nothing;
+- legacy graph snapshot/export;
+- new stores/bootstrap;
+- migration/backfill of the chosen corpus;
+- application reads switched to canonical projection;
+- rollback to legacy read/write configuration;
+- repeat migration without duplicate canonical state;
+- audit/replay after restart.
 
-### Goal
+Produce a cutover runbook with explicit stop/go conditions and rollback commands/procedures. Secrets and environment identifiers remain external/configured, not hard-coded.
 
-Prove Ranking/Continuation/Evaluation/Synthesis and retrieval surfaces work against the new canonical projection.
+Exit: rollback has been demonstrated, not merely documented.
 
-### Tasks
+## Phase 10 — Owner cutover gate
 
-1. Inventory Cypher/query assumptions in agents and API/retrieval code.
-2. Run read-only compatibility tests against both legacy and shadow graphs.
-3. Add projection fields/aliases only where required by the mapping spec.
-4. Do not leak ledger/provisional state into application reads.
-5. Compare agent inputs/results for a frozen set of research queries. Exact text equality is not required for live LLM outputs; structural inputs, retrieved entities/evidence and deterministic pre-LLM context must be comparable.
+The orchestrator stops before production/master cutover and presents:
 
-### Exit
+- semantic comparison report;
+- gold coverage/completeness statement;
+- #58 disposition;
+- ER/curation risk metrics;
+- GCP soak report;
+- application compatibility report;
+- unresolved review queue/backlog;
+- dependency pins/releases;
+- rollback rehearsal evidence;
+- proposed legacy components to retire and those to retain temporarily.
 
-No blocking application read-path regression.
+Only the human owner decides whether to promote the integration/release candidate to production/master.
 
-## 15. Phase 8 — GCP development deployment and soak
+## Phase 11 — Post-cutover cleanup (only after owner approval)
 
-### Goal
+After successful production observation:
 
-Exercise the integrated branch under realistic infrastructure without production cutover.
+1. Remove/deprecate legacy ingestion/curation code only when no rollback dependency remains.
+2. Keep source acquisition or domain projection pieces that remain useful; do not delete code merely because it is old.
+3. Remove duplicate LLM prompts/normalizers superseded by KGIS/KGCS.
+4. Close/supersede migrated backlog items and #58 according to evidence.
+5. Update design authority, memory bank, BACKLOG and deployment docs.
+6. Run a final dependency-boundary audit: agentic-kg domain logic here; reusable graph logic in KGIS/KGCS.
+7. Produce final migration reconciliation with release SHAs and deferred work.
 
-### Tasks
+## PR decomposition
 
-1. Deploy `integration/kgis-kgcs-adoption` to a dedicated development environment using the
+Recommended PR sequence against `integration/kgis-kgcs-adoption`:
+
+1. preflight/status + dependency pinning/config seam;
+2. mapping spec/ADR;
+3. evaluation runner + corpus-readiness changes (split segmenter changes if large);
+4. KGIS shadow adapter;
+5. Neo4j kg_contracts adapter + contract tests;
+6. KGCS profile/curation wiring + projection;
+7. three-way comparison/evaluation tooling + #58 fix or disposition;
+8. re-curation acceptance fixtures/tests;
+9. application-agent compatibility;
+10. GCP dev deployment/config/smoke;
+11. cutover rehearsal/runbook;
+12. final integration reconciliation.
+
+Keep semantic changes independently reviewable. If a cross-repo defect is found, fix it in KGIS/KGCS under that repo's governance rather than patching around it here.
+
+## Agent approval/merge model
+
+For intermediate feature PRs targeting the integration branch, the orchestrator may use independent reviewer subagents to review and approve/recommend merge when current GitHub/governance rules permit. The authoring agent must not be its own reviewer. Required checks must be green and all review findings resolved.
+
+Do not change branch protection to make automation easier. Do not bypass required checks. Do not manufacture GitHub identity independence when all agents share the owner's token; preserve independence through separate reviewer passes/artifacts as governance describes.
+
+The orchestrator may merge intermediate PRs into the integration branch only if current governance grants that authority. If governance reserves merge authority to the owner, queue owner-ready PRs instead. In either case, **master/production cutover is always held for explicit owner approval by this plan.**
+
+## Required final report
+
+At the stopping point before production cutover, provide:
+
+- PRs/commits and merge order;
+- exact KGIS/KGCS pins;
+- test/CI/governance status;
+- gold completeness and evaluation metrics;
+- legacy-vs-new semantic delta table;
+- #58 disposition;
+- GCP deployment/soak evidence;
+- evidence-evolution/replay result;
+- application-agent compatibility result;
+- open human-review cases;
+- rollback rehearsal result;
+- unresolved risks/deferred work;
+- explicit recommendation framed as evidence and go/no-go criteria, with the final production decision left to the owner.
