@@ -2,7 +2,7 @@
 
 <p>Auto-regenerated from <a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/features/BACKLOG.md"><code class="language-plaintext highlighter-rouge">llm/features/BACKLOG.md</code></a> on every push.</p>
 
-<p><strong>65</strong> active, <strong>1</strong> resolved.</p>
+<p><strong>68</strong> active, <strong>1</strong> resolved.</p>
 
 <h2 id="active">Active</h2>
 
@@ -1386,6 +1386,84 @@
     </tr>
     <tr>
       <td>Third <code class="language-plaintext highlighter-rouge">BaseLLMClient</code> backed by Llama 3.x / Gemma / Phi-3 for narrow tasks (description-gen, dedup tie-breaking, routing).</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>KG-1</td>
+    </tr>
+    <tr>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>CI job that installs the <code class="language-plaintext highlighter-rouge">migration</code> extra</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Needs Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Blocks PR 2. No CI job installs <code class="language-plaintext highlighter-rouge">[migration]</code>, so the four <code class="language-plaintext highlighter-rouge">importorskip</code> tests that exercise a real KGIS/KGCS import never run in CI. Acceptable at PR 1 (zero call sites; the default-path guarantee is what matters), but the first PR that adds a real call site must add this job — otherwise the extra becomes load-bearing with zero CI coverage.</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>KG-2</td>
+    </tr>
+    <tr>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Lockfile for KGIS/KGCS transitive deps</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Needs Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Both are pinned by commit SHA (content-addressed, so no silent swap), but their transitive deps are unpinned and there is no lockfile. Pre-existing repo-wide property; exposure is availability (GC’d commit, repo renamed/private), not integrity.</td>
+    </tr>
+    <tr>
+      <td> </td>
+    </tr>
+    <tr>
+      <td>KG-3</td>
+    </tr>
+    <tr>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Author ER must pass <code class="language-plaintext highlighter-rouge">orcid</code> explicitly</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Needs Spec</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<table>
+  <tbody>
+    <tr>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>After <code class="language-plaintext highlighter-rouge">agentic-kgcs#30</code>, <code class="language-plaintext highlighter-rouge">orcid</code> is no longer a default strong namespace. Any Author entity resolution built on KGCS has to pass it explicitly.</td>
     </tr>
     <tr>
       <td> </td>
