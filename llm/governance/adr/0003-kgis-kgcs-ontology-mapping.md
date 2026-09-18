@@ -30,9 +30,16 @@ of the changes are load-bearing for this decision:
 - **The V1 `KnowledgeGraphIntegrator` is unreachable.** `ingestion.py:527` constructs only
   `KGIntegratorV2` (the local variable is misleadingly named `v1_integrator`). The only
   holder of a `KnowledgeGraphIntegrator` is `BatchProcessor`, which has no caller.
-- **Consequently the `Problem` label has no live writer at all.** `create_problem` is
-  reachable only from `SynthesisAgent`, whose four write calls raise `TypeError` on every
-  invocation and are swallowed as warnings; there is no `POST /problems` endpoint.
+- **No *pipeline* path writes `:Problem`.** `create_problem` is otherwise reachable only
+  from `SynthesisAgent`, whose four write calls raise `TypeError` on every invocation and
+  are swallowed as warnings, and from `scripts/load_sample_problems.py:580` — an
+  operator-run demonstration-data loader that also writes `link_problem_to_paper` and
+  `create_relation(EXTENDS)`. There is no `POST /problems` endpoint.
+- **Three application write surfaces are non-functional**, not one: `/api/reviews/*`,
+  `SynthesisAgent`, and `PUT /api/problems/{id}` — whose router passes two arguments
+  positionally into `update_problem(problem: Problem, regenerate_embedding: bool = False)`
+  and reaches an `AttributeError` on a `str`. The UI calls it. `DELETE` is correctly wired,
+  which makes a soft delete the only human mutation a legacy `Problem` can carry.
 
 Four of the twelve legacy labels — `ResearchConcept`, `Model`, `Method`, `ProblemConcept`
 — are identified by a cosine-similarity threshold against whichever node happened to be
@@ -93,8 +100,19 @@ legacy graph.
 
 The legacy graph is frozen and snapshotted, ingestion is re-run from the source corpus, and
 KGCS decides identity afresh. Legacy ids are then bound to canonical identities by a
-**deterministic join through evidence** — matching `(doi, quoted_text)` spans and natural
-keys — never by a vector comparison.
+**deterministic join**, never by a vector comparison, on a single key:
+
+```
+K = ( entity_type , doi , surface , span )
+```
+
+where `surface` is the normalized statement or canonical name and `span` is a hash of the
+normalized `quoted_text`. Evidence alone is not enough to key on: across the ground-truth
+fixtures `(doi, quoted_text)` is unique for problems (40 over 8 papers) but **32 of 194
+ResearchConcept/Model/Method entries share a span**, because one enumeration sentence
+evidences many entities. `surface` is the discriminator, and it is the same normalized form
+that serves as the candidate's semantic key, so the join key and the identity key agree by
+construction.
 
 Every legacy id resolves to exactly one of: a canonical identity, or an explicit `unmapped`
 record naming its reason. Never two, and never silently a different entity than before.
@@ -108,12 +126,14 @@ After cutover the map is append-only.
 Three named cases:
 
 - **Topics.** Eight read paths traverse `(:Problem)-[:BELONGS_TO]->(:Topic)`, which no
-  automated writer produces — and whose `:Problem` label has no live writer either. The
-  projection *derives* the edge from `Problem → Paper → RESEARCHES → Topic`, so those
-  endpoints return non-empty results for the first time. That is a declared behaviour
+  automated writer produces, and whose `:Problem` label is produced by no pipeline path
+  either. The projection *derives* the edge from `Problem → Paper → RESEARCHES → Topic`, so
+  those endpoints return non-empty results for the first time. That is a declared behaviour
   change, and any "preserves current behaviour" test over those paths is vacuous.
-- **`/api/reviews/*`.** Entirely non-functional (`repo.write_transaction` does not exist).
-  Scoped out as data, re-built on the KGCS `ReviewQueue` reading the ledger.
+- **The three non-functional write surfaces.** `/api/reviews/*`, `PUT /api/problems/{id}`
+  and `SynthesisAgent` are re-built rather than ported. Preserving an exception is not a
+  migration goal. A legacy `Problem` carrying `status='archived'` is the one human decision
+  in this area that *must* survive re-derivation, and it does.
 - **`ProblemConcept.paper_count`.** Legacy writes a constant `1`. The projection computes
   the true value.
 
@@ -213,8 +233,9 @@ during the rollout.
   convention.
 - Eight topic-scoped endpoints and both the Ranking and Continuation agents start returning
   results.
-- Seven dead write surfaces and two pieces of phantom vocabulary (`SOLVED_BY`,
-  `ProblemMention.workflow_state`) are identified for deletion.
+- Four dead write surfaces, three non-functional ones, and two pieces of phantom vocabulary
+  (`SOLVED_BY`, `ProblemMention.workflow_state`) are identified — the phantom vocabulary for
+  deletion, with the existing `HAS_TOPIC` regression guard explicitly preserved.
 - Re-ingestion stops being a destructive purge and becomes a new curation epoch.
 
 ### Negative / Tradeoffs
@@ -237,11 +258,24 @@ during the rollout.
   differences are fixes and which are regressions.** Mitigated by the 8-paper CS-KG
   ground-truth set as the parity fixture, by the anti-vacuity rule on parity tests, and by
   publishing the collision count as a migration metric.
-- **A KGCS defect defeats seed-model authority.** `select_survivor` ranks an absent
+- **An upstream defect defeats seed-model authority.** `select_survivor` ranks an absent
   `source_reliability` lowest, and `DefaultNormalizer` never populates it for a
   `CanonicalEntity`, so a fresh candidate always outranks an established identity as merge
-  survivor. Raised upstream; until fixed, the adopter's bridge refuses such a merge and
-  routes it to review rather than reimplementing survivorship.
+  survivor — unconditionally, since `source_reliability` is required on a candidate, so even
+  `0.0` wins. The fix is split: `CanonicalEntity` has no reliability field at all and lives
+  in `kg_contracts`, which ships from **KGIS**, so giving it one is a contract change there;
+  independently, **KGCS** can make `select_survivor` prefer an established identity when
+  reliability is incomparable. Until either lands, the adopter's bridge refuses such a merge
+  and routes it to review rather than reimplementing survivorship.
+- **The reconciled ground-truth set is 2 papers, not 8.** Only `reconciled/` is an answer
+  key, and it holds `cskg` and `cskg2`; the 8-paper framing describes the citation chain,
+  whose 10 verified edges are separately usable for `CITES` parity. Entity-level parity
+  claims are therefore narrow until the reconciled set is widened, and the acceptance
+  criteria say so rather than implying coverage that does not exist.
+- **The canonical/projection split is untestable in CI as designed.** CI runs
+  `neo4j:5.26-community`, which supports one user database. The separation mechanism must be
+  swappable — two databases, or one database with a canonical label prefix and a distinct
+  session factory — and CI exercises the fallback.
 - **The SQLite ledger does not fit Cloud Run.** One file, WAL, single-writer, ephemeral
   filesystem, horizontal autoscaling. A backend decision is deferred to the deployment PR;
   ADR-0012 permits a swap behind the same ports.

@@ -49,6 +49,16 @@ against upstream and are now **closed**:
 | KGIS B1 — `import kgis` fails without `pytest` | **FIXED** | `baf0b67e:src/kgis/evidence/__init__.py` replaces the eager `EvidenceRegistryContract` import with a PEP 562 `__getattr__`. `import kgis` no longer drags `pytest`. |
 | KGCS D-6 — `issn`/`isbn` in `DEFAULT_STRONG_NAMESPACES` auto-merges distinct papers | **FIXED** | `39203ad:src/kgcs/er/normalize.py:365` is now `frozenset({"doi", "vin"})`. **Note the consequence: `orcid` is no longer a default either**, so Author ER must pass `strong_namespaces={"doi", "orcid"}` explicitly (§3.3). |
 
+**Independent architecture review, 2026-09-18.** A reviewer re-ran the verification and
+found three defects in the first draft of this spec. All three are corrected in place and
+each correction is marked where it lands: a false generalisation about the `Problem` label
+(§1.2 C-2, §3.6, §6.3), a migration join key that was both non-unique and stated three
+different ways (§6.4.1), and acceptance criteria pointed at a fixture that does not exist
+(§5.2.1). Correcting the first turned up a fourth, previously unrecorded defect in the
+application (§1.2 C-7). The corrections are recorded as corrections rather than silently
+folded in, because "the spec once claimed X" is itself evidence about how far the code
+resists being understood.
+
 ---
 
 ## 1. Analysis A — write classification
@@ -74,11 +84,12 @@ Classes: `source-acquisition` · `extraction` · `candidate-construction` · `cu
 | # | Discovery said | Verified finding | Correction |
 |---|---|---|---|
 | C-1 | `KnowledgeGraphIntegrator` (V1) writes `Problem` concurrently with V2 (`ingestion.py:721`); classified **candidate-construction** | `ingestion.py:527` constructs **only** `KGIntegratorV2` — the local variable is misleadingly named `v1_integrator` ("phase 1 of integration", not "the V1 class"). The only holder of a `KnowledgeGraphIntegrator` is `BatchProcessor` (`extraction/batch.py:358`), and `BatchProcessor` **has no caller**: `cli.py:30` imports `BatchConfig` only, and `/api/extract/batch` (`routers/extract.py:91`) never touches it. | **`dead`.** Rows 1, 42, 59 and the V1 leg of row 41 are unreachable code, not a live write path. |
-| C-2 | `Problem` is a live candidate-construction label | Following C-1: `create_problem` (`repository.py:218`) is reachable only from `SynthesisAgent` (`agents/synthesis.py:153`, which raises `TypeError` on every call and swallows it at `:180`). **There is no `POST /problems` endpoint** — `routers/problems.py` has only `PUT` (`:114`) and `DELETE` (`:138`). | **The `Problem` label has no live writer at all.** Any `:Problem` node in a live graph is pre-existing data or v3-migration output. This is the root of hazard 2 (§5.2). |
+| C-2 | `Problem` is a live candidate-construction label | Three narrower claims hold: (a) there is **no `POST /problems` endpoint** — `routers/problems.py` has only `GET`, `PUT` (`:114`) and `DELETE` (`:138`); (b) **no pipeline path writes `:Problem`** (C-1); (c) `SynthesisAgent`'s four calls genuinely raise `TypeError` — `create_problem(id=, statement=, status=)` against `create_problem(problem: Problem, …)` — and swallow it at `:180`. **But `scripts/load_sample_problems.py:580` calls `repo.create_problem(problem)` and, in the same loop, `link_problem_to_paper` and `create_relation(EXTENDS)`.** It is an import-valid, operator-runnable script. | **`Problem` is written — by an operator-run sample-data loader, not by the pipeline.** The class is `application-only (operator script)`, not `dead`. See §3.6 and §6.3 for the two sections that depend on this. |
 | C-3 | `merge_topic` / `load_taxonomy` / `load_seed_models` are **curation/ER** | `merge_topic` (`repository.py:972-1012`) is a deterministic `MERGE` on the natural key `(name, level, parent_id)`. No similarity, no threshold, no resolution. The source is a YAML file. | **`source-acquisition` (reference data).** Routing a deterministic reference-data load through probabilistic ER would make Topic identity threshold-dependent, which it is not today and must not become. |
 | C-4 | `assign_entity_to_topic` and `_link_entity_to_node` are **curation/ER** | The pipeline caller (`kg_integration_v2.py:888-914`) resolves a topic by exact name (`get_topic_by_name`) and writes the edge unconditionally above a code-constant threshold. No resolution step exists. | **`candidate-construction`** (primary) + **`projection`** (secondary, the counter delta). The *auto-accept* is the part that becomes a KGCS policy decision. Only `create_or_merge_research_concept` / `_model` / `_method` (the embedding dedup at `repository.py:1730`, `:2384`, `:2835`) are genuinely `curation`. |
 | C-5 | `_set_paper_extraction_metadata` / `_set_paper_normalization_audit` are **projection** | `taxonomy_hash`, `extraction_incomplete`, `extraction_failed_extractors` and `normalization_audit` describe a *pipeline run*, not a fact about the paper. Their only consumer is `ingestion.py:376-388` (the re-ingest cost guard) plus `queries/completeness.py`, which has no caller. **No API router reads them.** | **`extraction` (run-state).** They belong in the KGIS run ledger, projected onto `Paper` only if the cost guard is kept. |
 | C-6 | `purge_paper_extraction` is **projection** | `re_ingestion.py:140-225` issues seven raw destructive statements against live canonical state from inside the ingestion path. | **`curation` (destructive).** It disappears entirely under epoch re-publication (§4.6); calling it projection understates what it is doing today. |
+| C-7 | *(new, found while correcting C-2)* `PUT /api/problems/{id}` is a working application write | `routers/problems.py:133` calls `repo.update_problem(problem_id, problem)` **positionally** against `update_problem(self, problem: Problem, regenerate_embedding: bool = False)`. So `problem` binds to a `str` and `regenerate_embedding` binds to a truthy `Problem`. Execution reaches `repository.py:374` `problem.updated_at = …` on a `str` and raises `AttributeError`, uncaught → HTTP 500. The UI calls it (`packages/ui/src/lib/api.ts:194`). | **Non-functional — a third broken application write surface**, alongside `/api/reviews/*` (§5.3) and `SynthesisAgent`. `DELETE` (`:144`, `repo.delete_problem(problem_id, soft=True)`) **is** correctly wired, so a soft delete is the *only* human mutation a legacy `Problem` can have received. §6.3 depends on this. |
 
 ### 1.3 The classification table
 
@@ -153,15 +164,15 @@ Row numbers reference the discovery inventory §1. `→` names the post-migratio
 
 | # | Writer | file:line | Primary | Secondary | → |
 |---|---|---|---|---|---|
-| 1 | `create_problem` | `repository.py:278` | **dead** (C-1/C-2) | — | delete; synthesis-proposed problems become candidates (§3.6) |
-| 2 | `update_problem` | `repository.py:352` | application-only | — | KGCS curation request |
-| 3 | `delete_problem` | `repository.py:419` | application-only | — | KGCS |
+| 1 | `create_problem` | `repository.py:278` | **application-only (operator script)** (C-2) | — | `scripts/load_sample_problems.py:580`; becomes a `CandidateSink.submit()` under a demonstration-data producer, or is retired with the script |
+| 2 | `update_problem` | `repository.py:352` | **non-functional** (C-7) | — | its only caller passes arguments positionally and crashes; re-built as a KGCS curation request |
+| 3 | `delete_problem` | `repository.py:419` | application-only (**works**) | — | KGCS — and the *only* human mutation a legacy `Problem` can carry (§6.3) |
 | 34 | `_store_mention_node` (`ProblemMention` + `EXTRACTED_FROM`) | `kg_integration_v2.py:742` | **candidate-construction** | — | KGIS — a mention **is** the candidate + its evidence (§3.6) |
 | 37 | `_create_instance_of_relationship` | `auto_linker.py:260` | curation (ER) | projection (counter) | KGCS ER decision + `MERGE_IDENTITIES` |
 | 38-39 | `_create_concept_and_link` | `auto_linker.py:347,356` | curation (ER) | — | KGCS — **and the source of hazard 4** (§5.4) |
 | 40 | `_update_concept_after_refinement` | `concept_refinement.py:230` | curation | — | KGCS re-canonicalization |
-| 41 | `create_relation` (`EXTENDS`/`CONTRADICTS`/`DEPENDS_ON`/`REFRAMES`) | `relations.py:130` | dead via V1 (C-1); application-only via synthesis | — | vocabulary reserved, no data migrated (§3.6) |
-| 42 | `link_problem_to_paper` | `relations.py:375` | dead (C-1) | — | delete |
+| 41 | `create_relation` (`EXTENDS`/`CONTRADICTS`/`DEPENDS_ON`/`REFRAMES`) | `relations.py:130` | dead via V1 (C-1); **application-only via `load_sample_problems.py`**; non-functional via synthesis | — | vocabulary declared; data disposition in §3.6 |
+| 42 | `link_problem_to_paper` | `relations.py:375` | dead via V1 (C-1); **application-only via `load_sample_problems.py:585`** | — | KGIS `RelationCandidate(EXTRACTED_FROM)` if the script is kept; otherwise retired with it |
 | 44-47 | `ReviewQueueService` (4 writers) | `review_queue.py:172,315,351,399` | **non-functional** | — | scoped out as data; re-built on KGCS `ReviewQueue` (§5.3) |
 | 48 | `purge_paper_extraction` | `re_ingestion.py:140-225` | curation (destructive) | — | **disappears** — replaced by epoch re-publication |
 | 59 | `KnowledgeGraphIntegrator` (V1) | `kg_integration.py:257,268,396` | **dead** (C-1) | — | delete |
@@ -182,8 +193,9 @@ Row numbers reference the discovery inventory §1. `→` names the post-migratio
 | candidate-construction | 3 (rows 15, 21, 34) | KGIS (`ExtractionPipeline` → `CandidateSink`) |
 | curation | 12 | KGCS |
 | projection | 6 | adopter's projector |
-| application-only | 12 repository methods behind **15 HTTP endpoints** | lose their canonical write; become `CandidateSink.submit()` |
-| dead | 7 | delete |
+| application-only | 12 repository methods behind **15 HTTP endpoints**, plus 3 reached only from `scripts/load_sample_problems.py` | lose their canonical write; become `CandidateSink.submit()` |
+| non-functional | 3 surfaces: `/api/reviews/*` (§5.3), `PUT /api/problems/{id}` (C-7), `SynthesisAgent` | re-built, not ported — "current behaviour" is an exception |
+| dead | 4 (rows 33, 43, 59, and the V1 leg of 41) | delete |
 
 The 15 HTTP mutation endpoints that hold a canonical write surface today —
 `routers/problems.py:114,138`; `topics.py:263`; `concepts.py:135,218,242`;
@@ -344,8 +356,8 @@ Two legacy properties are deliberately re-modelled:
 - **Issue #58 poisons CITES parity.** The current smoke ingestion writes **zero** `CITES`
   edges while the other five graph-shape assertions pass. A "does the projection preserve
   CITES?" comparison against today's output is therefore vacuous in exactly the way §5.2
-  describes for topics. CITES parity must be asserted against the ground-truth chain's 10
-  verified citation edges, never against legacy output.
+  describes for topics. CITES parity must be asserted against the 10 verified citation
+  edges tabulated in the ground-truth chain's README (§5.2.1), never against legacy output.
 - **`citation_count` / `reference_count` stop sharing one name with two meanings.** Today
   `repository.py:3092` writes the in-graph inbound degree and `importer.py:224` overwrites
   it with the source API's global count. Under the mapping: the source API's value is an
@@ -475,15 +487,32 @@ upstream.
 
 | Slot | Value |
 |---|---|
-| Aliases | `Problem:paper_span:<doi>#<section>#<sha256-16 of the normalized statement>` |
-| `semantic_key` | `problem/paper_span/<doi>#<section>#<hash>` |
+| Aliases | `Problem:paper_span:<doi>#<surface>#<span>` — the canonical join key K of §6.4.1, rendered |
+| `semantic_key` | `problem/paper_span/<doi>#<surface>#<span>` |
 | `source_coordinates` | `source_type="pdf"`, `locator=<pdf uri>`, `fragment` per §3.4 |
 | Evidence | `present_evidence(content=quoted_text, ...)` — `quoted_text` is already mandatory (`schemas.py:150`, `min_length=10`), so evidence citation is achievable without new extraction work |
+| Note | `section` is **not** part of the key. It is a segmenter output, and the segmenter is under active change (SEG-1/3/4/6), so keying identity on it would churn every problem's identity each time segmentation improves. It survives as an attribute. |
 | Attributes | `statement`, `quoted_text`, `section`, and one assertion **per item** for `assumption`, `constraint`, `dataset`, `metric`, `baseline` — each carrying its own `extraction_confidence` from the per-item legacy `confidence` field (`schemas.py:41,54,...`) |
 
-`EXTENDS` / `CONTRADICTS` / `DEPENDS_ON` / `REFRAMES` are declared in the ontology so the
-vocabulary is reserved and any pre-existing edges can be projected, but **no data is
-migrated**: their only writers are the dead V1 path and the broken `SynthesisAgent`.
+**`EXTENDS` / `CONTRADICTS` / `DEPENDS_ON` / `REFRAMES` — corrected disposition.** An
+earlier draft said "no data is migrated" on the grounds that their only writers were the
+dead V1 path and the broken `SynthesisAgent`. That was wrong: `scripts/load_sample_problems.py`
+writes `create_relation(EXTENDS)` alongside `create_problem` and `link_problem_to_paper`,
+and it is an import-valid script an operator can run. A legacy graph therefore **may** hold
+these edges, together with the `:Problem` nodes they connect.
+
+The disposition is decided by *what that data is*, not by whether it exists:
+
+| Origin of a `:Problem` / Problem→Problem edge | Disposition |
+|---|---|
+| `scripts/load_sample_problems.py` — hand-written demonstration statements with fabricated `EXTENDS` links | **Not migrated.** It is sample data, not research evidence; promoting it into the canonical graph would mint curated-looking facts with no source. Counted, reported, and recorded as `unmapped` with reason `demonstration_data`. |
+| `v3_topic_migration` era, or any `:Problem` whose `evidence.source_doi` is a paper in the corpus | **Migrated** by the evidence join (§6.4), like any other legacy node. |
+| Any `:Problem` with `status='archived'` | **Migrated, and the archive preserved** — see §6.3. |
+
+The four relation types stay declared in `RESEARCH_ONTOLOGY` so the vocabulary is reserved
+and so a future synthesis producer has a legal term to emit. **U-3's node count decides how
+much of this matters**: if the sample loader was never run against the target database, the
+population is empty and the table above costs nothing.
 
 ### 3.4 Evidence coordinates and the fragment grammar
 
@@ -733,7 +762,9 @@ edges each run, so drift is not merely reconciled, it is unrepresentable. Conseq
    not compared against, and not used to validate anything.
 2. Pagination is preserved because the properties still exist and are still sortable.
 3. **Acceptance criterion:** for every projected counter, `property == degree(edge)` at the
-   published epoch, asserted over the full ground-truth fixture — not a sample.
+   published epoch. This one is a **structural invariant, not a fixture claim** — it holds
+   over whatever the projection contains, so it is asserted over the whole projected graph
+   and does not depend on §5.2.1's two reconciled papers.
 4. `ProblemConcept.paper_count` changes from a constant `1` to the true value. Declared as
    a deliberate fix, not a regression.
 
@@ -747,10 +778,15 @@ and `ContinuationAgent._lookup_topic_name` (`continuation.py:76`). The pipeline 
 `(:Paper)-[:RESEARCHES]->(:Topic)` (`kg_integration_v2.py:913` passes
 `entity_label="Paper"`, which `_ASSIGN_RELATIONSHIPS` maps to `RESEARCHES`).
 
-**The verified correction makes it sharper: the `:Problem` label has no live writer at
-all** (C-2). So those eight endpoints are not merely missing an edge — they match a node
-label that nothing in the pipeline produces. Against a graph built by the current code they
-return empty, every time.
+**The verified correction makes it sharper: no pipeline path writes `:Problem` either**
+(C-2). So those eight endpoints are not merely missing an edge — they match a node label
+that ingestion never produces. Against a graph built only by the pipeline they return
+empty, every time. And the one writer that does produce `:Problem` nodes —
+`scripts/load_sample_problems.py` — writes **no topic edge at all** (grepped: the script
+contains no `BELONGS_TO`, no `assign_entity_to_topic`, no topic handling), so it does not
+rescue these endpoints either. The only producers of `Problem-[:BELONGS_TO]->Topic` remain
+the manual CLI command (`cli.py:963`), the manual API endpoint (`routers/topics.py:274`),
+and the one-shot v3 migration.
 
 **Disposition — three parts, no manufactured parity.**
 
@@ -762,11 +798,41 @@ return empty, every time.
    `Problem —(evidence)→ Paper —(RESEARCHES)→ Topic`. Every reader is satisfied, and the
    eight endpoints return non-empty results **for the first time**. That is a deliberate,
    declared behaviour *change* — not a preservation — and it belongs in the release notes.
-3. **Parity tests get an anti-vacuity guard.** Every projection parity test asserts
-   `len(result) > 0` **before** comparing, and the expected rows come from the 8-paper
-   CS-KG ground-truth fixture with hand-checked values — never from "run the old code, run
-   the new code, diff". A fixture with known expected content is the only test that can
-   fail here.
+3. **Parity tests get an anti-vacuity guard, pointed at a fixture that actually exists.**
+   Every projection parity test asserts `len(result) > 0` **before** comparing, and the
+   expected rows come from a hand-checked fixture — never from "run the old code, run the
+   new code, diff". See §5.2.1 for what that fixture is; an earlier draft cited an
+   "8-paper hand-checked fixture" that does not exist.
+
+#### 5.2.1 What the parity fixture actually is
+
+`packages/core/tests/extraction/fixtures/ground_truth_chain/` covers **8 papers**, but its
+README is explicit: *"Only `reconciled/` is the answer key. `human/` and `claude/` are
+retained as evidence."* The directory holds:
+
+| Directory | Files | Usable as an answer key? |
+|---|---|---|
+| `reconciled/` | **2** — `paper_cskg.gold.yml`, `paper_cskg2.gold.yml` | **Yes** — the only authoritative entity gold |
+| `claude/` | 3 | No — one reviewer's independent pass |
+| `human/` | 4 | No — the other reviewer's independent pass |
+
+So the entity-level parity fixture is **2 reconciled papers**, not 8 and not 3. That is
+small, and saying so is the point: an AC that claims more coverage than exists is exactly
+the vacuous-test failure §5.2 is about.
+
+Citation parity is a separate and better-supplied case. The **10 verified `CITES` edges
+across all 8 papers** are recorded as a table in the fixture README (`:79-90`), curated
+from OpenAlex `referenced_works` and confirmed against first pages on 2026-07-27 — they do
+not depend on `reconciled/` at all. The README's own caveat carries over: curation used
+OpenAlex while the importer uses Semantic Scholar, so an edge diff must be re-checked
+against S2 before being called a bug.
+
+Two consequences for the ACs:
+
+- **AC-6 / AC-7 bind to `reconciled/` (2 papers) for entity and counter parity**, and to the
+  README's 10-edge table for `CITES` parity. Nothing binds to `human/` or `claude/`.
+- **Widening the reconciled set is a prerequisite, not a nice-to-have**, for any claim about
+  Topic, ResearchConcept, Model or Method parity at corpus scale. It is recorded as U-9.
 
 ### 5.3 Hazard 3 — `/api/reviews/*` is entirely non-functional
 
@@ -774,6 +840,13 @@ return empty, every time.
 at eight sites (`:184,223,250,274,296,335,366,425`). `Neo4jRepository` defines neither —
 its only session accessor is the sync `session()` contextmanager at `repository.py:143`.
 The names exist solely as `AsyncMock`s in the test file.
+
+**It is not alone.** Verification for C-7 found `PUT /api/problems/{id}` is broken the same
+way — wrong call shape, uncaught exception, UI-reachable — and `SynthesisAgent` makes three.
+**Three application write surfaces are non-functional**, which is the general form of this
+hazard: for a meaningful part of the write surface, "current behaviour" is an exception, so
+*preserve current behaviour* is not a coherent migration goal and a test asserting it would
+be asserting the exception.
 
 **Disposition — explicitly scoped out as data; re-built as new work in KGCS.**
 
@@ -855,6 +928,13 @@ phantom vocabulary are retired at the same time: `ProblemMention.workflow_state`
 `concept_matcher.py:289`, which makes
 `match_mention_to_concept(auto_link_high_confidence=True)` a silent no-op.
 
+**The regression guards stay.** `packages/core/tests/extraction/test_e8_purge.py:179,191,208`
+asserts `HAS_TOPIC` is absent from the write vocabulary — that guard is what PR #66 bought.
+"The term appears nowhere" means nowhere it could be *written*, not nowhere it is
+*mentioned*: a test asserting absence is the enforcement of this rule, not a violation of
+it. AC-15 carries the exemption explicitly so that a later search-and-delete pass cannot
+take the guard with it.
+
 ---
 
 ## 6. Analysis D — identity migration
@@ -896,14 +976,58 @@ edges: `ProblemMention.concept_id`, `ProblemMention.paper_doi`, `Topic.parent_id
 | `Model` | UUID | same, plus `is_canonical` protection | **No** |
 | `Method` | UUID | same | **No** |
 | `ProblemConcept` | UUID | cosine against a vector **that was never stored** (§5.4) | **No** — in practice "one concept per mention" |
-| `Problem` (V1) | UUID | no live writer (C-2) | n/a — nothing to map |
+| `Problem` | UUID | evidence join on `evidence.source_doi` + statement (§6.4) | **Partial — and it must be mapped, not skipped.** See below. |
 | `PendingReview` | UUID | non-functional (§5.3) | n/a — assumed empty |
 
 **Four of twelve labels have no mechanical derivation, and the spec does not pretend
 otherwise.** Their identity depended on ingestion order, the embedding model version and
 the threshold of the day. No amount of care recovers a decision that was never recorded.
 
-### 6.4 The migration procedure
+**`Problem` in particular must be in the map, and an earlier draft wrongly excluded it.**
+Correcting C-2 changes this row from "nothing to map" to a real obligation, because those
+UUIDs are `/api/problems/{id}` path parameters the UI calls `DELETE` on
+(`packages/ui/src/lib/api.ts:199`). Leaving them out would make AC-12's totality claim
+false. Three sub-cases, each decidable from the frozen snapshot:
+
+| Observable | Origin | Map outcome |
+|---|---|---|
+| `evidence.source_doi` names a paper in the corpus | extraction-era or v3-migration data | evidence join (§6.4) |
+| statement matches `create_sample_problems()` in `scripts/load_sample_problems.py` | demonstration data | `unmapped`, reason `demonstration_data` → `410 Gone` |
+| `status == 'archived'` | a human soft-deleted it through `DELETE /api/problems/{id}` | **join, then carry the archive forward** as a `RETRACT_ASSERTION` on the canonical identity. A human decision must not be silently undone by re-derivation. |
+
+`status='archived'` is the **only** human mutation a legacy `Problem` can carry, because
+`PUT` crashes before touching the graph (C-7). That is a convenient accident: it means the
+legacy graph holds no undetectable human edits to `Problem` — had `PUT` worked, edits would
+have been indistinguishable from extraction output, since `update_problem` records no actor
+and the router never reaches the `version += 1` at `repository.py:375`.
+
+### 6.4.1 The join key — one key, defined once
+
+An earlier draft named three different keys for one join — `sha(statement)` in §3.3,
+`(doi, section, sha(statement))` in §6.3 and `(doi, quoted_text)` in §6.4 — and
+`statement` ≠ `quoted_text` in the fixtures. There is now exactly one:
+
+```
+K = ( entity_type , doi , surface , span )
+      surface = nfkc → dehyphenate-linebreaks → collapse-ws → casefold ( the name or statement )
+      span    = sha256-16 of the same normalization applied to quoted_text
+```
+
+**Why each part is load-bearing, with the evidence:**
+
+| Part | Why |
+|---|---|
+| `entity_type` | In the ground-truth fixtures one span is cited by **both** a Model and a Method. Without the type they collide. |
+| `doi` | Scopes the key to a paper; the same concept recurs across the chain by design. |
+| `surface` | **The discriminator, and the fix for the 16% collision rate.** `(doi, quoted_text)` alone is unique for `problems` (40 problems over 8 papers, 0 collisions) but collides for exactly the labels §6.3 marks non-derivable: **32 of 194 ResearchConcept/Model/Method entries share a span**, because one enumeration sentence evidences many entities — 4 distinct Models in `reconciled/paper_cskg2.gold.yml`, 5 in `human/paper_fact_completion.gold.yml`. Adding the surface form splits them, and it is the *same* normalized surface form §3.3 already uses as the candidate's semantic key, so the join key and the identity key agree by construction. |
+| `span` | Distinguishes two genuinely different mentions of the same surface form in one paper, and is what ties the mapping to evidence rather than to a string. |
+| normalization | The gold files document the exact corruptions: a hyphen dropped at a line break (`paraphrasedistilroberta-base-v2`) and a `fi` ligature (`Classiﬁer`). A raw hash over `quoted_text` would miss both. |
+
+`surface` is the normalized `statement` for a Problem and the normalized canonical name for
+ResearchConcept / Model / Method. `K` is the migration join key **and**, rendered as
+`<doi>#<surface>#<span>`, the `paper_span` alias in §3.3.
+
+### 6.4.2 The migration procedure
 
 1. **Freeze.** Take a read-only snapshot of the legacy graph at a named timestamp. Record
    `MATCH (n) RETURN labels(n), count(*)` and `MATCH ()-[r]->() RETURN type(r), count(*)`.
@@ -911,10 +1035,9 @@ the threshold of the day. No amount of care recovers a decision that was never r
 2. **Re-derive, do not translate.** Re-run ingestion from the *source corpus* into KGIS,
    and let KGCS ER decide identity afresh under the conservative profile. The resulting
    identities are new and — unlike the legacy ones — reproducible.
-3. **Bind old ids by evidence, not by similarity.** For each legacy node, find the
-   canonical identity whose evidence set contains the same `(doi, quoted_text)` span, or
-   for reference data the same natural key. This is a **deterministic join through
-   evidence**, never a vector comparison.
+3. **Bind old ids by evidence, not by similarity.** For each legacy node, compute `K`
+   (§6.4.1) and find the canonical identity carrying the same `K`; for reference data use
+   the natural key instead. This is a **deterministic join**, never a vector comparison.
 4. **Record the three outcomes.**
    - *Exactly one match* → write the mapping, `method="evidence_join"`.
    - *Zero matches* → `unmapped`, reason `no_canonical_counterpart` (the legacy node came
@@ -925,9 +1048,15 @@ the threshold of the day. No amount of care recovers a decision that was never r
    is the corrupted duplicate population (§5.4) being correctly merged. Both legacy ids map
    to the same `identity_id`; the API resolves both. The collision count is a published
    migration metric.
-6. **The reverse is a conflation, not a collision.** One legacy id that matches two
-   canonical identities means the legacy node merged two distinct things. It is marked
-   `ambiguous` and reviewed by a human.
+6. **A residual many-match is one of two things, and the report must say which.** Under
+   `(doi, quoted_text)` alone, a legacy id matching several canonical identities was the
+   *normal* case for enumerated entities — 16% of them — and diagnosing that as "the legacy
+   node conflated two things" would have been wrong 32 times out of 194. With `K` the
+   enumeration case is split by `surface`, so a remaining many-match means either a genuine
+   legacy conflation **or** a key still too coarse for that entity type. Both are marked
+   `ambiguous` and routed to a human, and the migration report states the count per entity
+   type so a systematic key problem is visible rather than filed as 200 individual
+   conflations.
 7. **Serve unmapped ids honestly.** A request for an `unmapped` legacy id returns
    **`410 Gone`** with the reason — not a `404` (which implies it never existed) and never a
    redirect to a best guess (which is a silent identity fork by another name).
@@ -953,22 +1082,34 @@ migration and a permanently untrustworthy graph.
 Recorded for upstream fixing. **No adopter workaround is designed for any of these beyond
 the minimum configuration that keeps the adopter safe.**
 
-### D-KGCS-1 (new, P1) — `select_survivor` defeats seed-model authority
+### D-KGIS-0 / D-KGCS-1 (new, P1) — `select_survivor` defeats seed-model authority
 
 `DefaultNormalizer.normalize` (`39203ad:src/kgcs/er/normalize.py:257-278`) populates
 `source_reliability`, `embedding`, `affiliations`, `neighbors` and the temporal fields
 **only for an `EntityCandidate`**; for a `CanonicalEntity` it sets `source_key` and
 `graph_id` and nothing else. `select_survivor` (`er/cluster.py:504-518`) ranks by
 `source_reliability` with "an absent reliability sorts lowest". **Therefore an established
-canonical entity always loses survivorship to a fresh candidate.**
+canonical entity always loses survivorship to a fresh candidate** — and *unconditionally*,
+because `CandidateScores.source_reliability` is a required field, so even the worst
+possible candidate (`source_reliability=0.0`) outranks an absent value.
 
 Concrete consequence for agentic-kg: this directly defeats the `Model.is_canonical` seed
 protection that `seed_models.py` exists to provide. A seeded canonical model would be
 superseded as merge survivor by an LLM-extracted mention of itself.
 
-- **Upstream ask:** populate `source_reliability` (and the other comparable features) for
-  `CanonicalEntity`, or make `select_survivor` prefer an established identity on a tie.
-  agentic-kg is the worked example; report 04's D-9 is the general form.
+**The fix is split across two repos, and an earlier draft aimed the whole of it at KGCS.**
+`CanonicalEntity` (`kg_contracts/assertions.py:63-89`) has **no `source_reliability` field
+at all**, and `kg_contracts` ships from KGIS. So:
+
+- **KGIS ask (contract change):** give `CanonicalEntity` a comparable reliability — or an
+  explicit "established identity" marker — so KGCS has something to read. This is a
+  `kg_contracts` change and therefore the highest review scrutiny in that repo.
+- **KGCS ask (behaviour, actionable independently):** make `select_survivor` prefer an
+  established `CanonicalEntity` over a candidate when reliability is not comparable,
+  instead of sorting the absent value lowest. This is a strictly safer default and needs no
+  contract change.
+
+agentic-kg is the worked example; report 04's D-9 is the general form.
 - **Minimum adopter safety until fixed:** the ER→plan bridge must refuse to execute any
   `MERGE_IDENTITIES` whose cluster contains a seed-loaded Model and whose selected survivor
   is not that model. This is a refusal, not a workaround — it blocks the merge and routes to
@@ -1027,14 +1168,15 @@ Recorded rather than guessed. Each names what would settle it.
 
 | # | Question | What settles it |
 |---|---|---|
-| **U-1** | Does the deployment's Neo4j support two databases (§4.2)? | The Terraform/AuraDB tier in the deployment config, or `SHOW DATABASES` against the deployed instance. If Community, the canonical/projection separation weakens from enforced to conventional and that must be recorded. |
+| **U-1** | Does the deployment's Neo4j support two databases (§4.2)? | **Partly settled, and it is bad news: CI runs `neo4j:5.26-community` (`.github/workflows/smoke-ingest.yml:41`), and Community Edition supports one user database.** So the two-database design is **untestable in CI as it stands**, whatever production runs. Two consequences that are decisions, not unknowns: the projector must be written so its separation mechanism is swappable (two databases, or one database plus a canonical label prefix and a distinct session factory), and CI must exercise the single-database fallback. What remains genuinely open is only the **production** tier — settled by the Terraform/AuraDB config or `SHOW DATABASES` against the deployed instance. If production is also Community, the separation is conventional rather than enforced everywhere, and that weakening is recorded rather than glossed. |
 | **U-2** | What `source_reliability` should each source carry (arXiv / OpenAlex / Semantic Scholar / the LLM arms)? | A policy decision by the repo owner, ideally informed by the 8-paper ground-truth set. **No defensible value can be derived from the legacy data, which has no such axis.** Placeholder values must not be shipped as if measured. |
 | **U-3** | Does the live database contain `PendingReview`, V1 `Problem`, or duplicate `IngestionRun` nodes? | A read-only `MATCH (n) RETURN labels(n), count(*)` plus `MATCH ()-[r]->() RETURN type(r), count(*)`. The cheapest and highest-value check in the migration; §5.3 and §6.4 both depend on it. |
 | **U-4** | What is the real duplicate rate in the legacy `ProblemConcept` population? | The same snapshot, grouped by normalized `canonical_statement`. It sizes the migration's headline metric and the review workload. |
 | **U-5** | What embedding model and dimension is actually deployed? | `SHOW INDEXES` on the live database plus the deployed `EMBEDDING_MODEL` env value. §3.1's representation key must match reality. |
-| **U-6** | Which of the 15 mutation endpoints does the Next.js UI actually call? | Grep `packages/ui/src/lib/` for the fetch call sites. Scopes the 202-instead-of-200 API change (§4.5). |
+| **U-6** | Which of the 15 mutation endpoints does the Next.js UI actually call? | **Settled for Problem, which was the part that mattered:** `packages/ui/src/lib/api.ts:194` calls `PUT /api/problems/{id}` (which crashes — C-7) and `:199` calls `DELETE /api/problems/{id}` (which works). That is why §6.3 must map `Problem` ids, and why `status='archived'` is the only human mutation to preserve. The other 13 endpoints are still unenumerated; the same grep over `api.ts` settles them and scopes the 202-instead-of-200 change (§4.5). |
 | **U-7** | Is the Phase-3 adopter gate open? | KGIS's governance delta places agentic-kg at Phase 3 (retrofit), after baseball-ai and the traffic shadow, and requires six migration-minimum tools to exist first. Confirm with the KGIS owner before committing to a retrofit date. |
 | **U-8** | Do any callers depend on the incidental ordering of the paginated reads that have `LIMIT` without `ORDER BY` (`graph.py:39,77,127`; `topics.py:213`)? | A product decision, not a code question. |
+| **U-9** | How many papers can the reconciled ground-truth set cover (§5.2.1)? | Today: **2**. Reconciling `paper_empire` and `paper_fact_completion` — both of which already have a `human/` pass, and `fact_completion` a `claude/` pass too — is the cheapest widening. Until then no AC may claim corpus-scale entity parity. |
 
 ---
 
@@ -1049,17 +1191,19 @@ Each criterion is checkable and traces to a decision above.
 | AC-3 | `assert not isinstance(Neo4jGraphStore(...), LedgerReader)` and `assert not isinstance(ledger, GraphReader)`. | KGIS ADR-0011 |
 | AC-4 | Every registered `CurationProfile` has `_auto_link_permitted == False`. | §3.3, §5.4 |
 | AC-5 | A `FailingCompletionClient` leaves the ER decision byte-identical to the deterministic baseline. | KGCS §9 law 1 |
-| AC-6 | For every projected counter, `property == degree(edge)` at the published epoch, over the full ground-truth fixture. | §5.1 |
-| AC-7 | Every projection parity test asserts `len(result) > 0` before comparing, and expected rows come from a hand-checked fixture. | §5.2 |
+| AC-6 | For every projected counter, `property == degree(edge)` at the published epoch, over **the whole projected graph**. A structural invariant — it binds to no fixture. | §5.1 |
+| AC-7 | Every projection parity test asserts `len(result) > 0` before comparing. Expected rows come from `reconciled/paper_cskg.gold.yml` and `reconciled/paper_cskg2.gold.yml` (**2 papers**) for entity and topic parity, and from the 10-edge table in the fixture README (`:79-90`, **8 papers**) for `CITES` parity. No test binds to `human/` or `claude/`. | §5.2.1 |
 | AC-8 | The projector filters `REVOKED`; a revoked identity never appears in the projection graph. | §4.3 |
 | AC-9 | Running the projector twice at the same published epoch yields a byte-identical graph. | §4.3 |
 | AC-10 | No candidate anywhere carries a `confidence=` kwarg; every candidate carries both `extraction_confidence` and `source_reliability`. | §3.5 |
 | AC-11 | Every `semantic_key` matches `<type>/<namespace>/<key>` and contains no UUID. | §3.1 |
-| AC-12 | `identity_map` has a uniqueness constraint on `(legacy_label, legacy_id)` and is total over the frozen snapshot; every row is either a mapping or an `unmapped` record with a reason. | §6.1 |
+| AC-12 | `identity_map` has a uniqueness constraint on `(legacy_label, legacy_id)` and is total over the frozen snapshot — **`Problem` included** — with every row either a mapping or an `unmapped` record naming its reason. | §6.1, §6.3 |
+| AC-12b | Every legacy `Problem` with `status='archived'` maps to a canonical identity that is retracted, not active. A human soft-delete survives re-derivation. | §6.3 |
+| AC-12c | The migration join uses `K` of §6.4.1 and nothing else; the report gives the `ambiguous` count **per entity type**, so a systematically coarse key is visible rather than filed as many individual conflations. | §6.4.1, §6.4.2 step 6 |
 | AC-13 | An `unmapped` legacy id returns `410 Gone`, never `404` and never a redirect. | §6.4 |
 | AC-14 | The extraction pipeline is constructed with an explicit `OntologyCandidateValidator(RESEARCH_ONTOLOGY, strict=True)`. | §3.1 |
-| AC-15 | `SOLVED_BY` and `HAS_TOPIC` appear nowhere in code, ontology, tests or fixtures. | §5.5 |
-| AC-16 | The ER→plan bridge asserts `pairwise_complete`, asserts all cluster members are present in `entities`, and refuses a `MERGE_IDENTITIES` whose cluster contains a seed Model that is not the survivor. | §5.4, §7 D-KGCS-1 |
+| AC-15 | `SOLVED_BY` and `HAS_TOPIC` appear in no **write vocabulary, ontology declaration, Cypher string or guardrail list**. **Negative-assertion regression guards are explicitly exempt and must be preserved** — `packages/core/tests/extraction/test_e8_purge.py:179,191,208` asserts `HAS_TOPIC` is absent, which is the guard PR #66 paid for; an assertion that a term does *not* appear is the enforcement of this AC, not a violation of it. Any equivalent guard added for `SOLVED_BY` is likewise exempt. | §5.5 |
+| AC-16 | The ER→plan bridge asserts `pairwise_complete`, asserts all cluster members are present in `entities`, and refuses a `MERGE_IDENTITIES` whose cluster contains a seed Model that is not the survivor. | §5.4, §7 D-KGIS-0/D-KGCS-1 |
 
 ---
 
