@@ -29,12 +29,51 @@ dependencies = [
     "docker>=7.0.0",
 ]
 
+[project.optional-dependencies]
+# KGIS / KGCS migration path — OPT-IN, see agentic_kg.migration.
+#
+# Deliberately NOT a default dependency. `pip install ./packages/core` (which
+# is exactly what .github/workflows/test.yml does) resolves only the
+# dependencies above, so today's install, today's CI and today's runtime
+# behaviour are all unchanged by this extra existing.
+#
+# Both are pinned to an exact commit SHA rather than a version specifier or a
+# branch. Neither repo is published to PyPI, agentic-kgis carries zero git
+# tags, and its version string sat at 0.2.0 across 122 commits — so a
+# specifier like ">=0.2.1" would pin nothing reproducible at all.
+migration = [
+    # Merge commit on main from agentic-kgis PR #39, which fixed `import kgis`
+    # failing when pytest was absent (an unguarded optional import). This is
+    # the merge commit, not the branch head and not the PR head.
+    # Ships THREE packages: kg_contracts (ports), kgis (ingestion),
+    # kg_eval (evaluation).
+    "agentic-kgis @ git+https://github.com/djjay0131/agentic-kgis@baf0b67e34bd2e7921b5da4492860f741d165464",
+    # agentic-kgcs main @ 4eafa83 — the merge commit of agentic-kgcs#30
+    # ("identifier strength is entity-type relative"), which fixes ISSN/ISBN
+    # auto-merging distinct papers. Strictly newer than tag v1.0.0 (609270e);
+    # pinned by SHA because tags are mutable.
+    #
+    # BEHAVIOUR NOTE for callers: after #30, `orcid` is no longer a default
+    # strong namespace, so Author entity resolution must pass it explicitly.
+    #
+    # agentic-kgcs depends on agentic-kgis>=0.2.0, satisfied by the git pin
+    # above rather than from PyPI.
+    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@4eafa83c20768f9eecffd4791ffd233beb97628d",
+]
+
 [project.scripts]
 agentic-kg = "agentic_kg.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+# Required for the `migration` extra: hatchling refuses direct references
+# (PEP 508 `name @ git+https://...`) unless this is set, and it refuses them at
+# *metadata* time — so without this the plain `pip install ./packages/core`
+# used by CI fails too, not just an install of the extra.
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agentic_kg"]

@@ -143,6 +143,14 @@ The "killer feature". Depends on entity expansion + communities.
 | T-1 | Taxonomy management at scale | Needs Spec | Versioned taxonomy with branching + merge + conflict resolution; flagged by E-1. |
 | L-1 | Local / low-cost SLM client | Needs Spec | Third `BaseLLMClient` backed by Llama 3.x / Gemma / Phi-3 for narrow tasks (description-gen, dedup tie-breaking, routing). |
 
+### KGIS / KGCS adoption (see ADR-0004)
+
+| # | Feature | Status | Notes |
+|---|---------|--------|-------|
+| KG-1 | CI job that installs the `migration` extra | Needs Spec | **Blocks PR 2.** No CI job installs `[migration]`, so the four `importorskip` tests that exercise a real KGIS/KGCS import never run in CI. Acceptable at PR 1 (zero call sites; the default-path guarantee is what matters), but the first PR that adds a real call site must add this job — otherwise the extra becomes load-bearing with zero CI coverage. |
+| KG-2 | Lockfile for KGIS/KGCS transitive deps | Needs Spec | Both are pinned by commit SHA (content-addressed, so no silent swap), but their *transitive* deps are unpinned and there is no lockfile. Pre-existing repo-wide property; exposure is availability (GC'd commit, repo renamed/private), not integrity. |
+| KG-3 | Author ER must pass `orcid` explicitly | Needs Spec | After `agentic-kgcs#30`, `orcid` is no longer a default strong namespace. Any Author entity resolution built on KGCS has to pass it explicitly. |
+
 ### Follow-ups from the first live smoke run (2026-07-02)
 
 | # | Feature | Status | Notes |
