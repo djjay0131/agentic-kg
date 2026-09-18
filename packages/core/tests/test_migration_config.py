@@ -15,8 +15,11 @@ The one test that exercises a *successful* guarded import is skipped unless
 the extra happens to be present, so it is informative locally and inert in CI.
 """
 
+import re
 import subprocess
 import sys
+import tomllib
+from pathlib import Path
 
 import pytest
 from agentic_kg.migration import (
@@ -174,30 +177,6 @@ class TestImportGuard:
         with pytest.raises(ImportError):
             require_migration_module("kgis")
 
-    def test_broken_install_is_not_reported_as_missing_extra(self, monkeypatch):
-        """A failure *inside* the package must not be relabelled.
-
-        This is the exact shape of the agentic-kgis bug fixed by PR #39:
-        `import kgis` raised ModuleNotFoundError for 'pytest', not for 'kgis'.
-        Telling the operator to install the migration extra would send them
-        down the wrong path.
-        """
-        import importlib
-
-        def fake_import(name):
-            raise ModuleNotFoundError("No module named 'pytest'", name="pytest")
-
-        monkeypatch.setattr(importlib, "import_module", fake_import)
-
-        with pytest.raises(ModuleNotFoundError) as excinfo:
-            require_migration_module("kgis")
-
-        message = str(excinfo.value)
-        assert not isinstance(excinfo.value, MigrationDependencyError)
-        assert "pytest" in message
-        assert "broken install" in message
-        assert "not a missing 'migration' extra" in message
-
     def test_unknown_module_rejected(self):
         """Typos fail loudly rather than producing a misleading install hint."""
         with pytest.raises(ValueError, match="not a known KGIS/KGCS module"):
@@ -224,3 +203,167 @@ class TestImportGuardWithExtraInstalled:
             reason=f"{module_name} requires the optional 'migration' extra",
         )
         assert require_migration_module(module_name) is not None
+
+
+# =============================================================================
+# Guard discriminator: "extra missing" vs "installed but broken"
+# =============================================================================
+
+
+@pytest.fixture
+def fake_installed_package(tmp_path, monkeypatch):
+    """A genuinely importable package registered as a migration distribution.
+
+    Lets us exercise the guard's discriminator against a package that really
+    IS installed, without requiring the optional extra. Mirrors the shape of
+    a real kgis install: the root imports fine, but a submodule is absent and
+    another submodule fails on a missing third-party dependency.
+    """
+    name = "fake_kg_pkg"
+    pkg = tmp_path / name
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("")
+    (pkg / "broken.py").write_text("import definitely_not_installed_xyz\n")
+
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setitem(_MODULE_TO_DISTRIBUTION, name, "agentic-kgis")
+    for mod in list(sys.modules):
+        if mod == name or mod.startswith(name + "."):
+            monkeypatch.delitem(sys.modules, mod, raising=False)
+    yield name
+
+
+class TestGuardDiscriminatesInstalledFromMissing:
+    """An installed-but-broken package must never be reported as a missing extra.
+
+    This is the defect the guard exists to prevent, so it is tested against a
+    package that is actually importable rather than against a mocked import.
+    """
+
+    def test_root_imports_when_installed(self, fake_installed_package):
+        assert require_migration_module(fake_installed_package) is not None
+
+    def test_missing_submodule_is_not_reported_as_missing_extra(
+        self, fake_installed_package
+    ):
+        """REGRESSION: `pkg.missing_sub` on an installed pkg is a broken install.
+
+        The naive discriminator compared only the top-level name, so a missing
+        *submodule* of a present package raised MigrationDependencyError
+        ("not part of the default install"). A PR-2 caller branching on
+        availability would then silently fall back to the legacy path on what
+        is really a broken install — the exact agentic-kgis #39 shape.
+        """
+        target = f"{fake_installed_package}.does_not_exist"
+        with pytest.raises(ModuleNotFoundError) as excinfo:
+            require_migration_module(target)
+        assert not isinstance(excinfo.value, MigrationDependencyError)
+        assert "broken install" in str(excinfo.value)
+
+    def test_missing_submodule_does_not_silently_report_unavailable(
+        self, fake_installed_package
+    ):
+        """REGRESSION: availability check must raise, not return False.
+
+        Returning False here is what would route a caller to the legacy path
+        without anyone noticing the install was broken.
+        """
+        with pytest.raises(ModuleNotFoundError):
+            is_migration_module_available(f"{fake_installed_package}.does_not_exist")
+
+    def test_missing_third_party_dep_is_not_reported_as_missing_extra(
+        self, fake_installed_package
+    ):
+        """The literal agentic-kgis #39 shape, against a real import."""
+        with pytest.raises(ModuleNotFoundError) as excinfo:
+            require_migration_module(f"{fake_installed_package}.broken")
+        assert not isinstance(excinfo.value, MigrationDependencyError)
+        message = str(excinfo.value)
+        assert "definitely_not_installed_xyz" in message
+        assert "broken install" in message
+
+    def test_truly_absent_package_still_reports_missing_extra(self, monkeypatch):
+        """The happy path of the discriminator must keep working."""
+        monkeypatch.setitem(_MODULE_TO_DISTRIBUTION, "totally_absent_pkg", "agentic-kgis")
+        with pytest.raises(MigrationDependencyError):
+            require_migration_module("totally_absent_pkg")
+        assert is_migration_module_available("totally_absent_pkg") is False
+
+
+# =============================================================================
+# pyproject integrity — CI assertions guarding the opt-in property
+# =============================================================================
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+ROOT_PYPROJECT = REPO_ROOT / "pyproject.toml"
+CORE_PYPROJECT = REPO_ROOT / "packages" / "core" / "pyproject.toml"
+
+
+def _load(path: Path) -> dict:
+    if not path.is_file():
+        pytest.skip(f"{path} not present (tests not run from a repo checkout)")
+    with path.open("rb") as handle:
+        return tomllib.load(handle)
+
+
+class TestPyprojectIntegrity:
+    """`allow-direct-references` is project-wide, so guard what it unlocks.
+
+    Setting [tool.hatch.metadata] allow-direct-references = true is required
+    for the `migration` extra, but it is NOT scoped to that extra: it silently
+    permits a `git+` URL anywhere in the file, including in the mandatory
+    `project.dependencies`. A direct reference there would make an unpinned,
+    non-PyPI git dependency compulsory for every install — quietly destroying
+    the opt-in property this whole PR is built on.
+    """
+
+    @pytest.mark.parametrize("path", [ROOT_PYPROJECT, CORE_PYPROJECT], ids=["root", "core"])
+    def test_default_dependencies_contain_no_direct_references(self, path):
+        """Nothing in the DEFAULT dependency set may be a git/URL reference."""
+        dependencies = _load(path)["project"].get("dependencies", [])
+        offenders = [d for d in dependencies if "git+" in d or "@" in d.split(";")[0]]
+        assert offenders == [], (
+            f"{path.name}: direct reference(s) in project.dependencies — these "
+            f"would be mandatory for every install, not opt-in: {offenders}"
+        )
+
+    @pytest.mark.parametrize("path", [ROOT_PYPROJECT, CORE_PYPROJECT], ids=["root", "core"])
+    def test_migration_extra_is_pinned_to_exact_commits(self, path):
+        """Every migration pin must be a 40-hex commit SHA.
+
+        Neither repo is on PyPI, agentic-kgis has zero tags, and its version
+        sat at 0.2.0 across 122 commits — a branch name or version specifier
+        would pin nothing reproducible.
+        """
+        extra = _load(path)["project"]["optional-dependencies"]["migration"]
+        assert extra, f"{path.name}: migration extra is empty"
+        for requirement in extra:
+            assert "git+" in requirement, f"{path.name}: {requirement} is not a git pin"
+            ref = requirement.rsplit("@", 1)[-1]
+            assert re.fullmatch(r"[0-9a-f]{40}", ref), (
+                f"{path.name}: {requirement!r} does not end in a 40-hex commit "
+                f"SHA (got {ref!r}) — branches and tags are mutable"
+            )
+
+    def test_migration_extras_stay_in_sync_between_pyprojects(self):
+        """Both distributions ship the same agentic_kg package.
+
+        They must therefore offer identical pins, or which one you installed
+        would silently decide which KGIS/KGCS you got. Re-pin both together.
+        """
+        root = _load(ROOT_PYPROJECT)["project"]["optional-dependencies"]["migration"]
+        core = _load(CORE_PYPROJECT)["project"]["optional-dependencies"]["migration"]
+        assert sorted(root) == sorted(core), (
+            "migration extras have drifted between pyproject.toml and "
+            "packages/core/pyproject.toml; they must be re-pinned together"
+        )
+
+    @pytest.mark.parametrize("path", [ROOT_PYPROJECT, CORE_PYPROJECT], ids=["root", "core"])
+    def test_allow_direct_references_is_enabled(self, path):
+        """Without this, even a plain `pip install ./packages/core` fails.
+
+        hatchling rejects PEP 508 direct references at metadata time, so the
+        mere presence of the extra breaks the default install CI runs.
+        """
+        config = _load(path)
+        assert config["tool"]["hatch"]["metadata"]["allow-direct-references"] is True

@@ -24,6 +24,7 @@ the guard below is careful to keep the two cases distinct:
 from __future__ import annotations
 
 import importlib
+import importlib.util
 from types import ModuleType
 
 # Which distribution ships which top-level module. KGIS ships three.
@@ -40,6 +41,30 @@ _INSTALL_HINT = (
     "or, with uv:\n"
     "    uv pip install -e './packages/core[migration]'"
 )
+
+
+def _root_is_installed(root: str) -> bool:
+    """Is the top-level distribution package present on this interpreter?
+
+    This is the guard's discriminator, and it must not be inferred from the
+    *failure* that raised. An earlier version compared ``exc.name`` against
+    ``root``, which mislabelled every intra-package failure: importing
+    ``kgis.does_not_exist`` from a perfectly good kgis install raises
+    ``ModuleNotFoundError(name="kgis.does_not_exist")``, whose first segment is
+    ``kgis`` — so the guard concluded the extra was missing and
+    :func:`is_migration_module_available` quietly returned ``False``. A caller
+    branching on that would take the legacy path on a broken install without
+    anyone noticing: precisely the agentic-kgis #39 failure mode this module
+    exists to prevent.
+
+    Asking the import system directly is the only honest answer.
+    """
+    try:
+        return importlib.util.find_spec(root) is not None
+    except (ImportError, ValueError):
+        # ValueError: the module sits in sys.modules as None (how tests and
+        # some import hooks simulate absence). Either way: not usable.
+        return False
 
 
 class MigrationDependencyError(ImportError):
@@ -65,9 +90,11 @@ def require_migration_module(module_name: str) -> ModuleType:
         MigrationDependencyError: The distribution providing ``module_name``
             is not installed. The message names the distribution, the exact
             pin, and how to install it.
-        ModuleNotFoundError: ``module_name`` is installed but one of *its* own
-            imports failed. Re-raised untouched — this is a broken install,
-            not a missing extra, and the original error names the real culprit.
+        ModuleNotFoundError: The root package IS installed but the import
+            still failed — a missing submodule, or a missing dependency of the
+            package itself. This is a broken install, not a missing extra, so
+            it is raised loudly with the real culprit named rather than being
+            softened into "install the extra".
     """
     root = module_name.split(".")[0]
     distribution = _MODULE_TO_DISTRIBUTION.get(root)
@@ -79,19 +106,26 @@ def require_migration_module(module_name: str) -> ModuleType:
 
     try:
         return importlib.import_module(module_name)
-    except ModuleNotFoundError as exc:
-        missing = (exc.name or "").split(".")[0]
-        if missing != root:
-            # The package itself is present; something it imports is not.
-            # Do NOT claim the extra is missing — say what actually broke.
+    except ImportError as exc:
+        # Decide from the import system, NOT from the exception: see
+        # _root_is_installed. If the root package is present, this failure is
+        # a broken install and must never be relabelled "extra not installed".
+        if _root_is_installed(root):
+            culprit = getattr(exc, "name", None)
+            detail = (
+                f"its dependency {culprit!r} is missing"
+                if culprit and culprit != module_name
+                else "it could not be resolved"
+            )
             raise ModuleNotFoundError(
-                f"{module_name!r} is installed but failed to import: its "
-                f"dependency {exc.name!r} is missing. This is a broken "
+                f"{module_name!r} could not be imported even though "
+                f"{root!r} IS installed: {detail}. This is a broken "
                 f"install of {distribution}, not a missing 'migration' extra. "
-                f"Reinstalling the extra will not fix it; install {exc.name!r} "
-                f"or re-pin {distribution}.",
-                name=exc.name,
-                path=exc.path,
+                f"Reinstalling the extra will not fix it; install the missing "
+                f"dependency or re-pin {distribution}.\n"
+                f"Original error: {exc}",
+                name=culprit,
+                path=getattr(exc, "path", None),
             ) from exc
         raise MigrationDependencyError(
             f"{module_name!r} is not available. It is provided by "
@@ -106,8 +140,10 @@ def require_migration_module(module_name: str) -> ModuleType:
 def is_migration_module_available(module_name: str) -> bool:
     """Return whether an optional migration module can be imported.
 
-    Never raises for the "not installed" case; use this for diagnostics and
-    for branching, and :func:`require_migration_module` at the point of use.
+    Returns ``False`` only for the genuinely-not-installed case. A *broken*
+    install still raises: returning ``False`` there would let a caller branch
+    quietly onto the legacy path while the real problem went unreported, which
+    is the failure this module is built to avoid.
     """
     try:
         require_migration_module(module_name)

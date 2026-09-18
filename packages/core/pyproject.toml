@@ -48,15 +48,17 @@ migration = [
     # Ships THREE packages: kg_contracts (ports), kgis (ingestion),
     # kg_eval (evaluation).
     "agentic-kgis @ git+https://github.com/djjay0131/agentic-kgis@baf0b67e34bd2e7921b5da4492860f741d165464",
-    # agentic-kgcs v1.0.0 (tag v1.0.0 == 609270e, pinned by SHA because tags
-    # are mutable). agentic-kgcs depends on agentic-kgis>=0.2.0, which is
-    # satisfied by the git pin above rather than from PyPI.
+    # agentic-kgcs main @ 4eafa83 — the merge commit of agentic-kgcs#30
+    # ("identifier strength is entity-type relative"), which fixes ISSN/ISBN
+    # auto-merging distinct papers. Strictly newer than tag v1.0.0 (609270e);
+    # pinned by SHA because tags are mutable.
     #
-    # >>> RE-PIN POINT <<< djjay0131/agentic-kgcs#30 (identity strength is
-    # entity-type relative — ISSN/ISBN must not auto-merge distinct papers) is
-    # a real defect fix and is still OPEN. When it merges, update this one SHA
-    # and nothing else.
-    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@609270e700b6e9b94f5ed0f762ebc1a07a6bce95",
+    # BEHAVIOUR NOTE for callers: after #30, `orcid` is no longer a default
+    # strong namespace, so Author entity resolution must pass it explicitly.
+    #
+    # agentic-kgcs depends on agentic-kgis>=0.2.0, satisfied by the git pin
+    # above rather than from PyPI.
+    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@4eafa83c20768f9eecffd4791ffd233beb97628d",
 ]
 
 [project.scripts]

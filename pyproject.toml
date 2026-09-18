@@ -33,9 +33,11 @@ migration = [
     # agentic-kgis PR #39 merge commit (fixed `import kgis` failing without
     # pytest). Ships kg_contracts, kgis, kg_eval.
     "agentic-kgis @ git+https://github.com/djjay0131/agentic-kgis@baf0b67e34bd2e7921b5da4492860f741d165464",
-    # agentic-kgcs v1.0.0. >>> RE-PIN POINT <<< bump this single SHA once
-    # djjay0131/agentic-kgcs#30 (identity-strength fix) merges.
-    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@609270e700b6e9b94f5ed0f762ebc1a07a6bce95",
+    # agentic-kgcs main @ 4eafa83 — merge commit of agentic-kgcs#30
+    # (identifier strength is entity-type relative). Newer than tag v1.0.0.
+    # NOTE: after #30, `orcid` is no longer a default strong namespace —
+    # Author entity resolution must pass it explicitly.
+    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@4eafa83c20768f9eecffd4791ffd233beb97628d",
 ]
 dev = [
     "pytest>=7.0.0",
