@@ -5,7 +5,7 @@ nav_exclude: true
 
 # ADR-0004: Adopt KGIS/KGCS behind an opt-in, commit-pinned migration seam
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-18
 
 ## Context
@@ -40,6 +40,8 @@ Three constraints shape the decision:
    (`importlib.util.find_spec`), never by inspecting the raised exception.
 4. **PR 2 and onward take an injected `MigrationConfig`** rather than calling
    the `get_migration_config()` singleton inline.
+5. Name the availability check **`check_migration_module`**, not
+   `is_migration_module_available`, and offer no total `is_*` companion.
 
 ## Rationale
 
@@ -59,6 +61,31 @@ the default install" and the availability check returned `False`. A caller
 branching on that would have silently taken the legacy path on a broken
 install — reproducing the #39 failure mode in the very module written to
 prevent it. Only the import system can answer "is this installed?".
+
+**`check_` rather than `is_` (decision 5)** is a deliberate naming choice, not
+an oversight. The function has three outcomes — importable (`True`), genuinely
+not installed (`False`), installed but broken (**raises**) — and an `is_`
+predicate is conventionally *total*, so `is_migration_module_available` would
+promise a totality it does not deliver. `check_` follows the stdlib precedent
+of `subprocess.check_call`: returns normally on success, raises on a condition
+the caller must not ignore.
+
+The raising behaviour itself is correct and is not softened. The intended call
+shape needs no `try`/`except`:
+
+```python
+if check_migration_module("kgis"):
+    new_path()
+else:
+    legacy_path()
+```
+
+On a broken install that crashes — which is the wanted outcome. Wrapping it
+would reintroduce the silent fallback this ADR eliminates. For the same reason
+a total `is_*` companion is **intentionally not offered**: it would have to
+answer `False` for a broken install, and any caller reaching for it would get
+the silent fallback back. Renamed during PR 1, while there were zero call
+sites; after PR 2 begins using it the rename would be permanently awkward.
 
 **Injected config (decision 4)** is recorded now, while there are zero call
 sites, because `get_migration_config()` is a cached process-global. That is
@@ -125,6 +152,14 @@ to roll one back without reverting the other.
   also no lockfile, so kgis/kgcs *transitive* dependencies remain unpinned.
   This is a pre-existing property of the repo's dependency management and is
   not addressed here.
+- **No CI job installs the `migration` extra**, so the four `importorskip`
+  tests that exercise a real KGIS/KGCS import never actually run in CI. This
+  is acceptable at PR 1, where the extra has zero call sites and the
+  default-path guarantee is what matters. It **must not slip past PR 2**, when
+  the extra becomes load-bearing: the first PR that adds a real call site must
+  also add a CI job that installs the extra.
+- Governance checks are `master`-scoped, so this ADR and the rest of the
+  adoption are first exercised by CI at the integration -> master PR.
 - After `agentic-kgcs#30`, **`orcid` is no longer a default strong
   namespace**: Author entity resolution must pass it explicitly. Recorded so
   the integration PR does not rediscover it.

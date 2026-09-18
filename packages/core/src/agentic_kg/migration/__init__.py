@@ -22,7 +22,7 @@ from agentic_kg.migration.config import (
 )
 from agentic_kg.migration.imports import (
     MigrationDependencyError,
-    is_migration_module_available,
+    check_migration_module,
     require_kg_contracts,
     require_kg_eval,
     require_kgcs,
@@ -36,7 +36,7 @@ __all__ = [
     "MigrationConfig",
     "MigrationDependencyError",
     "get_migration_config",
-    "is_migration_module_available",
+    "check_migration_module",
     "require_kg_contracts",
     "require_kg_eval",
     "require_kgcs",

@@ -52,7 +52,7 @@ def _root_is_installed(root: str) -> bool:
     ``kgis.does_not_exist`` from a perfectly good kgis install raises
     ``ModuleNotFoundError(name="kgis.does_not_exist")``, whose first segment is
     ``kgis`` — so the guard concluded the extra was missing and
-    :func:`is_migration_module_available` quietly returned ``False``. A caller
+    :func:`check_migration_module` quietly returned ``False``. A caller
     branching on that would take the legacy path on a broken install without
     anyone noticing: precisely the agentic-kgis #39 failure mode this module
     exists to prevent.
@@ -137,13 +137,35 @@ def require_migration_module(module_name: str) -> ModuleType:
         ) from exc
 
 
-def is_migration_module_available(module_name: str) -> bool:
+def check_migration_module(module_name: str) -> bool:
     """Return whether an optional migration module can be imported.
 
-    Returns ``False`` only for the genuinely-not-installed case. A *broken*
-    install still raises: returning ``False`` there would let a caller branch
-    quietly onto the legacy path while the real problem went unreported, which
-    is the failure this module is built to avoid.
+    Three outcomes, not two:
+
+    * importable            -> ``True``
+    * genuinely not installed -> ``False``
+    * installed but broken  -> **raises** ``ModuleNotFoundError``
+
+    Intended use needs no ``try``/``except``::
+
+        if check_migration_module("kgis"):
+            new_path()
+        else:
+            legacy_path()
+
+    On a broken install that crashes, which is the wanted outcome — wrapping it
+    in ``try``/``except`` would reintroduce exactly the silent fallback this
+    module exists to eliminate.
+
+    Deliberately NOT named ``is_migration_module_available``: an ``is_``
+    predicate is conventionally total, and this one is not. ``check_`` follows
+    the stdlib precedent of :func:`subprocess.check_call` — returns normally on
+    success, raises on a condition you must not ignore. Renamed at PR 1, while
+    there were zero call sites; see ADR-0004.
+
+    A total ``is_*`` companion is intentionally not offered. Such a predicate
+    would have to answer ``False`` for a broken install, and any caller
+    reaching for it would silently get the legacy-path fallback back.
     """
     try:
         require_migration_module(module_name)
@@ -174,7 +196,7 @@ def require_kgcs() -> ModuleType:
 
 __all__ = [
     "MigrationDependencyError",
-    "is_migration_module_available",
+    "check_migration_module",
     "require_kg_contracts",
     "require_kg_eval",
     "require_kgcs",

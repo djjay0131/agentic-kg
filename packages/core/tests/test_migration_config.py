@@ -27,8 +27,8 @@ from agentic_kg.migration import (
     ENV_KGIS_ENABLED,
     MigrationConfig,
     MigrationDependencyError,
+    check_migration_module,
     get_migration_config,
-    is_migration_module_available,
     require_migration_module,
     reset_migration_config,
 )
@@ -184,7 +184,7 @@ class TestImportGuard:
 
     def test_availability_check_does_not_raise(self, monkeypatch):
         monkeypatch.setitem(sys.modules, "kgcs", None)
-        assert is_migration_module_available("kgcs") is False
+        assert check_migration_module("kgcs") is False
 
     def test_all_three_kgis_packages_are_registered(self):
         """agentic-kgis ships three packages; the guard must know all of them."""
@@ -269,7 +269,7 @@ class TestGuardDiscriminatesInstalledFromMissing:
         without anyone noticing the install was broken.
         """
         with pytest.raises(ModuleNotFoundError):
-            is_migration_module_available(f"{fake_installed_package}.does_not_exist")
+            check_migration_module(f"{fake_installed_package}.does_not_exist")
 
     def test_missing_third_party_dep_is_not_reported_as_missing_extra(
         self, fake_installed_package
@@ -287,7 +287,7 @@ class TestGuardDiscriminatesInstalledFromMissing:
         monkeypatch.setitem(_MODULE_TO_DISTRIBUTION, "totally_absent_pkg", "agentic-kgis")
         with pytest.raises(MigrationDependencyError):
             require_migration_module("totally_absent_pkg")
-        assert is_migration_module_available("totally_absent_pkg") is False
+        assert check_migration_module("totally_absent_pkg") is False
 
 
 # =============================================================================
