@@ -95,7 +95,7 @@ the PDF corpus, and a paper can be valid on one and not the other.
 
 ---
 
-## Measured: state at the start of this work
+## Measured: state at the start of this work (`7108c7d`)
 
 `python scripts/measure_segmentation.py --corpus committed --entities`
 
@@ -133,6 +133,111 @@ the segmenter for curation noise.
 
 The `cskg2` row independently reproduces the **23/30** figure recorded in the
 SEG-4 spec, and names the two groups that spec predicts SEG-4 recovers.
+
+---
+
+## Measured: state after SEG-3, SEG-6 and SEG-4
+
+```
+=== Committed corpus (gold text -> extractor input) ===
+  paper                        gold     kept   recall  secs  abstract
+  cskg                       24,959   24,925    99.9%     3  yes
+  cskg2                      35,485   35,435    99.9%     4  yes
+  kg_construction_survey      7,140    7,115    99.6%     2  yes
+  llm_ontology_gen           17,353   17,306    99.7%     3  yes
+  fact_completion            33,352   33,312    99.9%     3  yes
+  kg_validation_hitl         34,744   34,695    99.9%     5  yes
+  hypothesis_generation      43,818   43,757    99.9%     4  yes
+  empire                     20,385   17,177    84.3%     3  yes
+
+  abstracts found: 8/8
+
+=== Recall-comparison readiness ===
+  cskg                         VALID
+  cskg2                        VALID
+  kg_construction_survey       VALID
+  llm_ontology_gen             VALID
+  fact_completion              VALID
+  kg_validation_hitl           VALID
+  hypothesis_generation        VALID
+  empire                     INVALID  gold recall 84.3% (3,208 chars dropped)
+
+  7/8 papers valid for a recall comparison
+```
+
+Gold-entity visibility:
+
+```
+  paper                      gold  reach   seen  of reach  record
+  cskg                         19     13     13    100.0%  reconciled
+  cskg2                        30     25     25    100.0%  reconciled
+  fact_completion              21     15     15    100.0%  human
+  empire                        5      2      2    100.0%  human
+```
+
+Both reconciled-gold papers — `cskg` and `cskg2` — are now valid, and both sit
+at their reachable ceiling.
+
+### Why `empire` is still invalid
+
+`Threats to Validity` is a genuine **subsection** inside gold's methods span
+(`IV. RESEARCH APPROACH`). The segmenter promotes it to top level and types it
+`limitations`, which the keep-list drops, so 3,208 characters of gold-wanted
+text never reach the extractors. Two separate items own that:
+
+- **SEG-11** — `_find_headings` requires nothing heading-shaped of a line, so a
+  subsection heading is indistinguishable from a top-level one. A
+  heading-context heuristic is the fix, and it needs its own measurement.
+- **SEG-7** — if the keep-list is inverted, `limitations` stops being dropped
+  and the loss disappears without any heading work at all.
+
+Both are out of scope here. `empire` has a `human` gold record but no
+reconciled one, so it is not one of the papers a defensible migration claim
+would rest on today.
+
+### The under-segmentation detector reads differently on this corpus
+
+The SEG-4 spec records five warnings and zero false positives on the PDF
+corpus. That figure is **not reproducible here** and this work cannot verify
+it, because the PDFs are gitignored. Measured on the committed corpus: **8
+warnings across 7 papers**, of which roughly half are real —
+
+| Paper | Span | Share | Real cause |
+|---|---|---:|---|
+| `cskg` | `Introduction` | 81.0% | SEG-5a — `The Computer Science Knowledge Graph` |
+| `empire` | `I. INTRODUCTION` | 76.1% | SEG-5d — `IV. RESEARCH APPROACH` |
+| `kg_validation_hitl` | `1. Introduction` | 66.2% | SEG-5c + a SEG-11 phantom (`Model`) |
+| `fact_completion` | `I. INTRODUCTION` | 57.1% | SEG-5a — `III. SciCheck` |
+| `llm_ontology_gen` | ×2 | 49.2 / 41.5% | corpus artifact |
+| `cskg2` | `Methods` | 44.6% | corpus artifact — correctly segmented |
+| `hypothesis_generation` | `3. Methodology` | 40.9% | corpus artifact — healthy |
+
+The cause of the artifacts is structural: the committed fixtures are
+keep-list-filtered, so the denominator is 2–4 sections rather than a whole
+paper's 7–13 and shares are mechanically higher. The threshold was calibrated
+against full-paper section lists and **should be read off the PDF arm**.
+Retuning it against a corpus it was not designed for would be worse than
+recording the limitation.
+
+### Heading recognition over the hand-labelled table
+
+`scripts/segment_ground_truth.py` carries 48 hand-verified boundaries, which is
+a ready-made eval set. Replaying it through `_classify_heading`, `_match_run_in`
+and the positional rule:
+
+| | recognized |
+|---|---|
+| `7108c7d` (base) | **27 / 48 = 56%** |
+| after SEG-3 + SEG-4 | **38 / 48 = 79%** |
+
+The residue is 10: five named after the paper's contribution or written as
+descriptive sentences (SEG-5 a/c, which no name-based method can classify),
+three over-strict anchors (SEG-5 d — measured and rejected, see
+`segmenter-findings.md`), and two that gold labels but the importer's
+vocabulary has no type for (`use_case`, `statistics`).
+
+*(The backlog's SEG-12 entry quoted 27/42; the numerator was right and the
+denominator was not — that table holds 48 boundaries. Corrected there.)*
 
 ---
 

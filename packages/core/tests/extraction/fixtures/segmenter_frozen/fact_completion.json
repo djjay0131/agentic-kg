@@ -3,7 +3,7 @@
   "source_txt": "paper_fact_completion.txt",
   "source_sha256": "ddca04dea815e9bad8adb255cff06ca6a0fedef47ee14dc5d72d92a8f5455ab6",
   "source_chars": 33352,
-  "segmenter_sha256": "c2cb1518a18805eef9d169e355f18fb29673fd7eff95a7b2f9707155892b7f7f",
+  "segmenter_sha256": "5c1f0926e61d60aecd8788bae9f81ae8b172575779b850d6f4df3d746e581240",
   "keeplist": [
     "abstract",
     "introduction",

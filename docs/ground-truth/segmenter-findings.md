@@ -200,12 +200,12 @@ and handle the letter-spaced `A B S T R A C T` form that Elsevier PDFs produce.
 > character run-in line is no longer four characters from silently
 > disappearing on a re-extraction.
 >
-> **Still open: the no-label case.** Nature *Scientific Data* prints no
-> `Abstract` label — `cskg2`'s abstract is the lead paragraph. Catching it
-> needs a positional rule, and a positional rule needs a terminator that only
-> cause (4)'s vocabulary provides. **`cskg2`'s gold record therefore has an
-> unreachable abstract until SEG-4 lands**, and a diff run against it should be
-> read as a known segmenter deferral, not an extractor recall failure.
+> ~~**Still open: the no-label case.**~~ **CLOSED by SEG-4 PR-3, same day.**
+> Nature *Scientific Data* prints no `Abstract` label — `cskg2`'s abstract is
+> the lead paragraph. Catching it needed a positional rule, and a positional
+> rule needed a terminator that only cause (4)'s vocabulary provides; with that
+> in place the rule finds **1,210 characters, byte-identical to the
+> hand-verified gold boundary**. **Cause (3) is now fully fixed: 8/8 abstracts.**
 
 ### 4. An unrecognized heading lets the previous section swallow the rest
 
@@ -225,6 +225,41 @@ name appears in `SECTION_PATTERNS`.
 **Fix:** add the Nature/`Scientific Data` heading vocabulary, and consider a
 sanity check that flags any single section exceeding some word count as
 probable under-segmentation rather than passing it downstream.
+
+
+> **FIXED — SEG-4, 2026-09-18.** Four patterns for the Nature *Scientific Data*
+> vocabulary, plus a positional abstract and a standing under-segmentation
+> detector.
+>
+> Measured on the committed corpus:
+>
+> | `cskg2` | before | after |
+> |---|---:|---:|
+> | extractor input | 23,317 | **35,435** |
+> | sections | 1 | **4** |
+> | gold entity groups visible | 23 | **25** of 25 reachable |
+>
+> The two recovered groups are the ones the spec predicted:
+> `scientific knowledge graph` — the citation chain's spine concept — and
+> `knowledge-centric paradigm`. Both live in `Background & Summary`, which was
+> previously absorbed into `Methods` and invisible.
+>
+> **The mapping is the argument, not the patterns.** `Background & Summary` →
+> `introduction` (mapping it to `background` reads the name literally and costs
+> −15,932 chars, because `background` is not in the keep-list);
+> `Technical Validation` → `experiments`; `Data Records` → `results` — *not*
+> `methods`, which measures +6,138 chars but is a false label chosen to game
+> the keep-list; `Usage Notes` → `discussion`.
+>
+> **Direction of the char delta differs by corpus, and the naive reading is
+> wrong.** On the PDF corpus SEG-4 is a *reduction* (39,226 → 34,223) because
+> `Data Records` and `Usage Notes` stop being mislabelled as `methods` and are
+> correctly excluded. On the committed gold corpus it is an increase, because
+> gold never contained those sections. Both arms land on the same 34,223 for
+> the four wanted types. The `--entities` metric added to
+> `scripts/measure_segmentation.py` is what lets the PDF arm's reduction be
+> scored as the improvement it is; a char-count-only guard would have blocked
+> the correct change.
 
 ### 5. Methods and experiments sections are usually not named "Methods" or "Experiments"
 
@@ -288,6 +323,36 @@ worth weighing:
 Whatever is chosen, note that the current failure is silent: an unmatched
 methods heading doesn't error, it just quietly removes the paper's core
 technical content from every extractor's input.
+
+
+> **SEG-5(d) — "relax the anchors" — MEASURED AND REJECTED, 2026-09-18.**
+> The cheap-win framing does not survive measurement. Relaxing the method and
+> experiment anchors so a heading *containing* a keyword matches, rather than
+> requiring near-exact equality, mints **166 new headings across the eight
+> committed fixtures, of which 2 are wanted — a 2:164 ratio.** The two it
+> recovers are `IV. RESEARCH APPROACH` and
+> `5. Experiment design and implementation`; the 164 it invents are body
+> sentences containing the word *method*, *model*, *approach* or *evaluation*,
+> and every one of them also *splits* the real section that contained the line.
+>
+> An earlier PDF-corpus measurement put this at **2:108**. The two runs use
+> different corpora and slightly different variants and agree on both the
+> numerator and the conclusion; either way it is worse than the `[A-Z]` variant
+> SEG-1 rejected for costing 13,137 characters on `fact_completion`.
+>
+> It is viable only as a rider on **SEG-11** (the heading-context heuristic),
+> which is what would suppress the false positives. Deliberately **not built** here.
+>
+> **Two stale figures in this section, corrected.** "7 of 12 wanted sections
+> unmatched" was already stale at 6 of 12 post-SEG-1; post-SEG-3 and SEG-4 the
+> hand-labelled heading table in `scripts/segment_ground_truth.py` scores
+> **38 of 48 = 79%**, up from **27 of 48 = 56%** at `7108c7d` — measured by
+> replaying that table through `_classify_heading`, `_match_run_in` and the
+> positional rule. The residue is 10 headings: 5 named after the paper's
+> contribution or written as descriptive sentences (SEG-5 a/c, which no
+> name-based method can classify), 3 over-strict anchors (SEG-5 d, rejected
+> above), and 2 that gold labels but the importer's vocabulary has no type for
+> (`use_case`, `statistics`).
 
 ### 6. Unbounded section length reaches the LLM call
 

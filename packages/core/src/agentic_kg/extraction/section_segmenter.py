@@ -7,6 +7,7 @@ heuristic pattern matching with optional LLM fallback for ambiguous cases.
 
 import logging
 import re
+import statistics
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
@@ -100,6 +101,33 @@ _RUN_IN_HEADINGS = (
     ),
 )
 
+
+# SEG-4 D4: a positional abstract must read as prose, not as a title page.
+#
+# Prose width is measured RELATIVE to the document, not in absolute characters.
+# Line width is a property of column layout: the median body-line width is 106
+# on cskg2 (single column) but 59 on fact_completion, 60 on empire and 69 on
+# hypothesis_generation (all two-column). An absolute threshold of 70 would
+# work on cskg2 and silently find nothing on an entire class of paper.
+_PROSE_WIDTH_FACTOR = 0.75
+
+# Guard 2 thresholds. Measured: cskg2's real lead paragraph scores 7 sentences
+# and 0.8% digits; its author/journal block scores 0 sentences and 13.7%
+# digits. The thresholds sit between the two with room on both sides.
+_MIN_SENTENCES = 2
+_MAX_DIGIT_DENSITY = 0.05
+
+# Guard 1. Without it the rule builds 2,058-2,649-char "abstracts" out of title
+# pages on SIX of the eight papers -- and because those fall inside SEG-3's
+# 500-4,000 plausibility band, AC-16 would not catch them. Measured: the
+# genuine cskg2 lead paragraph hits NONE of these terms; every rejected title
+# page hits three or four. The guard makes the rule order-independent and safe
+# for future label-less papers, not just for this corpus.
+_TITLE_PAGE_FURNITURE = re.compile(
+    r"@|https?://|doi\.org|Contents lists available|ScienceDirect"
+    r"|\baccepted\b|\breceived\b|www\.",
+    re.IGNORECASE,
+)
 
 # SEG-4 D5: a section holding this much of the body is probable
 # under-segmentation -- an unrecognized heading let its predecessor swallow the
@@ -390,8 +418,92 @@ class SectionSegmenter:
         # caller (CLI, API, Cloud Run Job, the measurement harness), not only
         # ingest_papers. SEG-1's AC-13 warning stays where it is; that one is
         # about extractor INPUT, which is an ingestion concern.
+        # SEG-4 D4. Runs AFTER normal segmentation, so it can only fire when
+        # SEG-3's label patterns found nothing -- the two never both produce
+        # an abstract. Before this, cause (3) was only partially fixed.
+        self._add_positional_abstract(text, doc)
         self._warn_under_segmentation(doc)
         return doc
+
+    def _add_positional_abstract(
+        self,
+        text: str,
+        doc: SegmentedDocument,
+    ) -> None:
+        """No abstract label anywhere -> the abstract is the maximal run of
+        prose-width lines immediately preceding the first recognized heading.
+
+        Nature *Scientific Data* prints no label; the abstract is simply the
+        lead paragraph. Title, author and journal-header lines are short and
+        irregular, so they break the run -- that is the whole mechanism, and it
+        needs no length cap and no tuning constant *provided the terminator
+        exists*. It did not until SEG-4 PR-1 added the journal vocabulary:
+        measured, an uncapped positional rule ran 109 lines to ``Methods`` and
+        produced a 12,157-character "abstract" that swallowed the paper's real
+        introduction. That is the hard ordering behind this method's placement.
+        """
+        if any(s.section_type is SectionType.ABSTRACT for s in doc.sections):
+            return
+        first = min((s.start_char for s in doc.sections), default=None)
+        if first is None:
+            return
+
+        widths = [
+            len(line.strip())
+            for line in text.split("\n")
+            if len(line.strip()) > 20
+        ]
+        if not widths:
+            return
+        min_width = _PROSE_WIDTH_FACTOR * statistics.median(widths)
+
+        lines = text[:first].split("\n")
+        # text[:first] ends at a newline, so the split leaves a blank tail that
+        # would break the run on its very first step. Measured: dropping this
+        # is the difference between finding cskg2's abstract and finding
+        # nothing at all.
+        while lines and not lines[-1].strip():
+            lines.pop()
+
+        index = len(lines)
+        while index > 0 and len(lines[index - 1].strip()) >= min_width:
+            index -= 1
+        span = "\n".join(lines[index:]).strip()
+
+        if len(span.split()) < self.min_section_words:
+            return
+        # Guard 1 -- publisher furniture. Catches a span running from the
+        # document start through the title block.
+        if _TITLE_PAGE_FURNITURE.search(span):
+            logger.debug("positional abstract rejected (title-page furniture)")
+            return
+        # Guard 2 -- does it read as prose? Not redundant with Guard 1, and not
+        # for the reason first assumed: a title-page span contains the paper's
+        # actual abstract prose, so it READS as prose and only the denylist can
+        # reject it. Conversely a pure metadata block fails this test
+        # decisively, which is what covers a long author line absorbed into the
+        # run -- something the denylist would miss.
+        sentences = len(re.findall(r"\.(?:\s|$)", span))
+        digit_density = sum(c.isdigit() for c in span) / len(span)
+        if sentences < _MIN_SENTENCES or digit_density >= _MAX_DIGIT_DENSITY:
+            logger.debug(
+                "positional abstract rejected (not prose: %d sentences, "
+                "%.1f%% digits)",
+                sentences,
+                100 * digit_density,
+            )
+            return
+
+        doc.sections.insert(
+            0,
+            Section(
+                section_type=SectionType.ABSTRACT,
+                title="(positional)",
+                content=span,
+                start_char=len("\n".join(lines[:index])),
+                end_char=first,
+            ),
+        )
 
     def _warn_under_segmentation(self, doc: SegmentedDocument) -> None:
         """Warn when one section holds most of the body.

@@ -3,7 +3,7 @@
   "source_txt": "paper_hypothesis_generation.txt",
   "source_sha256": "2dc532cd06f75c9e17f6ccc8b471acd58bd755c7b858c1bd958f7fd5c9f9e0dd",
   "source_chars": 43818,
-  "segmenter_sha256": "c2cb1518a18805eef9d169e355f18fb29673fd7eff95a7b2f9707155892b7f7f",
+  "segmenter_sha256": "5c1f0926e61d60aecd8788bae9f81ae8b172575779b850d6f4df3d746e581240",
   "keeplist": [
     "abstract",
     "introduction",
