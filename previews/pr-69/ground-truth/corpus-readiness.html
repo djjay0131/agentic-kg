@@ -1,0 +1,481 @@
+<h1 id="corpus-readiness-when-is-a-paper-valid-for-a-recall-comparison">Corpus readiness: when is a paper valid for a recall comparison?</h1>
+
+<p><strong>Created:</strong> 2026-09-18
+<strong>Companion to:</strong> <a href="segmenter-findings.html"><code class="language-plaintext highlighter-rouge">segmenter-findings.md</code></a>
+<strong>Harness:</strong> <code class="language-plaintext highlighter-rouge">scripts/measure_segmentation.py --corpus committed</code>
+<strong>Guard:</strong> <code class="language-plaintext highlighter-rouge">packages/core/tests/extraction/test_segmenter_frozen_corpus.py</code></p>
+
+<p>A recall number is a ratio between what gold says is in a paper and what the
+importer found. It is only interpretable when the <em>input the importer read</em> is
+the input gold describes. Every SEG-n root cause breaks exactly that
+precondition, which is why a migration-quality claim made before they are fixed
+would measure segmentation, not extraction, and report the result as extractor
+recall.</p>
+
+<p>This document records how readiness is measured, what it measured, and what it
+cannot see.</p>
+
+<blockquote>
+  <h2 id="read-this-before-quoting-a-number">Read this before quoting a number</h2>
+
+  <p><strong>“VALID” does not mean “correctly segmented”.</strong> All four keep-list types are
+concatenated into one blob before the extractors see it, so a span labelled
+<code class="language-plaintext highlighter-rouge">introduction</code> that is really the methods section keeps every character and
+lands in the same prompt. Character recall is therefore <strong>structurally blind
+to confusion between two keep-list types</strong>.</p>
+
+  <p>Measured: <code class="language-plaintext highlighter-rouge">cskg</code> — one of the two reconciled-gold papers — produces <strong>no
+<code class="language-plaintext highlighter-rouge">methods</code> section at all</strong>. Its 14,988-character gold methods span
+<code class="language-plaintext highlighter-rouge">[6728,21716)</code> is absorbed into a 20,271-character <code class="language-plaintext highlighter-rouge">introduction</code>, and the
+paper still scores <strong>99.9% recall</strong>.</p>
+
+  <p>So the readiness table reports <strong>two</strong> verdicts, and neither substitutes for
+the other:</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th> </th>
+        <th>means</th>
+        <th>count</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>CONCAT</strong></td>
+        <td>valid for a legacy-vs-new comparison over the concatenated extractor blob — what today’s pipeline actually feeds the extractors</td>
+        <td><strong>7/8</strong></td>
+      </tr>
+      <tr>
+        <td><strong>TYPED</strong></td>
+        <td><em>also</em> produces every wanted section type gold records for that paper, under the right label</td>
+        <td><strong>4/8</strong></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>Three of the seven CONCAT-valid papers are TYPED-invalid: <code class="language-plaintext highlighter-rouge">cskg</code> and
+<code class="language-plaintext highlighter-rouge">fact_completion</code> (missing <code class="language-plaintext highlighter-rouge">methods</code>), <code class="language-plaintext highlighter-rouge">kg_validation_hitl</code> (missing
+<code class="language-plaintext highlighter-rouge">experiments</code>). All three are SEG-5 misses — a heading named after the
+paper’s contribution, or an over-strict anchor.</p>
+
+  <p><strong>This is harmless today and will not stay harmless.</strong> For a single
+concatenated prompt, intra-keep-list confusion costs nothing. It starts
+costing the moment anything becomes section-aware — per-section prompting,
+or <strong>SEG-7’s keep-list inversion, which is the stated next step</strong>. Quote
+CONCAT for character-recall comparisons. Do not quote it for “segmentation is
+correct”.</p>
+</blockquote>
+
+<hr />
+
+<h2 id="the-two-corpora-and-why-there-are-two">The two corpora, and why there are two</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th> </th>
+      <th>PDF corpus</th>
+      <th>Committed corpus</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Input</td>
+      <td><code class="language-plaintext highlighter-rouge">ground-truth-papers/*.pdf</code></td>
+      <td><code class="language-plaintext highlighter-rouge">fixtures/ground_truth_chain/paper_&lt;slug&gt;.txt</code></td>
+    </tr>
+    <tr>
+      <td>In the repo</td>
+      <td><strong>no</strong> (<code class="language-plaintext highlighter-rouge">.gitignore:75</code>)</td>
+      <td><strong>yes</strong></td>
+    </tr>
+    <tr>
+      <td>Needs PyMuPDF</td>
+      <td>yes</td>
+      <td>no</td>
+    </tr>
+    <tr>
+      <td>Runs in CI</td>
+      <td><strong>no</strong></td>
+      <td><strong>yes</strong></td>
+    </tr>
+    <tr>
+      <td>Pinned by</td>
+      <td><code class="language-plaintext highlighter-rouge">scripts/seg_baseline.json</code></td>
+      <td><code class="language-plaintext highlighter-rouge">fixtures/segmenter_frozen/&lt;slug&gt;.json</code></td>
+    </tr>
+    <tr>
+      <td>Sees</td>
+      <td>the whole paper, furniture and all</td>
+      <td>only gold-wanted prose</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="what-paper_slugtxt-actually-is">What <code class="language-plaintext highlighter-rouge">paper_&lt;slug&gt;.txt</code> actually is</h3>
+
+<p>Not raw PDF text. <code class="language-plaintext highlighter-rouge">scripts/segment_ground_truth.py</code> produced each file from
+<strong>hand-verified section boundaries</strong>, keeping only the sections the importer
+wants (<code class="language-plaintext highlighter-rouge">abstract</code> / <code class="language-plaintext highlighter-rouge">introduction</code> / <code class="language-plaintext highlighter-rouge">methods</code> / <code class="language-plaintext highlighter-rouge">experiments</code>, minus those a
+given paper genuinely lacks) and concatenating them with <code class="language-plaintext highlighter-rouge">\n\n</code>.</p>
+
+<p>That makes it a <em>sharper</em> instrument than raw text for one specific question,
+and a blind one for others.</p>
+
+<p><strong>Sharper, because the null hypothesis is gone.</strong> Every character in the file
+is already gold-wanted. So any character the segmenter fails to route into a
+keep-list section is a segmenter recall failure with no competing explanation —
+no “it was in the references”, no “the keep-list dropped it”. The measurement is
+an idempotence check: <em>given text whose boundaries are known correct, does the
+segmenter reproduce them?</em></p>
+
+<p><strong>Blind, because gold already threw the hard cases away.</strong> Page furniture,
+running headers, reference lists, and the 237 KB of body that the 94-page survey
+contributes to the PDF corpus are all absent. Failure modes that live in that
+material — SEG-6’s unbounded length being the clearest — cannot be reproduced
+here and still need the local PDF run.</p>
+
+<p>Both arms are kept. Neither replaces the other.</p>
+
+<hr />
+
+<h2 id="the-readiness-criteria">The readiness criteria</h2>
+
+<p>Three per-paper conditions, all computed by <code class="language-plaintext highlighter-rouge">recall_validity()</code> in
+<code class="language-plaintext highlighter-rouge">scripts/measure_segmentation.py</code>:</p>
+
+<ol>
+  <li><strong>An abstract is present.</strong> Gold gives all eight papers one, and it is the
+densest gold-entity source in a paper. A missing abstract guarantees a recall
+shortfall that is a segmentation failure wearing an extractor’s clothes.</li>
+  <li><strong>Gold char recall ≥ 95 %.</strong> See above: a shortfall is dropped content, full
+stop. The floor sits below 100 % because <code class="language-plaintext highlighter-rouge">_extract_sections</code> consumes the
+heading line itself — a few hundred structurally unrecoverable characters per
+paper.</li>
+  <li><strong>No single section holds ≥ 90 % of the kept text</strong> (where more than one
+section is expected). This is SEG-4’s under-segmentation signature. One
+mislabelled span absorbing the rest of the paper <em>keeps</em> its characters, so
+criteria 1 and 2 are both blind to it.</li>
+</ol>
+
+<p>Those three produce the <strong>CONCAT</strong> verdict. A fourth, reported separately as
+<strong>TYPED</strong>, is what they cannot see:</p>
+
+<ol>
+  <li><strong>Every wanted section type gold records for the paper is produced, under
+the right label.</strong> Read from <code class="language-plaintext highlighter-rouge">segment_ground_truth.py</code>’s per-paper <code class="language-plaintext highlighter-rouge">wanted</code>
+list, not assumed to be all four — <code class="language-plaintext highlighter-rouge">kg_construction_survey</code> is a 94-page
+survey with no methods and no experiments sections and gold says so, and
+<code class="language-plaintext highlighter-rouge">llm_ontology_gen</code>’s approach lives in its experiments section. Holding
+either to four types would manufacture a failure out of an honest answer.</li>
+</ol>
+
+<p><code class="language-plaintext highlighter-rouge">test_missing_types_agrees_with_ingestions_own_warning</code> keeps criterion 4 in
+step with <code class="language-plaintext highlighter-rouge">ingestion._missing_wanted_sections</code>, the warning production already
+emits. Before this was added, the repo shipped two instruments that disagreed:
+the runtime warning fired on papers the readiness report called VALID.</p>
+
+<h3 id="a-correction-to-the-0-of-8-framing">A correction to the “0 of 8” framing</h3>
+
+<p>The pre-work analysis reported <strong>0 of 8</strong> papers valid. Measured on the
+committed corpus, the count at the start of this work was <strong>1 of 8</strong>:
+<code class="language-plaintext highlighter-rouge">kg_construction_survey</code> passes all three criteria (99.6 % recall, an abstract,
+no swallowed span).</p>
+
+<p>The two numbers are not in conflict — they are computed over different corpora.
+On the <strong>PDF</strong> corpus that same paper feeds <strong>244,742 characters</strong> into a single
+extractor prompt against a 7,152-character gold, which is a disqualifying defect
+under any sane bound. That defect is SEG-6, it is real, and it is invisible to
+the committed corpus because gold discarded the 94 pages that cause it.</p>
+
+<p>Recorded rather than smoothed over: the committed corpus is not a superset of
+the PDF corpus, and a paper can be valid on one and not the other.</p>
+
+<hr />
+
+<h2 id="measured-state-at-the-start-of-this-work-7108c7d">Measured: state at the start of this work (<code class="language-plaintext highlighter-rouge">7108c7d</code>)</h2>
+
+<p><code class="language-plaintext highlighter-rouge">python scripts/measure_segmentation.py --corpus committed --entities</code></p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>=== Committed corpus (gold text -&gt; extractor input) ===
+  paper                        gold     kept   recall  secs  abstract
+  cskg                       24,959   23,505    94.2%     2  NO
+  cskg2                      35,485   23,317    65.7%     1  NO
+  kg_construction_survey      7,140    7,115    99.6%     2  yes
+  llm_ontology_gen           17,353   15,680    90.4%     2  NO
+  fact_completion            33,352   31,960    95.8%     2  NO
+  kg_validation_hitl         34,744   33,298    95.8%     4  NO
+  hypothesis_generation      43,818   42,122    96.1%     3  NO
+  empire                     20,385   15,260    74.9%     2  NO
+
+  abstracts found: 1/8
+</code></pre></div></div>
+
+<p>Gold-entity visibility, for the four papers that have a gold record:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  paper                      gold  reach   seen  of reach  record
+  cskg                         19     13     13    100.0%  reconciled
+  cskg2                        30     25     23     92.0%  reconciled
+  fact_completion              21     15     15    100.0%  human
+  empire                        5      2      2    100.0%  human
+    cskg2 unreachable: knowledge-centric paradigm, scientific knowledge graph
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">reach</code> is the ceiling — entity groups findable in the gold text <em>itself</em>. A
+group below the ceiling is a gold-curation artifact (an alias spelled
+differently, a quote from a section the keep-list drops) and is not something a
+segmenter change can win back. Reporting <code class="language-plaintext highlighter-rouge">seen / total</code> without it would blame
+the segmenter for curation noise.</p>
+
+<p>The <code class="language-plaintext highlighter-rouge">cskg2</code> row independently reproduces the <strong>23/30</strong> figure recorded in the
+SEG-4 spec, and names the two groups that spec predicts SEG-4 recovers.</p>
+
+<hr />
+
+<h2 id="measured-state-after-seg-3-seg-6-and-seg-4">Measured: state after SEG-3, SEG-6 and SEG-4</h2>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>=== Committed corpus (gold text -&gt; extractor input) ===
+  paper                        gold     kept   recall  secs  abstract
+  cskg                       24,959   24,925    99.9%     3  yes
+  cskg2                      35,485   35,435    99.9%     4  yes
+  kg_construction_survey      7,140    7,115    99.6%     2  yes
+  llm_ontology_gen           17,353   17,306    99.7%     3  yes
+  fact_completion            33,352   33,312    99.9%     3  yes
+  kg_validation_hitl         34,744   34,695    99.9%     5  yes
+  hypothesis_generation      43,818   43,757    99.9%     4  yes
+  empire                     20,385   17,177    84.3%     3  yes
+
+  abstracts found: 8/8
+
+=== Recall-comparison readiness ===
+  paper                     CONCAT   TYPED  notes
+  cskg                       VALID INVALID  missing type(s): methods
+  cskg2                      VALID   VALID  -
+  kg_construction_survey     VALID   VALID  -
+  llm_ontology_gen           VALID   VALID  -
+  fact_completion            VALID INVALID  missing type(s): methods
+  kg_validation_hitl         VALID INVALID  missing type(s): experiments
+  hypothesis_generation      VALID   VALID  -
+  empire                   INVALID INVALID  gold recall 84.3% (3,208 dropped);
+                                            missing type(s): methods
+
+  7/8 valid for a concatenated-blob recall comparison;
+  4/8 also correctly section-typed
+</code></pre></div></div>
+
+<p>Gold-entity visibility:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  paper                      gold  reach   seen  of reach  record
+  cskg                         19     13     13    100.0%  reconciled
+  cskg2                        30     25     25    100.0%  reconciled
+  fact_completion              21     15     15    100.0%  human
+  empire                        5      2      2    100.0%  human
+</code></pre></div></div>
+
+<p>Both reconciled-gold papers — <code class="language-plaintext highlighter-rouge">cskg</code> and <code class="language-plaintext highlighter-rouge">cskg2</code> — are now CONCAT-valid and
+both sit at their gold-entity ceiling. Only <code class="language-plaintext highlighter-rouge">cskg2</code> is also TYPED-valid;
+<code class="language-plaintext highlighter-rouge">cskg</code>’s methods span is mislabelled <code class="language-plaintext highlighter-rouge">introduction</code> (see the box at the top).</p>
+
+<h3 id="why-empire-is-still-invalid">Why <code class="language-plaintext highlighter-rouge">empire</code> is still invalid</h3>
+
+<p><code class="language-plaintext highlighter-rouge">Threats to Validity</code> is a genuine <strong>subsection</strong> inside gold’s methods span
+(<code class="language-plaintext highlighter-rouge">IV. RESEARCH APPROACH</code>). The segmenter promotes it to top level and types it
+<code class="language-plaintext highlighter-rouge">limitations</code>, which the keep-list drops, so 3,208 characters of gold-wanted
+text never reach the extractors. Two separate items own that:</p>
+
+<ul>
+  <li><strong>SEG-11</strong> — <code class="language-plaintext highlighter-rouge">_find_headings</code> requires nothing heading-shaped of a line, so a
+subsection heading is indistinguishable from a top-level one. A
+heading-context heuristic is the fix, and it needs its own measurement.</li>
+  <li><strong>SEG-7</strong> — if the keep-list is inverted, <code class="language-plaintext highlighter-rouge">limitations</code> stops being dropped
+and the loss disappears without any heading work at all.</li>
+</ul>
+
+<p>Both are out of scope here. <code class="language-plaintext highlighter-rouge">empire</code> has a <code class="language-plaintext highlighter-rouge">human</code> gold record but no
+reconciled one, so it is not one of the papers a defensible migration claim
+would rest on today.</p>
+
+<h3 id="the-under-segmentation-detector-reads-differently-on-this-corpus">The under-segmentation detector reads differently on this corpus</h3>
+
+<p>The SEG-4 spec records five warnings and zero false positives on the PDF
+corpus. That figure is <strong>not reproducible here</strong> and this work cannot verify
+it, because the PDFs are gitignored. Measured on the committed corpus: <strong>8
+warnings across 7 papers</strong>, of which roughly half are real —</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Paper</th>
+      <th>Span</th>
+      <th style="text-align: right">Share</th>
+      <th>Real cause</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">cskg</code></td>
+      <td><code class="language-plaintext highlighter-rouge">Introduction</code></td>
+      <td style="text-align: right">81.0%</td>
+      <td>SEG-5a — <code class="language-plaintext highlighter-rouge">The Computer Science Knowledge Graph</code></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">empire</code></td>
+      <td><code class="language-plaintext highlighter-rouge">I. INTRODUCTION</code></td>
+      <td style="text-align: right">76.1%</td>
+      <td>SEG-5d — <code class="language-plaintext highlighter-rouge">IV. RESEARCH APPROACH</code></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">kg_validation_hitl</code></td>
+      <td><code class="language-plaintext highlighter-rouge">1. Introduction</code></td>
+      <td style="text-align: right">66.2%</td>
+      <td>SEG-5c + a SEG-11 phantom (<code class="language-plaintext highlighter-rouge">Model</code>)</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">fact_completion</code></td>
+      <td><code class="language-plaintext highlighter-rouge">I. INTRODUCTION</code></td>
+      <td style="text-align: right">57.1%</td>
+      <td>SEG-5a — <code class="language-plaintext highlighter-rouge">III. SciCheck</code></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">llm_ontology_gen</code></td>
+      <td>×2</td>
+      <td style="text-align: right">49.2 / 41.5%</td>
+      <td>corpus artifact</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">cskg2</code></td>
+      <td><code class="language-plaintext highlighter-rouge">Methods</code></td>
+      <td style="text-align: right">44.6%</td>
+      <td>corpus artifact — correctly segmented</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">hypothesis_generation</code></td>
+      <td><code class="language-plaintext highlighter-rouge">3. Methodology</code></td>
+      <td style="text-align: right">40.9%</td>
+      <td>corpus artifact — healthy</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The cause of the artifacts is structural: the committed fixtures are
+keep-list-filtered, so the denominator is 2–4 sections rather than a whole
+paper’s 7–13 and shares are mechanically higher. The threshold was calibrated
+against full-paper section lists and <strong>should be read off the PDF arm</strong>.
+Retuning it against a corpus it was not designed for would be worse than
+recording the limitation.</p>
+
+<h3 id="heading-recognition-over-the-hand-labelled-table">Heading recognition over the hand-labelled table</h3>
+
+<p><code class="language-plaintext highlighter-rouge">scripts/segment_ground_truth.py</code> carries 48 hand-verified boundaries, which is
+a ready-made eval set. Replaying it through <code class="language-plaintext highlighter-rouge">_classify_heading</code>, <code class="language-plaintext highlighter-rouge">_match_run_in</code>
+and the positional rule:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th> </th>
+      <th>recognized</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">7108c7d</code> (base)</td>
+      <td><strong>27 / 48 = 56%</strong></td>
+    </tr>
+    <tr>
+      <td>after SEG-3 + SEG-4</td>
+      <td><strong>38 / 48 = 79%</strong></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The residue is 10: five named after the paper’s contribution or written as
+descriptive sentences (SEG-5 a/c, which no name-based method can classify),
+three over-strict anchors (SEG-5 d — measured and rejected, see
+<code class="language-plaintext highlighter-rouge">segmenter-findings.md</code>), and two that gold labels but the importer’s
+vocabulary has no type for (<code class="language-plaintext highlighter-rouge">use_case</code>, <code class="language-plaintext highlighter-rouge">statistics</code>).</p>
+
+<p><em>(The backlog’s SEG-12 entry quoted 27/42; the numerator was right and the
+denominator was not — that table holds 48 boundaries. Corrected there.)</em></p>
+
+<hr />
+
+<h2 id="why-the-fixtures-pin-output-rather-than-a-commit">Why the fixtures pin output rather than a commit</h2>
+
+<p><code class="language-plaintext highlighter-rouge">fixtures/segmenter_frozen/&lt;slug&gt;.json</code> stores, per paper:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Asserted?</th>
+      <th>Why</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">source_sha256</code>, <code class="language-plaintext highlighter-rouge">source_chars</code></td>
+      <td><strong>yes</strong></td>
+      <td>the input must not move under the pinned output</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">sections</code> (type, title, chars)</td>
+      <td><strong>yes</strong></td>
+      <td>catches a resegmentation that preserves the char total</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">extractor_input</code> + sha + chars</td>
+      <td><strong>yes</strong></td>
+      <td>the artifact both arms of a comparison must agree on, stored in the clear so a diff is reviewable</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">segmenter_sha256</code></td>
+      <td>no — provenance</td>
+      <td>a refactor leaving the output byte-identical is <strong>not</strong> drift</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">keeplist</code> + <code class="language-plaintext highlighter-rouge">keeplist_sha256</code></td>
+      <td>no — provenance</td>
+      <td>reported in the drift header so a chars delta names which of the two moved (SEG-7 will move it)</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Pinning the commit instead would be simultaneously too strict (any refactor goes
+red) and too weak (PyMuPDF and the PDF bytes drift independently of this repo,
+so a matching commit proves nothing about the text).</p>
+
+<p>Re-pin deliberately, with a reviewable diff:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>python scripts/measure_segmentation.py --freeze
+</code></pre></div></div>
+
+<hr />
+
+<h2 id="what-this-harness-still-cannot-tell-you">What this harness still cannot tell you</h2>
+
+<ul>
+  <li><strong>Anything gold excluded.</strong> Furniture, references, and the survey’s 94 pages.
+SEG-6’s 244,742-character prompt cannot be reproduced here.</li>
+  <li><strong>Extractor quality.</strong> It measures what reaches the extractors, never what
+they do with it.</li>
+  <li><strong>Precision.</strong> By construction every character in the corpus is wanted, so
+the corpus cannot score a segmenter that keeps too much. Only the PDF corpus
+can.</li>
+  <li><strong>Confusion between keep-list types.</strong> See the box at the top. Char recall
+cannot see it; the TYPED verdict is the instrument for it.</li>
+  <li><strong>The positional abstract on real PDF text.</strong> <code class="language-plaintext highlighter-rouge">segment_ground_truth.py</code> cut
+the title page away, so the rule’s entire risk surface — running backwards
+into publisher furniture — is absent from this corpus. Covered by synthetic
+guard tests and by a reconstruction of cskg2’s recorded title-page line
+widths; <strong>not</strong> by a measurement of a PDF. One known limitation is pinned by
+<code class="language-plaintext highlighter-rouge">test_a_prose_width_metadata_line_IS_absorbed_known_limitation</code>: a single
+prose-width author line adjacent to the abstract <em>is</em> absorbed, because it
+carries no denylisted term and the span still reads as prose. The guards
+bound the blast radius; they do not guarantee a clean leading edge.</li>
+  <li><strong>Five of eight papers’ entity recall.</strong> <code class="language-plaintext highlighter-rouge">kg_construction_survey</code>,
+<code class="language-plaintext highlighter-rouge">llm_ontology_gen</code>, <code class="language-plaintext highlighter-rouge">kg_validation_hitl</code> and <code class="language-plaintext highlighter-rouge">hypothesis_generation</code> have no
+gold record at all; <code class="language-plaintext highlighter-rouge">empire</code> and <code class="language-plaintext highlighter-rouge">fact_completion</code> have only a single
+(<code class="language-plaintext highlighter-rouge">human</code>) review, not a reconciled one.</li>
+</ul>

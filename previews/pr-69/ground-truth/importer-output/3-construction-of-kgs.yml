@@ -1,0 +1,24 @@
+_note: IMPORTER OUTPUT — machine extraction to diff against the human answer key; NOT the reconciled ground
+  truth.
+_caveats:
+- Topic (BELONGS_TO) not populated — known bug (topics_linked counter increments but no edge persists).
+- Concepts/Models/Methods store name+aliases only; no per-paper quoted_text/confidence retained (only
+  Problems do).
+paper:
+  n: '3'
+  title: 'Construction of Knowledge Graphs: Current State and Challenges'
+  doi: 10.2139/ssrn.4605059
+  year: 2023
+  venue: SSRN Electronic Journal
+  s2_paper_id: null
+  status: metadata-only (PDF acquisition failed)
+topic:
+  domain: null
+  area: null
+  subtopic: null
+  _note: empty — BELONGS_TO bug
+research_concepts: []
+models: []
+methods: []
+problems: []
+cites_within_set: []
