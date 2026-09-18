@@ -17,9 +17,9 @@ name: Governance Checks
 
 on:
   pull_request:
-    branches: [master]
+    branches: [master, 'integration/**']
   push:
-    branches: [master]
+    branches: [master, 'integration/**']
 
 permissions:
   contents: read
