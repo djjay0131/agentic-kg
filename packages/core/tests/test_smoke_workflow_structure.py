@@ -96,9 +96,19 @@ class TestWorkflowIdentity:
 
 class TestPathFilter:
     def test_pull_request_targets_master(self, workflow):
+        """master must stay in scope — it is the production gate."""
         triggers = _triggers(workflow)
         pr = triggers["pull_request"]
-        assert pr["branches"] == ["master"]
+        assert "master" in pr["branches"]
+
+    def test_pull_request_covers_integration_branches(self, workflow):
+        """The KGIS/KGCS migration lands on `integration/**`, and a smoke
+        gate that does not run there is worse than none: the PR renders
+        green having executed nothing. Kept as an exact-set assertion so
+        that widening the scope again stays a deliberate, reviewed act."""
+        triggers = _triggers(workflow)
+        pr = triggers["pull_request"]
+        assert pr["branches"] == ["master", "integration/**"]
 
     def test_path_filter_includes_all_documented_paths(self, workflow):
         triggers = _triggers(workflow)
