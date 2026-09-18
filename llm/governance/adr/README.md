@@ -23,4 +23,5 @@ individually numbered here.
 |---|---|---|
 | [0001](0001-adopt-agentic-governance-v0.2.md) | Adopt agentic-governance v0.2 and declare interim design authority | Accepted |
 | [0002](0002-migrate-to-llm-control-plane.md) | Migrate governance content to the `llm/` control plane | Accepted | 2026-08-31 |
+| [0003](0003-kgis-kgcs-ontology-mapping.md) | KGIS/KGCS ontology mapping and the canonical/projection split | Proposed |
 | [0004](0004-kgis-kgcs-adoption-opt-in-seam.md) | Adopt KGIS/KGCS behind an opt-in, commit-pinned migration seam | Accepted |
