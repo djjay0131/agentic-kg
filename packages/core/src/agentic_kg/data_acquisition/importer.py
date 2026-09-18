@@ -28,6 +28,11 @@ from agentic_kg.knowledge_graph.repository import (
 
 logger = logging.getLogger(__name__)
 
+# I-58 R4 (MINOR-3): caps on the per-DOI citation failure detail map, which
+# is serialized into the ingest result JSON / CI artifact.
+_MAX_FAILURE_DETAILS = 25
+_MAX_DETAIL_CHARS = 200
+
 
 @dataclass
 class ImportResult:
@@ -56,6 +61,30 @@ class BatchImportResult:
     results: list[ImportResult] = field(default_factory=list)
     errors: dict[str, str] = field(default_factory=dict)
 
+    # I-58: citation-population outcomes, aggregated across the batch.
+    # Previously each ImportResult.citation_population was attached and
+    # then read by nobody, so a batch in which every paper failed to
+    # reach Semantic Scholar was indistinguishable from a batch of
+    # papers that genuinely cite nothing.
+    citation_attempted: int = 0
+    citation_succeeded: int = 0
+    citation_failed: int = 0
+    citation_edges_created: int = 0
+    citation_edges_existing: int = 0
+    citation_stubs_created: int = 0
+    # I-58 R4: reference-level evidence from the SUCCEEDED attempts only.
+    # Needed to tell "S2 returned no references", "references returned but
+    # none carried a DOI" and "the linker is broken" apart.
+    citation_references_seen: int = 0
+    citation_references_with_doi: int = 0
+    citation_references_no_doi: int = 0
+    # Per-reference stub/link errors on otherwise-successful attempts.
+    citation_edge_errors: int = 0
+    # outcome string -> count (see citation_graph.CITATION_OUTCOME_*)
+    citation_failures: dict[str, int] = field(default_factory=dict)
+    # doi -> first failure message, for operator diagnosis
+    citation_failure_details: dict[str, str] = field(default_factory=dict)
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -65,6 +94,18 @@ class BatchImportResult:
             "skipped": self.skipped,
             "failed": self.failed,
             "errors": self.errors,
+            "citation_attempted": self.citation_attempted,
+            "citation_succeeded": self.citation_succeeded,
+            "citation_failed": self.citation_failed,
+            "citation_edges_created": self.citation_edges_created,
+            "citation_edges_existing": self.citation_edges_existing,
+            "citation_stubs_created": self.citation_stubs_created,
+            "citation_references_seen": self.citation_references_seen,
+            "citation_references_with_doi": self.citation_references_with_doi,
+            "citation_references_no_doi": self.citation_references_no_doi,
+            "citation_edge_errors": self.citation_edge_errors,
+            "citation_failures": self.citation_failures,
+            "citation_failure_details": self.citation_failure_details,
         }
 
 
@@ -271,10 +312,24 @@ class PaperImporter:
                         s2_client=s2_client or self._get_s2_client(),
                         paper_doi=result.paper.doi,
                     )
-                except Exception:
+                except Exception as e:
                     logger.exception(
                         "populate_citations unexpectedly raised for %s",
                         result.paper.doi,
+                    )
+                    # I-58 R4 (BLOCKING-1): leaving this None classified a
+                    # CRASHING citation phase as "never attempted", which
+                    # kept status="completed" and let the smoke gate pass
+                    # on any non-empty graph — the exact #58 failure mode.
+                    # _get_s2_client() is inside this try, so a config/env
+                    # failure raises for every paper. Record it as an
+                    # attempted infrastructure failure.
+                    from agentic_kg.knowledge_graph.citation_graph import (
+                        CitationPopulationResult,
+                    )
+                    result.citation_population = CitationPopulationResult(
+                        populate_raised=True,
+                        errors=[f"populate_raised: {e}"],
                     )
 
             return result
@@ -385,6 +440,7 @@ class PaperImporter:
             )
 
             result.results.append(import_result)
+            self._accumulate_citation_outcome(result, identifier, import_result)
 
             if import_result.created:
                 result.created += 1
@@ -402,6 +458,64 @@ class PaperImporter:
                 progress_callback(i + 1, len(identifiers), import_result)
 
         return result
+
+    @staticmethod
+    def _accumulate_citation_outcome(
+        batch: BatchImportResult,
+        identifier: str,
+        import_result: ImportResult,
+    ) -> None:
+        """Fold one paper's citation-population outcome into the batch.
+
+        I-58: ``citation_population`` used to be attached to the
+        per-paper ``ImportResult`` and read nowhere, so a 100% citation
+        failure rate surfaced only as "cites=0" in a downstream smoke
+        assertion. Papers whose citation population never ran (skipped
+        import, failed import, ``populate_citations=False``) are not
+        counted as attempts — an honest null, not a zero.
+        """
+        from agentic_kg.knowledge_graph.citation_graph import (
+            CITATION_OUTCOME_NOT_ATTEMPTED,
+            CITATION_OUTCOME_SUCCEEDED,
+            classify_citation_population,
+        )
+
+        cp = import_result.citation_population
+        outcome = classify_citation_population(cp)
+        if outcome == CITATION_OUTCOME_NOT_ATTEMPTED:
+            return
+
+        batch.citation_attempted += 1
+        key = import_result.paper.doi if import_result.paper else identifier
+
+        if outcome == CITATION_OUTCOME_SUCCEEDED:
+            batch.citation_succeeded += 1
+            batch.citation_edges_created += getattr(cp, "edges_created", 0) or 0
+            batch.citation_edges_existing += getattr(cp, "edges_existing", 0) or 0
+            batch.citation_stubs_created += getattr(cp, "stubs_created", 0) or 0
+            seen = getattr(cp, "references_seen", 0) or 0
+            no_doi = getattr(cp, "skipped_no_doi", 0) or 0
+            batch.citation_references_seen += seen
+            batch.citation_references_no_doi += no_doi
+            batch.citation_references_with_doi += max(0, seen - no_doi)
+            # A succeeded enumeration can still have per-reference stub /
+            # link errors. NIT-1: counted, not filed under "failures" —
+            # citation_failure_details must hold failures only.
+            batch.citation_edge_errors += len(
+                list(getattr(cp, "errors", None) or [])
+            )
+            return
+
+        batch.citation_failed += 1
+        batch.citation_failures[outcome] = (
+            batch.citation_failures.get(outcome, 0) + 1
+        )
+        errs = list(getattr(cp, "errors", None) or [])
+        # MINOR-3: bounded. These land in the --json artifact; a 500-paper
+        # batch must not embed 500 unbounded exception strings.
+        if len(batch.citation_failure_details) < _MAX_FAILURE_DETAILS:
+            detail = f"{outcome}: {errs[0]}" if errs else outcome
+            batch.citation_failure_details[key] = detail[:_MAX_DETAIL_CHARS]
 
     async def import_author_papers(
         self,

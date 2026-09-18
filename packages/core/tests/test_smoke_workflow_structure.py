@@ -380,3 +380,49 @@ class TestStepOrdering:
         preceding steps (pass or fail via ``if: always()``)."""
         steps = _smoke_job(workflow)["steps"]
         assert steps[-1]["name"] == "Upload artifact"
+
+
+# =============================================================================
+# I-58 (issue #58 / PR #70): the citation-coverage gate must always be reached
+# =============================================================================
+
+
+class TestCitationCoverageGateReachable:
+    def test_assert_step_always_runs(self, workflow):
+        """The assert step is the gate AND the diagnosis.
+
+        Without ``if: always()`` a failing ingest skips it, and the
+        coverage/evidence report an operator needs is never printed.
+        """
+        step = _step_by_name(workflow, "Assert graph shape")
+        assert step["if"] == "always()"
+
+    def test_assert_step_still_invokes_smoke_assert(self, workflow):
+        step = _step_by_name(workflow, "Assert graph shape")
+        assert "scripts/smoke_assert.py ingest_result.json" in step["run"]
+
+    def test_degraded_status_is_not_retried(self, workflow):
+        """A completed_with_errors run finished; retrying buys a second
+        full LLM extraction pass for nothing."""
+        run = _step_by_name(workflow, "Ingest (with single retry)")["run"]
+        assert "completed_with_errors" in run
+
+    def test_degraded_status_result_still_reaches_the_assert_step(self, workflow):
+        run = _step_by_name(workflow, "Ingest (with single retry)")["run"]
+        degraded = run[run.index("completed_with_errors"):]
+        assert "cp \"ingest_result_$ATTEMPT.json\" ingest_result.json" in degraded
+
+    def test_status_probe_does_not_depend_on_jq(self, workflow):
+        """NIT-C: jq is not a declared dependency of this job; an absent
+        jq made the guard fail open into a second full LLM pass."""
+        run = _step_by_name(workflow, "Ingest (with single retry)")["run"]
+        probe = [ln for ln in run.splitlines() if "INGEST_STATUS=" in ln]
+        assert len(probe) == 1
+        assert "jq" not in probe[0]
+        assert "python -c" in probe[0]
+
+    def test_retry_ceiling_unchanged(self, workflow):
+        """AC-5's max-2 contract survives the I-58 amendment."""
+        run = _step_by_name(workflow, "Ingest (with single retry)")["run"]
+        assert "MAX=2" in run
+        assert "sleep 30" in run

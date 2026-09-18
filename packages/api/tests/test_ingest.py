@@ -321,3 +321,64 @@ class TestGetIngestionRunFromNeo4j:
             data = _get_ingestion_run_from_neo4j("t")
 
         assert data is None
+
+
+# =============================================================================
+# I-58: the degraded status must travel with its explanation
+# =============================================================================
+
+
+class TestCitationObservabilityInStatus:
+    """A client polling GET /ingest/{trace_id} and seeing
+    ``completed_with_errors`` must be able to learn WHY without reading
+    server logs."""
+
+    @staticmethod
+    def _degraded_node() -> dict:
+        return {
+            "status": "completed_with_errors",
+            "query": "rag",
+            "papers_found": 3,
+            "citation_attempted": 3,
+            "citation_succeeded": 1,
+            "citation_failed": 2,
+            "citation_edges_created": 19,
+            "citation_references_seen": 40,
+            "citation_references_with_doi": 35,
+            "citation_failures": '{"s2_lookup_failed": 2}',
+            "citation_failure_details": '{"10.1/a": "s2_lookup_failed: 429"}',
+            "extraction_errors": "{}",
+        }
+
+    def test_citation_counts_surface(self):
+        resp = _build_status_response(
+            "t", "completed", neo4j_data=self._degraded_node(),
+        )
+        assert resp.status == "completed_with_errors"
+        assert resp.citation_population_attempted == 3
+        assert resp.citation_population_succeeded == 1
+        assert resp.citation_population_failed == 2
+        assert resp.citation_edges_created == 19
+        assert resp.citation_references_seen == 40
+        assert resp.citation_references_with_doi == 35
+        assert resp.citation_failures == {"s2_lookup_failed": 2}
+        assert resp.citation_failure_details == {"10.1/a": "s2_lookup_failed: 429"}
+
+    def test_malformed_citation_json_degrades_to_empty(self):
+        node = self._degraded_node()
+        node["citation_failures"] = "not json{"
+        node["citation_failure_details"] = None
+        resp = _build_status_response("t", "completed", neo4j_data=node)
+        assert resp.citation_failures == {}
+        assert resp.citation_failure_details == {}
+        # The counts still survive a bad blob.
+        assert resp.citation_population_attempted == 3
+
+    def test_legacy_run_node_without_citation_fields(self):
+        """IngestionRun nodes written before I-58 must still respond."""
+        resp = _build_status_response(
+            "t", "completed",
+            neo4j_data={"status": "completed", "extraction_errors": "{}"},
+        )
+        assert resp.citation_population_attempted == 0
+        assert resp.citation_failures == {}

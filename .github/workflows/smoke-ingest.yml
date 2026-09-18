@@ -112,6 +112,21 @@ jobs:
               cp "ingest_result_$ATTEMPT.json" ingest_result.json
               exit 0
             fi
+            # I-58 R4: the CLI exits non-zero for status=completed_with_errors
+            # (citation measurement incomplete). That is a run that DID
+            # finish, so retrying burns a second full LLM extraction pass on
+            # a condition a 30s sleep cannot clear. Hand it to the assert
+            # step, which is the gate and which reports WHICH failure it was.
+            # NIT-C: read the status with python, not jq. jq is not a
+            # documented dependency of this job, and an absent jq made this
+            # guard fail OPEN into a second full LLM extraction pass.
+            # python is guaranteed present (the Set up Python step above).
+            INGEST_STATUS=$(python -c 'import json,sys;print(json.load(open(sys.argv[1])).get("status",""))' "ingest_result_$ATTEMPT.json" 2>/dev/null || echo "")
+            if [ "$INGEST_STATUS" = "completed_with_errors" ]; then
+              echo "::warning::Ingest completed with errors (citation measurement incomplete); not retrying — smoke_assert will report"
+              cp "ingest_result_$ATTEMPT.json" ingest_result.json
+              exit 0
+            fi
             if [ $ATTEMPT -lt $MAX ]; then
               echo "::warning::Ingest attempt $ATTEMPT failed; sleeping 30s before retry"
               sleep 30
@@ -123,6 +138,9 @@ jobs:
           exit 1
 
       - name: Assert graph shape
+        # I-58 R4 (MAJOR-4): runs even when the ingest step failed, so the
+        # citation coverage/evidence report is never lost to a skipped step.
+        if: always()
         run: python scripts/smoke_assert.py ingest_result.json
 
       - name: Upload artifact

@@ -1,6 +1,9 @@
 # Feature: CI Smoke Test — Ingestion
 
 **Status:** VERIFIED
+**Amended:** 2026-09-18 — see "Amendment I-58" below (citation observability;
+AC-5 / AC-6 / AC-7 revised). Revised again the same day after review pass 2
+(the `no_s2_id` / HTTP 404 wiring).
 **Date:** 2026-06-25
 **Implementation Date:** 2026-06-30
 **Verification Date:** 2026-07-02
@@ -523,22 +526,26 @@ if __name__ == "__main__":
 - **And** if the second invocation exits 0, the workflow's step exits 0 (using `ingest_result_2.json` copied to `ingest_result.json`)
 - **And** if the second invocation also exits non-zero, the step exits 1 (with `::error::Ingest failed on both attempts` in the log)
 - **And** the step DOES NOT retry more than once (max 2 attempts total)
+- **And** (I-58) if a non-zero exit carries `status == "completed_with_errors"` in its result JSON, the step does NOT retry: that run finished, and a retry would buy a second full LLM extraction pass for a condition a 30s sleep cannot clear. The step copies the result to `ingest_result.json` and exits 0, handing judgement to `Assert graph shape`, which is the gate.
 
 ### AC-6: Standard-strictness assertions
 - **Given** `scripts/smoke_assert.py ingest_result.json` runs against a populated Neo4j
 - **When** the script's Cypher query returns 6 counts
 - **Then** the script asserts: papers ≥ 1; BELONGS_TO topic edges ≥ 1; ResearchConcept nodes ≥ 1; (Model nodes + Method nodes) ≥ 1; CITES edges ≥ 1; Papers with non-null `taxonomy_hash` ≥ 1
-- **And** the script exits 0 when all 6 checks pass
+- **And** (I-58) it asserts a **7th** check, `citation coverage complete`, sourced from the result JSON rather than Cypher — see Amendment I-58
+- **And** the script exits 0 when all 7 checks pass
 - **And** the script exits 1 when any check fails
 - **And** the script prints a `PASS:`/`FAIL:` table to stdout with per-check breakdown
 - **And** the script prints the raw counts (e.g., `papers=3, topic_edges=5, ...`) for diagnosis
 
 ### AC-7: IngestionResult status check precedes Cypher
-- **Given** `ingest_result.json` carries `status != "completed"`
+- **Given** `ingest_result.json` carries a status outside `{"completed", "completed_with_errors"}` *(I-58 widened this set; see Amendment I-58)*
 - **When** the assertion script runs
 - **Then** the script exits 1 BEFORE running the Cypher query
 - **And** the script prints `FAIL: ingest_papers status=...`
 - **And** if `extraction_errors` is present in the JSON, the script prints them too
+- **And** (I-58) `status == "completed_with_errors"` proceeds to the Cypher checks — a degraded run still wrote papers/topics/concepts, and early-exiting would suppress the very report that says which failure occurred
+- **And** (I-58, fail-closed) `status == "completed_with_errors"` **without** the `citation_*` fields is *unattributable*: both `CITES edges >= 1` and `citation coverage complete` fail, so widening the status set cannot become a hole
 
 ### AC-8: Missing or unparseable result JSON
 - **Given** `ingest_result.json` is missing OR contains invalid JSON
@@ -643,3 +650,63 @@ Dual-persona review (3 Tech Lead + 3 QA):
 - **QA Q1 — Failure-mode artifact richness.** Decision: **option (a)** — `ingest_result.json` only. `IngestionResult.extraction_errors` dict + the assertion script's raw-count output + the GHA step logs cover common debug paths. A graph-dump artifact (option b) is heavier than the spec's smoke-test scope warrants; per-paper breakdown (option c) could be added later if real failures show the current diagnostic is too coarse.
 - **QA Q2 — Local reproduction.** Decision: **option (a)** — add a `make smoke-local` Makefile target that mirrors the CI workflow line-for-line. AC-15 codifies the contract. Matches the existing `make smoke-test` reference in CLAUDE.md.
 - **QA Q3 — Cron-failure alerting.** Decision: **option (a)** — accept GHA defaults; no extra alerting. Daily cron failures email the last committer + show as red in the Actions tab. Slack webhook (option c) or auto-issue (option b) adds infra; for an informational smoke (TL Q3), not worth the cost.
+
+
+---
+
+## Amendment I-58 — citation observability (2026-09-18)
+
+**Driver:** issue #58, PR #70 (branch `fix/issue-58-citation-observability`), R4 adversarial review.
+**Supersedes:** AC-5 (retry), AC-6 (check count), AC-7 (status pre-check) as marked inline above.
+
+### Why
+
+`ImportResult.citation_population` was written by `PaperImporter.import_paper` and read by nothing. `ingest_papers` set `status = "completed"` unconditionally. Two observed production runs (2026-09-10, 2026-09-16) had **100% citation-population failure and still reported `completed`**; the only thing that noticed was `CITES edges >= 1`, a binary check that could not say whether Semantic Scholar had been unreachable or the citation graph had regressed.
+
+The governing rule for this program — *use honest nulls; never turn "not measured" into zero* — has a corollary the smoke gate must obey: **never turn "not measured" into "pass."**
+
+### New ingest-result fields (serialized by `--json`)
+
+`citation_population_attempted` / `_succeeded` / `_failed`, `citation_edges_created`, `citation_stubs_created`, `citation_references_seen`, `citation_references_with_doi`, `citation_references_no_doi`, `citation_edge_errors`, `citation_failures` (reason → count), `citation_failure_details` (DOI → message, capped at 25 entries × 200 chars).
+
+Failure reasons: `s2_lookup_failed`, `s2_fetch_failed`, `populate_raised` (**infrastructure** — Semantic Scholar unreachable) vs `no_s2_id` (**corpus gap** — S2 answered and has no record of the paper).
+
+**How the corpus gap is actually detected (review pass 2).** "Semantic Scholar has no record of this paper" *is* an HTTP 404, raised as `data_acquisition.exceptions.NotFoundError` at `base.py:158-163`. The first cut caught it under a blanket `except Exception` that set `lookup_failed=True`, so the very case the `no_s2_id` carve-out exists to tolerate was classified as infrastructure failure — the gate went permanently red on it and reported SEMANTIC SCHOLAR UNREACHABLE about a service that had answered correctly. `populate_citations` now catches `NotFoundError` separately and sets `skipped_no_s2_id` **without** `lookup_failed`. 429 / 5xx / breaker-open still land in `s2_lookup_failed`, so the carve-out is not a hole.
+
+Relatedly, `SemanticScholarClient` no longer records a **circuit-breaker failure** on a 404 (it records a success — the service answered). Counting 404s as breaker failures let a handful of unknown papers trip the breaker and cascade into genuine-looking infrastructure failures for the rest of the batch.
+
+### Status semantics
+
+| condition | status |
+|---|---|
+| citation population never attempted | `completed` |
+| attempted, ≥1 succeeded, **no** infrastructure failures | `completed` |
+| any infrastructure failure | `completed_with_errors` |
+| attempted and **zero** succeeded | `completed_with_errors` |
+| the run raised | `failed` (unchanged) |
+
+`completed_with_errors` means *the ingest finished, but a sub-phase could not be measured*. It is deliberately not `failed`: the import succeeded, and `PaperImporter`'s never-raises isolation around `populate_citations` is correct and is preserved.
+
+**No ratio threshold.** Any ratio would be arbitrary. The rule asks a crisp question instead — *did the infrastructure work for every paper we asked about?* — which also answers the 1-of-50 objection: 49 unreachable papers is red. Corpus gaps (`no_s2_id`) are excluded deliberately; gating on them would make the signal permanently red for a reason nobody can fix.
+
+Consumers: `cli.py` exits 1 on `completed_with_errors`; `job_runner._determine_exit_code` returns 1 (its existing "partial" code); the API surfaces the counts on `IngestStatusResponse` so a client polling `GET /ingest/{trace_id}` can see *why*.
+
+### Coverage and evidence are separate verdicts
+
+`smoke_assert.py` prints two independent lines, **always — on pass and on fail**:
+
+- **COVERAGE** — how much of the corpus was measured: `UNATTRIBUTABLE` / `UNKNOWN` / `NOT ATTEMPTED` / `NONE (… SEMANTIC SCHOLAR UNREACHABLE | NO SEMANTIC SCHOLAR RECORD)` / `PARTIAL` / `COMPLETE`.
+- **EVIDENCE** — what the measured subset said: `NONE` / `UNKNOWN` / `NO REFERENCES AT SOURCE` / `NO DOI-BEARING REFERENCES` / `ALREADY LINKED` / `REGRESSION` / `N CITES edge(s) written`.
+
+`ALREADY LINKED` covers the idempotent re-run: `link_paper_cites_paper` returns False for an edge that already exists, so a second pass over a populated graph resolves references and writes nothing. `citation_edges_existing` records those, and `REGRESSION` is claimed only when **nothing** was already present.
+
+`REGRESSION` is claimed **only** when DOI-bearing references were resolved and no edge was written. `citation_graph` drops DOI-less references by design, so they can never be evidence of a linker fault; and zero references from a succeeded attempt is absence at the source. Keeping the two verdicts separate is what stops a throttled run being labelled "not a throttling artifact".
+
+### Gate
+
+- `CITES edges >= 1` — additionally fails when the count is unattributable (nothing measured, or a degraded status with no evidence), even if the graph holds CITES edges from an earlier write.
+- `citation coverage complete` — the new 7th check; fails on any infrastructure failure, on "nothing measured", and on an unattributable degraded status.
+
+A result JSON that predates these fields keeps the original count-only behaviour, so old artifacts are not retroactively red — and the resulting `PASS: citation coverage complete` is annotated `(not evaluated — … passed for backward compatibility)` rather than presented as a verified claim.
+
+The retry guard in the workflow reads the result status with `python -c`, not `jq`: `jq` is not a declared dependency of that job, and an absent `jq` made the guard fail **open** into a second full LLM extraction pass.

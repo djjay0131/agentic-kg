@@ -366,7 +366,14 @@ class IngestStatusResponse(BaseModel):
     """Response for ingestion status (both queued and complete)."""
 
     trace_id: str
-    status: str = Field(description="queued|running|completed|failed|dry_run")
+    status: str = Field(
+        description=(
+            "queued|running|completed|completed_with_errors|failed|dry_run. "
+            "I-58: 'completed_with_errors' means the run finished but its "
+            "citation measurement is incomplete — see the citation_* fields "
+            "below for which papers could not be measured and why."
+        )
+    )
     query: str = ""
 
     # Counts (populated as phases complete)
@@ -380,6 +387,18 @@ class IngestStatusResponse(BaseModel):
 
     # Dry run
     dry_run_papers: list[dict] = Field(default_factory=list)
+
+    # I-58: citation-population observability. Without these, a client
+    # polling this endpoint sees status="completed_with_errors" and has no
+    # way to learn why.
+    citation_population_attempted: int = 0
+    citation_population_succeeded: int = 0
+    citation_population_failed: int = 0
+    citation_edges_created: int = 0
+    citation_references_seen: int = 0
+    citation_references_with_doi: int = 0
+    citation_failures: dict[str, int] = Field(default_factory=dict)
+    citation_failure_details: dict[str, str] = Field(default_factory=dict)
 
     # Errors
     extraction_errors: dict[str, str] = Field(default_factory=dict)

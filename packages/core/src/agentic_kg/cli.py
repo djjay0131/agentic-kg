@@ -800,6 +800,37 @@ def print_ingestion_result(result, as_json: bool = False) -> None:
             print(f"    Extraction errors:    {len(result.extraction_errors)}")
             for doi, err in result.extraction_errors.items():
                 print(f"      {doi}: {err}")
+        # I-58: citation population reports itself. A run where every
+        # attempt failed must not look like a run with no citations.
+        if result.citation_population_attempted:
+            print("\n  Phase 1c - Citations:")
+            print(f"    Attempted:  {result.citation_population_attempted}")
+            print(f"    Succeeded:  {result.citation_population_succeeded}")
+            print(f"    Failed:     {result.citation_population_failed}")
+            print(f"    CITES edges written: {result.citation_edges_created}")
+            if result.citation_failures:
+                reasons = ", ".join(
+                    f"{k}={v}" for k, v in sorted(result.citation_failures.items())
+                )
+                print(f"    Failure reasons: {reasons}")
+            print(f"    References seen:     {result.citation_references_seen}")
+            print(
+                "    References with DOI: "
+                f"{result.citation_references_with_doi}"
+            )
+            if result.citation_population_succeeded == 0:
+                print(
+                    "    !! NOT MEASURED: citation population failed for "
+                    "every paper. Zero CITES edges is not evidence that "
+                    "these papers cite nothing."
+                )
+            elif result.citation_population_failed:
+                print(
+                    "    !! PARTIAL COVERAGE: "
+                    f"{result.citation_population_failed} paper(s) were not "
+                    "measured; the counts above cover only "
+                    f"{result.citation_population_succeeded} paper(s)."
+                )
         print("\n  Phase 3 - Integration:")
         print(f"    Total problems:    {result.total_problems}")
         print(f"    Concepts created:  {result.concepts_created}")
@@ -905,7 +936,11 @@ async def run_ingest(args) -> None:
     )
 
     print_ingestion_result(result, as_json=args.json_output)
-    if result.status == "failed":
+    # I-58 R4 (MAJOR-4): a run that prints "NOT MEASURED" must not also
+    # report success to its shell. The smoke workflow recognizes this
+    # status and skips its retry rather than burning a second LLM pass;
+    # its `Assert graph shape` step runs with `if: always()`.
+    if result.status in ("failed", "completed_with_errors"):
         sys.exit(1)
 
 

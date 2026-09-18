@@ -20,7 +20,7 @@ from agentic_kg.data_acquisition.config import (
     SemanticScholarConfig,
     get_data_acquisition_config,
 )
-from agentic_kg.data_acquisition.exceptions import RateLimitError
+from agentic_kg.data_acquisition.exceptions import NotFoundError, RateLimitError
 from agentic_kg.data_acquisition.rate_limiter import (
     TokenBucketRateLimiter,
     get_rate_limiter_registry,
@@ -173,6 +173,14 @@ class SemanticScholarClient(BaseAPIClient):
 
             return result
 
+        except NotFoundError:
+            # I-58 R5: a 404 means Semantic Scholar answered — it simply has
+            # no record of this identifier. Counting it as a breaker failure
+            # let a handful of papers S2 does not know about trip the
+            # breaker and cascade into genuine-looking infrastructure
+            # failures for the rest of the batch.
+            await self._circuit_breaker.record_success()
+            raise
         except Exception:
             await self._circuit_breaker.record_failure()
             raise
@@ -547,6 +555,10 @@ class SemanticScholarClient(BaseAPIClient):
 
             return result
 
+        except NotFoundError:
+            # See _make_request: a 404 is an answer, not an outage.
+            await self._circuit_breaker.record_success()
+            raise
         except Exception:
             await self._circuit_breaker.record_failure()
             raise

@@ -176,6 +176,13 @@ def _build_status_response(
         except (json.JSONDecodeError, TypeError):
             extraction_errors = {}
 
+        def _json_field(key: str) -> dict:
+            try:
+                loaded = json.loads(neo4j_data.get(key, "{}"))
+            except (json.JSONDecodeError, TypeError):
+                return {}
+            return loaded if isinstance(loaded, dict) else {}
+
         return IngestStatusResponse(
             trace_id=trace_id,
             status=neo4j_data.get("status", status),
@@ -188,6 +195,17 @@ def _build_status_response(
             concepts_created=neo4j_data.get("concepts_created", 0),
             concepts_linked=neo4j_data.get("concepts_linked", 0),
             extraction_errors=extraction_errors,
+            # I-58: the degraded status travels with its explanation.
+            citation_population_attempted=neo4j_data.get("citation_attempted", 0),
+            citation_population_succeeded=neo4j_data.get("citation_succeeded", 0),
+            citation_population_failed=neo4j_data.get("citation_failed", 0),
+            citation_edges_created=neo4j_data.get("citation_edges_created", 0),
+            citation_references_seen=neo4j_data.get("citation_references_seen", 0),
+            citation_references_with_doi=neo4j_data.get(
+                "citation_references_with_doi", 0
+            ),
+            citation_failures=_json_field("citation_failures"),
+            citation_failure_details=_json_field("citation_failure_details"),
             error=error,
         )
 
