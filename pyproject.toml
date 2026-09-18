@@ -21,6 +21,22 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Kept byte-identical to the `migration` extra in packages/core/pyproject.toml.
+# This distribution ships the same agentic_kg package (see
+# [tool.hatch.build.targets.wheel] below), so both install paths must be able
+# to opt in to the same pins. Re-pin both together.
+#
+# OPT-IN: not installed by default, so today's install and CI are unaffected.
+# Exact commit SHAs, not version specifiers — neither repo is on PyPI,
+# agentic-kgis has zero tags, and its version sat at 0.2.0 for 122 commits.
+migration = [
+    # agentic-kgis PR #39 merge commit (fixed `import kgis` failing without
+    # pytest). Ships kg_contracts, kgis, kg_eval.
+    "agentic-kgis @ git+https://github.com/djjay0131/agentic-kgis@baf0b67e34bd2e7921b5da4492860f741d165464",
+    # agentic-kgcs v1.0.0. >>> RE-PIN POINT <<< bump this single SHA once
+    # djjay0131/agentic-kgcs#30 (identity-strength fix) merges.
+    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@609270e700b6e9b94f5ed0f762ebc1a07a6bce95",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio",
@@ -32,6 +48,11 @@ dev = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+# Required for the `migration` extra — hatchling rejects PEP 508 direct
+# references (`name @ git+https://...`) at metadata time unless this is set.
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["packages/core/src/agentic_kg"]
