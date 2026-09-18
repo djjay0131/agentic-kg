@@ -291,9 +291,37 @@ technical content from every extractor's input.
 
 ### 6. Unbounded section length reaches the LLM call
 
-Independent of the above: 244,748 chars would be sent as a single extractor
+Independent of the above: 244,742 chars would be sent as a single extractor
 prompt. There is no length guard between `_build_extractor_section_text` and
 the extractor calls, only `MIN_USABLE_CHARS = 250` on the lower end.
+
+*(Figure corrected 2026-09-18: the committed baseline records **244,742**, not
+244,748. Re-measured from `scripts/seg_baseline.json`.)*
+
+> **FIXED — SEG-6, 2026-09-18.** `MAX_EXTRACTOR_CHARS = 120_000` in
+> `_build_extractor_section_text`, cutting at the last paragraph boundary at or
+> before the cap, else the last word boundary, else a hard slice — every step a
+> pure function of the input, so the result is byte-stable. Truncation logs a
+> WARNING naming the paper, the original size, the cap and the characters
+> dropped.
+>
+> **The number is 34.2× that paper's hand-verified gold** (244,742 vs 7,152),
+> and 4.9× the next largest paper in the set. The cap is 2.4× the largest
+> *correctly* segmented extractor input in the corpus (49,511,
+> `hypothesis_generation`), so it cannot fire on a healthy paper — asserted
+> against `scripts/seg_baseline.json` and against every frozen committed-corpus
+> fixture, none of which changed.
+>
+> **What this does not fix.** The survey is oversized because causes (5) and
+> (8) let `introduction` run for 94 pages. SEG-6 bounds the blast radius and
+> makes the event loud; the cause stays with SEG-5 / SEG-11, and whether the
+> paper belongs in the set at all stays with SEG-10.
+>
+> **Why it matters beyond cost.** Two arms of a legacy-vs-new comparison can be
+> fed inputs differing by 30× with no signal that anything is wrong: the
+> oversized arm is scored on a haystack, the other on a needle, and the
+> difference is attributed to the extractor. An input with no upper bound is
+> not a reproducible experimental condition.
 
 ### 7. The four-section keep-list loses content even when boundaries are perfect
 

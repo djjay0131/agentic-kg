@@ -18,9 +18,9 @@ import logging
 
 import pytest
 from agentic_kg.extraction.section_segmenter import (
+    _LETTER_SPACED,
     SectionSegmenter,
     SectionType,
-    _LETTER_SPACED,
     _match_run_in,
 )
 
