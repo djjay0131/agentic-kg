@@ -43,7 +43,25 @@ class CitationPopulationResult:
     # from "Semantic Scholar answered and has no record of this paper",
     # which ``skipped_no_s2_id`` alone conflates.
     lookup_failed: bool = False
+    # I-58 R4: True when populate_citations itself (or client construction)
+    # raised and the caller absorbed it. Distinct from "never ran".
+    populate_raised: bool = False
+    # I-58 R4 (MAJOR-2 root cause): how many reference entries Semantic
+    # Scholar actually returned. Without this, "S2 returned nothing",
+    # "S2 returned 40 refs that all lack a DOI" and "the linker is broken"
+    # are indistinguishable — the same conflation as #58, one level down.
+    references_seen: int = 0
     errors: list[str] = field(default_factory=list)
+
+    @property
+    def references_with_doi(self) -> int:
+        """Reference entries that carried a DOI and were therefore linkable.
+
+        ``skipped_no_doi`` entries are dropped by design (spec Q4), so they
+        can never become CITES edges and must not count as evidence that
+        the linker failed.
+        """
+        return max(0, self.references_seen - self.skipped_no_doi)
 
 
 # I-58 outcome vocabulary. ``succeeded`` means the reference list was
@@ -53,6 +71,7 @@ CITATION_OUTCOME_SUCCEEDED = "succeeded"
 CITATION_OUTCOME_LOOKUP_FAILED = "s2_lookup_failed"
 CITATION_OUTCOME_FETCH_FAILED = "s2_fetch_failed"
 CITATION_OUTCOME_NO_S2_ID = "no_s2_id"
+CITATION_OUTCOME_POPULATE_RAISED = "populate_raised"
 CITATION_OUTCOME_NOT_ATTEMPTED = "not_attempted"
 
 # Outcomes caused by Semantic Scholar being unreachable (as opposed to
@@ -61,6 +80,7 @@ CITATION_OUTCOME_NOT_ATTEMPTED = "not_attempted"
 CITATION_INFRASTRUCTURE_OUTCOMES = frozenset({
     CITATION_OUTCOME_LOOKUP_FAILED,
     CITATION_OUTCOME_FETCH_FAILED,
+    CITATION_OUTCOME_POPULATE_RAISED,
 })
 
 
@@ -76,6 +96,8 @@ def classify_citation_population(result: Optional["CitationPopulationResult"]) -
     """
     if result is None:
         return CITATION_OUTCOME_NOT_ATTEMPTED
+    if getattr(result, "populate_raised", False):
+        return CITATION_OUTCOME_POPULATE_RAISED
     if getattr(result, "fetch_failed", False):
         return CITATION_OUTCOME_FETCH_FAILED
     if getattr(result, "lookup_failed", False):
@@ -164,6 +186,7 @@ async def populate_citations(
 
     # 3. For each reference, create-or-promote a stub + link CITES.
     references = (response or {}).get("data") or []
+    result.references_seen = len(references)
     for ref in references:
         cited = (ref or {}).get("citedPaper") or {}
         ref_doi = _extract_doi(cited.get("externalIds"))
@@ -204,9 +227,10 @@ async def populate_citations(
             result.errors.append(f"link_failed[{ref_doi}]: {e}")
 
     logger.info(
-        "Citation populate complete for %s: stubs=%d, edges=%d, "
-        "skipped_no_doi=%d, errors=%d",
+        "Citation populate complete for %s: refs_seen=%d, stubs=%d, "
+        "edges=%d, skipped_no_doi=%d, errors=%d",
         paper_doi,
+        result.references_seen,
         result.stubs_created,
         result.edges_created,
         result.skipped_no_doi,

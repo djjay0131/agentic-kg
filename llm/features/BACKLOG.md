@@ -1,6 +1,6 @@
 # Feature Catalog — Master Index
 
-Last updated: 2026-09-08
+Last updated: 2026-09-18
 
 Single source of truth for every feature ever spec'd in this project — one line per feature plus a link to the full spec. Backlog items (unbuilt) live in the second half.
 
@@ -35,7 +35,7 @@ Every spec that has reached SPECIFIED or beyond. Newest first within each theme.
 |---|---------|--------|-----------|
 | D-1 | [Ingest real papers into KG](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/d1-ingest-real-papers.md) | VERIFIED | End-to-end ingestion CLI: search → import metadata → extract Problems → integrate. |
 | D-1a | [Cloud Run Jobs async ingestion](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/cloud-run-jobs-ingestion.md) | VERIFIED | Terraform-managed Cloud Run Job for durable async ingestion; env-var driven, no in-memory job store. |
-| — | [CI smoke test (ingestion loop)](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/ci-smoke-test-ingestion.md) | VERIFIED | GHA workflow — daily cron + PR path-filter + `workflow_dispatch` — asserts entity edges land in ephemeral Neo4j. |
+| — | [CI smoke test (ingestion loop)](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/ci-smoke-test-ingestion.md) | VERIFIED | GHA workflow — daily cron + PR path-filter + `workflow_dispatch` — asserts entity edges land in ephemeral Neo4j. **Amended 2026-09-18 (I-58):** AC-5/AC-6/AC-7 revised for citation observability — 7th check `citation coverage complete`, `completed_with_errors` status, coverage-vs-evidence report. |
 | — | [Deploy pipeline fix + version pinning](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/deploy-pipeline-fix.md) | IMPLEMENTED (PR-1) | PR-1 DONE 2026-07-14: Deploy Master first green in repo history, ingest-Job deploy step, `/version`, SHA-parity (AC-6) verified. Remaining: PR-2 (TF lifecycle + AC-8 lint), PR-3 (version pinning). |
 | SM-1 | [PDF Acquisition Reliability](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/content-acquisition-resilience.md) | VERIFIED | Published/`openAccessPdf` source first, arXiv PDF fallback; no abstract fallback — a paper with no usable full text fails loudly, categorized by reason. |
 

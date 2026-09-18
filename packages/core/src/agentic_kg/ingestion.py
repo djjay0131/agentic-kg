@@ -27,6 +27,9 @@ from agentic_kg.extraction.pipeline import (
     get_pipeline,
 )
 from agentic_kg.extraction.re_ingestion import PurgeBlocked, purge_paper_extraction
+from agentic_kg.knowledge_graph.citation_graph import (
+    CITATION_INFRASTRUCTURE_OUTCOMES,
+)
 from agentic_kg.knowledge_graph.repository import get_repository
 
 logger = logging.getLogger(__name__)
@@ -124,6 +127,32 @@ class IngestionResult(BaseModel):
     )
     citation_stubs_created: int = Field(
         0, description="Stub Paper nodes created for resolved references."
+    )
+    citation_references_seen: int = Field(
+        0,
+        description=(
+            "Reference entries Semantic Scholar returned across the SUCCEEDED "
+            "attempts. Zero here means S2 had no reference data — genuine "
+            "absence, not a linker fault."
+        ),
+    )
+    citation_references_with_doi: int = Field(
+        0,
+        description=(
+            "Of those, the entries carrying a DOI (the only linkable ones). "
+            "references_with_doi > 0 with citation_edges_created == 0 is the "
+            "ONLY shape that indicates a citation-graph regression."
+        ),
+    )
+    citation_references_no_doi: int = Field(
+        0, description="Reference entries dropped for lacking a DOI (by design)."
+    )
+    citation_edge_errors: int = Field(
+        0,
+        description=(
+            "Per-reference stub/link errors on otherwise-successful attempts. "
+            "Counted, not treated as an attempt failure."
+        ),
     )
     citation_failures: dict[str, int] = Field(
         default_factory=dict,
@@ -239,6 +268,34 @@ def citations_unmeasured(result: "IngestionResult") -> bool:
         result.citation_population_attempted > 0
         and result.citation_population_succeeded == 0
     )
+
+
+def citation_infrastructure_failures(result: "IngestionResult") -> int:
+    """Attempts that failed because Semantic Scholar could not be reached.
+
+    Excludes ``no_s2_id``: S2 answered and simply has no record of the
+    paper. That is a property of the corpus, not of this run's health,
+    and gating on it would make the signal permanently red for a reason
+    nobody can fix.
+    """
+    return sum(
+        count
+        for reason, count in result.citation_failures.items()
+        if reason in CITATION_INFRASTRUCTURE_OUTCOMES
+    )
+
+
+def citations_degraded(result: "IngestionResult") -> bool:
+    """True when this run's citation measurement is not trustworthy.
+
+    R4 MAJOR-3: the first cut only degraded when NOTHING was measured,
+    which made 1-of-50 papers succeeding an unconditional all-clear.
+    There is no defensible ratio threshold, so the rule is threshold-free
+    instead: did the infrastructure work for every paper we asked about?
+    Any infrastructure failure means part of the corpus is unmeasured and
+    the run is not fully healthy.
+    """
+    return citations_unmeasured(result) or citation_infrastructure_failures(result) > 0
 
 
 def _int_field(obj: Any, name: str) -> int:
@@ -701,6 +758,18 @@ async def ingest_papers(
         result.citation_stubs_created = _int_field(
             import_batch, "citation_stubs_created"
         )
+        result.citation_references_seen = _int_field(
+            import_batch, "citation_references_seen"
+        )
+        result.citation_references_with_doi = _int_field(
+            import_batch, "citation_references_with_doi"
+        )
+        result.citation_references_no_doi = _int_field(
+            import_batch, "citation_references_no_doi"
+        )
+        result.citation_edge_errors = _int_field(
+            import_batch, "citation_edge_errors"
+        )
         result.citation_failures = _dict_field(import_batch, "citation_failures")
         result.citation_failure_details = _dict_field(
             import_batch, "citation_failure_details"
@@ -1014,7 +1083,7 @@ async def ingest_papers(
         # genuinely measured.
         result.status = (
             STATUS_COMPLETED_WITH_ERRORS
-            if citations_unmeasured(result)
+            if citations_degraded(result)
             else STATUS_COMPLETED
         )
 
@@ -1042,13 +1111,15 @@ async def ingest_papers(
         # measure citations" never has to be inferred from cites=0.
         logger.info(
             "[%s] Citation summary: attempted=%d succeeded=%d failed=%d "
-            "edges=%d stubs=%d reasons=%s",
+            "edges=%d stubs=%d refs_seen=%d refs_with_doi=%d reasons=%s",
             trace_id,
             result.citation_population_attempted,
             result.citation_population_succeeded,
             result.citation_population_failed,
             result.citation_edges_created,
             result.citation_stubs_created,
+            result.citation_references_seen,
+            result.citation_references_with_doi,
             dict(sorted(result.citation_failures.items())) or "{}",
         )
         if citations_unmeasured(result):
@@ -1059,6 +1130,17 @@ async def ingest_papers(
                 trace_id,
                 result.citation_population_attempted,
                 dict(sorted(result.citation_failures.items())) or "{}",
+                result.status,
+            )
+        elif citations_degraded(result):
+            logger.error(
+                "[%s] Citation population could not reach Semantic Scholar "
+                "for %d of %d attempted paper(s) — citation coverage is "
+                "PARTIAL and this run's citation counts are incomplete; "
+                "status=%s",
+                trace_id,
+                citation_infrastructure_failures(result),
+                result.citation_population_attempted,
                 result.status,
             )
 

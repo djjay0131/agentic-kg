@@ -107,7 +107,14 @@ def persist_ingestion_run(trace_id: str, query: str, result, started_at: datetim
                     "citation_succeeded": result.citation_population_succeeded,
                     "citation_failed": result.citation_population_failed,
                     "citation_edges_created": result.citation_edges_created,
+                    "citation_references_seen": result.citation_references_seen,
+                    "citation_references_with_doi": (
+                        result.citation_references_with_doi
+                    ),
                     "citation_failures": json.dumps(result.citation_failures),
+                    "citation_failure_details": json.dumps(
+                        result.citation_failure_details
+                    ),
                     "started_at": started_at.isoformat(),
                     "completed_at": completed_at.isoformat(),
                 },
