@@ -125,6 +125,14 @@ class IngestionResult(BaseModel):
     citation_edges_created: int = Field(
         0, description="CITES edges written during this run."
     )
+    citation_edges_existing: int = Field(
+        0,
+        description=(
+            "CITES edges that were already present (link is idempotent). "
+            "Non-zero with citation_edges_created == 0 means a re-run over "
+            "an already-populated graph, NOT a regression."
+        ),
+    )
     citation_stubs_created: int = Field(
         0, description="Stub Paper nodes created for resolved references."
     )
@@ -754,6 +762,9 @@ async def ingest_papers(
         )
         result.citation_edges_created = _int_field(
             import_batch, "citation_edges_created"
+        )
+        result.citation_edges_existing = _int_field(
+            import_batch, "citation_edges_existing"
         )
         result.citation_stubs_created = _int_field(
             import_batch, "citation_stubs_created"

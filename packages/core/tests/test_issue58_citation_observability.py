@@ -19,6 +19,12 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from agentic_kg.data_acquisition.exceptions import (
+    NotFoundError as SourceNotFoundError,
+)
+from agentic_kg.data_acquisition.exceptions import (
+    RateLimitError,
+)
 from agentic_kg.data_acquisition.importer import (
     BatchImportResult,
     ImportResult,
@@ -153,6 +159,151 @@ class TestClassify:
     def test_no_s2_id_is_distinct_from_unreachable(self):
         """S2 was reachable and simply has no record — a data gap, not an outage."""
         assert classify_citation_population(_no_s2_id()) == CITATION_OUTCOME_NO_S2_ID
+
+
+class TestNoRecordIsNotAnOutage:
+    """R5 MAJOR: "S2 has no record of this paper" IS an HTTP 404.
+
+    ``base.py`` raises ``NotFoundError`` for a 404, and the blanket
+    ``except Exception`` used to set ``lookup_failed=True`` for it. That
+    classified the corpus gap the ``no_s2_id`` carve-out exists to
+    tolerate as an infrastructure failure — turning the smoke gate
+    permanently red on exactly that case and reporting SEMANTIC SCHOLAR
+    UNREACHABLE about a service that had answered correctly.
+    """
+
+    @pytest.mark.asyncio
+    async def test_404_is_no_s2_id_not_lookup_failed(self):
+        s2 = MagicMock()
+        s2.get_paper_by_doi = AsyncMock(
+            side_effect=SourceNotFoundError(
+                resource_type="paper", identifier="10.1/a",
+                source="semantic_scholar",
+            )
+        )
+        res = await populate_citations(
+            repo=MagicMock(), s2_client=s2, paper_doi="10.1/a",
+        )
+        assert res.skipped_no_s2_id is True
+        assert res.lookup_failed is False
+        assert classify_citation_population(res) == CITATION_OUTCOME_NO_S2_ID
+
+    @pytest.mark.asyncio
+    async def test_404_does_not_degrade_the_run(self):
+        """End to end: an unknown paper must not make the run degraded."""
+        result = await _ingest_with(_batch(
+            citation_attempted=3, citation_succeeded=2, citation_failed=1,
+            citation_edges_created=19,
+            citation_failures={"no_s2_id": 1},
+        ))
+        assert result.status == STATUS_COMPLETED
+        assert citation_infrastructure_failures(result) == 0
+
+    @pytest.mark.asyncio
+    async def test_429_is_still_infrastructure(self):
+        """The carve-out must not become a hole for real outages."""
+        s2 = MagicMock()
+        s2.get_paper_by_doi = AsyncMock(
+            side_effect=RateLimitError(source="semantic_scholar")
+        )
+        res = await populate_citations(
+            repo=MagicMock(), s2_client=s2, paper_doi="10.1/a",
+        )
+        assert res.lookup_failed is True
+        assert classify_citation_population(res) == CITATION_OUTCOME_LOOKUP_FAILED
+
+    @pytest.mark.asyncio
+    async def test_generic_api_error_is_still_infrastructure(self):
+        s2 = MagicMock()
+        s2.get_paper_by_doi = AsyncMock(side_effect=RuntimeError("500"))
+        res = await populate_citations(
+            repo=MagicMock(), s2_client=s2, paper_doi="10.1/a",
+        )
+        assert res.lookup_failed is True
+
+
+class TestCircuitBreakerNotTrippedBy404:
+    """R5 aggravator: a handful of papers S2 does not know about must not
+    trip the breaker and cascade into genuine-looking outages."""
+
+    @pytest.mark.asyncio
+    async def test_not_found_records_success_not_failure(self):
+        from agentic_kg.data_acquisition.semantic_scholar import (
+            SemanticScholarClient,
+        )
+
+        client = SemanticScholarClient()
+        breaker = MagicMock()
+        breaker.check = AsyncMock()
+        breaker.record_success = AsyncMock()
+        breaker.record_failure = AsyncMock()
+        client._circuit_breaker = breaker
+
+        with patch(
+            "agentic_kg.data_acquisition.semantic_scholar.retry_with_backoff",
+            AsyncMock(side_effect=SourceNotFoundError(
+                resource_type="paper", identifier="10.1/a",
+                source="semantic_scholar",
+            )),
+        ):
+            with pytest.raises(SourceNotFoundError):
+                await client._make_request("GET", "/paper/10.1/a")
+
+        breaker.record_failure.assert_not_awaited()
+        breaker.record_success.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_other_errors_still_record_failure(self):
+        from agentic_kg.data_acquisition.semantic_scholar import (
+            SemanticScholarClient,
+        )
+
+        client = SemanticScholarClient()
+        breaker = MagicMock()
+        breaker.check = AsyncMock()
+        breaker.record_success = AsyncMock()
+        breaker.record_failure = AsyncMock()
+        client._circuit_breaker = breaker
+
+        with patch(
+            "agentic_kg.data_acquisition.semantic_scholar.retry_with_backoff",
+            AsyncMock(side_effect=RateLimitError(source="semantic_scholar")),
+        ):
+            with pytest.raises(RateLimitError):
+                await client._make_request("GET", "/paper/10.1/a")
+
+        breaker.record_failure.assert_awaited_once()
+
+
+class TestIdempotentRelinkIsNotARegression:
+    """R5 MINOR-B: link_paper_cites_paper returns False for an existing
+    edge, so a re-run resolved references but wrote nothing."""
+
+    @pytest.mark.asyncio
+    async def test_existing_edges_are_counted_separately(self):
+        repo = MagicMock()
+        repo.create_or_promote_paper_stub.return_value = (MagicMock(), False)
+        repo.link_paper_cites_paper.return_value = False  # already linked
+        s2 = MagicMock()
+        s2.get_paper_by_doi = AsyncMock(return_value={"paperId": "s2id"})
+        s2.get_paper_references = AsyncMock(return_value={"data": [
+            {"citedPaper": {"externalIds": {"DOI": f"10.9/{i}"}, "title": "t"}}
+            for i in range(3)
+        ]})
+        res = await populate_citations(
+            repo=repo, s2_client=s2, paper_doi="10.1/a",
+        )
+        assert res.references_seen == 3
+        assert res.edges_created == 0
+        assert res.edges_existing == 3
+
+    @pytest.mark.asyncio
+    async def test_batch_aggregates_existing_edges(self):
+        cp = _ok(edges=0, refs=3, no_doi=0)
+        cp.edges_existing = 3
+        batch = await _run_batch([cp])
+        assert batch.citation_edges_created == 0
+        assert batch.citation_edges_existing == 3
 
 
 class TestLookupFailedFlag:

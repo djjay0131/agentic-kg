@@ -412,6 +412,15 @@ class TestCitationCoverageGateReachable:
         degraded = run[run.index("completed_with_errors"):]
         assert "cp \"ingest_result_$ATTEMPT.json\" ingest_result.json" in degraded
 
+    def test_status_probe_does_not_depend_on_jq(self, workflow):
+        """NIT-C: jq is not a declared dependency of this job; an absent
+        jq made the guard fail open into a second full LLM pass."""
+        run = _step_by_name(workflow, "Ingest (with single retry)")["run"]
+        probe = [ln for ln in run.splitlines() if "INGEST_STATUS=" in ln]
+        assert len(probe) == 1
+        assert "jq" not in probe[0]
+        assert "python -c" in probe[0]
+
     def test_retry_ceiling_unchanged(self, workflow):
         """AC-5's max-2 contract survives the I-58 amendment."""
         run = _step_by_name(workflow, "Ingest (with single retry)")["run"]

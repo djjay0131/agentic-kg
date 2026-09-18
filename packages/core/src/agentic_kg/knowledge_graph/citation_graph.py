@@ -20,6 +20,9 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
 
+from agentic_kg.data_acquisition.exceptions import (
+    NotFoundError as SourceNotFoundError,
+)
 from agentic_kg.knowledge_graph.repository import NotFoundError
 
 if TYPE_CHECKING:
@@ -35,6 +38,11 @@ class CitationPopulationResult:
 
     stubs_created: int = 0
     edges_created: int = 0
+    # I-58 R5 (MINOR-B): link_paper_cites_paper is idempotent and returns
+    # False for an edge that already exists. Without this counter an
+    # idempotent re-run looks like "DOI-bearing references resolved, zero
+    # edges written" — i.e. a regression that isn't one.
+    edges_existing: int = 0
     skipped_no_doi: int = 0
     skipped_no_s2_id: bool = False
     fetch_failed: bool = False
@@ -152,6 +160,22 @@ async def populate_citations(
         try:
             s2_response = await s2_client.get_paper_by_doi(paper_doi)
             paper_s2_id = (s2_response or {}).get("paperId")
+        except SourceNotFoundError as e:
+            # I-58 R5: a 404 is Semantic Scholar ANSWERING -- "I have no
+            # record of this paper". That is a corpus gap, not an outage.
+            # Catching it under the blanket Exception below set
+            # lookup_failed=True, which classified every unknown paper as
+            # infrastructure failure: the smoke went permanently red on
+            # exactly the case the no_s2_id carve-out exists to tolerate,
+            # and reported SEMANTIC SCHOLAR UNREACHABLE about a service
+            # that had replied correctly.
+            logger.info(
+                "Citation populate: Semantic Scholar has no record of %s: %s",
+                paper_doi, e,
+            )
+            result.errors.append(f"s2_no_record: {e}")
+            result.skipped_no_s2_id = True
+            return result
         except Exception as e:
             logger.warning(
                 "Citation populate: failed to look up s2 id for %s: %s",
@@ -219,6 +243,8 @@ async def populate_citations(
             )
             if edge_created:
                 result.edges_created += 1
+            else:
+                result.edges_existing += 1
         except NotFoundError as e:
             logger.warning(
                 "Citation populate: CITES link failed for %s -> %s: %s",
@@ -228,11 +254,12 @@ async def populate_citations(
 
     logger.info(
         "Citation populate complete for %s: refs_seen=%d, stubs=%d, "
-        "edges=%d, skipped_no_doi=%d, errors=%d",
+        "edges=%d, edges_existing=%d, skipped_no_doi=%d, errors=%d",
         paper_doi,
         result.references_seen,
         result.stubs_created,
         result.edges_created,
+        result.edges_existing,
         result.skipped_no_doi,
         len(result.errors),
     )

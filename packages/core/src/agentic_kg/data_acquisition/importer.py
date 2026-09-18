@@ -70,6 +70,7 @@ class BatchImportResult:
     citation_succeeded: int = 0
     citation_failed: int = 0
     citation_edges_created: int = 0
+    citation_edges_existing: int = 0
     citation_stubs_created: int = 0
     # I-58 R4: reference-level evidence from the SUCCEEDED attempts only.
     # Needed to tell "S2 returned no references", "references returned but
@@ -97,6 +98,7 @@ class BatchImportResult:
             "citation_succeeded": self.citation_succeeded,
             "citation_failed": self.citation_failed,
             "citation_edges_created": self.citation_edges_created,
+            "citation_edges_existing": self.citation_edges_existing,
             "citation_stubs_created": self.citation_stubs_created,
             "citation_references_seen": self.citation_references_seen,
             "citation_references_with_doi": self.citation_references_with_doi,
@@ -489,6 +491,7 @@ class PaperImporter:
         if outcome == CITATION_OUTCOME_SUCCEEDED:
             batch.citation_succeeded += 1
             batch.citation_edges_created += getattr(cp, "edges_created", 0) or 0
+            batch.citation_edges_existing += getattr(cp, "edges_existing", 0) or 0
             batch.citation_stubs_created += getattr(cp, "stubs_created", 0) or 0
             seen = getattr(cp, "references_seen", 0) or 0
             no_doi = getattr(cp, "skipped_no_doi", 0) or 0

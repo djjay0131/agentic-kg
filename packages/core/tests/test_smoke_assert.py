@@ -398,6 +398,7 @@ def _citation_result_json(
     refs_seen: int | None = None,
     refs_with_doi: int | None = None,
     refs_no_doi: int = 0,
+    edges_existing: int = 0,
     failures: dict | None = None,
     status: str = "completed",
     **extra,
@@ -409,6 +410,7 @@ def _citation_result_json(
         "citation_population_succeeded": succeeded,
         "citation_population_failed": failed,
         "citation_edges_created": edges,
+        "citation_edges_existing": edges_existing,
         "citation_stubs_created": stubs,
         "citation_failures": failures or {},
     }
@@ -786,3 +788,72 @@ class TestCitationEvidence:
         assert ev["attempted"] == 0
         assert ev["succeeded"] == 0
         assert ev["failures"] == {}
+
+
+# =============================================================================
+# R5: idempotent re-runs, and not claiming a pass we cannot justify
+# =============================================================================
+
+
+class TestIdempotentRerun:
+    def test_already_linked_is_not_a_regression(self, tmp_path, capsys):
+        """MINOR-B: a re-run over a populated graph writes no new edges."""
+        payload = _citation_result_json(
+            attempted=3, succeeded=3, edges=0, edges_existing=28,
+            refs_seen=33, refs_no_doi=5,
+        )
+        rc = _run_smoke(tmp_path, payload, _happy_counts())
+        out = capsys.readouterr().out
+
+        assert rc == 0
+        assert "EVIDENCE: ALREADY LINKED -- 28 CITES edge(s)" in out
+        assert "REGRESSION" not in out
+
+    def test_regression_still_fires_when_nothing_was_already_present(
+        self, tmp_path, capsys,
+    ):
+        payload = _citation_result_json(
+            attempted=3, succeeded=3, edges=0, edges_existing=0,
+            refs_seen=40, refs_no_doi=5,
+        )
+        rc = _run_smoke(tmp_path, payload, _zero_cites())
+        out = capsys.readouterr().out
+
+        assert rc == 1
+        assert "EVIDENCE: REGRESSION" in out
+        assert "(0 already present)" in out
+
+    def test_mixed_new_and_existing_edges_reported(self, tmp_path, capsys):
+        payload = _citation_result_json(
+            attempted=3, succeeded=3, edges=7, edges_existing=21,
+            refs_seen=33, refs_no_doi=5,
+        )
+        rc = _run_smoke(tmp_path, payload, _happy_counts())
+        out = capsys.readouterr().out
+
+        assert rc == 0
+        assert "EVIDENCE: 7 CITES edge(s) written from 28 DOI-bearing" in out
+        assert "(21 already present)" in out
+
+
+class TestCoverageCheckHonesty:
+    def test_legacy_pass_is_labelled_not_evaluated(self, tmp_path, capsys):
+        """NIT-D: a bare PASS under COVERAGE: UNKNOWN claims too much."""
+        rc = _run_smoke(tmp_path, _completed_result_json(), _happy_counts())
+        out = capsys.readouterr().out
+
+        assert rc == 0
+        assert "COVERAGE: UNKNOWN" in out
+        assert "PASS: citation coverage complete" in out
+        assert "(not evaluated" in out
+        assert "passed for backward compatibility" in out
+
+    def test_reported_pass_carries_no_caveat(self, tmp_path, capsys):
+        payload = _citation_result_json(
+            attempted=3, succeeded=3, edges=19, refs_seen=40, refs_no_doi=5,
+        )
+        rc = _run_smoke(tmp_path, payload, _happy_counts())
+        out = capsys.readouterr().out
+
+        assert rc == 0
+        assert "not evaluated" not in out

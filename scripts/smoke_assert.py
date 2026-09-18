@@ -114,6 +114,7 @@ def _citation_evidence(result: dict[str, Any]) -> dict[str, Any]:
         "succeeded": succeeded,
         "failed": _i("citation_population_failed"),
         "edges": _i("citation_edges_created"),
+        "edges_existing": _i("citation_edges_existing"),
         "stubs": _i("citation_stubs_created"),
         "refs_seen": _i("citation_references_seen"),
         "refs_with_doi": _i("citation_references_with_doi"),
@@ -217,16 +218,29 @@ def _evidence_line(counts: dict[str, int], ev: dict[str, Any]) -> str:
             "reference(s) returned, all dropped for lacking a DOI (dropped by "
             "design). No CITES edge was possible."
         )
+    if ev["edges"] == 0 and ev["edges_existing"] > 0:
+        # MINOR-B: link_paper_cites_paper is idempotent, so a re-run over an
+        # already-populated graph writes nothing and used to be labelled a
+        # regression.
+        return (
+            f"  EVIDENCE: ALREADY LINKED -- {ev['edges_existing']} CITES "
+            "edge(s) were already present, so this run wrote none. Not a "
+            "regression; a re-run over an already-populated graph."
+        )
     if ev["edges"] == 0:
         return (
             f"  EVIDENCE: REGRESSION -- {ev['refs_with_doi']} DOI-bearing "
             f"reference(s) resolved across {ev['succeeded']} measured "
-            "paper(s), but 0 CITES edges were written. Look at "
-            "create_or_promote_paper_stub / link_paper_cites_paper."
+            "paper(s), but 0 CITES edges were written (0 already present). "
+            "Look at create_or_promote_paper_stub / link_paper_cites_paper."
         )
+    already = (
+        f" ({ev['edges_existing']} already present)"
+        if ev["edges_existing"] else ""
+    )
     return (
         f"  EVIDENCE: {ev['edges']} CITES edge(s) written from "
-        f"{ev['refs_with_doi']} DOI-bearing reference(s)."
+        f"{ev['refs_with_doi']} DOI-bearing reference(s){already}."
     )
 
 
@@ -342,7 +356,9 @@ def main(result_path: str) -> int:
         print(
             f"  citations: attempted={citations['attempted']} "
             f"succeeded={citations['succeeded']} failed={citations['failed']} "
-            f"edges_written={citations['edges']} stubs={citations['stubs']} "
+            f"edges_written={citations['edges']} "
+            f"edges_existing={citations['edges_existing']} "
+            f"stubs={citations['stubs']} "
             f"refs_seen={citations['refs_seen']} "
             f"refs_with_doi={citations['refs_with_doi']}"
         )
@@ -358,6 +374,15 @@ def main(result_path: str) -> int:
         print(f"  {status}: {name}")
         if not ok:
             failed.append(name)
+        # NIT-D: "PASS: citation coverage complete" directly under
+        # "COVERAGE: UNKNOWN" reads as a claim we cannot make. Say plainly
+        # that the check was not evaluated rather than silently inheriting
+        # a pass for backward compatibility.
+        if ok and name == "citation coverage complete" and not citations["reported"]:
+            print(
+                "        (not evaluated -- this result JSON reports no "
+                "citation fields; passed for backward compatibility)"
+            )
 
     if failed:
         print(f"\nSmoke test FAILED: {len(failed)} check(s) failed.")

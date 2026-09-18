@@ -2,7 +2,8 @@
 
 **Status:** VERIFIED
 **Amended:** 2026-09-18 — see "Amendment I-58" below (citation observability;
-AC-5 / AC-6 / AC-7 revised).
+AC-5 / AC-6 / AC-7 revised). Revised again the same day after review pass 2
+(the `no_s2_id` / HTTP 404 wiring).
 **Date:** 2026-06-25
 **Implementation Date:** 2026-06-30
 **Verification Date:** 2026-07-02
@@ -670,6 +671,10 @@ The governing rule for this program — *use honest nulls; never turn "not measu
 
 Failure reasons: `s2_lookup_failed`, `s2_fetch_failed`, `populate_raised` (**infrastructure** — Semantic Scholar unreachable) vs `no_s2_id` (**corpus gap** — S2 answered and has no record of the paper).
 
+**How the corpus gap is actually detected (review pass 2).** "Semantic Scholar has no record of this paper" *is* an HTTP 404, raised as `data_acquisition.exceptions.NotFoundError` at `base.py:158-163`. The first cut caught it under a blanket `except Exception` that set `lookup_failed=True`, so the very case the `no_s2_id` carve-out exists to tolerate was classified as infrastructure failure — the gate went permanently red on it and reported SEMANTIC SCHOLAR UNREACHABLE about a service that had answered correctly. `populate_citations` now catches `NotFoundError` separately and sets `skipped_no_s2_id` **without** `lookup_failed`. 429 / 5xx / breaker-open still land in `s2_lookup_failed`, so the carve-out is not a hole.
+
+Relatedly, `SemanticScholarClient` no longer records a **circuit-breaker failure** on a 404 (it records a success — the service answered). Counting 404s as breaker failures let a handful of unknown papers trip the breaker and cascade into genuine-looking infrastructure failures for the rest of the batch.
+
 ### Status semantics
 
 | condition | status |
@@ -691,7 +696,9 @@ Consumers: `cli.py` exits 1 on `completed_with_errors`; `job_runner._determine_e
 `smoke_assert.py` prints two independent lines, **always — on pass and on fail**:
 
 - **COVERAGE** — how much of the corpus was measured: `UNATTRIBUTABLE` / `UNKNOWN` / `NOT ATTEMPTED` / `NONE (… SEMANTIC SCHOLAR UNREACHABLE | NO SEMANTIC SCHOLAR RECORD)` / `PARTIAL` / `COMPLETE`.
-- **EVIDENCE** — what the measured subset said: `NONE` / `UNKNOWN` / `NO REFERENCES AT SOURCE` / `NO DOI-BEARING REFERENCES` / `REGRESSION` / `N CITES edge(s) written`.
+- **EVIDENCE** — what the measured subset said: `NONE` / `UNKNOWN` / `NO REFERENCES AT SOURCE` / `NO DOI-BEARING REFERENCES` / `ALREADY LINKED` / `REGRESSION` / `N CITES edge(s) written`.
+
+`ALREADY LINKED` covers the idempotent re-run: `link_paper_cites_paper` returns False for an edge that already exists, so a second pass over a populated graph resolves references and writes nothing. `citation_edges_existing` records those, and `REGRESSION` is claimed only when **nothing** was already present.
 
 `REGRESSION` is claimed **only** when DOI-bearing references were resolved and no edge was written. `citation_graph` drops DOI-less references by design, so they can never be evidence of a linker fault; and zero references from a succeeded attempt is absence at the source. Keeping the two verdicts separate is what stops a throttled run being labelled "not a throttling artifact".
 
@@ -700,4 +707,6 @@ Consumers: `cli.py` exits 1 on `completed_with_errors`; `job_runner._determine_e
 - `CITES edges >= 1` — additionally fails when the count is unattributable (nothing measured, or a degraded status with no evidence), even if the graph holds CITES edges from an earlier write.
 - `citation coverage complete` — the new 7th check; fails on any infrastructure failure, on "nothing measured", and on an unattributable degraded status.
 
-A result JSON that predates these fields keeps the original count-only behaviour, so old artifacts are not retroactively red.
+A result JSON that predates these fields keeps the original count-only behaviour, so old artifacts are not retroactively red — and the resulting `PASS: citation coverage complete` is annotated `(not evaluated — … passed for backward compatibility)` rather than presented as a verified claim.
+
+The retry guard in the workflow reads the result status with `python -c`, not `jq`: `jq` is not a declared dependency of that job, and an absent `jq` made the guard fail **open** into a second full LLM extraction pass.
