@@ -577,3 +577,122 @@ class TestScriptWiring:
 
 if __name__ == "__main__":  # pragma: no cover
     pytest.main([__file__])
+
+
+# =============================================================================
+# Committed corpus: pure helpers (no fixtures, no segmenter)
+# =============================================================================
+
+
+def _committed_entry(slug="p", gold=1000, kept=990, sections=None, extractor_input="x"):
+    """A frozen/measured entry with only the fields the pure helpers read."""
+    return {
+        "slug": slug,
+        "source_chars": gold,
+        "extractor_input_chars": kept,
+        "extractor_input": extractor_input,
+        "sections": sections
+        if sections is not None
+        else [
+            {"type": "abstract", "title": "Abstract", "chars": 200},
+            {"type": "introduction", "title": "1. Introduction", "chars": 790},
+        ],
+    }
+
+
+class TestSurfaceVisible:
+    """Word-boundary matching has to survive real gold aliases, which include
+    trailing punctuation (``DyGIE++``) and glued reference numerals."""
+
+    def test_matches_case_insensitively(self):
+        assert ms._surface_visible("knowledge graph", "A Knowledge Graph is")
+
+    def test_respects_word_boundaries(self):
+        assert not ms._surface_visible("graph", "graphical model")
+
+    def test_matches_a_form_ending_in_punctuation(self):
+        assert ms._surface_visible("DyGIE++", "we use DyGIE++ for extraction")
+
+    def test_does_not_match_an_absent_form(self):
+        assert not ms._surface_visible("SciBERT", "we use BERT")
+
+    def test_empty_surface_never_matches(self):
+        assert not ms._surface_visible("", "anything at all")
+
+
+class TestRecallValidity:
+    """Each condition must be able to fail on its own, or a combined verdict
+    would hide which one is actually broken."""
+
+    def test_a_clean_paper_is_valid(self):
+        row = ms.recall_validity(_committed_entry(gold=1000, kept=990))
+        assert row["valid"] and row["reasons"] == []
+
+    def test_a_missing_abstract_invalidates(self):
+        row = ms.recall_validity(
+            _committed_entry(sections=[
+                {"type": "introduction", "title": "1.", "chars": 500},
+                {"type": "methods", "title": "3.", "chars": 490},
+            ]),
+        )
+        assert not row["valid"]
+        assert "no abstract section" in row["reasons"]
+
+    def test_a_gold_recall_shortfall_invalidates(self):
+        row = ms.recall_validity(_committed_entry(gold=1000, kept=700))
+        assert not row["valid"]
+        assert any("gold recall" in r for r in row["reasons"])
+
+    def test_one_section_swallowing_the_paper_invalidates(self):
+        """The case chars alone cannot see: all the characters are kept, under
+        a single mislabelled span."""
+        row = ms.recall_validity(
+            _committed_entry(gold=1000, kept=1000, sections=[
+                {"type": "abstract", "title": "A", "chars": 50},
+                {"type": "methods", "title": "Methods", "chars": 950},
+            ]),
+        )
+        assert not row["valid"]
+        assert any("holds" in r for r in row["reasons"])
+
+    def test_a_single_kept_section_short_of_gold_invalidates(self):
+        row = ms.recall_validity(
+            _committed_entry(gold=1000, kept=600, sections=[
+                {"type": "methods", "title": "Methods", "chars": 600},
+            ]),
+        )
+        assert not row["valid"]
+        assert any("under-segmented" in r for r in row["reasons"])
+
+
+class TestBuildExtractorInput:
+    def test_keeps_only_wanted_sections_in_document_order(self):
+        doc = _doc(
+            _section("abstract", "Abstract", "  A  "),
+            _section("related_work", "Related Work", "RW"),
+            _section("methods", "Methods", "M"),
+        )
+        assert ms.build_extractor_input(doc) == "A\n\nM"
+
+    def test_empty_content_contributes_nothing(self):
+        doc = _doc(_section("abstract", "Abstract", "   "))
+        assert ms.build_extractor_input(doc) == ""
+
+    def test_none_document_is_empty(self):
+        assert ms.build_extractor_input(None) == ""
+
+
+class TestFormatters:
+    """These print into CI logs. A formatter that raises turns a one-line
+    regression report into a stack trace."""
+
+    def test_committed_report_renders_a_missing_paper(self):
+        out = ms.format_committed_report({})
+        assert "abstracts found: 0/0" in out
+
+    def test_readiness_report_counts_valid_papers(self):
+        out = ms.format_readiness_report({"cskg": _committed_entry(slug="cskg")})
+        assert "1/8 papers valid" in out
+
+    def test_entities_report_handles_no_gold(self):
+        assert "(no gold records found)" in ms.format_entities_report({})
