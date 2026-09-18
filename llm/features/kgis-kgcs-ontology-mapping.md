@@ -59,6 +59,15 @@ application (§1.2 C-7). The corrections are recorded as corrections rather than
 folded in, because "the spec once claimed X" is itself evidence about how far the code
 resists being understood.
 
+**Pass 2, same day.** The repair introduced two further defects, both now fixed: an
+acceptance criterion bound to a status value that does not exist (§6.3, AC-12b) and a
+normalization function stated twice with two different definitions (§3.1). Both are the same
+shape — a check that reads as rigorous and verifies nothing — and a self-audit prompted by
+that observation found two more (AC-4, AC-9). §9.0 names the pattern and sets a standing rule
+against it, because at five occurrences it is a property of the work, not an accident.
+Pass 2 also confirmed, by independent re-implementation over 271 fixture records, that the
+§6.4.1 join key yields **0 residual collisions**.
+
 ---
 
 ## 1. Analysis A — write classification
@@ -257,6 +266,27 @@ Three rules hold this together and every downstream PR is checked against them:
 | `contract_version` | `2.0.0` | supplied by `kg_contracts` |
 | Semantic-key grammar | `<type>/<namespace>/<key>`, hierarchical, never a UUID | KGCS `UniqueSourceConstraint` and `SourceKeyChannel` `rpartition` on `/`; a flat key disables both silently (KGCS D-14) |
 | Embedding representation key | `text-embedding-3-small@1536` | `Representation(kind="vector")`; cross-producer embeddings are incomparable unless the key is standardized (KGCS ADR candidate 0006) |
+| **`NORM(s)`** — the one normalization | `NFKC` -> rejoin a hyphen broken across a line -> collapse whitespace -> `casefold()`. **Punctuation is preserved.** | §3.3, §6.4.1 and the identity map all call `NORM`; see the box below |
+
+> **`NORM` is defined here and nowhere else, and that is a correctness requirement, not
+> tidiness.** An earlier draft stated it twice — §3.3 said "punctuation-stripped", §6.4.1 did
+> not — and the two disagreed on **26 of 194 (13%)** of the fixtures' Concept/Model/Method
+> names: `fine-tuning`, `part-of-speech tagging`, `DeLong's test`, and §6.4.1's own headline
+> example `paraphrase-distilroberta-base-v2`. Since §3.3 mints the candidate's key and §6.4.1
+> computes the migration join, a 13% disagreement means 13% of legacy ids find **zero**
+> matches and are silently filed `unmapped / no_canonical_counterpart` — a silent mapping loss
+> inside the mechanism meant to prevent one. "The join key and the identity key agree by
+> construction" is true **only** while there is exactly one definition. A future section
+> needing normalization cites `NORM`; it does not restate it.
+>
+> **Punctuation is preserved deliberately.** Hyphens and apostrophes are semantic here —
+> `paraphrase-distilroberta-base-v2`, `part-of-speech tagging`, `DeLong's test` — and
+> stripping them merges distinct entities. The line-break rule is narrower and is the one
+> corruption the gold files actually document; the ligature case is handled by NFKC. This
+> exact definition was re-implemented by an independent reviewer and measured over 271 fixture
+> records from four sources — `reconciled/` (59), importer output (40), `human/` (89),
+> `claude/` (83) — yielding **0 residual collisions** against a 10-16% baseline. Changing
+> `NORM` invalidates that measurement and obliges re-running it.
 
 **Ontology term sets must all three be non-empty.** `kgis/ontology.py:67,70,73` reads
 `return not self.entity_types or term in self.entity_types` — an **empty set means
@@ -438,7 +468,7 @@ The single most consequential mapping in the spec.
 | Slot | Value |
 |---|---|
 | Kind | `EntityCandidate`, `entity_type` ∈ {`ResearchConcept`, `Model`, `Method`} |
-| Aliases | `<Type>:surface:<normalized surface form>` for the extracted name **and every alias the extractor emitted** — normalization: NFKC, lowercase, whitespace-collapsed, punctuation-stripped |
+| Aliases | `<Type>:surface:NORM(<name>)` for the extracted name **and every alias the extractor emitted**. `NORM` is defined once in §3.1 and is deliberately not restated here. |
 | `semantic_key` | `researchconcept/surface/<normalized form>` (KGIS lowercases the type segment; see the note below) |
 | `display_name` | the surface form as written |
 | Attributes | `description`; Model additionally `architecture`, `model_type`, `year_introduced`, `introducing_paper_doi`; Method additionally `method_type` |
@@ -507,7 +537,7 @@ The disposition is decided by *what that data is*, not by whether it exists:
 |---|---|
 | `scripts/load_sample_problems.py` — hand-written demonstration statements with fabricated `EXTENDS` links | **Not migrated.** It is sample data, not research evidence; promoting it into the canonical graph would mint curated-looking facts with no source. Counted, reported, and recorded as `unmapped` with reason `demonstration_data`. |
 | `v3_topic_migration` era, or any `:Problem` whose `evidence.source_doi` is a paper in the corpus | **Migrated** by the evidence join (§6.4), like any other legacy node. |
-| Any `:Problem` with `status='archived'` | **Migrated, and the archive preserved** — see §6.3. |
+| Any `:Problem` with `status='deprecated'` | **Migrated, and the soft delete preserved** — see §6.3. |
 
 The four relation types stay declared in `RESEARCH_ONTOLOGY` so the vocabulary is reserved
 and so a future synthesis producer has a legal term to emit. **U-3's node count decides how
@@ -641,8 +671,11 @@ merges execute, which for this ontology is immediately.
   alternative.
 - **Watermark.** One additive node `(:ProjectionWatermark {curation_epoch, run_id,
   built_at})`. Additive, so no existing reader breaks.
-- **Reproducible.** Running the projector twice at the same epoch produces a
-  byte-identical graph. This is a test, not an aspiration.
+- **Reproducible.** Projecting the same published epoch into two **independently empty**
+  graphs produces equal content. Note the shape: re-running the projector against a graph it
+  already built proves nothing, because the upsert above makes the second run a no-op — it is
+  identical because nothing happened. Equality is computed over projected labels, properties
+  and edges, ignoring Neo4j internal ids and `ProjectionWatermark.built_at`. AC-9.
 
 ### 4.4 The compatibility contract
 
@@ -993,13 +1026,31 @@ false. Three sub-cases, each decidable from the frozen snapshot:
 |---|---|---|
 | `evidence.source_doi` names a paper in the corpus | extraction-era or v3-migration data | evidence join (§6.4) |
 | statement matches `create_sample_problems()` in `scripts/load_sample_problems.py` | demonstration data | `unmapped`, reason `demonstration_data` → `410 Gone` |
-| `status == 'archived'` | a human soft-deleted it through `DELETE /api/problems/{id}` | **join, then carry the archive forward** as a `RETRACT_ASSERTION` on the canonical identity. A human decision must not be silently undone by re-derivation. |
+| `status == 'deprecated'` | a human soft-deleted it through `DELETE /api/problems/{id}` (`repository.py:408` sets `ProblemStatus.DEPRECATED`) | **join, then carry the soft delete forward** as a `RETRACT_ASSERTION` on the canonical identity. A human decision must not be silently undone by re-derivation. |
 
-`status='archived'` is the **only** human mutation a legacy `Problem` can carry, because
+`status='deprecated'` is the **only** human mutation a legacy `Problem` can carry, because
 `PUT` crashes before touching the graph (C-7). That is a convenient accident: it means the
 legacy graph holds no undetectable human edits to `Problem` — had `PUT` worked, edits would
 have been indistinguishable from extraction output, since `update_problem` records no actor
 and the router never reaches the `version += 1` at `repository.py:375`.
+
+> **`deprecated` is load-bearing and ambiguous, and both facts matter.** An earlier draft of
+> this spec wrote `status='archived'`. No such value exists: `ProblemStatus` is
+> `{open, in_progress, resolved, deprecated}` (`knowledge_graph/models/enums.py:13-16`) and
+> `grep -rn "archived"` over `packages/` and `scripts/` returns nothing but a word inside a
+> paper fixture. So the draft's acceptance criterion quantified over the **empty set**: it
+> would have gone green while every real soft-deleted `Problem` fell through and migrated as
+> **active** — silently undoing the one human decision this section exists to preserve.
+>
+> Correcting the value exposes a second problem the wrong value was hiding. `deprecated` is
+> reachable two ways: a human `DELETE`, and an extractor or operator setting it directly,
+> since `ProblemStatus.DEPRECATED` is an ordinary domain value (`entities.py` even validates
+> that `RESOLVED`/`DEPRECATED` carry evidence). Nothing in the node records **which**. The
+> migration therefore does **not** claim to recover intent: it carries `deprecated` forward as
+> a retraction in every case, because retracting a problem that was merely marked deprecated
+> is recoverable by a later curation act, while resurrecting one a human deleted is a silent
+> loss. Erring toward the recoverable failure is the whole of the reasoning, and it is stated
+> rather than implied.
 
 ### 6.4.1 The join key — one key, defined once
 
@@ -1009,8 +1060,8 @@ An earlier draft named three different keys for one join — `sha(statement)` in
 
 ```
 K = ( entity_type , doi , surface , span )
-      surface = nfkc → dehyphenate-linebreaks → collapse-ws → casefold ( the name or statement )
-      span    = sha256-16 of the same normalization applied to quoted_text
+      surface = NORM( the canonical name, or the statement for a Problem )
+      span    = sha256-16 of NORM( quoted_text )
 ```
 
 **Why each part is load-bearing, with the evidence:**
@@ -1021,11 +1072,12 @@ K = ( entity_type , doi , surface , span )
 | `doi` | Scopes the key to a paper; the same concept recurs across the chain by design. |
 | `surface` | **The discriminator, and the fix for the 16% collision rate.** `(doi, quoted_text)` alone is unique for `problems` (40 problems over 8 papers, 0 collisions) but collides for exactly the labels §6.3 marks non-derivable: **32 of 194 ResearchConcept/Model/Method entries share a span**, because one enumeration sentence evidences many entities — 4 distinct Models in `reconciled/paper_cskg2.gold.yml`, 5 in `human/paper_fact_completion.gold.yml`. Adding the surface form splits them, and it is the *same* normalized surface form §3.3 already uses as the candidate's semantic key, so the join key and the identity key agree by construction. |
 | `span` | Distinguishes two genuinely different mentions of the same surface form in one paper, and is what ties the mapping to evidence rather than to a string. |
-| normalization | The gold files document the exact corruptions: a hyphen dropped at a line break (`paraphrasedistilroberta-base-v2`) and a `fi` ligature (`Classiﬁer`). A raw hash over `quoted_text` would miss both. |
+| normalization | **`NORM`, defined once in §3.1** — this section does not restate it, because the two-definition draft disagreed with §3.3 on 13% of names. The corruptions it handles are the ones the gold files document: a hyphen dropped at a line break (`paraphrasedistilroberta-base-v2`), and a `fi` ligature (`Classiﬁer`) which NFKC folds. A raw hash over `quoted_text` would miss both. |
 
-`surface` is the normalized `statement` for a Problem and the normalized canonical name for
+`surface` is `NORM(statement)` for a Problem and `NORM(canonical name)` for
 ResearchConcept / Model / Method. `K` is the migration join key **and**, rendered as
-`<doi>#<surface>#<span>`, the `paper_span` alias in §3.3.
+`<doi>#<surface>#<span>`, the `paper_span` alias in §3.3 — literally the same function on
+both sides, which is what makes "agree by construction" a fact rather than an aspiration.
 
 ### 6.4.2 The migration procedure
 
@@ -1173,7 +1225,7 @@ Recorded rather than guessed. Each names what would settle it.
 | **U-3** | Does the live database contain `PendingReview`, V1 `Problem`, or duplicate `IngestionRun` nodes? | A read-only `MATCH (n) RETURN labels(n), count(*)` plus `MATCH ()-[r]->() RETURN type(r), count(*)`. The cheapest and highest-value check in the migration; §5.3 and §6.4 both depend on it. |
 | **U-4** | What is the real duplicate rate in the legacy `ProblemConcept` population? | The same snapshot, grouped by normalized `canonical_statement`. It sizes the migration's headline metric and the review workload. |
 | **U-5** | What embedding model and dimension is actually deployed? | `SHOW INDEXES` on the live database plus the deployed `EMBEDDING_MODEL` env value. §3.1's representation key must match reality. |
-| **U-6** | Which of the 15 mutation endpoints does the Next.js UI actually call? | **Settled for Problem, which was the part that mattered:** `packages/ui/src/lib/api.ts:194` calls `PUT /api/problems/{id}` (which crashes — C-7) and `:199` calls `DELETE /api/problems/{id}` (which works). That is why §6.3 must map `Problem` ids, and why `status='archived'` is the only human mutation to preserve. The other 13 endpoints are still unenumerated; the same grep over `api.ts` settles them and scopes the 202-instead-of-200 change (§4.5). |
+| **U-6** | Which of the 15 mutation endpoints does the Next.js UI actually call? | **Settled for Problem, which was the part that mattered:** `packages/ui/src/lib/api.ts:194` calls `PUT /api/problems/{id}` (which crashes — C-7) and `:199` calls `DELETE /api/problems/{id}` (which works). That is why §6.3 must map `Problem` ids, and why `status='deprecated'` — not `archived`, which does not exist — is the only human mutation to preserve. The other 13 endpoints are still unenumerated; the same grep over `api.ts` settles them and scopes the 202-instead-of-200 change (§4.5). |
 | **U-7** | Is the Phase-3 adopter gate open? | KGIS's governance delta places agentic-kg at Phase 3 (retrofit), after baseball-ai and the traffic shadow, and requires six migration-minimum tools to exist first. Confirm with the KGIS owner before committing to a retrofit date. |
 | **U-8** | Do any callers depend on the incidental ordering of the paginated reads that have `LIMIT` without `ORDER BY` (`graph.py:39,77,127`; `topics.py:213`)? | A product decision, not a code question. |
 | **U-9** | How many papers can the reconciled ground-truth set cover (§5.2.1)? | Today: **2**. Reconciling `paper_empire` and `paper_fact_completion` — both of which already have a `human/` pass, and `fact_completion` a `claude/` pass too — is the cheapest widening. Until then no AC may claim corpus-scale entity parity. |
@@ -1182,6 +1234,45 @@ Recorded rather than guessed. Each names what would settle it.
 
 ## 9. Acceptance criteria for downstream PRs
 
+### 9.0 The recurring failure mode: a check that verifies nothing
+
+This programme has now produced the same class of defect five times, three of them inside
+this spec. It is worth naming, because it is not carelessness — each instance *reads* as a
+rigorous check:
+
+| Shape | Instance |
+|---|---|
+| Compare two results that are both empty | The topic parity test §5.2 was written to forbid |
+| Quantify over a set that is empty because the value does not exist | AC-12b's `status='archived'` |
+| Assert an identity between two things defined separately, which have drifted | `NORM` stated twice, §3.1 vs §6.4.1, 13% apart |
+| Cite a fixture that does not hold what you claim | The "8-paper hand-checked fixture"; the real answer key is 2 papers (§5.2.1) |
+| Assert against your own re-implementation of someone else's rule | **AC-4, found below** |
+| Re-run an idempotent operation and call the no-op a determinism proof | **AC-9, found below** |
+
+**Two more instances, found by self-audit on this pass** rather than by review:
+
+- **AC-4 was asserting a copy.** It said "every registered `CurationProfile` has
+  `_auto_link_permitted == False`". That function is **private in KGCS** — `er/resolution.py:521`
+  and `advisers/orchestrator.py:389`, and `grep` finds zero occurrences of it in
+  `src/kgcs/__init__.py`, so it is not exported. An adopter can only import a private symbol
+  across a package boundary — the exact pattern KGIS ADR-0017 forbids — or re-implement the
+  predicate, in which case the test proves the *adopter's copy* returns `False` and says
+  nothing whatsoever about what KGCS will do. It would stay green through an upstream change
+  to the real predicate. Rewritten below as a public-data assertion **plus** a behavioural one.
+- **AC-9 was proving a no-op.** It said "running the projector twice at the same published
+  epoch yields a byte-identical graph". But §4.3 specifies the projector as an **idempotent
+  upsert**: the second run matches every node by `identity_id` and changes nothing. The graph
+  is identical because the second run did nothing, not because projection is deterministic.
+  Rewritten below to project into two independent empty graphs and compare those.
+
+**Standing rule for every AC below.** A test that can pass without exercising the thing it
+names is a defect, not a passing test. Concretely: any criterion quantified over a set must
+assert that set is non-empty; any criterion comparing two results must assert both are
+non-empty; any criterion naming an upstream rule must exercise the upstream code rather than
+a local restatement of it; any criterion citing a fixture must name the file.
+
+### 9.1 The criteria
+
 Each criterion is checkable and traces to a decision above.
 
 | AC | Criterion | Traces to |
@@ -1189,20 +1280,22 @@ Each criterion is checkable and traces to a decision above.
 | AC-1 | No module under `packages/api/` or `packages/core/src/agentic_kg/agents/` imports `GraphMutationStore`, and no such module holds an object satisfying it. Asserted by a test, not by review. | §2 rule 1 |
 | AC-2 | `Neo4jGraphStore` passes `GraphMutationStoreContract` with a pristine graph per `make_store()`, and supports at minimum `CREATE_IDENTITY`, `ATTACH_ASSERTION`, `RETRACT_ASSERTION`, `MERGE_IDENTITIES`. | §4.2 |
 | AC-3 | `assert not isinstance(Neo4jGraphStore(...), LedgerReader)` and `assert not isinstance(ledger, GraphReader)`. | KGIS ADR-0011 |
-| AC-4 | Every registered `CurationProfile` has `_auto_link_permitted == False`. | §3.3, §5.4 |
+| AC-4 | **Two assertions, neither importing a private symbol.** (a) Over public profile data: every registered `CurationProfile` fails at least one of `identity_authority_mode is OPEN`, `er_mode is ACTIVE`, `"AUTO_LINK" in allowable_auto_actions`. (b) Behavioural, exercising KGCS's own predicate: for every registered profile, `ErResolutionPolicy.decide(...)` on a maximally-confident match never returns `ErAction.AUTO_LINK`. (b) is the one that survives an upstream change; (a) alone is a restatement. The test also asserts the registry is non-empty. | §3.3, §5.4, §9.0 |
 | AC-5 | A `FailingCompletionClient` leaves the ER decision byte-identical to the deterministic baseline. | KGCS §9 law 1 |
 | AC-6 | For every projected counter, `property == degree(edge)` at the published epoch, over **the whole projected graph**. A structural invariant — it binds to no fixture. | §5.1 |
 | AC-7 | Every projection parity test asserts `len(result) > 0` before comparing. Expected rows come from `reconciled/paper_cskg.gold.yml` and `reconciled/paper_cskg2.gold.yml` (**2 papers**) for entity and topic parity, and from the 10-edge table in the fixture README (`:79-90`, **8 papers**) for `CITES` parity. No test binds to `human/` or `claude/`. | §5.2.1 |
 | AC-8 | The projector filters `REVOKED`; a revoked identity never appears in the projection graph. | §4.3 |
-| AC-9 | Running the projector twice at the same published epoch yields a byte-identical graph. | §4.3 |
+| AC-9 | Projecting the same published epoch into **two independently empty graphs** yields equal content — equality computed over projected labels, properties and edges, excluding Neo4j internal ids and the `ProjectionWatermark.built_at`. Re-running against an already-projected graph is **not** an acceptable substitute: §4.3 makes the projector an idempotent upsert, so that run is a no-op and proves nothing (§9.0). The test also asserts the projected graph is non-empty. | §4.3, §9.0 |
 | AC-10 | No candidate anywhere carries a `confidence=` kwarg; every candidate carries both `extraction_confidence` and `source_reliability`. | §3.5 |
 | AC-11 | Every `semantic_key` matches `<type>/<namespace>/<key>` and contains no UUID. | §3.1 |
 | AC-12 | `identity_map` has a uniqueness constraint on `(legacy_label, legacy_id)` and is total over the frozen snapshot — **`Problem` included** — with every row either a mapping or an `unmapped` record naming its reason. | §6.1, §6.3 |
-| AC-12b | Every legacy `Problem` with `status='archived'` maps to a canonical identity that is retracted, not active. A human soft-delete survives re-derivation. | §6.3 |
+| AC-12b | Every legacy `Problem` with `status == ProblemStatus.DEPRECATED` (`"deprecated"` — the value `DELETE /api/problems/{id}` actually writes at `repository.py:408`) maps to a canonical identity that is **retracted, not active**. The test asserts the status value against `ProblemStatus` rather than a string literal, so a future enum change breaks the test instead of silently emptying it; and it asserts its fixture contains at least one deprecated `Problem`, so it cannot pass over an empty set. | §6.3, §9.0 |
 | AC-12c | The migration join uses `K` of §6.4.1 and nothing else; the report gives the `ambiguous` count **per entity type**, so a systematically coarse key is visible rather than filed as many individual conflations. | §6.4.1, §6.4.2 step 6 |
 | AC-13 | An `unmapped` legacy id returns `410 Gone`, never `404` and never a redirect. | §6.4 |
 | AC-14 | The extraction pipeline is constructed with an explicit `OntologyCandidateValidator(RESEARCH_ONTOLOGY, strict=True)`. | §3.1 |
 | AC-15 | `SOLVED_BY` and `HAS_TOPIC` appear in no **write vocabulary, ontology declaration, Cypher string or guardrail list**. **Negative-assertion regression guards are explicitly exempt and must be preserved** — `packages/core/tests/extraction/test_e8_purge.py:179,191,208` asserts `HAS_TOPIC` is absent, which is the guard PR #66 paid for; an assertion that a term does *not* appear is the enforcement of this AC, not a violation of it. Any equivalent guard added for `SOLVED_BY` is likewise exempt. | §5.5 |
+| AC-15b | Every AC that quantifies over a set asserts that set is non-empty, and every parity AC asserts both sides are non-empty before comparing. Enforced by review against §9.0's standing rule. | §9.0 |
+| AC-15c | Downstream code takes an **injected `MigrationConfig`** and does not call `get_migration_config()` inline, and reaches the optional packages only through `agentic_kg.migration.imports`. | ADR-0004 decisions 3-4 |
 | AC-16 | The ER→plan bridge asserts `pairwise_complete`, asserts all cluster members are present in `entities`, and refuses a `MERGE_IDENTITIES` whose cluster contains a seed Model that is not the survivor. | §5.4, §7 D-KGIS-0/D-KGCS-1 |
 
 ---

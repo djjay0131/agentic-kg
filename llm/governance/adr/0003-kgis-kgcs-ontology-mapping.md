@@ -132,8 +132,12 @@ Three named cases:
   change, and any "preserves current behaviour" test over those paths is vacuous.
 - **The three non-functional write surfaces.** `/api/reviews/*`, `PUT /api/problems/{id}`
   and `SynthesisAgent` are re-built rather than ported. Preserving an exception is not a
-  migration goal. A legacy `Problem` carrying `status='archived'` is the one human decision
-  in this area that *must* survive re-derivation, and it does.
+  migration goal. A legacy `Problem` carrying `status='deprecated'` — the value the working
+  `DELETE` endpoint writes — is the one human decision in this area that *must* survive
+  re-derivation, and it is carried forward as a retraction. The status cannot distinguish a
+  human delete from a directly-set domain value, so the migration retracts in both cases:
+  retracting a merely-deprecated problem is recoverable by a later curation act, resurrecting
+  a deleted one is a silent loss.
 - **`ProblemConcept.paper_count`.** Legacy writes a constant `1`. The projection computes
   the true value.
 
@@ -272,6 +276,13 @@ during the rollout.
   whose 10 verified edges are separately usable for `CITES` parity. Entity-level parity
   claims are therefore narrow until the reconciled set is widened, and the acceptance
   criteria say so rather than implying coverage that does not exist.
+- **Checks that verify nothing are this work's characteristic failure.** Five instances so
+  far: a parity test over two empty results, a criterion quantified over a status value that
+  does not exist, a normalization function defined twice and 13% apart, a cited fixture that
+  does not hold what was claimed, and a criterion asserting a local re-implementation of an
+  upstream rule. Each read as rigorous. The spec now carries a standing rule (§9.0) that a
+  test which can pass without exercising the thing it names is a defect; the risk is that the
+  rule is applied to the criteria that exist and not to the next ones written.
 - **The canonical/projection split is untestable in CI as designed.** CI runs
   `neo4j:5.26-community`, which supports one user database. The separation mechanism must be
   swappable — two databases, or one database with a canonical label prefix and a distinct
