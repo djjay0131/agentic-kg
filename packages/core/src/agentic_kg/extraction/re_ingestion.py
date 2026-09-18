@@ -59,10 +59,10 @@ class PurgeBlocked(Exception):
 _EXTRACTION_EDGE_TYPES = frozenset(
     {
         "EXTRACTED_FROM",
-        "BELONGS_TO",
+        "BELONGS_TO",  # Problem-side → Topic
+        "RESEARCHES",  # Paper → Topic
         "DISCUSSES",
         "INVOLVES_CONCEPT",
-        "HAS_TOPIC",
         "INSTANCE_OF",
         "AUTHORED_BY",  # Paper→Author — preserved on Paper but rewritten via importer
     }
@@ -126,10 +126,20 @@ def purge_paper_extraction(
         )
 
     with repo.session() as session:
-        # 1. Drop BELONGS_TO from Paper → Topic (E-1) and HAS_TOPIC from Problem nodes.
+        # 1. Drop Paper → Topic and Problem-side → Topic edges (E-1).
+        #
+        # Both queries previously named the wrong relationship type, so both
+        # deleted nothing. `repository.py` `_ASSIGN_RELATIONSHIPS` is the
+        # authority: Paper → Topic is RESEARCHES; Problem / ProblemMention /
+        # ProblemConcept → Topic is BELONGS_TO. HAS_TOPIC is written nowhere
+        # in the codebase — it was vocabulary from the extraction-prompt-
+        # expansion spec that never shipped.
+        #
+        # Net effect of the old code: every re-ingestion left the previous
+        # run's topic edges behind to accumulate.
         session.run(
             """
-            MATCH (p:Paper {doi: $doi})-[r:BELONGS_TO]->(:Topic)
+            MATCH (p:Paper {doi: $doi})-[r:RESEARCHES]->(:Topic)
             DELETE r
             """,
             doi=paper_doi,
@@ -137,7 +147,7 @@ def purge_paper_extraction(
         session.run(
             """
             MATCH (p:Paper {doi: $doi})<-[:EXTRACTED_FROM]-(:ProblemMention)
-                  -[:INSTANCE_OF]->(pc:ProblemConcept)-[r:HAS_TOPIC]->(:Topic)
+                  -[:INSTANCE_OF]->(pc:ProblemConcept)-[r:BELONGS_TO]->(:Topic)
             DELETE r
             """,
             doi=paper_doi,
