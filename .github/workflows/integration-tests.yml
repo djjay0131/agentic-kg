@@ -13,6 +13,12 @@ on:
       - 'packages/core/**'
       - 'pyproject.toml'
 
+# A merge into a long-lived integration branch fires both the PR-close and the
+# push event; without a group they race and burn double the runner minutes.
+concurrency:
+  group: integration-tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   unit-tests:
     name: Unit Tests
