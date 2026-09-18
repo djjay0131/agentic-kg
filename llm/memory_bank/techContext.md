@@ -1,6 +1,6 @@
 # Technical Context
 
-Last updated: 2026-07-21
+Last updated: 2026-09-17
 
 ## Languages and Frameworks
 
@@ -25,6 +25,7 @@ Last updated: 2026-07-21
 ## LLM Providers
 
 - **OpenAI** — GPT models (primary extraction, description generation, cross-entity routing, agent LLM)
+- **Semantic Scholar** — authenticated via `SEMANTIC_SCHOLAR_API_KEY` (`x-api-key` header, set from `config.py:18`). The tier is **1 request/second CUMULATIVE across all endpoints**, so the limiter is keyed by source (not endpoint) and this source gets no burst allowance: `SEMANTIC_SCHOLAR_BURST_MULTIPLIER` defaults to 1.0 so capacity == rate. Every retry acquires its own token (#56). Unauthenticated access draws on a pool shared with all anonymous callers and is unreliable — `populate_citations` fails and `CITES` lands 0 edges.
 - **Anthropic** — Claude models
 - **Google Gemini** — via Vertex AI (requires service account)
 - **Perplexity** — web-augmented responses
@@ -37,14 +38,17 @@ Last updated: 2026-07-21
 git clone <repo-url>
 cd agentic-kg
 
-# Virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
+# Fastest path — no venv to manage. `uv` IS available (an earlier note
+# claiming it "was deliberately not adopted" is wrong); `uv sync` does NOT
+# work here because the workspace has no top-level lock, so install the
+# package as an editable extra instead:
+export UV_LINK_MODE=copy   # WSL: cache and target are on different filesystems
+uv run --with-editable ./packages/core --with pytest --with pytest-asyncio \
+  pytest packages/core/tests/ --ignore=packages/core/tests/e2e -q
 
-# Install with uv (or pip)
-uv sync
-
-# Run unit tests (excludes E2E)
+# Or a conventional venv
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ./packages/core -e ".[dev]"
 pytest packages/core/tests/ --ignore=packages/core/tests/e2e -q
 
 # Run smoke test against staging (legacy)
@@ -67,7 +71,7 @@ docker compose up
 | `openai>=2.0` | LLM API client (floor raised by SM-4) |
 | `instructor>=1.14` | Structured LLM output (needs `openai>=2.0`) |
 | `langgraph` | Agent workflow graphs |
-| `fitz` (PyMuPDF) | PDF text extraction |
+| `PyMuPDF>=1.24.3` | PDF text extraction. **Import `pymupdf`, never `fitz`** — the legacy alias prints a deprecation warning to *stdout*, which corrupts any command whose stdout is redirected (this broke the CI smoke gate for its entire history; see #52). |
 | `cachetools` | TTL response caching |
 | `httpx` | HTTP client for data acquisition |
 | `testcontainers[neo4j]` | Ephemeral Neo4j in unit/integration tests |
