@@ -186,6 +186,27 @@ Five distinct conventions across eight papers, and the pattern matches none.
 **Fix:** allow a run-in delimiter (`[—\-–.:]` or whitespace) after the keyword,
 and handle the letter-spaced `A B S T R A C T` form that Elsevier PDFs produce.
 
+> **PARTIALLY FIXED — SEG-3, 2026-09-18.** Four of the five conventions now
+> match. Measured on the committed corpus
+> (`scripts/measure_segmentation.py --corpus committed`): **abstracts found
+> 1/8 → 7/8**, **+9,347 chars** of extractor input — `empire` +1,917,
+> `hypothesis_generation` +1,635, `llm_ontology_gen` +1,626, `cskg` +1,420,
+> `kg_validation_hitl` +1,397, `fact_completion` +1,352,
+> `kg_construction_survey` +0. `cskg2` is byte-identical.
+>
+> Each recovered abstract keeps the body text sharing its label's line, so it
+> begins at a sentence boundary rather than mid-clause; the length guard now
+> tests the label rather than the whole line, so `fact_completion`'s 96-of-100
+> character run-in line is no longer four characters from silently
+> disappearing on a re-extraction.
+>
+> **Still open: the no-label case.** Nature *Scientific Data* prints no
+> `Abstract` label — `cskg2`'s abstract is the lead paragraph. Catching it
+> needs a positional rule, and a positional rule needs a terminator that only
+> cause (4)'s vocabulary provides. **`cskg2`'s gold record therefore has an
+> unreachable abstract until SEG-4 lands**, and a diff run against it should be
+> read as a known segmenter deferral, not an extractor recall failure.
+
 ### 4. An unrecognized heading lets the previous section swallow the rest
 
 Section spans run from one recognized heading to the next, so a journal whose

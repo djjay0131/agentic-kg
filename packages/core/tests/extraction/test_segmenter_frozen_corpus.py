@@ -246,7 +246,24 @@ def test_readiness_verdicts_are_pinned(measured: dict):
         if ms.recall_validity(measured[slug])["valid"]
     }
     assert valid == {
+        # SEG-3 (run-in and letter-spaced abstracts) moved five papers into
+        # this set by giving them the abstract gold says they have.
+        "cskg",
+        "fact_completion",
+        "hypothesis_generation",
         "kg_construction_survey",
+        "kg_validation_hitl",
+        "llm_ontology_gen",
+        # Still out:
+        #   cskg2  -- Nature Scientific Data vocabulary is absent, so Methods
+        #             swallows the paper and there is no abstract label at all.
+        #             SEG-4.
+        #   empire -- "Threats to Validity" is a genuine SUBSECTION inside
+        #             gold's methods span (IV. RESEARCH APPROACH). The
+        #             segmenter promotes it to top level and types it
+        #             limitations, which the keep-list drops: 3,208 chars of
+        #             gold-wanted text lost. That is a heading-context problem
+        #             (SEG-11) or a keep-list one (SEG-7), not an abstract one.
     }, f"recall-comparison validity changed: now {sorted(valid)}"
 
 

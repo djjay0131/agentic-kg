@@ -28,6 +28,46 @@ _ROMAN = r"(?=[IVX])X{0,3}(?:IX|IV|V?I{0,3})"
 # llm/features/seg1-roman-numeral-headings.md, Decisions 1 and 3.
 _ENUMERATOR = re.compile(rf"^(?:\d+|{_ROMAN})(?:[.)]\s*|\s+)", re.IGNORECASE)
 
+# SEG-3: a letter-spaced line is one whose every token is a single letter. The
+# PDF extractor renders Elsevier's small-caps headings that way, so
+# "A B S T R A C T" arrives as a STANDALONE line that needs de-spacing, not
+# run-in handling. Collapsing whitespace is safe ONLY here -- doing it
+# universally would turn "Related Work" into "RelatedWork" and break that
+# pattern. Three letters minimum, so "A B" and a bare "A" are untouched.
+_LETTER_SPACED = re.compile(r"^(?:[A-Za-z]\s+){2,}[A-Za-z]\s*$")
+
+# SEG-3: run-in labels. Each pattern consumes the label AND its delimiter, so
+# ``match.end()`` is where the section's content begins on that same line.
+#
+# Whitespace is a delimiter only after an ALL-CAPS label. Both variants score
+# zero false positives on these eight papers, so the corpus cannot separate
+# them -- but this project's domain is computer science, where "abstract syntax
+# tree" and "abstract representation" are ordinary prose. A false abstract
+# heading mid-paper is not a harmless mislabel: it opens a new span and
+# therefore TRUNCATES whatever section contained that line. The constraint has
+# a measured recall cost of zero, against a destructive failure mode.
+#
+# The table stays minimal -- abstract only. It is a mechanism for a structural
+# property (a heading sharing its line with body text), not a shadow
+# vocabulary; ``SECTION_PATTERNS`` has no slot for the offset, which is the
+# entire reason this exists separately.
+_RUN_IN_HEADINGS: tuple[tuple[re.Pattern, "SectionType"], ...] = ()
+
+
+def _match_run_in(stripped: str) -> Optional[tuple["SectionType", int]]:
+    """Return ``(type, offset-after-label)`` for a run-in heading, else None.
+
+    A bare "Abstract" line matches neither pattern -- the first needs trailing
+    text, the second a delimiter -- and falls through to the standalone
+    pattern, so this does not double-handle the case that already worked.
+    """
+    for pattern, section_type in _RUN_IN_HEADINGS:
+        match = pattern.match(stripped)
+        if match:
+            return section_type, match.end()
+    return None
+
+
 
 class SectionType(str, Enum):
     """Types of sections commonly found in academic papers."""
@@ -47,6 +87,18 @@ class SectionType(str, Enum):
     REFERENCES = "references"
     APPENDIX = "appendix"
     UNKNOWN = "unknown"
+
+
+# SEG-3: populated here rather than above because it binds ``SectionType``.
+# ``ABSTRACT\s+(?=\S)`` requires trailing text; the second pattern requires a
+# delimiter. Neither matches a bare "Abstract" line.
+_RUN_IN_HEADINGS = (
+    (re.compile(r"^ABSTRACT\s+(?=\S)"), SectionType.ABSTRACT),
+    (
+        re.compile(r"^abstract\s*[\u2014\u2013\-.:]\s*", re.IGNORECASE),
+        SectionType.ABSTRACT,
+    ),
+)
 
 
 # Priority order for problem extraction (higher priority = more likely to contain problems)
@@ -299,8 +351,34 @@ class SectionSegmenter:
         for line in lines:
             stripped = line.strip()
 
-            # Skip empty lines and very long lines
-            if not stripped or len(stripped) > self.max_heading_length:
+            if not stripped:
+                current_pos += len(line) + 1
+                continue
+
+            run_in = _match_run_in(stripped)
+
+            # SEG-3 Decision 5: the length guard applies to the LABEL, not to
+            # the body text trailing it. fact_completion's run-in line is 96 of
+            # the allowed 100 -- a four-character cliff, and line wrapping is a
+            # property of the PDF and the extractor version, so a re-extraction
+            # could silently un-fix that paper with no error.
+            if run_in is None and len(stripped) > self.max_heading_length:
+                current_pos += len(line) + 1
+                continue
+
+            if run_in is not None:
+                # SEG-3 Decision 3: content starts after the LABEL, so the
+                # abstract keeps its opening words and reads as prose. Without
+                # this the kept abstract would begin mid-sentence -- empire's
+                # would open "Empirical research in requirements".
+                section_type, label_end = run_in
+                indent = len(line) - len(line.lstrip())
+                headings.append((
+                    current_pos,
+                    current_pos + indent + label_end,
+                    stripped[:label_end].strip(),
+                    section_type,
+                ))
                 current_pos += len(line) + 1
                 continue
 
@@ -344,6 +422,13 @@ class SectionSegmenter:
         classification input is normalized.
         """
         cleaned = _ENUMERATOR.sub("", heading_text.strip(), count=1)
+
+        # SEG-3: the PDF extractor renders Elsevier's small-caps headings
+        # letter-spaced ("A B S T R A C T"). De-space only lines that are
+        # ENTIRELY letter-spaced; see ``_LETTER_SPACED``. "A R T I C L E I N F O"
+        # collapses to a token matching no pattern, which is the right outcome.
+        if _LETTER_SPACED.match(cleaned):
+            cleaned = re.sub(r"\s+", "", cleaned)
 
         for section_type, patterns in self._compiled_patterns.items():
             for pattern in patterns:

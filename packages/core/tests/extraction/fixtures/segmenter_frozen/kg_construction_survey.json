@@ -3,7 +3,7 @@
   "source_txt": "paper_kg_construction_survey.txt",
   "source_sha256": "dcfc38d401c87a2ae4d062848b59b9e65db6bc6987d38b484d6f812508e399a3",
   "source_chars": 7140,
-  "segmenter_sha256": "3dbdbdaf7a9a1686ad8eb58913b47ffe21e578e525e8407534c7afe98d038958",
+  "segmenter_sha256": "6edb6f52593654d610eefa3d7d851fca9ac76bf9377685523b5efd98c35d7efb",
   "keeplist": [
     "abstract",
     "introduction",

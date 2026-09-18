@@ -55,7 +55,7 @@ Each traced to a live `smoke-ingest` run; each unmasked the next.
 | # | Feature | Status | One-liner |
 |---|---------|--------|-----------|
 | SEG-1 | [Roman-numeral section headings never match](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/seg1-roman-numeral-headings.md) | VERIFIED | `SECTION_PATTERNS` admits only Arabic numbering, so no IEEE heading is recognized; `fact_completion` goes 0 → 25,586 chars of extractor input. |
-| SEG-3 | [Run-in and letter-spaced abstracts](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/seg3-run-in-abstracts.md) | SPECIFIED | Four abstract conventions match none of `^abstract\s*$`; measured 7 of 8 papers gain an abstract, +9,335 chars. Gated on SEG-4 being specified so cause (3) closes as a pair. |
+| SEG-3 | [Run-in and letter-spaced abstracts](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/seg3-run-in-abstracts.md) | **IMPLEMENTED 2026-09-18** | Four abstract conventions match none of `^abstract\s*$`. **Shipped and measured on the committed corpus: abstracts 1/8 → 7/8, +9,347 chars, `cskg2` byte-identical.** Recall-comparison-valid papers 1/8 → 6/8. Six mutations (loose delimiter, universal de-spacing, two-letter `_LETTER_SPACED`, discarded run-in remainder, and both length-guard reverts) verified red. The no-label `cskg2` case remains with SEG-4. |
 | SEG-4 | [Journal vocabulary + under-segmentation detector](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/seg4-journal-vocabulary-under-segmentation.md) | SPECIFIED | Nature *Scientific Data* vocabulary, positional abstract, and a 40%-of-body detector. `cskg2` −3,797 chars but gold entities 23/30 → 25/30. Three PRs, one spec. |
 
 ### Docs / site
