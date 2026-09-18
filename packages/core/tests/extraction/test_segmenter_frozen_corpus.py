@@ -289,22 +289,28 @@ def test_gold_entity_visibility_is_pinned(measured: dict):
     }
     assert actual == {
         "cskg": (13, 13, 19),
-        "cskg2": (23, 25, 30),
+        # SEG-4 PR-1 (Nature vocabulary): 23 -> 25. The two recovered are
+        # named in the test below; one of them is the citation chain's spine
+        # concept.
+        "cskg2": (25, 25, 30),
         "fact_completion": (15, 15, 21),
         "empire": (2, 2, 5),
     }, f"gold-entity visibility changed: {actual}"
 
 
-def test_cskg2_misses_exactly_the_two_entities_seg4_targets(measured: dict):
-    """Named, not counted. SEG-4 claims these two specifically, and one of them
-    -- ``scientific knowledge graph`` -- is the citation chain's spine concept,
-    so losing it silently would corrupt every cross-paper accumulation number.
+def test_cskg2_recovered_the_two_entities_seg4_targeted(measured: dict):
+    """Named, not counted. SEG-4 claimed two specifically --
+    ``scientific knowledge graph`` (the citation chain's spine concept) and
+    ``knowledge-centric paradigm``, both of which live in
+    ``Background & Summary``. Before PR-1 that heading was unrecognized and
+    the whole section was absorbed into ``Methods``, so losing them silently
+    would corrupt every cross-paper accumulation number.
     """
     rows = ms.entity_visibility_corpus(measured)
-    assert rows["cskg2"]["missed"] == [
-        "knowledge-centric paradigm",
-        "scientific knowledge graph",
-    ]
+    assert rows["cskg2"]["missed"] == [], (
+        "SEG-4 PR-1 recovered both; if this regresses, Background & Summary "
+        "is being absorbed by Methods again"
+    )
 
 
 def test_papers_without_a_gold_record_are_reported_as_absent(measured: dict):

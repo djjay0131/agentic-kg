@@ -3,7 +3,7 @@
   "source_txt": "paper_cskg.txt",
   "source_sha256": "7d0f0ac01a3b67cd310dc4ab22908b639157372418d81515ba214eb915720a50",
   "source_chars": 24959,
-  "segmenter_sha256": "6edb6f52593654d610eefa3d7d851fca9ac76bf9377685523b5efd98c35d7efb",
+  "segmenter_sha256": "c2cb1518a18805eef9d169e355f18fb29673fd7eff95a7b2f9707155892b7f7f",
   "keeplist": [
     "abstract",
     "introduction",

@@ -3,7 +3,7 @@
   "source_txt": "paper_llm_ontology_gen.txt",
   "source_sha256": "afe4b67b965b6c295cbb48473b93d685c6d4781c73f8464ef60bb1ddedcb5659",
   "source_chars": 17353,
-  "segmenter_sha256": "6edb6f52593654d610eefa3d7d851fca9ac76bf9377685523b5efd98c35d7efb",
+  "segmenter_sha256": "c2cb1518a18805eef9d169e355f18fb29673fd7eff95a7b2f9707155892b7f7f",
   "keeplist": [
     "abstract",
     "introduction",

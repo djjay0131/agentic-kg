@@ -101,6 +101,38 @@ _RUN_IN_HEADINGS = (
 )
 
 
+# SEG-4 D5: a section holding this much of the body is probable
+# under-segmentation -- an unrecognized heading let its predecessor swallow the
+# rest of the paper. Measured over the eight ground-truth papers: swallowed
+# spans run 41.3%-100% of body words, the largest HEALTHY section is ~31.4%.
+# The threshold sits in that gap, with roughly nine points of margin either
+# side. Move it and the margin has to be argued again.
+_UNDER_SEGMENTATION_SHARE = 0.40
+
+# Below this the share is meaningless -- and every hand-written test fixture in
+# the repo would warn.
+_MIN_BODY_WORDS_FOR_CHECK = 500
+
+# DEVIATION FROM THE SPEC, and the reason for it. With N body sections the
+# smallest possible maximum share is 1/N, so at N <= 2 the smallest max share
+# is 50% -- already above the 40% threshold. The detector would therefore fire
+# on EVERY two-section document regardless of how well it was segmented, which
+# is a warning carrying no information. Measured consequence on the committed
+# gold corpus, where the keep-list leaves only 2-4 sections per paper:
+# `kg_construction_survey` has exactly two body sections (gold says abstract +
+# introduction, which is the honest answer for a 94-page survey) and warned at
+# 83.5% purely because of this arithmetic.
+_MIN_BODY_SECTIONS_FOR_CHECK = 3
+
+# Excluded from the denominator AND never reported: `references` alone reaches
+# 31.8% of TOTAL words on fact_completion and is legitimately large.
+_TAIL_TYPES = frozenset({
+    SectionType.REFERENCES,
+    SectionType.ACKNOWLEDGMENTS,
+    SectionType.APPENDIX,
+})
+
+
 # Priority order for problem extraction (higher priority = more likely to contain problems)
 SECTION_PRIORITY = {
     SectionType.LIMITATIONS: 1,
@@ -189,6 +221,11 @@ class SectionSegmenter:
         SectionType.INTRODUCTION: [
             r"^introduction\s*$",
             r"^overview\s*$",
+            # SEG-4 D1/D2: Nature Scientific Data. This IS that journal's
+            # introduction; mapping it to BACKGROUND reads the name literally,
+            # costs -15,932 chars because background is not in the keep-list,
+            # and hides the citation chain's spine concept.
+            r"^background\s*(?:&|and)\s*summary\s*$",
         ],
         SectionType.RELATED_WORK: [
             r"^related\s+work\s*$",
@@ -209,18 +246,28 @@ class SectionSegmenter:
             r"^algorithm\s*$",
         ],
         SectionType.EXPERIMENTS: [
+            # SEG-4 D1/D2: Nature Scientific Data's evaluation section.
+            r"^technical\s+validation\s*$",
             r"^experiment(?:s|al)?\s*(?:setup|settings)?\s*$",
             r"^evaluation\s*$",
             r"^empirical\s+(?:study|evaluation|analysis)\s*$",
             r"^(?:experimental\s+)?setup\s*$",
         ],
         SectionType.RESULTS: [
+            # SEG-4 D1/D2: Nature Scientific Data. Describes the released
+            # artifact, not the method. Mapping it to METHODS measures +6,138
+            # chars, but that is a false label chosen to game the keep-list:
+            # if the keep-list is too narrow -- and SEG-7's data says it is --
+            # that is SEG-7's decision to make openly.
+            r"^data\s+records\s*$",
             r"^results?\s*$",
             r"^(?:experimental\s+)?results?\s+(?:and\s+)?(?:analysis|discussion)?\s*$",
             r"^findings\s*$",
             r"^results?\s+and\s+discussion\s*$",
         ],
         SectionType.DISCUSSION: [
+            # SEG-4 D1/D2: Nature Scientific Data. Guidance and caveats.
+            r"^usage\s+notes\s*$",
             r"^discussion\s*$",
             r"^analysis\s*$",
             r"^interpretation\s*$",
@@ -332,11 +379,62 @@ class SectionSegmenter:
         # Filter out very short sections
         sections = [s for s in sections if s.word_count >= self.min_section_words]
 
-        return SegmentedDocument(
+        doc = SegmentedDocument(
             sections=sections,
             full_text=text,
             detected_structure=True,
         )
+        # SEG-4 D5. Placed in the segmenter, not in ingestion.py: this is a
+        # judgement about segmentation QUALITY and it needs the section list,
+        # so it belongs where that list is built -- and it then fires for every
+        # caller (CLI, API, Cloud Run Job, the measurement harness), not only
+        # ingest_papers. SEG-1's AC-13 warning stays where it is; that one is
+        # about extractor INPUT, which is an ingestion concern.
+        self._warn_under_segmentation(doc)
+        return doc
+
+    def _warn_under_segmentation(self, doc: SegmentedDocument) -> None:
+        """Warn when one section holds most of the body.
+
+        An unrecognized heading is not a *missed* section -- it is absorbed
+        into its predecessor, silently, producing one enormous mislabelled span
+        rather than an obviously broken result. This warns; it deliberately
+        does NOT guess where the missing boundary was. Guessing is SEG-5's
+        positional-fallback option and needs its own measurement.
+
+        Observability only: ``doc`` is not modified.
+        """
+        body = [s for s in doc.sections if s.section_type not in _TAIL_TYPES]
+        total = sum(s.word_count for s in body)
+        if total < _MIN_BODY_WORDS_FOR_CHECK:
+            return
+        # See _MIN_BODY_SECTIONS_FOR_CHECK: at N <= 2 the threshold is below
+        # 1/N and the check cannot fail to fire, so it says nothing.
+        if len(body) < _MIN_BODY_SECTIONS_FOR_CHECK:
+            return
+        for index, section in enumerate(body):
+            share = section.word_count / total
+            if share < _UNDER_SEGMENTATION_SHARE:
+                continue
+            # The actionable half: the missing heading lies between this span
+            # and the next one that WAS recognized. No root cause is named --
+            # attribution would be a guess, and the two facts together let a
+            # human read the line in seconds.
+            following = (
+                body[index + 1].title
+                if index + 1 < len(body)
+                else "(end of document)"
+            )
+            logger.warning(
+                "under-segmentation: %r (%s) holds %.1f%% of body words "
+                "(%d of %d); next recognized heading is %r",
+                section.title,
+                section.section_type.value,
+                100 * share,
+                section.word_count,
+                total,
+                following,
+            )
 
     def _find_headings(self, text: str) -> list[tuple[int, int, str, SectionType]]:
         """
