@@ -273,9 +273,60 @@ SEG-4 spec, and names the two groups that spec predicts SEG-4 recovers.</p>
   empire                        5      2      2    100.0%  human
 </code></pre></div></div>
 
-<p>Both reconciled-gold papers — <code class="language-plaintext highlighter-rouge">cskg</code> and <code class="language-plaintext highlighter-rouge">cskg2</code> — are now CONCAT-valid and
-both sit at their gold-entity ceiling. Only <code class="language-plaintext highlighter-rouge">cskg2</code> is also TYPED-valid;
-<code class="language-plaintext highlighter-rouge">cskg</code>’s methods span is mislabelled <code class="language-plaintext highlighter-rouge">introduction</code> (see the box at the top).</p>
+<h3 id="what-each-reconciled-gold-paper-licenses">What each reconciled-gold paper licenses</h3>
+
+<p>Only two of the eight carry a reconciled gold record, and they are <strong>not</strong>
+equivalent evidence. Recorded explicitly so “both reconciled-gold papers are
+VALID” cannot be read as “both demonstrate improvement”:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th> </th>
+      <th><code class="language-plaintext highlighter-rouge">cskg2</code></th>
+      <th><code class="language-plaintext highlighter-rouge">cskg</code></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>CONCAT-valid</td>
+      <td>yes</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>TYPED-valid</td>
+      <td>yes</td>
+      <td><strong>no</strong> — produces no <code class="language-plaintext highlighter-rouge">methods</code> section</td>
+    </tr>
+    <tr>
+      <td>gold entities</td>
+      <td><strong>23 → 25 of 25 reachable</strong></td>
+      <td>13/13 → 13/13 — <strong>already 100% at base</strong></td>
+    </tr>
+    <tr>
+      <td>licenses</td>
+      <td><strong>concatenated-recall comparison, without reservation</strong></td>
+      <td><strong>blob-level / entity-visibility claims only</strong></td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong><code class="language-plaintext highlighter-rouge">cskg2</code> carries this work’s semantic result.</strong> It gained a correctly-typed
+introduction, methods and experiments, an abstract, and two gold entity groups
+— one of them <code class="language-plaintext highlighter-rouge">scientific knowledge graph</code>, the citation chain’s spine concept.</p>
+
+<p><strong><code class="language-plaintext highlighter-rouge">cskg</code> evidences no semantic improvement.</strong> Its entity visibility was already
+at its reachable ceiling before this work; what changed is an abstract and
+1,420 characters. It remains TYPED-invalid — its 14,988-character gold
+<code class="language-plaintext highlighter-rouge">methods</code> span is still absorbed into <code class="language-plaintext highlighter-rouge">introduction</code> — so it must not be cited
+for section-level or semantic quality. That confusion predates this work and
+persists through it.</p>
+
+<p><strong>Corollary.</strong> Production’s <code class="language-plaintext highlighter-rouge">_missing_wanted_sections</code> is the <em>noisier</em> of the
+two instruments, firing on <code class="language-plaintext highlighter-rouge">kg_construction_survey</code> and <code class="language-plaintext highlighter-rouge">llm_ontology_gen</code>,
+which are correctly typed against their own gold. The TYPED column is the more
+faithful one because it reads each paper’s gold <code class="language-plaintext highlighter-rouge">wanted</code> list rather than
+assuming all four types.</p>
 
 <h3 id="why-empire-is-still-invalid">Why <code class="language-plaintext highlighter-rouge">empire</code> is still invalid</h3>
 
