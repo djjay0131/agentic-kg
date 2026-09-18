@@ -134,10 +134,13 @@ Three named cases:
   and `SynthesisAgent` are re-built rather than ported. Preserving an exception is not a
   migration goal. A legacy `Problem` carrying `status='deprecated'` — the value the working
   `DELETE` endpoint writes — is the one human decision in this area that *must* survive
-  re-derivation, and it is carried forward as a retraction. The status cannot distinguish a
-  human delete from a directly-set domain value, so the migration retracts in both cases:
-  retracting a merely-deprecated problem is recoverable by a later curation act, resurrecting
-  a deleted one is a silent loss.
+  re-derivation, and it is carried forward as a retraction. The status alone cannot
+  distinguish a human delete from a directly-set domain value, though `version > 1` does
+  identify soft deletes positively — `version += 1` exists at one line, reachable only from
+  the soft-delete path, since the other two callers crash before it. The marker names which
+  retractions are certainly right, not which are wrong, so the migration retracts in both
+  cases: retracting a merely-deprecated problem is recoverable by a later curation act,
+  resurrecting a deleted one is a silent loss.
 - **`ProblemConcept.paper_count`.** Legacy writes a constant `1`. The projection computes
   the true value.
 
@@ -282,7 +285,17 @@ during the rollout.
   does not hold what was claimed, and a criterion asserting a local re-implementation of an
   upstream rule. Each read as rigorous. The spec now carries a standing rule (§9.0) that a
   test which can pass without exercising the thing it names is a defect; the risk is that the
-  rule is applied to the criteria that exist and not to the next ones written.
+  rule is applied to the criteria that exist and not to the next ones written. A sixth
+  instance was then found *after* the rule existed and *permitted by it* — a criterion
+  comparing the projector against its own defining formula — which is why the rule now carries
+  a fifth obligation: **a criterion must be able to fail for the reason it names.** The rule is
+  backed by review discipline alone; no mechanism enforces it, and that is disclosed rather
+  than papered over.
+- **Five UNDETERMINED items remain genuinely open.** The cheapest and most gating is a
+  read-only node/edge count against the live database: it settles the review-queue
+  disposition, the `Problem` population, and the duplicate rate at once, and needs no code.
+  Committing to an implementation sequence before running it is the main way this decision
+  could be built on sand.
 - **The canonical/projection split is untestable in CI as designed.** CI runs
   `neo4j:5.26-community`, which supports one user database. The separation mechanism must be
   swappable — two databases, or one database with a canonical label prefix and a distinct

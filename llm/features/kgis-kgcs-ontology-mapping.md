@@ -723,7 +723,8 @@ last wins, while the reader (`relations.py:483-486`) sorts on `author_position`.
 projection writes **`author_position` only**, and the duplicate writer (row 43) is deleted.
 
 **Counters — recomputed, never mutated.** Every denormalized counter is computed from the
-projected edges at projection time:
+projected edges at projection time. Because this table is the counter's *definition*, it
+cannot also serve as its test — see AC-6 and §9.0 obligation 5:
 
 | Property | Computed as |
 |---|---|
@@ -1045,12 +1046,26 @@ and the router never reaches the `version += 1` at `repository.py:375`.
 > Correcting the value exposes a second problem the wrong value was hiding. `deprecated` is
 > reachable two ways: a human `DELETE`, and an extractor or operator setting it directly,
 > since `ProblemStatus.DEPRECATED` is an ordinary domain value (`entities.py` even validates
-> that `RESOLVED`/`DEPRECATED` carry evidence). Nothing in the node records **which**. The
-> migration therefore does **not** claim to recover intent: it carries `deprecated` forward as
-> a retraction in every case, because retracting a problem that was merely marked deprecated
-> is recoverable by a later curation act, while resurrecting one a human deleted is a silent
-> loss. Erring toward the recoverable failure is the whole of the reasoning, and it is stated
-> rather than implied.
+> that `RESOLVED`/`DEPRECATED` carry evidence).
+>
+> **A marker does exist, and an earlier draft wrongly said none did.** `version` defaults to
+> `1` (`entities.py`), and `version += 1` occurs at exactly one place in the codebase —
+> `repository.py:375`, inside `update_problem`. That method has three non-test callers:
+> `routers/problems.py:134`, which raises `AttributeError` at `repository.py:374`, one line
+> *before* the increment (C-7); `synthesis.py:205`, which raises `TypeError` at the call
+> itself; and `repository.py:411`, the soft-delete path. Therefore **`version > 1` implies
+> `delete_problem(soft=True)`** — a precise, snapshot-observable marker, and the migration
+> should record it per node so a later pass can use it.
+>
+> **The disposition is unchanged, but the justification is now detectability, not
+> recoverability.** `version > 1` identifies soft deletes; it does not identify the
+> *complement*, because a directly-set `deprecated` and a soft delete on a node that was never
+> otherwise updated are indistinguishable at `version == 1`. So the migration still carries
+> `deprecated` forward as a retraction in **every** case: the marker tells us which retractions
+> are certainly correct, not which are wrong. Retracting a merely-deprecated problem is
+> recoverable by a later curation act; resurrecting one a human deleted is a silent loss.
+> Erring toward the recoverable failure remains the reasoning, and the marker makes the
+> residual uncertainty measurable rather than assumed.
 
 ### 6.4.1 The join key — one key, defined once
 
@@ -1218,6 +1233,13 @@ should flip upstream.
 
 Recorded rather than guessed. Each names what would settle it.
 
+**Five remain genuinely open** (U-2, U-3, U-5, U-7, U-9; U-1 and U-6 are partly settled, U-4
+and U-8 are cheap follow-ups). **U-3 is the cheapest action and gates the most** — a read-only
+node/edge count against the live database settles the review-queue disposition (§5.3), the
+`Problem` population and its `version`/`status` split (§6.3), the sample-loader question
+(§3.6), and the duplicate rate (U-4). It requires no code and should happen before any
+implementation PR.
+
 | # | Question | What settles it |
 |---|---|---|
 | **U-1** | Does the deployment's Neo4j support two databases (§4.2)? | **Partly settled, and it is bad news: CI runs `neo4j:5.26-community` (`.github/workflows/smoke-ingest.yml:41`), and Community Edition supports one user database.** So the two-database design is **untestable in CI as it stands**, whatever production runs. Two consequences that are decisions, not unknowns: the projector must be written so its separation mechanism is swappable (two databases, or one database plus a canonical label prefix and a distinct session factory), and CI must exercise the single-database fallback. What remains genuinely open is only the **production** tier — settled by the Terraform/AuraDB config or `SHOW DATABASES` against the deployed instance. If production is also Community, the separation is conventional rather than enforced everywhere, and that weakening is recorded rather than glossed. |
@@ -1228,6 +1250,7 @@ Recorded rather than guessed. Each names what would settle it.
 | **U-6** | Which of the 15 mutation endpoints does the Next.js UI actually call? | **Settled for Problem, which was the part that mattered:** `packages/ui/src/lib/api.ts:194` calls `PUT /api/problems/{id}` (which crashes — C-7) and `:199` calls `DELETE /api/problems/{id}` (which works). That is why §6.3 must map `Problem` ids, and why `status='deprecated'` — not `archived`, which does not exist — is the only human mutation to preserve. The other 13 endpoints are still unenumerated; the same grep over `api.ts` settles them and scopes the 202-instead-of-200 change (§4.5). |
 | **U-7** | Is the Phase-3 adopter gate open? | KGIS's governance delta places agentic-kg at Phase 3 (retrofit), after baseball-ai and the traffic shadow, and requires six migration-minimum tools to exist first. Confirm with the KGIS owner before committing to a retrofit date. |
 | **U-8** | Do any callers depend on the incidental ordering of the paginated reads that have `LIMIT` without `ORDER BY` (`graph.py:39,77,127`; `topics.py:213`)? | A product decision, not a code question. |
+| **U-10** | Have the KGCS citations in this spec drifted? | KGCS is read at `39203ad` but **not pinned by this document** — ADR-0004 pins the dependency, while every `src/kgcs/...:line` citation here was resolved against a `main` that can move. Re-resolve them against the pinned SHA before the first KGCS-consuming PR; line numbers are the fragile part, the named symbols much less so. |
 | **U-9** | How many papers can the reconciled ground-truth set cover (§5.2.1)? | Today: **2**. Reconciling `paper_empire` and `paper_fact_completion` — both of which already have a `human/` pass, and `fact_completion` a `claude/` pass too — is the cheapest widening. Until then no AC may claim corpus-scale entity parity. |
 
 ---
@@ -1248,6 +1271,7 @@ rigorous check:
 | Cite a fixture that does not hold what you claim | The "8-paper hand-checked fixture"; the real answer key is 2 papers (§5.2.1) |
 | Assert against your own re-implementation of someone else's rule | **AC-4, found below** |
 | Re-run an idempotent operation and call the no-op a determinism proof | **AC-9, found below** |
+| Compare an implementation against its own defining formula | **AC-6 — found *after* this rule existed, and permitted by it** |
 
 **Two more instances, found by self-audit on this pass** rather than by review:
 
@@ -1265,11 +1289,32 @@ rigorous check:
   is identical because the second run did nothing, not because projection is deterministic.
   Rewritten below to project into two independent empty graphs and compare those.
 
+**A sixth instance, and the reason the rule needed a fifth obligation.** Reviewing against
+the four obligations below, AC-6 passes all of them: it quantifies over a non-empty set, cites
+no fixture, restates no upstream rule, compares nothing empty. It was still vacuous. It said
+"for every projected counter, `property == degree(edge)`" — but §4.4 *defines* each counter as
+exactly that degree. The criterion compared the projector against its own formula, so it could
+only fail if the projector contradicted itself inside a single run. Every defect anyone
+actually fears here — the projector dropping edges while faithfully counting the ones it kept,
+or reading a different traversal than it writes — leaves it green.
+
+That is the most useful thing that could have happened to this section: the rule was written,
+and the next audit found an instance the rule permitted. The gap was that all four obligations
+constrain the *inputs* of a check and none constrain its *discriminating power*.
+
 **Standing rule for every AC below.** A test that can pass without exercising the thing it
-names is a defect, not a passing test. Concretely: any criterion quantified over a set must
-assert that set is non-empty; any criterion comparing two results must assert both are
-non-empty; any criterion naming an upstream rule must exercise the upstream code rather than
-a local restatement of it; any criterion citing a fixture must name the file.
+names is a defect, not a passing test. Concretely:
+
+1. any criterion quantified over a set must assert that set is non-empty;
+2. any criterion comparing two results must assert both are non-empty;
+3. any criterion naming an upstream rule must exercise the upstream code rather than a local
+   restatement of it;
+4. any criterion citing a fixture must name the file;
+5. **a criterion must be able to fail for the reason it names.** State the defect the check
+   exists to catch, and confirm that an implementation exhibiting that defect turns it red —
+   a mutation is the cheap way. A check whose two sides are both derived from the artefact
+   under test measures self-consistency, not correctness, and obligations 1-4 will not catch
+   it.
 
 ### 9.1 The criteria
 
@@ -1282,7 +1327,7 @@ Each criterion is checkable and traces to a decision above.
 | AC-3 | `assert not isinstance(Neo4jGraphStore(...), LedgerReader)` and `assert not isinstance(ledger, GraphReader)`. | KGIS ADR-0011 |
 | AC-4 | **Two assertions, neither importing a private symbol.** (a) Over public profile data: every registered `CurationProfile` fails at least one of `identity_authority_mode is OPEN`, `er_mode is ACTIVE`, `"AUTO_LINK" in allowable_auto_actions`. (b) Behavioural, exercising KGCS's own predicate: for every registered profile, `ErResolutionPolicy.decide(...)` on a maximally-confident match never returns `ErAction.AUTO_LINK`. (b) is the one that survives an upstream change; (a) alone is a restatement. The test also asserts the registry is non-empty. | §3.3, §5.4, §9.0 |
 | AC-5 | A `FailingCompletionClient` leaves the ER decision byte-identical to the deterministic baseline. | KGCS §9 law 1 |
-| AC-6 | For every projected counter, `property == degree(edge)` at the published epoch, over **the whole projected graph**. A structural invariant — it binds to no fixture. | §5.1 |
+| AC-6 | **Counters are checked against a source independent of the projector.** For every projected counter, `property` equals a count derived from the **canonical graph** at the same published epoch through `GraphReader` (`assertions_for` / `neighborhood`), *not* from the projected edges; and, for the two papers in `reconciled/`, equals the hand-checked expected value. The defect this exists to catch is **the projector dropping or duplicating edges while counting only what it kept** — confirmed by mutating the projector to skip one edge class and observing the test go red. `property == degree(projected edge)` is retained as a cheap internal-consistency check and is explicitly **not sufficient alone**: §4.4 defines the counter as that degree, so on its own it compares the projector with its own formula (§9.0, obligation 5). Non-emptiness asserted. | §5.1, §9.0 |
 | AC-7 | Every projection parity test asserts `len(result) > 0` before comparing. Expected rows come from `reconciled/paper_cskg.gold.yml` and `reconciled/paper_cskg2.gold.yml` (**2 papers**) for entity and topic parity, and from the 10-edge table in the fixture README (`:79-90`, **8 papers**) for `CITES` parity. No test binds to `human/` or `claude/`. | §5.2.1 |
 | AC-8 | The projector filters `REVOKED`; a revoked identity never appears in the projection graph. | §4.3 |
 | AC-9 | Projecting the same published epoch into **two independently empty graphs** yields equal content — equality computed over projected labels, properties and edges, excluding Neo4j internal ids and the `ProjectionWatermark.built_at`. Re-running against an already-projected graph is **not** an acceptable substitute: §4.3 makes the projector an idempotent upsert, so that run is a no-op and proves nothing (§9.0). The test also asserts the projected graph is non-empty. | §4.3, §9.0 |
@@ -1290,11 +1335,12 @@ Each criterion is checkable and traces to a decision above.
 | AC-11 | Every `semantic_key` matches `<type>/<namespace>/<key>` and contains no UUID. | §3.1 |
 | AC-12 | `identity_map` has a uniqueness constraint on `(legacy_label, legacy_id)` and is total over the frozen snapshot — **`Problem` included** — with every row either a mapping or an `unmapped` record naming its reason. | §6.1, §6.3 |
 | AC-12b | Every legacy `Problem` with `status == ProblemStatus.DEPRECATED` (`"deprecated"` — the value `DELETE /api/problems/{id}` actually writes at `repository.py:408`) maps to a canonical identity that is **retracted, not active**. The test asserts the status value against `ProblemStatus` rather than a string literal, so a future enum change breaks the test instead of silently emptying it; and it asserts its fixture contains at least one deprecated `Problem`, so it cannot pass over an empty set. | §6.3, §9.0 |
+| AC-12d | The identity map records `legacy_version` for every `Problem` row, and the migration report states how many `deprecated` Problems carry `version > 1` (certainly a soft delete) versus `version == 1` (indistinguishable). The retraction applies to both; the split makes the residual uncertainty measurable. | §6.3 |
 | AC-12c | The migration join uses `K` of §6.4.1 and nothing else; the report gives the `ambiguous` count **per entity type**, so a systematically coarse key is visible rather than filed as many individual conflations. | §6.4.1, §6.4.2 step 6 |
 | AC-13 | An `unmapped` legacy id returns `410 Gone`, never `404` and never a redirect. | §6.4 |
 | AC-14 | The extraction pipeline is constructed with an explicit `OntologyCandidateValidator(RESEARCH_ONTOLOGY, strict=True)`. | §3.1 |
 | AC-15 | `SOLVED_BY` and `HAS_TOPIC` appear in no **write vocabulary, ontology declaration, Cypher string or guardrail list**. **Negative-assertion regression guards are explicitly exempt and must be preserved** — `packages/core/tests/extraction/test_e8_purge.py:179,191,208` asserts `HAS_TOPIC` is absent, which is the guard PR #66 paid for; an assertion that a term does *not* appear is the enforcement of this AC, not a violation of it. Any equivalent guard added for `SOLVED_BY` is likewise exempt. | §5.5 |
-| AC-15b | Every AC that quantifies over a set asserts that set is non-empty, and every parity AC asserts both sides are non-empty before comparing. Enforced by review against §9.0's standing rule. | §9.0 |
+| AC-15b | Every AC satisfies all five §9.0 obligations, including obligation 5: each names the defect it catches, and that defect has been shown to turn it red. Enforced by review, not by a mechanism — see the Risk in ADR-0003. | §9.0 |
 | AC-15c | Downstream code takes an **injected `MigrationConfig`** and does not call `get_migration_config()` inline, and reaches the optional packages only through `agentic_kg.migration.imports`. | ADR-0004 decisions 3-4 |
 | AC-16 | The ER→plan bridge asserts `pairwise_complete`, asserts all cluster members are present in `entities`, and refuses a `MERGE_IDENTITIES` whose cluster contains a seed Model that is not the survivor. | §5.4, §7 D-KGIS-0/D-KGCS-1 |
 
