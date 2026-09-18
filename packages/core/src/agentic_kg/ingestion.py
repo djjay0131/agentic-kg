@@ -7,6 +7,7 @@ for populating the knowledge graph from a search query.
 """
 
 import logging
+import re
 import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
@@ -194,8 +195,78 @@ _EXTRACTOR_WANTED_SECTIONS = (
     "experiments",
 )
 
+# SEG-6: the whitespace run that ends the truncation window, used to avoid
+# splitting a token when no paragraph boundary is available.
+_TRAILING_WORD = re.compile(r"\s\S*$")
 
-def _build_extractor_section_text(seg: Any) -> str:
+
+# SEG-6: upper bound on the text handed to the entity extractors.
+#
+# Nothing bounded this before. ``kg_construction_survey`` came through at
+# 244,742 characters against a 7,152-character hand-verified gold -- 34.2x --
+# because an unrecognized heading let ``introduction`` run for 94 pages, and
+# it is 4.9x larger than the next largest paper in the eight-paper set.
+#
+# The framing that matters is not cost. Two arms of a legacy-vs-new comparison
+# can be fed inputs differing by 30x with no signal that anything is wrong:
+# one arm is scored on a haystack, the other on a needle, and the difference
+# is attributed to the extractor. An input with no upper bound is not a
+# reproducible experimental condition.
+#
+# The value satisfies two independent constraints. It is 2.4x the largest
+# CORRECTLY segmented extractor input in the corpus (49,511 --
+# ``hypothesis_generation``, see scripts/seg_baseline.json), so a paper has to
+# be badly mis-segmented to reach it; and ~30,000 tokens, about a quarter of a
+# 128k context, leaving room for the prompt, schema and output.
+#
+# One literal, deliberately: SEG-7 option 3 (invert the keep-list) will want
+# to revisit it and should have exactly one place to look.
+# See llm/features/seg6-extractor-input-length-guard.md.
+MAX_EXTRACTOR_CHARS = 120_000
+
+
+def _truncate_extractor_input(text: str, label: str) -> str:
+    """Bound ``text`` at ``MAX_EXTRACTOR_CHARS``, deterministically and loudly.
+
+    Cuts at the last paragraph boundary at or before the cap; failing that the
+    last whitespace, so no token is split; failing that a hard slice. Every
+    step is a pure function of the input, so the result is byte-stable -- a
+    guard that truncated to a time- or hash-dependent point would replace one
+    unreproducible condition with another.
+
+    Truncation logs a WARNING. SEG-1's lesson is that the failure mode which
+    stayed hidden for months was the silent one.
+
+    ``label`` is for the log line only and never affects the output.
+    """
+    if len(text) <= MAX_EXTRACTOR_CHARS:
+        return text
+
+    window = text[:MAX_EXTRACTOR_CHARS]
+    cut = window.rfind("\n\n")
+    if cut <= 0:
+        # No paragraph boundary: fall back to a word boundary, then to a hard
+        # slice. Neither fallback is decoration -- documents with no blank
+        # lines are ordinary, and a 120,000-character single token is what
+        # pathological extractor output looks like.
+        match = _TRAILING_WORD.search(window)
+        cut = match.start() if match else MAX_EXTRACTOR_CHARS
+
+    truncated = text[:cut].rstrip()
+    logger.warning(
+        "Extractor input truncated %s: %s -> %s chars (cap %s, dropped %s). "
+        "An input this large means the segmenter failed to find a boundary "
+        "(SEG-5 / SEG-11), not that the paper is long.",
+        label or "(unlabelled)",
+        f"{len(text):,}",
+        f"{len(truncated):,}",
+        f"{MAX_EXTRACTOR_CHARS:,}",
+        f"{len(text) - len(truncated):,}",
+    )
+    return truncated
+
+
+def _build_extractor_section_text(seg: Any, label: str = "") -> str:
     """Join the abstract + intro + methods + experiments content from a
     ``SegmentedDocument`` into a single text block for the entity
     extractors.
@@ -204,6 +275,12 @@ def _build_extractor_section_text(seg: Any) -> str:
     sections. The per-extractor empty-input short-circuit then prevents
     a wasted LLM call. See spec edge case "Empty section text — clean
     short-circuit".
+
+    SEG-6: the result is bounded by ``MAX_EXTRACTOR_CHARS``. This is the single
+    place the extractor input is assembled, and every caller goes through it,
+    so it is where the bound belongs -- the segmenter stays ignorant of LLM
+    budgets, which is right: a ``Section`` is a fact about a document, not
+    about a prompt.
     """
     if seg is None or not getattr(seg, "sections", None):
         return ""
@@ -216,7 +293,7 @@ def _build_extractor_section_text(seg: Any) -> str:
             content = getattr(section, "content", "") or ""
             if content.strip():
                 parts.append(content.strip())
-    return "\n\n".join(parts)
+    return _truncate_extractor_input("\n\n".join(parts), label)
 
 
 def _found_section_types(seg: Any) -> set[str]:
@@ -325,7 +402,9 @@ async def _acquire_full_text(
             continue
 
         if proc is not None and getattr(proc, "success", False):
-            text = _build_extractor_section_text(proc.segmented_document)
+            text = _build_extractor_section_text(
+                proc.segmented_document, label=str(paper.doi or url),
+            )
             if len(text.strip()) >= min_chars:
                 logger.info(f"Full text acquired via {url} ({len(text)} chars)")
                 return _AcquisitionOutcome(proc, text, None)
