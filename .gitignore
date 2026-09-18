@@ -76,3 +76,6 @@ ground-truth-papers/
 
 # Claude Code agent worktrees
 .claude/worktrees/
+
+# uv lockfile: this repo pins via pyproject/constraints, not uv.lock
+uv.lock
