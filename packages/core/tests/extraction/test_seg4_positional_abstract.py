@@ -366,11 +366,26 @@ class TestReconstructedPdfPreamble:
     that the mechanism behaves as documented when a title page IS present —
     which the committed corpus alone cannot show either way.
 
-    Note line 4 is 86 characters, comfortably ABOVE 0.75 x 106, so it does
-    *not* break the run. The entire mechanism rests on line 5 being short. If
-    it did not break, the span would reach lines 0-1 and Guard 1 would reject
-    on `https://`, `doi.org` and `www.` — so the failure mode is a MISSING
-    abstract, never a wrong one.
+    Note line 4 is 86 characters, comfortably ABOVE 0.75 x 108, so it does
+    *not* break the run. **The entire mechanism rests on line 5 being short.**
+
+    **What happens when it is not, stated up front because an earlier draft of
+    this docstring got it wrong.** The reassuring answer would be that the run
+    reaches lines 0-1, Guard 1 trips on `https://` / `doi.org` / `www.`, and
+    the failure mode is therefore a MISSING abstract rather than a wrong one.
+    **That is false, and measuring it is how I found out.** With line 5
+    prose-width the run takes lines 4 and 5 and stops at line 3; neither
+    carries a denylisted term, and the span is dominated by real abstract prose
+    so both guards pass. The result is an abstract with two lines of author
+    metadata glued to the front — subtly wrong, not absent.
+
+    So the guards bound the BLAST RADIUS -- they do stop a 12,157-character
+    title-page span, pinned by the "stop the run at real furniture" test below
+    -- but they do NOT guarantee a clean leading edge. On
+    cskg2's real layout line 5 is 15 characters and this does not arise; on a
+    future label-less paper whose author block wraps wide, it would. Both
+    behaviours are pinned below — see
+    ``test_a_prose_width_metadata_line_IS_absorbed_known_limitation``.
     """
 
     PREAMBLE = [

@@ -226,9 +226,35 @@ Gold-entity visibility:
   empire                        5      2      2    100.0%  human
 ```
 
-Both reconciled-gold papers — `cskg` and `cskg2` — are now CONCAT-valid and
-both sit at their gold-entity ceiling. Only `cskg2` is also TYPED-valid;
-`cskg`'s methods span is mislabelled `introduction` (see the box at the top).
+### What each reconciled-gold paper licenses
+
+Only two of the eight carry a reconciled gold record, and they are **not**
+equivalent evidence. Recorded explicitly so "both reconciled-gold papers are
+VALID" cannot be read as "both demonstrate improvement":
+
+| | `cskg2` | `cskg` |
+|---|---|---|
+| CONCAT-valid | yes | yes |
+| TYPED-valid | yes | **no** — produces no `methods` section |
+| gold entities | **23 → 25 of 25 reachable** | 13/13 → 13/13 — **already 100% at base** |
+| licenses | **concatenated-recall comparison, without reservation** | **blob-level / entity-visibility claims only** |
+
+**`cskg2` carries this work's semantic result.** It gained a correctly-typed
+introduction, methods and experiments, an abstract, and two gold entity groups
+— one of them `scientific knowledge graph`, the citation chain's spine concept.
+
+**`cskg` evidences no semantic improvement.** Its entity visibility was already
+at its reachable ceiling before this work; what changed is an abstract and
+1,420 characters. It remains TYPED-invalid — its 14,988-character gold
+`methods` span is still absorbed into `introduction` — so it must not be cited
+for section-level or semantic quality. That confusion predates this work and
+persists through it.
+
+**Corollary.** Production's `_missing_wanted_sections` is the *noisier* of the
+two instruments, firing on `kg_construction_survey` and `llm_ontology_gen`,
+which are correctly typed against their own gold. The TYPED column is the more
+faithful one because it reads each paper's gold `wanted` list rather than
+assuming all four types.
 
 ### Why `empire` is still invalid
 
