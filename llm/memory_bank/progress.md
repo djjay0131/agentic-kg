@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-07-22
+Last updated: 2026-09-17
 
 ## What Is Built and Working
 
@@ -34,11 +34,11 @@ Last updated: 2026-07-22
 
 ### CI + Ops
 - **CI health**: master lint debt cleared, integration-tests workflow installs core/api packages directly, e2e tests isolated
-- **ci-smoke-test-ingestion (VERIFIED)**: `.github/workflows/smoke-ingest.yml` triggers on PR (path-filtered) + daily cron (06:17 UTC) + `workflow_dispatch`; testcontainers Neo4j inside runner; single-retry ingest with 30s sleep; `scripts/smoke_assert.py` runs 6-count Cypher check; artifact upload with 14-day retention; concurrency group cancels stale runs; `make smoke-local` mirrors CI workflow for local reproduction
+- **ci-smoke-test-ingestion — GREEN 2026-09-08.** VERIFIED as a feature in 2026-07, but the workflow had **never once had a passing run** until 2026-09: three stacked defects (stdout deprecation warning corrupting `ingest --json`; the topic assertion querying `BELONGS_TO` instead of `RESEARCHES`; retries bypassing the S2 rate limiter) plus a missing `SEMANTIC_SCHOLAR_API_KEY`. The six assertions had never executed at all. Now 6/6 with `cites=19`. Workflow detail: `.github/workflows/smoke-ingest.yml` triggers on PR (path-filtered) + daily cron (06:17 UTC) + `workflow_dispatch`; testcontainers Neo4j inside runner; single-retry ingest with 30s sleep; `scripts/smoke_assert.py` runs 6-count Cypher check; artifact upload with 14-day retention; concurrency group cancels stale runs; `make smoke-local` mirrors CI workflow for local reproduction
 - **GCP Staging**: Cloud Run Job + API deployed, Neo4j with 282+ nodes, schema initialized with vector indexes
 
 ### Tests
-- **1994 core unit tests passing**, 234 skipped (e2e + testcontainers Docker-gated), 0 failures
+- **~2207 core unit tests passing** (SEG-1 added +118), 234 skipped (e2e + testcontainers Docker-gated), 0 failures
 - Integration tests green against staging Neo4j (per E-8/E-7 verify gates)
 
 ## What Remains to Be Built
@@ -66,11 +66,14 @@ Last updated: 2026-07-22
 - **Cross-paper canonicalization** — "attention mechanism" as Concept in paper A and Method in paper B; separate from E-7's per-paper scope
 - Complete 20-paper ingestion + human review (AC-10: ≥90% coherence)
 - Scrub staging Neo4j IP from `docs/status/service-inventory.html` (still-open; flagged in prior progress)
-- Triage stale PR #16 (Cloud Build triggers, no CI ever ran)
+- ~~Triage stale PR #16~~ — closed; branch deleted in the 2026-09-01 branch sweep (9 remote branches → 3).
 
 ## Known Bugs / Tech Debt
 
 - **(RESOLVED 2026-07-13/14) `Deploy Master` never worked** — root cause was NOT the "missing staging env" story but a reusable-workflow `id-token` permissions gap (PR #29) plus an undefined `needs.build` reference (PR #28). Fixed across PRs #27–#32; **first green run in repo history 2026-07-13**, and **AC-6 (SHA parity across api/ui/job) VERIFIED 2026-07-14** on the SM-4 service-code deploy. Entity-expansion code (E-3..E-8 V2, E-7, orchestration) + the ingest Cloud Run Job now deploy on every service-code push. `deploy-master.yml` deploys the ingest Job; `docker/Dockerfile.worker` deleted; `/version` shipped — all via `deploy-pipeline-fix` PR-1.
+- **(RESOLVED 2026-09-08) CI smoke gate never green** — see the CI section above. Root causes were `import fitz` writing to stdout (#52), a `BELONGS_TO`/`RESEARCHES` mismatch in the assertion (#52), and retries bypassing the rate limiter (#56).
+- **(2026-09-17, PR #66 open) `purge_paper_extraction` never purged topic edges** — both Topic deletions named relationships that do not exist: Paper→Topic matched `BELONGS_TO` (is `RESEARCHES`) and ProblemConcept→Topic matched `HAS_TOPIC`, which is written nowhere in the codebase. The purge is live (`ingestion.py:572`), so re-ingested papers accumulated one generation of topic edges per run, inflating `Topic.paper_count`.
+- **No `.gitattributes`; `core.autocrlf` unset** — untouched files show as fully modified from CRLF/LF churn on Windows/WSL checkouts. Worth `* text=auto`.
 - **`cleanup-preview` GHA job failing** on recent PRs (e.g. #40) — unrelated to feature work; needs triage.
 - (RESOLVED 2026-07-22) `docs/governance-delta.md` Platform Enforcement Reality reconciled — now records branch protection LIVE + the `test (3.12)` / `Governance Checks` split.
 - `docs/status/service-inventory.html` exposes the staging Neo4j browser endpoint (still open)
@@ -102,6 +105,8 @@ Last updated: 2026-07-22
 | M12: Loop Closed | 2026-06-24 | E-7 Cross-entity normalization + entity-pipeline-orchestration VERIFIED; every entity-expansion feature (E-1..E-8 V2 + E-7) is invoked from production `ingest_papers` |
 | M13: CI Smoke | 2026-07-02 | `ci-smoke-test-ingestion` VERIFIED; GHA workflow ingests 3 real papers end-to-end against testcontainers Neo4j on every PR + daily cron |
 | M13.5: Deploy Green + Governance + Design Docs | 2026-07-21 | Deploy Master first green in repo history (AC-6 SHA-parity verified on the SM-4 deploy); agentic-governance v0.2 **enforced** (branch protection + CI-wired check); docs **Reference** + **Design** sections published to Pages |
+| M13.6: Smoke Gate Actually Green | 2026-09-08 | `Smoke Test — Ingest` passes 6/6 for the first time in its history (`cites=19`). Three stacked defects fixed (#52, #56) plus an S2 API key; the six assertions had never executed before. |
+| M13.7: Governance v0.9 | 2026-09 | agentic-governance v0.7 → v0.9.0 (#59–#64): canon location, `--layout` CI assertion, Plans slot, artifact-routing rule. |
 | M14: Production Ready | Not started | All tests passing, real data ingested at scale, R-1..R-5 (graph-RAG) shipped |
 
 ## Completed Sprints (11 total)
@@ -129,6 +134,7 @@ Each cycle: spec → implement → verify.
 
 ## Governance
 
+- 2026-09: **v0.7 → v0.9.0** (#59–#64). Canon location declared; `--layout` assertion wired into CI; Plans slot declared (`llm/plans/`); artifact-routing rule installed in `CLAUDE.md` + `AGENTS.md`.
 - 2026-08-31: **Migrated** to the `llm/` control plane (ADR-0002) — delta and ADRs moved out of `docs/`, sprint history to `llm/sprints/`, pin v0.2 → v0.5.
 - 2026-07-13: **Adopted** agentic-governance v0.2 (`docs/governance-delta.md`, ADR-0001 declares `systemPatterns.md` interim design authority; Steward: INACTIVE).
 - 2026-07-21: **Enforced.** Audit (`governance:audit`, verdict DRIFTING) acted on:

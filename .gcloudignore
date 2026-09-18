@@ -21,9 +21,11 @@ tests/
 .coverage
 htmlcov/
 
-# Project tracking
-memory-bank/
-construction/
+# Control plane (agentic-governance ADR-0001): agent-facing project files —
+# governance delta + ADRs, feature specs, memory bank, sprint history, plans.
+# None of it is runtime code, so it stays out of the build context. The data
+# plane (docs/) is excluded above.
+llm/
 
 # Python artifacts
 *.pyc
