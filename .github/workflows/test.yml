@@ -2,9 +2,15 @@ name: Run Tests
 
 on:
   pull_request:
-    branches: [master, main]
+    branches: [master, main, 'integration/**']
   push:
-    branches: [master, main]
+    branches: [master, main, 'integration/**']
+
+# A merge into a long-lived integration branch fires both the PR-close and the
+# push event; without a group they race and burn double the runner minutes.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:

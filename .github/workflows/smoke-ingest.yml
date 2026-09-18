@@ -15,7 +15,7 @@ on:
         description: 'Paper count'
         default: '3'
   pull_request:
-    branches: [master]
+    branches: [master, 'integration/**']
     paths:
       - 'packages/core/**'
       - 'pyproject.toml'
