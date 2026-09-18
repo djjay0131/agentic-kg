@@ -99,6 +99,14 @@ class TestLetterSpacedScope:
     def test_degenerate_spaced_lines_stay_unknown(self, segmenter, line):
         assert segmenter._classify_heading(line) == SectionType.UNKNOWN
 
+    def test_the_three_letter_floor_is_exact(self):
+        """The `{2,}` quantifier means "two letter-space pairs then a letter"
+        = three letters minimum. The docstring called that deliberate but
+        nothing asserted it, so `{2,}` -> `{3,}` survived mutation testing in
+        the PR #69 review. Both sides of the boundary, pinned."""
+        assert _LETTER_SPACED.match("A B C")     # 3 letters: matched
+        assert not _LETTER_SPACED.match("A B")   # 2 letters: not
+
 
 # =============================================================================
 # AC-2, AC-3 — run-in labels

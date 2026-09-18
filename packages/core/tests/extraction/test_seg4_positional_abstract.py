@@ -17,6 +17,7 @@ different failures.
 """
 
 import logging
+from pathlib import Path
 
 import pytest
 from agentic_kg.extraction.section_segmenter import (
@@ -151,18 +152,30 @@ class TestFurnitureGuard:
     for this corpus.
     """
 
+    # ONE alternative per case, deliberately. The first version of this
+    # parametrize double-covered: "Contents lists available at ScienceDirect"
+    # hit two terms and "Received 3 January; accepted 4 February" hit two more,
+    # so four of the eight alternatives were never independently asserted and
+    # a "remove the redundant-looking term" refactor passed CI. These
+    # alternatives are what stand between the corpus and fabricated
+    # 2,058-2,649-character abstracts on six papers.
     @pytest.mark.parametrize(
-        "furniture",
+        "term,furniture",
         [
-            "contact the author at someone@example.edu for details here.",
-            "available online at https://example.org/paper for readers.",
-            "the identifier is doi.org/10.1038/s41597 for this record.",
-            "Contents lists available at ScienceDirect for this journal.",
-            "Received 3 January; accepted 4 February after peer review.",
-            "see www.nature.com/scientificdata for the full description.",
+            ("https?://", "available online at https://example.org/x for you."),
+            ("doi.org", "the identifier is doi.org/10.1038/s41597 for this."),
+            ("Contents lists available",
+             "Contents lists available at this publisher for the journal."),
+            ("ScienceDirect", "hosted on ScienceDirect for the readership."),
+            ("accepted", "the paper was accepted in February after review."),
+            ("received", "the paper was received in January by the editor."),
+            ("www.", "see www.nature.com/scientificdata for a description."),
         ],
     )
-    def test_a_span_containing_furniture_is_rejected(self, segmenter, furniture):
+    def test_a_span_containing_furniture_is_rejected(
+        self, segmenter, term, furniture,
+    ):
+        del term  # names the alternative under test; asserted via the id
         text = (
             f"{_prose()}\n"
             f"{furniture.ljust(90, '.')}\n"
@@ -170,6 +183,28 @@ class TestFurnitureGuard:
         )
         doc = segmenter.segment(text)
         assert doc.get_sections_by_type(SectionType.ABSTRACT) == []
+
+    def test_an_at_sign_alone_is_enough(self, segmenter):
+        """The bare `@` alternative, which the rewritten cases above avoid so
+        each one isolates a single term."""
+        text = (
+            f"{_prose()}\n"
+            f"{'write to a@b for the dataset access details'.ljust(90, '.')}\n"
+            f"Background & Summary\n{_body()}\nMethods\n{_body()}\n"
+        )
+        assert segmenter.segment(text).get_sections_by_type(
+            SectionType.ABSTRACT,
+        ) == []
+
+    @pytest.mark.parametrize(
+        "term",
+        ["@", "https?://", r"doi\.org", "Contents lists available",
+         "ScienceDirect", r"\baccepted\b", r"\breceived\b", r"www\."],
+    )
+    def test_every_alternative_is_still_in_the_denylist(self, term):
+        """Pins the LIST, so a term cannot be dropped without a test noticing
+        even if some future case happens to double-cover it."""
+        assert term in _TITLE_PAGE_FURNITURE.pattern
 
     def test_the_real_lead_paragraph_contains_no_furniture(self):
         """The separation the guard relies on: the genuine abstract hits none
@@ -245,8 +280,39 @@ class TestRelativeProseWidth:
         doc = segmenter.segment(text)
         assert len(doc.get_sections_by_type(SectionType.ABSTRACT)) == 1
 
-    def test_the_factor_is_a_fraction_of_the_median(self):
-        assert 0 < _PROSE_WIDTH_FACTOR < 1
+    def test_the_factor_is_pinned_to_its_measured_value(self):
+        """The weakest assertion in this file used to be ``0 < f < 1``, on the
+        constant most sensitive to layout — a live 0.60–0.75 drift window that
+        mutation testing walked straight through. Bounded now the way
+        ``_MIN_SENTENCES`` and ``_MAX_DIGIT_DENSITY`` are."""
+        assert _PROSE_WIDTH_FACTOR == 0.75
+
+    def test_lowering_the_factor_would_swallow_a_metadata_line(self, segmenter):
+        """Behavioural pin, not just a literal. A LOWER factor admits NARROWER
+        lines, so the run walks further back and absorbs the author/journal
+        block. With a median body width of ~100, a 70-character metadata line
+        sits below 0.75x (75) and above 0.60x (60): at the shipped value it
+        breaks the run, at 0.60 it would not.
+        """
+        metadata = (
+            "Danilo Dessi, Francesco Osborne, Enrico Motta and Angelo Salatino"
+        )
+        assert 60 < len(metadata) < 75, len(metadata)
+        text = (
+            f"{metadata}\n"
+            f"{_prose(sentences=8, width=100)}\n"
+            f"Background & Summary\n{_body()}\nMethods\n{_body()}\n"
+        )
+        abstract = segmenter.segment(text).get_sections_by_type(
+            SectionType.ABSTRACT,
+        )
+        assert len(abstract) == 1
+        assert "Danilo" not in abstract[0].content
+
+    def test_the_factor_still_admits_the_documented_layouts(self):
+        """The other side of the bound: cskg2's median body width is 106 and
+        its abstract lines are ~85-106, so 0.75 x 106 = 79.5 keeps them."""
+        assert _PROSE_WIDTH_FACTOR * 106 < 85
 
 
 # =============================================================================
@@ -270,3 +336,153 @@ class TestDegenerateInput:
 
     def test_empty_input_is_safe(self, segmenter):
         assert segmenter.segment("").sections == []
+
+# =============================================================================
+# The risk surface this corpus CANNOT contain
+# =============================================================================
+
+
+class TestReconstructedPdfPreamble:
+    """``paper_cskg2.txt`` begins at character 0 with the abstract, because
+    ``segment_ground_truth.py`` cut the title page away. So the positional
+    rule's entire risk surface — running backwards into publisher furniture,
+    measured at 12,157 characters uncapped and 2,058–2,649 characters across
+    six papers — **cannot exist in the committed corpus**. Any rule returning
+    "the prefix before the first heading" scores 1,210 there.
+
+    This class puts the title page back, reconstructed from the line listing
+    the SEG-4 spec recorded off the real PDF:
+
+        0 | ( 76) Scientific Data | (2025) 12:964 | https://doi.org/...
+        1 | ( 29) www.nature.com/scientificdata
+        2 | ( 34) CS-KG 2.0: A Large-scale Knowledge
+        3 | ( 25) Graph of Computer Science
+        4 | ( 86) Danilo Dessi 1, Francesco Osborne 2,3, ...
+        5 | ( 15) & Enrico Motta2              <-- breaks the run
+        6 | (106) The rapid evolution of AI ...   <-- run starts
+
+    **This is a reconstruction, not a measurement of the PDF.** The PDFs are
+    gitignored and this work never ran against them. What it does establish is
+    that the mechanism behaves as documented when a title page IS present —
+    which the committed corpus alone cannot show either way.
+
+    Note line 4 is 86 characters, comfortably ABOVE 0.75 x 106, so it does
+    *not* break the run. The entire mechanism rests on line 5 being short. If
+    it did not break, the span would reach lines 0-1 and Guard 1 would reject
+    on `https://`, `doi.org` and `www.` — so the failure mode is a MISSING
+    abstract, never a wrong one.
+    """
+
+    PREAMBLE = [
+        'Scientific Data | (2025) 12:964 | https://doi.org/10.1038/s41597-025-05200-8',
+        "www.nature.com/scientificdata",
+        "CS-KG 2.0: A Large-scale Knowledge",
+        "Graph of Computer Science",
+        'Danilo Dessi 1, Francesco Osborne 2,3, Enrico Motta 2, Angelo Salatino 2,3 and others4',
+        "& Enrico Motta2",
+    ]
+
+    @pytest.fixture
+    def reconstructed(self) -> str:
+        fixture = (
+            Path(__file__).resolve().parent
+            / "fixtures" / "ground_truth_chain" / "paper_cskg2.txt"
+        ).read_text(encoding="utf-8")
+        return "\n".join(self.PREAMBLE) + "\n" + fixture
+
+    def test_the_documented_line_widths_are_what_the_spec_recorded(self):
+        """If the reconstruction drifts from the recorded widths it stops
+        testing the thing it claims to test."""
+        assert [len(line) for line in self.PREAMBLE] == [76, 29, 34, 25, 86, 15]
+        # Line 4 is ABOVE the prose-width floor for this document (0.75 x 108
+        # = 81), so it does NOT break the run. The whole mechanism rests on
+        # line 5 being short.
+
+    def test_the_abstract_survives_a_title_page(self, segmenter, reconstructed):
+        doc = segmenter.segment(reconstructed)
+        abstracts = doc.get_sections_by_type(SectionType.ABSTRACT)
+        assert len(abstracts) == 1
+        assert abstracts[0].content.startswith("The rapid evolution of AI")
+
+    def test_it_returns_the_same_span_as_without_the_title_page(
+        self, segmenter, reconstructed,
+    ):
+        """The load-bearing assertion. The committed corpus gives 1,210 chars
+        trivially; the point is that adding a real title page in front changes
+        nothing."""
+        fixture = (
+            Path(__file__).resolve().parent
+            / "fixtures" / "ground_truth_chain" / "paper_cskg2.txt"
+        ).read_text(encoding="utf-8")
+        bare = segmenter.segment(fixture).get_sections_by_type(
+            SectionType.ABSTRACT,
+        )[0]
+        with_page = segmenter.segment(reconstructed).get_sections_by_type(
+            SectionType.ABSTRACT,
+        )[0]
+        assert with_page.content == bare.content
+        assert len(with_page.content) == 1210
+
+    def test_no_furniture_reaches_the_span(self, segmenter, reconstructed):
+        abstract = segmenter.segment(reconstructed).get_sections_by_type(
+            SectionType.ABSTRACT,
+        )[0]
+        for term in ("doi.org", "www.", "Scientific Data |", "Enrico Motta2"):
+            assert term not in abstract.content
+
+    def test_a_prose_width_metadata_line_IS_absorbed_known_limitation(
+        self, segmenter,
+    ):
+        """A limitation, pinned rather than papered over.
+
+        The first draft of this test asserted that a prose-width line 5 would
+        push the run back into the journal header, Guard 1 would reject, and
+        the failure mode would therefore be a MISSING abstract rather than a
+        wrong one. **That is false**, and measuring it is how I found out.
+
+        With line 5 prose-width the run takes lines 4 and 5 and stops at line 3
+        (25 chars). Neither line carries a denylisted term, and the span is
+        dominated by real abstract prose so the digit-density and sentence
+        tests both pass. The result is an abstract with two lines of author
+        metadata glued to the front — subtly wrong, not absent.
+
+        The two guards bound the BLAST RADIUS (they stop a 12,157-character
+        title-page span) but they do not guarantee a clean leading edge. On the
+        real cskg2 layout line 5 is 15 characters and this does not arise; on a
+        future label-less paper whose author block wraps wide, it would. Owner:
+        whoever extends the positional rule beyond this corpus.
+        """
+        preamble = list(self.PREAMBLE)
+        preamble[5] = (
+            "and Enrico Motta 2, with additional affiliations listed below "
+            "for all of the contributing authors"
+        )
+        assert len(preamble[5]) > 81
+        fixture = (
+            Path(__file__).resolve().parent
+            / "fixtures" / "ground_truth_chain" / "paper_cskg2.txt"
+        ).read_text(encoding="utf-8")
+        abstracts = segmenter.segment(
+            "\n".join(preamble) + "\n" + fixture,
+        ).get_sections_by_type(SectionType.ABSTRACT)
+
+        assert len(abstracts) == 1
+        assert abstracts[0].content.startswith("Danilo Dessi")
+        # Bounded, though: the journal header and its URLs never get in.
+        for term in ("doi.org", "www.", "Scientific Data |"):
+            assert term not in abstracts[0].content
+
+    def test_the_guards_still_stop_the_run_at_real_furniture(self, segmenter):
+        """The blast-radius bound the guards DO provide: make every preamble
+        line prose-width and the run reaches line 0, whose URL trips Guard 1 —
+        no fabricated 12,157-character abstract."""
+        preamble = [
+            line if len(line) > 81 else line.ljust(90, "o")
+            for line in self.PREAMBLE
+        ]
+        fixture = (
+            Path(__file__).resolve().parent
+            / "fixtures" / "ground_truth_chain" / "paper_cskg2.txt"
+        ).read_text(encoding="utf-8")
+        doc = segmenter.segment("\n".join(preamble) + "\n" + fixture)
+        assert doc.get_sections_by_type(SectionType.ABSTRACT) == []

@@ -538,9 +538,65 @@ def format_committed_report(entries: dict[str, Any]) -> str:
 GOLD_RECALL_FLOOR = 0.95
 SWALLOW_SHARE = 0.90
 
+# WHAT THOSE THREE CONDITIONS CANNOT SEE, stated here because the verdict they
+# produce is the number this work gets cited for.
+#
+# All four keep-list types are concatenated into ONE blob before the extractors
+# see it, so a span labelled `introduction` that is really the methods section
+# keeps every one of its characters and lands in the same prompt. Char recall
+# is therefore structurally blind to confusion BETWEEN keep-list types:
+# intra-keep-list mislabelling is free.
+#
+# Measured, and not hypothetical: `cskg`'s 14,988-char gold methods span
+# [6728,21716) is absorbed into a 20,271-char `introduction`, and the paper
+# still scores 99.9% recall. Five of the seven papers that pass the three
+# conditions are missing a wanted section TYPE.
+#
+# So the verdict is reported in two columns, and neither stands in for the
+# other:
+#
+#   CONCAT   valid for a legacy-vs-new comparison over the concatenated
+#            extractor blob -- which is what today's pipeline actually feeds
+#            the extractors. This is the claim this work supports.
+#   TYPED    also produces every wanted section type gold records for the
+#            paper, under the right label. This is the claim SEG-7 needs,
+#            because inverting the keep-list is exactly the change that stops
+#            type errors being free.
+#
+# A paper can be CONCAT-valid and TYPED-invalid. Most of them are.
+
+# Mirrored from scripts/segment_ground_truth.py's per-paper `wanted` lists.
+# Read from gold rather than assumed to be all four: kg_construction_survey is
+# a 94-page survey with no methods and no experiments sections, and gold says
+# so -- holding it to four types would manufacture a failure out of an honest
+# answer. test_gold_wanted_types_mirror_matches_the_generator keeps the two in
+# step.
+_GOLD_WANTED_TYPES: dict[str, tuple[str, ...]] = {
+    "cskg": ("abstract", "introduction", "methods", "experiments"),
+    "cskg2": ("abstract", "introduction", "methods", "experiments"),
+    "kg_construction_survey": ("abstract", "introduction"),
+    "llm_ontology_gen": ("abstract", "introduction", "experiments"),
+    "fact_completion": ("abstract", "introduction", "methods", "experiments"),
+    "kg_validation_hitl": ("abstract", "introduction", "methods", "experiments"),
+    "hypothesis_generation": (
+        "abstract", "introduction", "methods", "experiments",
+    ),
+    "empire": ("abstract", "introduction", "methods"),
+}
+
+
+def expected_wanted_types(slug: str) -> tuple[str, ...]:
+    """The keep-list types gold actually records for ``slug``."""
+    return _GOLD_WANTED_TYPES.get(slug, tuple(WANTED_SECTIONS))
+
 
 def recall_validity(entry: dict[str, Any]) -> dict[str, Any]:
-    """Per-paper recall-comparison verdict for one frozen/measured entry."""
+    """Per-paper verdict for one frozen/measured entry.
+
+    Returns BOTH verdicts -- see the comment above ``_GOLD_WANTED_TYPES``.
+    ``valid`` is the concatenated-blob verdict; ``section_typed`` is the
+    stricter one, and ``missing_types`` names what is absent.
+    """
     sections = entry["sections"]
     kept = [s for s in sections if s["type"] in WANTED_SECTIONS]
     gold_chars = entry["source_chars"] or 1
@@ -562,9 +618,17 @@ def recall_validity(entry: dict[str, Any]) -> dict[str, Any]:
     elif len(kept) == 1 and recall < 1.0:
         reasons.append("a single section holds all kept text (under-segmented)")
 
+    # The second verdict. Mirrors ingestion._missing_wanted_sections, which
+    # treats an empty-content section as not found; the frozen `sections` list
+    # carries char counts, so the two agree.
+    produced = {s["type"] for s in sections if s["chars"] > 0}
+    missing = [t for t in expected_wanted_types(entry["slug"]) if t not in produced]
+
     return {
         "slug": entry["slug"],
         "valid": not reasons,
+        "section_typed": not reasons and not missing,
+        "missing_types": missing,
         "recall": recall,
         "kept_chars": kept_chars,
         "gold_chars": gold_chars,
@@ -573,26 +637,50 @@ def recall_validity(entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def format_readiness_report(entries: dict[str, Any]) -> str:
-    """Render the per-paper recall-comparison verdict table."""
+    """Render the per-paper verdict table, BOTH columns.
+
+    Printed side by side on purpose. A single "VALID" column reads as "this
+    paper is correctly segmented", which it does not mean and cannot mean:
+    char recall cannot see confusion between two types that are both on the
+    keep-list, and five of the seven CONCAT-valid papers are missing a wanted
+    type.
+    """
     lines = [
         "",
         "=== Recall-comparison readiness ===",
-        f"  {'paper':<24}{'verdict':>10}  why not",
+        "  CONCAT = valid over the concatenated extractor blob "
+        "(what today's pipeline feeds the extractors).",
+        "  TYPED  = also produces every wanted section type gold records, "
+        "under the right label.",
+        "  CONCAT does NOT imply TYPED. SEG-7 (inverting the keep-list) "
+        "needs TYPED.",
+        "",
+        f"  {'paper':<24}{'CONCAT':>8}{'TYPED':>8}  notes",
     ]
-    valid = 0
+    concat = typed = 0
     for slug in PAPERS:
         entry = entries.get(slug)
         if entry is None:
-            lines.append(f"  {slug:<24}{'MISSING':>10}  not measured")
+            lines.append(f"  {slug:<24}{'MISSING':>8}{'-':>8}  not measured")
             continue
         row = recall_validity(entry)
-        valid += bool(row["valid"])
-        why = "-" if row["valid"] else "; ".join(row["reasons"])
+        concat += bool(row["valid"])
+        typed += bool(row["section_typed"])
+        notes = list(row["reasons"])
+        if row["missing_types"]:
+            notes.append(f"missing type(s): {', '.join(row['missing_types'])}")
         lines.append(
-            f"  {slug:<24}{'VALID' if row['valid'] else 'INVALID':>10}  {why}"
+            f"  {slug:<24}"
+            f"{'VALID' if row['valid'] else 'INVALID':>8}"
+            f"{'VALID' if row['section_typed'] else 'INVALID':>8}"
+            f"  {'; '.join(notes) if notes else '-'}"
         )
+    total = len(PAPERS)
     lines.append("")
-    lines.append(f"  {valid}/{len(PAPERS)} papers valid for a recall comparison")
+    lines.append(
+        f"  {concat}/{total} valid for a concatenated-blob recall comparison; "
+        f"{typed}/{total} also correctly section-typed"
+    )
     return "\n".join(lines)
 
 

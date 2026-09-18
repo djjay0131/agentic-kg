@@ -143,13 +143,18 @@ _MIN_BODY_WORDS_FOR_CHECK = 500
 
 # DEVIATION FROM THE SPEC, and the reason for it. With N body sections the
 # smallest possible maximum share is 1/N, so at N <= 2 the smallest max share
-# is 50% -- already above the 40% threshold. The detector would therefore fire
-# on EVERY two-section document regardless of how well it was segmented, which
-# is a warning carrying no information. Measured consequence on the committed
-# gold corpus, where the keep-list leaves only 2-4 sections per paper:
-# `kg_construction_survey` has exactly two body sections (gold says abstract +
-# introduction, which is the honest answer for a 94-page survey) and warned at
-# 83.5% purely because of this arithmetic.
+# is 50% -- already above the 40% threshold. The share check would therefore
+# fire on EVERY two-section document regardless of how well it was segmented,
+# which is a warning carrying no information. Measured consequence on the
+# committed gold corpus, where the keep-list leaves only 2-4 sections per
+# paper: `kg_construction_survey` has exactly two body sections (gold says
+# abstract + introduction, the honest answer for a 94-page survey) and warned
+# at 83.5% purely because of this arithmetic.
+#
+# Below this floor the detector does NOT go silent -- it reports the section
+# COUNT instead of the share. Skipping outright would mute the worst case:
+# cskg2 at base had exactly one body section holding 100% of the paper, which
+# is precisely cause (4).
 _MIN_BODY_SECTIONS_FOR_CHECK = 3
 
 # Excluded from the denominator AND never reported: `references` alone reaches
@@ -521,8 +526,25 @@ class SectionSegmenter:
         if total < _MIN_BODY_WORDS_FOR_CHECK:
             return
         # See _MIN_BODY_SECTIONS_FOR_CHECK: at N <= 2 the threshold is below
-        # 1/N and the check cannot fail to fire, so it says nothing.
+        # 1/N and the SHARE check cannot fail to fire, so it says nothing.
+        #
+        # Silence would be the wrong answer, though, because N <= 2 on a large
+        # document is itself the worst case this detector exists for: at base,
+        # cskg2 had exactly ONE body section holding 100% of the paper. So the
+        # small-N case gets its own signal rather than being skipped -- a
+        # different fact, reported as a different fact. Only the count is
+        # stated; no share, because the share is arithmetically forced.
         if len(body) < _MIN_BODY_SECTIONS_FOR_CHECK:
+            logger.warning(
+                "under-segmentation: only %d recognized body section(s) in a "
+                "%d-word document (%s). A share is not reported because at "
+                "N<=%d it is arithmetically forced; the missing headings lie "
+                "inside these spans.",
+                len(body),
+                total,
+                ", ".join(repr(s.title) for s in body) or "(none)",
+                _MIN_BODY_SECTIONS_FOR_CHECK - 1,
+            )
             return
         for index, section in enumerate(body):
             share = section.word_count / total

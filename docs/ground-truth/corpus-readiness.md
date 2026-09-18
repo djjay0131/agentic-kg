@@ -6,7 +6,7 @@ nav_exclude: true
 # Corpus readiness: when is a paper valid for a recall comparison?
 
 **Created:** 2026-09-18
-**Companion to:** [`segmenter-findings.md`](segmenter-findings.md)
+**Companion to:** [`segmenter-findings.md`](segmenter-findings.html)
 **Harness:** `scripts/measure_segmentation.py --corpus committed`
 **Guard:** `packages/core/tests/extraction/test_segmenter_frozen_corpus.py`
 
@@ -19,6 +19,39 @@ recall.
 
 This document records how readiness is measured, what it measured, and what it
 cannot see.
+
+> ## Read this before quoting a number
+>
+> **"VALID" does not mean "correctly segmented".** All four keep-list types are
+> concatenated into one blob before the extractors see it, so a span labelled
+> `introduction` that is really the methods section keeps every character and
+> lands in the same prompt. Character recall is therefore **structurally blind
+> to confusion between two keep-list types**.
+>
+> Measured: `cskg` — one of the two reconciled-gold papers — produces **no
+> `methods` section at all**. Its 14,988-character gold methods span
+> `[6728,21716)` is absorbed into a 20,271-character `introduction`, and the
+> paper still scores **99.9% recall**.
+>
+> So the readiness table reports **two** verdicts, and neither substitutes for
+> the other:
+>
+> | | means | count |
+> |---|---|---|
+> | **CONCAT** | valid for a legacy-vs-new comparison over the concatenated extractor blob — what today's pipeline actually feeds the extractors | **7/8** |
+> | **TYPED** | *also* produces every wanted section type gold records for that paper, under the right label | **4/8** |
+>
+> Three of the seven CONCAT-valid papers are TYPED-invalid: `cskg` and
+> `fact_completion` (missing `methods`), `kg_validation_hitl` (missing
+> `experiments`). All three are SEG-5 misses — a heading named after the
+> paper's contribution, or an over-strict anchor.
+>
+> **This is harmless today and will not stay harmless.** For a single
+> concatenated prompt, intra-keep-list confusion costs nothing. It starts
+> costing the moment anything becomes section-aware — per-section prompting,
+> or **SEG-7's keep-list inversion, which is the stated next step**. Quote
+> CONCAT for character-recall comparisons. Do not quote it for "segmentation is
+> correct".
 
 ---
 
@@ -76,6 +109,21 @@ Three per-paper conditions, all computed by `recall_validity()` in
    section is expected). This is SEG-4's under-segmentation signature. One
    mislabelled span absorbing the rest of the paper *keeps* its characters, so
    criteria 1 and 2 are both blind to it.
+
+Those three produce the **CONCAT** verdict. A fourth, reported separately as
+**TYPED**, is what they cannot see:
+
+4. **Every wanted section type gold records for the paper is produced, under
+   the right label.** Read from `segment_ground_truth.py`'s per-paper `wanted`
+   list, not assumed to be all four — `kg_construction_survey` is a 94-page
+   survey with no methods and no experiments sections and gold says so, and
+   `llm_ontology_gen`'s approach lives in its experiments section. Holding
+   either to four types would manufacture a failure out of an honest answer.
+
+`test_missing_types_agrees_with_ingestions_own_warning` keeps criterion 4 in
+step with `ingestion._missing_wanted_sections`, the warning production already
+emits. Before this was added, the repo shipped two instruments that disagreed:
+the runtime warning fired on papers the readiness report called VALID.
 
 ### A correction to the "0 of 8" framing
 
@@ -153,16 +201,19 @@ SEG-4 spec, and names the two groups that spec predicts SEG-4 recovers.
   abstracts found: 8/8
 
 === Recall-comparison readiness ===
-  cskg                         VALID
-  cskg2                        VALID
-  kg_construction_survey       VALID
-  llm_ontology_gen             VALID
-  fact_completion              VALID
-  kg_validation_hitl           VALID
-  hypothesis_generation        VALID
-  empire                     INVALID  gold recall 84.3% (3,208 chars dropped)
+  paper                     CONCAT   TYPED  notes
+  cskg                       VALID INVALID  missing type(s): methods
+  cskg2                      VALID   VALID  -
+  kg_construction_survey     VALID   VALID  -
+  llm_ontology_gen           VALID   VALID  -
+  fact_completion            VALID INVALID  missing type(s): methods
+  kg_validation_hitl         VALID INVALID  missing type(s): experiments
+  hypothesis_generation      VALID   VALID  -
+  empire                   INVALID INVALID  gold recall 84.3% (3,208 dropped);
+                                            missing type(s): methods
 
-  7/8 papers valid for a recall comparison
+  7/8 valid for a concatenated-blob recall comparison;
+  4/8 also correctly section-typed
 ```
 
 Gold-entity visibility:
@@ -175,8 +226,9 @@ Gold-entity visibility:
   empire                        5      2      2    100.0%  human
 ```
 
-Both reconciled-gold papers — `cskg` and `cskg2` — are now valid, and both sit
-at their reachable ceiling.
+Both reconciled-gold papers — `cskg` and `cskg2` — are now CONCAT-valid and
+both sit at their gold-entity ceiling. Only `cskg2` is also TYPED-valid;
+`cskg`'s methods span is mislabelled `introduction` (see the box at the top).
 
 ### Why `empire` is still invalid
 
@@ -274,6 +326,17 @@ python scripts/measure_segmentation.py --freeze
 - **Precision.** By construction every character in the corpus is wanted, so
   the corpus cannot score a segmenter that keeps too much. Only the PDF corpus
   can.
+- **Confusion between keep-list types.** See the box at the top. Char recall
+  cannot see it; the TYPED verdict is the instrument for it.
+- **The positional abstract on real PDF text.** `segment_ground_truth.py` cut
+  the title page away, so the rule's entire risk surface — running backwards
+  into publisher furniture — is absent from this corpus. Covered by synthetic
+  guard tests and by a reconstruction of cskg2's recorded title-page line
+  widths; **not** by a measurement of a PDF. One known limitation is pinned by
+  `test_a_prose_width_metadata_line_IS_absorbed_known_limitation`: a single
+  prose-width author line adjacent to the abstract *is* absorbed, because it
+  carries no denylisted term and the span still reads as prose. The guards
+  bound the blast radius; they do not guarantee a clean leading edge.
 - **Five of eight papers' entity recall.** `kg_construction_survey`,
   `llm_ontology_gen`, `kg_validation_hitl` and `hypothesis_generation` have no
   gold record at all; `empire` and `fact_completion` have only a single

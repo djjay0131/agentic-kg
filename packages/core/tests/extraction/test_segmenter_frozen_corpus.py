@@ -232,22 +232,48 @@ def test_extractor_input_mirror_matches_ingestion(measured: dict):
 # =============================================================================
 
 
-def test_readiness_verdicts_are_pinned(measured: dict):
-    """Which papers are valid for a recall comparison, pinned so that any
-    change to the number is a deliberate, reviewed edit rather than a
-    side-effect noticed after a migration claim has been made.
-
-    Update this set in the same commit as the segmenter change that moves it,
-    and quote the before/after in the PR.
+def test_gold_wanted_types_mirror_matches_the_generator():
+    """``_GOLD_WANTED_TYPES`` mirrors each paper's ``wanted`` list in
+    ``scripts/segment_ground_truth.py``. If the two drift, the TYPED verdict
+    scores papers against section types gold never claimed they have --
+    `kg_construction_survey` is a 94-page survey with no methods and no
+    experiments, and `llm_ontology_gen`'s approach lives in its experiments
+    section, so neither should be marked as missing `methods`.
     """
-    valid = {
-        slug
-        for slug in SLUGS
-        if ms.recall_validity(measured[slug])["valid"]
+    source = (
+        Path(__file__).resolve().parents[4]
+        / "scripts" / "segment_ground_truth.py"
+    ).read_text(encoding="utf-8")
+    block = source[
+        source.index("PAPERS: dict[str, dict] = {") : source.index("def find_marker(")
+    ]
+    namespace: dict = {}
+    exec(block, namespace)  # noqa: S102 - our own committed source
+    generator = {
+        slug: tuple(spec["wanted"]) for slug, spec in namespace["PAPERS"].items()
     }
-    assert valid == {
-        # SEG-3 (run-in and letter-spaced abstracts) moved five papers into
-        # this set by giving them the abstract gold says they have.
+    mirrored = {slug: ms.expected_wanted_types(slug) for slug in SLUGS}
+    assert mirrored == generator
+
+
+def test_readiness_verdicts_are_pinned(measured: dict):
+    """Which papers are valid, on BOTH verdicts, pinned so that any change is
+    a deliberate reviewed edit rather than a side-effect noticed after a
+    migration claim has been made.
+
+    CONCAT and TYPED are pinned separately on purpose. The PR #69 review found
+    that a single "VALID" column reads as "correctly segmented", which it is
+    not: char recall cannot see confusion between two types that are BOTH on
+    the keep-list, so a methods span mislabelled `introduction` keeps all its
+    characters and scores 99.9%.
+    """
+    concat = {s for s in SLUGS if ms.recall_validity(measured[s])["valid"]}
+    typed = {
+        s for s in SLUGS if ms.recall_validity(measured[s])["section_typed"]
+    }
+
+    assert concat == {
+        # SEG-3 (run-in and letter-spaced abstracts) moved five papers in.
         "cskg",
         "fact_completion",
         "hypothesis_generation",
@@ -261,60 +287,64 @@ def test_readiness_verdicts_are_pinned(measured: dict):
         #             gold's methods span (IV. RESEARCH APPROACH). The
         #             segmenter promotes it to top level and types it
         #             limitations, which the keep-list drops: 3,208 chars of
-        #             gold-wanted text lost. That is a heading-context problem
-        #             (SEG-11) or a keep-list one (SEG-7), not an abstract one,
-        #             and both are out of this change's scope.
-    }, f"recall-comparison validity changed: now {sorted(valid)}"
+        #             gold-wanted text lost. SEG-11 (heading context) or SEG-7
+        #             (keep-list), both out of this change's scope.
+    }, f"CONCAT validity changed: now {sorted(concat)}"
+
+    assert typed == {
+        "cskg2",
+        "hypothesis_generation",
+        # Gold records only abstract + introduction for the survey and only
+        # abstract + introduction + experiments for llm_ontology_gen, and the
+        # segmenter produces exactly those -- so both are correctly typed.
+        "kg_construction_survey",
+        "llm_ontology_gen",
+        # NOT typed, all three for the same underlying reason (SEG-5: a heading
+        # named after the contribution, or an over-strict anchor):
+        #   cskg               missing methods -- "The Computer Science
+        #                      Knowledge Graph" is unmatched, so its
+        #                      14,988-char gold span is absorbed into a
+        #                      20,271-char `introduction`. Char recall still
+        #                      reads 99.9%, which is exactly the blind spot.
+        #   fact_completion    missing methods -- "III. SciCheck"
+        #   kg_validation_hitl missing experiments -- "5. Experiment design
+        #                      and implementation"
+    }, f"TYPED validity changed: now {sorted(typed)}"
 
 
-# =============================================================================
-# Gold-entity visibility (the metric that can score a deliberate reduction)
-# =============================================================================
-
-
-def test_gold_entity_visibility_is_pinned(measured: dict):
-    """Character count cannot tell recovered content from a swallowed section,
-    and SEG-4 deliberately *removes* characters while making ``cskg2`` more
-    correct. This is the number that has to move the right way instead.
-
-    ``reach`` is the ceiling: entity groups findable in the gold text itself.
-    A group below the ceiling is a gold-curation artifact -- an alias spelled
-    differently, or a quote from a section the keep-list drops -- and is not
-    something a segmenter change can win back.
-    """
-    rows = ms.entity_visibility_corpus(measured)
-    actual = {
-        slug: (r["visible"], r["ceiling"], r["total"])
-        for slug, r in rows.items()
+def test_concat_validity_does_not_imply_correct_typing(measured: dict):
+    """The property the two-column verdict exists to make unmissable. If this
+    ever passes trivially (because TYPED caught up with CONCAT), delete it and
+    say so in the PR -- do not weaken it."""
+    rows = [ms.recall_validity(measured[s]) for s in SLUGS]
+    concat_only = [r for r in rows if r["valid"] and not r["section_typed"]]
+    assert concat_only, "expected at least one CONCAT-valid, TYPED-invalid paper"
+    assert {r["slug"] for r in concat_only} == {
+        "cskg", "fact_completion", "kg_validation_hitl",
     }
-    assert actual == {
-        "cskg": (13, 13, 19),
-        # SEG-4 PR-1 (Nature vocabulary): 23 -> 25. The two recovered are
-        # named in the test below; one of them is the citation chain's spine
-        # concept.
-        "cskg2": (25, 25, 30),
-        "fact_completion": (15, 15, 21),
-        "empire": (2, 2, 5),
-    }, f"gold-entity visibility changed: {actual}"
+    for row in concat_only:
+        assert row["missing_types"], row["slug"]
 
 
-def test_cskg2_recovered_the_two_entities_seg4_targeted(measured: dict):
-    """Named, not counted. SEG-4 claimed two specifically --
-    ``scientific knowledge graph`` (the citation chain's spine concept) and
-    ``knowledge-centric paradigm``, both of which live in
-    ``Background & Summary``. Before PR-1 that heading was unrecognized and
-    the whole section was absorbed into ``Methods``, so losing them silently
-    would corrupt every cross-paper accumulation number.
+def test_missing_types_agrees_with_ingestions_own_warning(measured: dict):
+    """The PR shipped two instruments that disagreed: production's
+    ``_missing_wanted_sections`` would warn on papers the readiness report
+    called VALID. They are now the same fact, so they must not diverge.
+
+    The one legitimate difference is the denominator: production checks all
+    four keep-list types, the readiness report checks what gold records for
+    that paper. So production's list is a superset.
     """
-    rows = ms.entity_visibility_corpus(measured)
-    assert rows["cskg2"]["missed"] == [], (
-        "SEG-4 PR-1 recovered both; if this regresses, Background & Summary "
-        "is being absorbed by Methods again"
-    )
+    from agentic_kg.extraction.section_segmenter import SectionSegmenter
+    from agentic_kg.ingestion import _missing_wanted_sections
 
-
-def test_papers_without_a_gold_record_are_reported_as_absent(measured: dict):
-    """Four of the eight have no gold record at all. A metric that silently
-    returned zero for them would read as a catastrophic recall failure."""
-    rows = ms.entity_visibility_corpus(measured)
-    assert set(rows) == {"cskg", "cskg2", "fact_completion", "empire"}
+    segmenter = SectionSegmenter()
+    for slug in SLUGS:
+        doc = segmenter.segment(
+            ms.committed_text_path(slug).read_text(encoding="utf-8"),
+        )
+        production = set(_missing_wanted_sections(doc))
+        readiness = set(ms.recall_validity(measured[slug])["missing_types"])
+        assert readiness <= production, (
+            f"{slug}: readiness reports a missing type production does not"
+        )

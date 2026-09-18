@@ -655,6 +655,53 @@ class TestRecallValidity:
         assert not row["valid"]
         assert any("holds" in r for r in row["reasons"])
 
+    def test_a_concat_valid_paper_can_be_typed_invalid(self):
+        """The whole point of the second verdict: all characters kept, under
+        the wrong label. `cskg` in miniature."""
+        row = ms.recall_validity(
+            _committed_entry(slug="cskg", gold=1000, kept=1000, sections=[
+                {"type": "abstract", "title": "A", "chars": 100},
+                {"type": "introduction", "title": "1.", "chars": 500},
+                {"type": "experiments", "title": "4.", "chars": 400},
+            ]),
+        )
+        assert row["valid"] is True
+        assert row["section_typed"] is False
+        assert row["missing_types"] == ["methods"]
+
+    def test_typed_uses_golds_own_wanted_list_not_all_four(self):
+        """`kg_construction_survey` is a 94-page survey with no methods and no
+        experiments sections and gold says so. Scoring it against four types
+        would manufacture a failure out of an honest answer."""
+        row = ms.recall_validity(
+            _committed_entry(
+                slug="kg_construction_survey", gold=1000, kept=990, sections=[
+                    {"type": "abstract", "title": "Abstract", "chars": 200},
+                    {"type": "introduction", "title": "1.", "chars": 790},
+                ],
+            ),
+        )
+        assert row["missing_types"] == []
+        assert row["section_typed"] is True
+
+    def test_an_unknown_slug_falls_back_to_the_full_keeplist(self):
+        assert ms.expected_wanted_types("not_a_paper") == tuple(
+            ms.WANTED_SECTIONS,
+        )
+
+    def test_an_empty_section_does_not_count_as_produced(self):
+        """Mirrors ingestion._missing_wanted_sections, which treats an
+        empty-content section as not found."""
+        row = ms.recall_validity(
+            _committed_entry(slug="cskg", gold=1000, kept=1000, sections=[
+                {"type": "abstract", "title": "A", "chars": 100},
+                {"type": "introduction", "title": "1.", "chars": 500},
+                {"type": "methods", "title": "3.", "chars": 0},
+                {"type": "experiments", "title": "4.", "chars": 400},
+            ]),
+        )
+        assert row["missing_types"] == ["methods"]
+
     def test_a_single_kept_section_short_of_gold_invalidates(self):
         row = ms.recall_validity(
             _committed_entry(gold=1000, kept=600, sections=[
@@ -690,9 +737,16 @@ class TestFormatters:
         out = ms.format_committed_report({})
         assert "abstracts found: 0/0" in out
 
-    def test_readiness_report_counts_valid_papers(self):
+    def test_readiness_report_counts_both_verdicts(self):
         out = ms.format_readiness_report({"cskg": _committed_entry(slug="cskg")})
-        assert "1/8 papers valid" in out
+        assert "1/8 valid for a concatenated-blob recall comparison" in out
+        assert "also correctly section-typed" in out
+
+    def test_readiness_report_states_that_concat_does_not_imply_typed(self):
+        """The header is load-bearing: a single VALID column was read as
+        "correctly segmented", which char recall cannot establish."""
+        out = ms.format_readiness_report({})
+        assert "CONCAT does NOT imply TYPED" in out
 
     def test_entities_report_handles_no_gold(self):
         assert "(no gold records found)" in ms.format_entities_report({})

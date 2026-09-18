@@ -204,8 +204,19 @@ and handle the letter-spaced `A B S T R A C T` form that Elsevier PDFs produce.
 > Nature *Scientific Data* prints no `Abstract` label — `cskg2`'s abstract is
 > the lead paragraph. Catching it needed a positional rule, and a positional
 > rule needed a terminator that only cause (4)'s vocabulary provides; with that
-> in place the rule finds **1,210 characters, byte-identical to the
-> hand-verified gold boundary**. **Cause (3) is now fully fixed: 8/8 abstracts.**
+> in place the rule finds **1,210 characters, matching the hand-verified gold
+> boundary exactly**. **Cause (3) is fixed on the committed corpus: 8/8
+> abstracts.**
+>
+> *Read that 1,210 with care.* `segment_ground_truth.py` cut the title page
+> away, so `paper_cskg2.txt` begins at character 0 with the abstract and the
+> gold span is exactly `[0, first recognized heading)`. **Any rule returning
+> "the prefix before the first heading" scores 1,210 on this fixture** — the
+> match shows the rule does not *undershoot* on pre-trimmed input, and nothing
+> more. The positional rule's real risk surface is running backwards *into*
+> title-page furniture, and that surface **cannot exist in this corpus**. It is
+> covered by synthetic guards tests and by a reconstruction of cskg2's recorded
+> title-page line widths, not by a measurement of the PDF.
 
 ### 4. An unrecognized heading lets the previous section swallow the rest
 
@@ -252,14 +263,42 @@ probable under-segmentation rather than passing it downstream.
 > the keep-list; `Usage Notes` → `discussion`.
 >
 > **Direction of the char delta differs by corpus, and the naive reading is
-> wrong.** On the PDF corpus SEG-4 is a *reduction* (39,226 → 34,223) because
-> `Data Records` and `Usage Notes` stop being mislabelled as `methods` and are
-> correctly excluded. On the committed gold corpus it is an increase, because
-> gold never contained those sections. Both arms land on the same 34,223 for
-> the four wanted types. The `--entities` metric added to
+> wrong.** On the PDF corpus SEG-4 is a *reduction* — the SEG-4 spec records
+> 39,226 → 34,223 with the vocabulary alone — because `Data Records` and
+> `Usage Notes` stop being mislabelled as `methods` and are correctly excluded.
+> On the committed gold corpus it is an increase, 23,317 → 34,223 with the
+> vocabulary alone and 35,435 once PR-3's abstract is added, because gold never
+> contained those two sections. The `--entities` metric added to
 > `scripts/measure_segmentation.py` is what lets the PDF arm's reduction be
 > scored as the improvement it is; a char-count-only guard would have blocked
 > the correct change.
+>
+> **A corroboration claim made here earlier is WITHDRAWN.** An earlier revision
+> of this note said "both arms land on the same 34,223 for the four wanted
+> types". Two things were wrong with it, and the adversarial review of PR #69
+> caught both:
+>
+> 1. **Stage mismatch.** 34,223 is the committed corpus's *vocabulary-only,
+>    no-abstract* total (introduction 10,925 + methods 15,472 + experiments
+>    7,822 + 2 separators). Its post-PR-3 total is **35,435**, stated in a
+>    table in `corpus-readiness.md`. Pairing the committed arm's final figure
+>    with the PDF arm's intermediate one was an error.
+> 2. **It was never independent.** Even paired correctly the two agree by
+>    construction: the committed fixtures are *derived from the PDFs by gold
+>    boundaries*, so if the segmenter reproduces gold the wanted spans are the
+>    same text by definition. That is a restatement of the recall metric, not a
+>    second witness — and the PDF figures are quoted from the SEG-4 spec, not
+>    measured by this work, which has no access to the gitignored PDFs.
+>
+> **What follows for the headline.** "8/8 abstracts" is verified **on the
+> committed corpus only**. The positional rule's behaviour on real PDF text —
+> which carries the title page the fixtures had cut away — rests on the SEG-4
+> spec's own measurement and is **not re-verified here**. The closest available
+> substitute is `TestReconstructedPdfPreamble`, which rebuilds cskg2's title
+> page from the line widths that spec recorded (76/29/34/25/86/15) and confirms
+> the abstract still comes back at exactly 1,210 characters. That is a
+> reconstruction, not a measurement. **Re-running the PDF arm after PR-3 is an
+> open obligation before any production-pipeline claim is made.**
 
 ### 5. Methods and experiments sections are usually not named "Methods" or "Experiments"
 
@@ -326,19 +365,27 @@ technical content from every extractor's input.
 
 
 > **SEG-5(d) — "relax the anchors" — MEASURED AND REJECTED, 2026-09-18.**
-> The cheap-win framing does not survive measurement. Relaxing the method and
-> experiment anchors so a heading *containing* a keyword matches, rather than
-> requiring near-exact equality, mints **166 new headings across the eight
-> committed fixtures, of which 2 are wanted — a 2:164 ratio.** The two it
+> The cheap-win framing does not survive measurement. **Variant measured,
+> stated precisely so the figure reproduces:** every line of the eight
+> committed fixtures that is non-empty, at most `max_heading_length` (100)
+> characters, and currently classifies as `UNKNOWN`, tested for a
+> word-boundary, case-insensitive match against any of eight keywords —
+> `method(s|ology)`, `approach`, `framework`, `model`, `algorithm`,
+> `experiment(s|al)`, `evaluation`, `setup`. That mints **166 new headings, of
+> which 2 are wanted — a 2:164 ratio.** The two it
 > recovers are `IV. RESEARCH APPROACH` and
 > `5. Experiment design and implementation`; the 164 it invents are body
 > sentences containing the word *method*, *model*, *approach* or *evaluation*,
 > and every one of them also *splits* the real section that contained the line.
 >
-> An earlier PDF-corpus measurement put this at **2:108**. The two runs use
-> different corpora and slightly different variants and agree on both the
-> numerator and the conclusion; either way it is worse than the `[A-Z]` variant
-> SEG-1 rejected for costing 13,137 characters on `fact_completion`.
+> **The figure is variant-sensitive; the conclusion is not.** Three
+> independent runs: this one at **2:164** (8 keywords, committed corpus), an
+> earlier PDF-corpus run at **2:108**, and the PR #69 reviewer's at **1:13**
+> (5 anchors, committed corpus). The ratio moves with how many keywords the
+> relaxation admits — which is the point: every variant is dominated by false
+> positives, and every one is worse than the `[A-Z]` variant SEG-1 rejected for
+> costing 13,137 characters on `fact_completion`. Cite the conclusion, and name
+> the variant if you cite a number.
 >
 > It is viable only as a rider on **SEG-11** (the heading-context heuristic),
 > which is what would suppress the false positives. Deliberately **not built** here.

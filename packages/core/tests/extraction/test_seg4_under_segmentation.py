@@ -37,12 +37,22 @@ def _words(n: int) -> str:
     return " ".join(["content"] * n)
 
 
-def _warnings(caplog) -> list[str]:
+def _all_warnings(caplog) -> list[str]:
     return [
         r.getMessage()
         for r in caplog.records
         if r.levelno >= logging.WARNING and "under-segmentation" in r.getMessage()
     ]
+
+
+def _warnings(caplog) -> list[str]:
+    """Share-based warnings only -- the N>=3 signal."""
+    return [m for m in _all_warnings(caplog) if "% of body words" in m]
+
+
+def _count_warnings(caplog) -> list[str]:
+    """Section-count warnings only -- the N<=2 signal."""
+    return [m for m in _all_warnings(caplog) if "recognized body section" in m]
 
 
 # =============================================================================
@@ -127,12 +137,13 @@ class TestDetectorIsQuiet:
 
     def test_a_short_document_is_silent(self, segmenter, caplog):
         """Below ``_MIN_BODY_WORDS_FOR_CHECK`` the share is meaningless, and
-        every hand-written test fixture in this repo would otherwise warn."""
+        every hand-written test fixture in this repo would otherwise warn.
+        Neither signal fires: the word floor runs before the section floor."""
         text = f"1. Introduction\n{_words(60)}\n2. Related work\n{_words(25)}\n"
         with caplog.at_level(logging.WARNING, logger=LOGGER):
             doc = segmenter.segment(text)
         assert sum(s.word_count for s in doc.sections) < _MIN_BODY_WORDS_FOR_CHECK
-        assert _warnings(caplog) == []
+        assert _all_warnings(caplog) == []
 
     def test_a_large_references_section_does_not_trip_it(self, segmenter, caplog):
         """``references`` reaches 31.8% of TOTAL words on ``fact_completion``
@@ -216,20 +227,29 @@ class TestNoBehaviourChange:
 # =============================================================================
 
 
-class TestTwoSectionDocumentsAreSilent:
+class TestSmallSectionCountGetsItsOwnSignal:
     """With N body sections the smallest possible maximum share is 1/N, so at
     N <= 2 the smallest max share is 50% — already above the 40% threshold.
-    The detector would fire on EVERY two-section document regardless of how
-    well it was segmented.
+    A share-based warning would fire on EVERY two-section document regardless
+    of how well it was segmented.
 
     This is not hypothetical. On the committed gold corpus the keep-list leaves
     only 2–4 sections per paper, and ``kg_construction_survey`` has exactly two
-    (gold says abstract + introduction, which is the honest answer for a
-    94-page survey with no methods or experiments). It warned at 83.5% purely
-    because of this arithmetic.
+    (gold says abstract + introduction, the honest answer for a 94-page survey
+    with no methods or experiments). It warned at 83.5% purely because of this
+    arithmetic.
+
+    **Going silent would be the wrong fix**, and the adversarial review of
+    PR #69 caught it: N <= 2 on a large document is itself the worst case this
+    detector exists for — ``cskg2`` at base had exactly ONE body section
+    holding 100% of the paper, which is cause (4) exactly. So the small-N case
+    reports the section COUNT: a different fact, stated as a different fact,
+    with no share because the share is arithmetically forced.
     """
 
-    def test_a_two_section_document_never_warns(self, segmenter, caplog):
+    def test_a_two_section_document_gets_no_share_warning(
+        self, segmenter, caplog,
+    ):
         text = f"1. Introduction\n{_words(900)}\n2. Related work\n{_words(100)}\n"
         with caplog.at_level(logging.WARNING, logger=LOGGER):
             doc = segmenter.segment(text)
@@ -237,8 +257,38 @@ class TestTwoSectionDocumentsAreSilent:
         assert sum(s.word_count for s in doc.sections) >= _MIN_BODY_WORDS_FOR_CHECK
         assert _warnings(caplog) == []
 
-    def test_a_three_section_document_can_warn(self, segmenter, caplog):
-        """The guard is a floor on N, not a mute button."""
+    def test_a_two_section_document_does_get_a_count_warning(
+        self, segmenter, caplog,
+    ):
+        text = f"1. Introduction\n{_words(900)}\n2. Related work\n{_words(100)}\n"
+        with caplog.at_level(logging.WARNING, logger=LOGGER):
+            segmenter.segment(text)
+        assert len(_count_warnings(caplog)) == 1
+        message = _count_warnings(caplog)[0]
+        assert "only 2 recognized body section" in message
+        assert "1. Introduction" in message
+        # No share: at N<=2 it carries no information and printing it invites
+        # exactly the misreading this branch exists to avoid.
+        assert "% of body words" not in message
+
+    def test_the_single_section_worst_case_is_not_silenced(
+        self, segmenter, caplog,
+    ):
+        """The hole the review demonstrated: one `introduction` holding 100% of
+        the body, with only a tail `references` beside it, emitted nothing."""
+        text = (
+            f"1. Introduction\n{_words(2000)}\n"
+            f"References\n{_words(600)}\n"
+        )
+        with caplog.at_level(logging.WARNING, logger=LOGGER):
+            segmenter.segment(text)
+        assert len(_count_warnings(caplog)) == 1
+        assert "only 1 recognized body section" in _count_warnings(caplog)[0]
+
+    def test_a_three_section_document_uses_the_share_signal(
+        self, segmenter, caplog,
+    ):
+        """The floor is a switch between two signals, not a mute button."""
         text = (
             f"1. Introduction\n{_words(900)}\n"
             f"2. Related work\n{_words(100)}\n"
@@ -247,6 +297,26 @@ class TestTwoSectionDocumentsAreSilent:
         with caplog.at_level(logging.WARNING, logger=LOGGER):
             segmenter.segment(text)
         assert len(_warnings(caplog)) == 1
+        assert _count_warnings(caplog) == []
+
+    def test_a_healthy_three_section_document_says_nothing_at_all(
+        self, segmenter, caplog,
+    ):
+        text = "".join(
+            f"{h}\n{_words(300)}\n"
+            for h in ("1. Introduction", "3. Methodology", "4. Evaluation")
+        )
+        with caplog.at_level(logging.WARNING, logger=LOGGER):
+            segmenter.segment(text)
+        assert _all_warnings(caplog) == []
+
+    def test_a_short_two_section_document_stays_silent(self, segmenter, caplog):
+        """The word floor still runs first, so hand-written fixtures and short
+        documents emit neither signal."""
+        text = f"1. Introduction\n{_words(60)}\n2. Related work\n{_words(25)}\n"
+        with caplog.at_level(logging.WARNING, logger=LOGGER):
+            segmenter.segment(text)
+        assert _all_warnings(caplog) == []
 
     def test_the_floor_is_the_smallest_N_where_the_threshold_can_fail(self):
         """1/3 = 33.3% < 40%, so at N = 3 a well-segmented document can stay
