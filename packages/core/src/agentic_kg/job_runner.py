@@ -101,6 +101,13 @@ def persist_ingestion_run(trace_id: str, query: str, result, started_at: datetim
                     "concepts_created": result.concepts_created,
                     "concepts_linked": result.concepts_linked,
                     "extraction_errors": json.dumps(result.extraction_errors),
+                    # I-58: citation observability survives into the
+                    # IngestionRun audit node.
+                    "citation_attempted": result.citation_population_attempted,
+                    "citation_succeeded": result.citation_population_succeeded,
+                    "citation_failed": result.citation_population_failed,
+                    "citation_edges_created": result.citation_edges_created,
+                    "citation_failures": json.dumps(result.citation_failures),
                     "started_at": started_at.isoformat(),
                     "completed_at": completed_at.isoformat(),
                 },
@@ -120,6 +127,11 @@ def _determine_exit_code(result) -> int:
     """
     if result.status == "failed":
         return 2
+    # I-58: a run that could not measure citations at all is a partial
+    # run, not a clean one. The Cloud Run Job has no second gate (no
+    # smoke assertion downstream), so the exit code is the only signal.
+    elif result.status == "completed_with_errors":
+        return 1
     elif result.extraction_errors:
         return 1
     return 0

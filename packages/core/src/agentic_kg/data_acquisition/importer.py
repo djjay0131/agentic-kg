@@ -56,6 +56,21 @@ class BatchImportResult:
     results: list[ImportResult] = field(default_factory=list)
     errors: dict[str, str] = field(default_factory=dict)
 
+    # I-58: citation-population outcomes, aggregated across the batch.
+    # Previously each ImportResult.citation_population was attached and
+    # then read by nobody, so a batch in which every paper failed to
+    # reach Semantic Scholar was indistinguishable from a batch of
+    # papers that genuinely cite nothing.
+    citation_attempted: int = 0
+    citation_succeeded: int = 0
+    citation_failed: int = 0
+    citation_edges_created: int = 0
+    citation_stubs_created: int = 0
+    # outcome string -> count (see citation_graph.CITATION_OUTCOME_*)
+    citation_failures: dict[str, int] = field(default_factory=dict)
+    # doi -> first failure message, for operator diagnosis
+    citation_failure_details: dict[str, str] = field(default_factory=dict)
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -65,6 +80,13 @@ class BatchImportResult:
             "skipped": self.skipped,
             "failed": self.failed,
             "errors": self.errors,
+            "citation_attempted": self.citation_attempted,
+            "citation_succeeded": self.citation_succeeded,
+            "citation_failed": self.citation_failed,
+            "citation_edges_created": self.citation_edges_created,
+            "citation_stubs_created": self.citation_stubs_created,
+            "citation_failures": self.citation_failures,
+            "citation_failure_details": self.citation_failure_details,
         }
 
 
@@ -385,6 +407,7 @@ class PaperImporter:
             )
 
             result.results.append(import_result)
+            self._accumulate_citation_outcome(result, identifier, import_result)
 
             if import_result.created:
                 result.created += 1
@@ -402,6 +425,57 @@ class PaperImporter:
                 progress_callback(i + 1, len(identifiers), import_result)
 
         return result
+
+    @staticmethod
+    def _accumulate_citation_outcome(
+        batch: BatchImportResult,
+        identifier: str,
+        import_result: ImportResult,
+    ) -> None:
+        """Fold one paper's citation-population outcome into the batch.
+
+        I-58: ``citation_population`` used to be attached to the
+        per-paper ``ImportResult`` and read nowhere, so a 100% citation
+        failure rate surfaced only as "cites=0" in a downstream smoke
+        assertion. Papers whose citation population never ran (skipped
+        import, failed import, ``populate_citations=False``) are not
+        counted as attempts — an honest null, not a zero.
+        """
+        from agentic_kg.knowledge_graph.citation_graph import (
+            CITATION_OUTCOME_NOT_ATTEMPTED,
+            CITATION_OUTCOME_SUCCEEDED,
+            classify_citation_population,
+        )
+
+        cp = import_result.citation_population
+        outcome = classify_citation_population(cp)
+        if outcome == CITATION_OUTCOME_NOT_ATTEMPTED:
+            return
+
+        batch.citation_attempted += 1
+        key = import_result.paper.doi if import_result.paper else identifier
+
+        if outcome == CITATION_OUTCOME_SUCCEEDED:
+            batch.citation_succeeded += 1
+            batch.citation_edges_created += getattr(cp, "edges_created", 0) or 0
+            batch.citation_stubs_created += getattr(cp, "stubs_created", 0) or 0
+            # A succeeded enumeration can still have per-reference stub /
+            # link errors; record them without demoting the outcome.
+            errs = list(getattr(cp, "errors", None) or [])
+            if errs:
+                batch.citation_failure_details[key] = (
+                    f"partial_edge_errors: {errs[0]}"
+                )
+            return
+
+        batch.citation_failed += 1
+        batch.citation_failures[outcome] = (
+            batch.citation_failures.get(outcome, 0) + 1
+        )
+        errs = list(getattr(cp, "errors", None) or [])
+        batch.citation_failure_details[key] = (
+            f"{outcome}: {errs[0]}" if errs else outcome
+        )
 
     async def import_author_papers(
         self,

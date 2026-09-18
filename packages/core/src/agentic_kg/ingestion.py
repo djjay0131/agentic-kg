@@ -46,7 +46,16 @@ class IngestionResult(BaseModel):
 
     trace_id: str = Field(..., description="Unique trace ID for this run")
     query: str = Field(..., description="Search query used")
-    status: str = Field("pending", description="pending|running|completed|failed|dry_run")
+    status: str = Field(
+        "pending",
+        description=(
+            "pending|running|completed|completed_with_errors|failed|dry_run. "
+            "I-58: 'completed_with_errors' means the ingest itself ran to "
+            "the end but a whole sub-phase could not be measured (today: "
+            "citation population failed for every paper it was attempted "
+            "on). Distinct from 'failed', which means the run raised."
+        ),
+    )
 
     # Phase 1 counts
     papers_found: int = Field(0, description="Papers returned by search")
@@ -85,6 +94,49 @@ class IngestionResult(BaseModel):
     search_errors: dict[str, str] = Field(
         default_factory=dict,
         description="SM-1: per-source search errors surfaced from the aggregator.",
+    )
+    # I-58: citation-population observability. Before this, per-paper
+    # CitationPopulationResults were attached to ImportResult and read by
+    # nobody, so "Semantic Scholar was unreachable for every paper" and
+    # "these papers genuinely cite nothing" both rendered as cites=0.
+    citation_population_attempted: int = Field(
+        0,
+        description=(
+            "Papers for which citation population actually ran. Papers where "
+            "it never ran (import skipped/failed, populate_citations=False) "
+            "are NOT counted — an honest null, not a zero."
+        ),
+    )
+    citation_population_succeeded: int = Field(
+        0,
+        description=(
+            "Papers where Semantic Scholar answered and the reference list "
+            "was enumerated. Only these license reading zero CITES edges as "
+            "evidence of absence."
+        ),
+    )
+    citation_population_failed: int = Field(
+        0,
+        description="Papers where citation population was attempted and did not complete.",
+    )
+    citation_edges_created: int = Field(
+        0, description="CITES edges written during this run."
+    )
+    citation_stubs_created: int = Field(
+        0, description="Stub Paper nodes created for resolved references."
+    )
+    citation_failures: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "Citation-population failure reason -> count. Reasons: "
+            "s2_lookup_failed / s2_fetch_failed (Semantic Scholar "
+            "unreachable — infrastructure) vs no_s2_id (S2 answered but "
+            "has no record of the paper)."
+        ),
+    )
+    citation_failure_details: dict[str, str] = Field(
+        default_factory=dict,
+        description="DOI -> first citation-population failure message.",
     )
     papers_purged: int = Field(
         0, description="Papers whose existing extraction footprint was purged before re-extraction"
@@ -164,6 +216,46 @@ def _notify(
             callback(phase, paper_doi, detail)
         except Exception:
             pass
+
+
+# I-58: a run that finished every phase but could not MEASURE one of
+# them is not "completed". It is also not "failed" — the papers were
+# imported and extracted, and the never-raises isolation in
+# PaperImporter.import_paper is correct and stays. This third value
+# keeps "the import succeeded" separate from "the run is fully healthy".
+STATUS_COMPLETED = "completed"
+STATUS_COMPLETED_WITH_ERRORS = "completed_with_errors"
+
+
+def citations_unmeasured(result: "IngestionResult") -> bool:
+    """True when citation population ran and not one attempt succeeded.
+
+    This is the "we could not measure citations" predicate. It is
+    deliberately NOT true when citation population was never attempted
+    (nothing was claimed) nor when it partly succeeded (something real
+    was measured).
+    """
+    return (
+        result.citation_population_attempted > 0
+        and result.citation_population_succeeded == 0
+    )
+
+
+def _int_field(obj: Any, name: str) -> int:
+    """Read an int counter off a batch-import result, defensively.
+
+    ``batch_import`` is a seam that tests routinely replace with mocks;
+    a MagicMock attribute would otherwise blow up Pydantic validation on
+    assignment. Non-int values degrade to 0 rather than to garbage.
+    """
+    value = getattr(obj, name, 0)
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _dict_field(obj: Any, name: str) -> dict:
+    """Read a dict off a batch-import result, defensively. See _int_field."""
+    value = getattr(obj, name, None)
+    return dict(value) if isinstance(value, dict) else {}
 
 
 def _paper_has_footprint(repo: Any, paper_doi: str) -> bool:
@@ -591,6 +683,28 @@ async def ingest_papers(
             populate_citations=populate_citations,
         )
         result.papers_imported = import_batch.created + import_batch.updated
+        # I-58: lift the per-paper citation outcomes out of the importer so
+        # a total citation-population failure is visible in the run result
+        # instead of dying inside an unread ImportResult field.
+        result.citation_population_attempted = _int_field(
+            import_batch, "citation_attempted"
+        )
+        result.citation_population_succeeded = _int_field(
+            import_batch, "citation_succeeded"
+        )
+        result.citation_population_failed = _int_field(
+            import_batch, "citation_failed"
+        )
+        result.citation_edges_created = _int_field(
+            import_batch, "citation_edges_created"
+        )
+        result.citation_stubs_created = _int_field(
+            import_batch, "citation_stubs_created"
+        )
+        result.citation_failures = _dict_field(import_batch, "citation_failures")
+        result.citation_failure_details = _dict_field(
+            import_batch, "citation_failure_details"
+        )
         _notify(on_progress, "metadata_imported", None, result.papers_imported)
 
         # Phase 2/3 setup: shared per-batch dependencies.
@@ -889,7 +1003,20 @@ async def ingest_papers(
 
         # Phase 4: Sanity checks
         result.sanity_checks = run_sanity_checks()
-        result.status = "completed"
+
+        # I-58: status semantics. Citation population is attempted per
+        # paper and never raises (by design — it must not block the
+        # import). But if it was attempted and NOT ONE paper's reference
+        # list could be enumerated, this run measured nothing about
+        # citations, and reporting "completed" turns "not measured" into
+        # an all-clear. Partial success stays "completed": the counts
+        # below disclose the shortfall, and at least one paper was
+        # genuinely measured.
+        result.status = (
+            STATUS_COMPLETED_WITH_ERRORS
+            if citations_unmeasured(result)
+            else STATUS_COMPLETED
+        )
 
         # SM-1: per-run coverage/failure summary (AC-6). Failures are broken
         # down by reason so a systemic fetch problem (failed_blocked) is
@@ -911,6 +1038,29 @@ async def ingest_papers(
             result.acquisition_failures.get("failed_thin", 0),
             result.sources_rate_limited,
         )
+        # I-58: citation sub-phase gets its own line so "we could not
+        # measure citations" never has to be inferred from cites=0.
+        logger.info(
+            "[%s] Citation summary: attempted=%d succeeded=%d failed=%d "
+            "edges=%d stubs=%d reasons=%s",
+            trace_id,
+            result.citation_population_attempted,
+            result.citation_population_succeeded,
+            result.citation_population_failed,
+            result.citation_edges_created,
+            result.citation_stubs_created,
+            dict(sorted(result.citation_failures.items())) or "{}",
+        )
+        if citations_unmeasured(result):
+            logger.error(
+                "[%s] Citation population failed for ALL %d attempted "
+                "paper(s) (%s) — this run measured NOTHING about citations; "
+                "status=%s",
+                trace_id,
+                result.citation_population_attempted,
+                dict(sorted(result.citation_failures.items())) or "{}",
+                result.status,
+            )
 
     except Exception as e:
         logger.error(f"[{trace_id}] Ingestion failed: {e}", exc_info=True)
