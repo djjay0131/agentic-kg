@@ -92,6 +92,30 @@ class TypedMetrics:
     recall: MetricValue
     named_resource_emissions: int = 0
     cross_type_hits: tuple[CrossTypeMatch, ...] = ()
+    #: Papers that contributed at least one true positive of this type.
+    contributing_slugs: tuple[str, ...] = ()
+    #: Papers in the graded scope, for the "n of m papers" denominator.
+    graded_slugs: tuple[str, ...] = ()
+
+    @property
+    def recall_is_decision_sensitive(self) -> bool:
+        """Would the open named-resource decision move this type's recall?
+
+        Precision is gated and recall is not, and the report has to say why in
+        the same breath or it contradicts itself one cell apart. The reason the
+        two differ: recall is measured against *today's* gold, which is a real,
+        complete answer key — every entity in it is a genuine obligation and the
+        arm either found it or did not. Options A and C would ADD entries to that
+        key, so the number would still be correct, it would just be answering a
+        different question. Precision has no such fallback: its denominator is
+        the arm's own output, and whether a named-resource emission belongs in it
+        is exactly what is undecided, so there is no version of the question that
+        today's files can answer.
+
+        Where this is True the report says so next to the number, rather than
+        leaving a reader to notice the tension and distrust both figures.
+        """
+        return self.named_resource_emissions > 0
 
     @property
     def precision_is_gated(self) -> bool:
@@ -168,33 +192,44 @@ def _gate_precision(
 ) -> MetricValue:
     """Apply the named-resource gate to an entity precision value.
 
-    The gate only ever *removes* a number; it never invents one. Two cases pass
-    through untouched:
+    The gate only ever *removes* a number; it never invents one. Exactly two
+    things can make it pass a value through:
 
     * ``kg_eval`` already found precision unmeasurable (no candidates of this
       type). That verdict and its reason stand — swapping one honest null for a
       different one would hide why the metric is missing.
-    * The arm produced **no false positives at all**. Every open option changes
-      precision only by moving emissions into or out of the denominator's wrong
-      column; an arm with nothing in that column scores 1.0 under all four, so
-      the value is decision-independent and reporting it is safe. This is what
-      keeps the ``gold`` control arm's self-check readable: a control that came
-      back "insufficient" on precision could not tell anyone the adapter's keys
-      line up.
+    * ``named_resource_note`` returns ``None``, which it does precisely when
+      ``affected`` is zero: the decision covers none of this arm's emissions of
+      this type, so all four options yield the same number.
 
-    ``affected`` is counted **per entity type**, and that is what makes the gate
+    **The false-positive count deliberately plays no part.** An earlier revision
+    also passed a value through whenever ``fp == 0``, on the reasoning that an
+    arm with nothing in the wrong column scores 1.0 under every option. That is
+    false, and instructively so: ``fp`` is counted *after* the
+    disposition-dependent exclusion has already run, so ``fp == 0`` can be an
+    artefact of the very exclusion under question. An arm emitting one correct
+    Method plus one named-resource Method scores ``fp=0`` under PENDING (the
+    named resource having been dropped) and ``fp=1`` under option B — precision
+    1.000 versus 0.500, a decision-dependent value published as settled. Once
+    the ``affected == 0`` condition was added the ``fp`` branch became
+    unreachable-as-distinct, and it is gone rather than left as an untested
+    path that looks like it does something.
+
+    ``affected`` is counted **per entity type**, which is what makes the gate
     truthful rather than merely cautious. A corpus-wide count gates every type on
     a decision that may not touch most of them: on this corpus the arm's only
     named-resource emission is ``SCICERO``, under ``concepts``. Method precision
     is 0.286 under all four options, and nulling it published a reason — "the
     same arm output yields four different precisions" — that was false for that
     type. A null carrying a reason that does not apply is its own kind of
-    fabrication; :func:`named_resource_note` returns ``None`` when ``affected``
-    is zero.
+    fabrication.
+
+    The ``gold`` control arm still reads correctly, for the right reason: it has
+    zero affected emissions, so the note returns ``None`` and its 1.000 is
+    published. A control returning "insufficient" on precision could not tell
+    anyone the adapter's keys line up.
     """
     if metrics.entity.precision.value is None:
-        return metrics.entity.precision
-    if metrics.entity.fp == 0:
         return metrics.entity.precision
     note = named_resource_note(disposition, affected)
     if note is None:
@@ -235,6 +270,7 @@ def _typed_metrics(
         # counting it again would push type-insensitive recall above the truth.
         matched_strictly = _strictly_matched(arm, slice_gold, entity_type)
         confused = tuple(m for k, m in sorted(hits.items()) if k not in matched_strictly)
+        contributing = tuple(sorted({slug for slug, _ in matched_strictly}))
         out.append(
             TypedMetrics(
                 entity_type=entity_type,
@@ -245,6 +281,8 @@ def _typed_metrics(
                 recall=metrics.entity.recall,
                 named_resource_emissions=affected,
                 cross_type_hits=confused,
+                contributing_slugs=contributing,
+                graded_slugs=tuple(sorted(p.slug for p in papers)),
             )
         )
     return tuple(out)
@@ -448,6 +486,86 @@ def _fmt_ratio(value: float | None, note: str) -> str:
     return f"insufficient ({note})" if value is None else f"{value:.3f}"
 
 
+def _recall_marker(typed: TypedMetrics) -> str:
+    """Flag a recall published ungated while its precision is gated."""
+    return " †" if typed.recall_is_decision_sensitive and typed.recall.value is not None else ""
+
+
+def _fmt_contributors(typed: TypedMetrics) -> str:
+    """How many of the graded papers actually produced a hit of this type."""
+    total = len(typed.graded_slugs)
+    if not typed.contributing_slugs:
+        return f"0 of {total}"
+    return f"{len(typed.contributing_slugs)} of {total} ({', '.join(typed.contributing_slugs)})"
+
+
+def _caveat_lines(arm: ArmReport) -> list[str]:
+    """Caveats that change how the numbers above should be read.
+
+    These live in the rendered report, not in a PR description or a commit
+    message, because the report is what someone opens six months from now. A
+    caveat a reader cannot see is a caveat that does not exist, and each of these
+    is the difference between a correct and an incorrect reading of a number
+    printed directly above it.
+    """
+    lines: list[str] = []
+
+    single_paper = [
+        t
+        for t in arm.typed
+        if t.metrics.entity.tp > 0 and len(t.contributing_slugs) < len(t.graded_slugs)
+    ]
+    if single_paper:
+        contributors = sorted({s for t in single_paper for s in t.contributing_slugs})
+        missing = sorted(
+            {
+                s
+                for t in single_paper
+                for s in t.graded_slugs
+                if s not in t.contributing_slugs
+            }
+        )
+        lines += [
+            f"> **Effectively a one-paper measurement.** Every true positive above comes "
+            f"from `{'`, `'.join(contributors)}`; `{'`, `'.join(missing)}` contributes "
+            f"none, of any type. The gold set spans "
+            f"{len(single_paper[0].graded_slugs)} papers, but these recalls are "
+            f"measured on the behaviour of one, so they carry no cross-paper variance "
+            f"and should not be read as a corpus-level rate.",
+            "",
+        ]
+
+    empty_typed = [t for t in arm.typed if t.gold_count and t.metrics.entity.tp == 0]
+    for typed in empty_typed:
+        if typed.metrics.entity.fp == 0 and typed.entity_type == "Topic":
+            lines += [
+                "> **Topic 0.000 is a persistence bug, not absent extraction.** The "
+                "importer's own caveat records it: `topics_linked` increments but no "
+                "`BELONGS_TO` edge is written, so topics are identified and then not "
+                "stored. Read as \"no topic extraction exists\" this number is simply "
+                "false — the same misreading the type-insensitive column corrects for "
+                "ResearchConcept, and the fix is in persistence, not in the extractor.",
+                "",
+            ]
+
+    if any(t.recall_is_decision_sensitive for t in arm.typed):
+        lines += [
+            "> **† why recall is published where precision is not.** The gate nulls "
+            "precision for this type because options A and C would add gold entries, "
+            "and it is fair to ask why the recall beside it is then published as a "
+            "number. Recall is measured against *today's* answer key, which is real and "
+            "complete: every entry in it is a genuine obligation, and the arm either met "
+            "it or did not. A and C would enlarge that key — the figure would stay "
+            "correct and start answering a different question. Precision has no such "
+            "fallback: its denominator is the arm's own output, and whether a "
+            "named-resource emission belongs in it is precisely what is undecided, so no "
+            "version of the question is answerable from today's files. Treat a `†` "
+            "recall as valid-as-scoped, not as final.",
+            "",
+        ]
+    return lines
+
+
 def render_report(report: EvaluationReport) -> str:
     """A Markdown summary of what this corpus can and cannot say today.
 
@@ -492,17 +610,20 @@ def render_report(report: EvaluationReport) -> str:
             ]
         lines += [
             "| Entity type | Gold | Precision | Recall (strict) | Recall (type-insensitive) "
-            "| Mis-typed | TP | FP | FN |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| Mis-typed | Papers contributing | TP | FP | FN |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
         for typed in arm.typed:
             prf = typed.metrics.entity
             lines.append(
                 f"| {typed.entity_type} | {typed.gold_count} | {_fmt(typed.precision)} "
-                f"| {_fmt(typed.recall)} | {_fmt(typed.type_insensitive_recall)} "
-                f"| {typed.type_confusion_count} | {prf.tp} | {prf.fp} | {prf.fn} |"
+                f"| {_fmt(typed.recall)}{_recall_marker(typed)} "
+                f"| {_fmt(typed.type_insensitive_recall)} "
+                f"| {typed.type_confusion_count} | {_fmt_contributors(typed)} "
+                f"| {prf.tp} | {prf.fp} | {prf.fn} |"
             )
         lines.append("")
+        lines += _caveat_lines(arm)
         confused = [t for t in arm.typed if t.cross_type_hits]
         if confused:
             lines += [

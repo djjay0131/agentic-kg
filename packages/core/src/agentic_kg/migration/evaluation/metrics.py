@@ -221,10 +221,25 @@ class MentionClustering:
 
 @dataclass(frozen=True)
 class CalibrationSample:
-    """One ``(confidence, was_correct)`` observation for a reliability curve."""
+    """One ``(confidence, was_correct)`` observation for a reliability curve.
+
+    ``confidence`` must lie in [0, 1]. Validated rather than trusted because
+    both ways of violating it fail silently in a binned estimator: a negative
+    confidence indexes a bin from the *end* of the list (``-0.5`` lands in the
+    top bin, inverting the observation's meaning), and a value above 1 is
+    clamped into the top bin, quietly understating the miscalibration it is
+    evidence of. Either way the number that comes out is wrong and looks fine.
+    """
 
     confidence: float
     correct: bool
+
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.confidence <= 1.0:
+            raise ValueError(
+                f"confidence must be in [0, 1], got {self.confidence!r}: a value outside "
+                "that range mis-bins silently rather than failing"
+            )
 
 
 def expected_calibration_error(
@@ -235,7 +250,25 @@ def expected_calibration_error(
     Equal-width bins over [0, 1]; empty bins contribute nothing. Deterministic —
     no sampling, no RNG — so it composes with the rest of this runner's
     reproducibility guarantee.
+
+    Raises on an empty sample rather than returning ``0.0``. Zero ECE is the
+    *best possible* calibration score, so handing it back for "nothing was
+    measured" is this package's own anti-pattern — a fabricated, flattering
+    number standing in for an absent one. The provider never reaches this path
+    (it returns an insufficient ``MetricValue`` first), but this is a public
+    function and the next caller may not.
+
+    Raises:
+        ValueError: ``samples`` is empty, or ``bins`` is not positive.
     """
+    if bins < 1:
+        raise ValueError(f"bins must be >= 1, got {bins}")
+    if not samples:
+        raise ValueError(
+            "expected_calibration_error of an empty sample is undefined; 0.0 would read "
+            "as perfect calibration. Callers that may have no observations should report "
+            "MetricValue.insufficient(...) instead"
+        )
     buckets: list[list[CalibrationSample]] = [[] for _ in range(bins)]
     for sample in samples:
         index = min(int(sample.confidence * bins), bins - 1)
@@ -300,6 +333,12 @@ class CurationMetricProvider:
         review_count: int | None = None,
         calibration_bins: int = 10,
     ) -> None:
+        if review_count is not None and review_count < 0:
+            raise ValueError(f"review_count must be >= 0, got {review_count}")
+        if calibration_bins < 1:
+            raise ValueError(f"calibration_bins must be >= 1, got {calibration_bins}")
+        if gold_item_count < 0:
+            raise ValueError(f"gold_item_count must be >= 0, got {gold_item_count}")
         self._gold_item_count = gold_item_count
         self._calibration = tuple(calibration) if calibration is not None else None
         self._clustering = clustering
@@ -405,6 +444,15 @@ class CurationMetricProvider:
         if produced == 0:
             return MetricValue.insufficient(
                 "no candidates produced, so no review denominator"
+            )
+        if self._review_count > produced:
+            # Not clamped to 1.0: a clamp would hide the inconsistency behind a
+            # plausible-looking rate. More candidates reviewed than produced means
+            # the two numbers came from different populations, and every other
+            # metric derived from that output is suspect too.
+            raise ValueError(
+                f"review_count ({self._review_count}) exceeds candidates produced "
+                f"({produced}); the counts describe different populations"
             )
         return MetricValue.measured(self._review_count / produced)
 

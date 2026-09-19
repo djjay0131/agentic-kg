@@ -36,8 +36,27 @@ WORKFLOW = REPO_ROOT / ".github/workflows/test.yml"
 #: Modules the evaluation subpackage needs. Both ship in ``agentic-kgis``.
 REQUIRED_MODULES = ("kg_eval", "kg_contracts")
 
-#: CI sets this; GitHub Actions always does.
-IN_CI = os.environ.get("CI", "").strip().lower() == "true"
+#: Values that count as "this is CI". GitHub Actions sets ``CI=true``, but other
+#: runners spell it ``1``, ``yes`` or ``on``, and arming only on the literal
+#: ``"true"`` silently disarms this guard everywhere else — the same class of
+#: bug as the workflow-grep it replaced. Matches the truthiness convention
+#: already used by ``agentic_kg.migration.config``.
+_TRUTHY = frozenset({"1", "true", "yes", "on"})
+
+
+def in_ci(value: str | None) -> bool:
+    """Does ``value`` (a raw ``CI`` env var) mean "this is CI"?
+
+    A named function rather than a module-level expression so the rule can be
+    tested by *calling* it with each spelling. The earlier version asserted on
+    the module's own source text and was vacuous: the assertion quoted the
+    pattern it was searching for, so ``inspect.getsource`` always found it and
+    the test passed no matter what the code did.
+    """
+    return (value or "").strip().lower() in _TRUTHY
+
+
+IN_CI = in_ci(os.environ.get("CI"))
 
 
 def _importable(name: str) -> bool:
@@ -141,3 +160,23 @@ def test_evaluation_package_is_not_imported_by_default_install_paths() -> None:
         "these modules reach into the evaluation subpackage (or kg_eval) from the "
         f"default import path, which breaks a no-extras install: {offenders}"
     )
+
+
+def test_in_ci_accepts_every_truthy_spelling_and_rejects_the_rest() -> None:
+    """Behavioural, not textual.
+
+    Replacing the predicate with ``== "true"`` makes ``in_ci("1")`` False and
+    fails this test. The previous version of this check asserted that the
+    module's source contained a particular string — and since the assertion
+    itself contained that string, it could never fail. A test that quotes its
+    own subject is not a test.
+    """
+    for spelling in ("true", "TRUE", " True ", "1", "yes", "YES", "on", "ON"):
+        assert in_ci(spelling) is True, spelling
+    for spelling in ("", "   ", "false", "0", "no", "off", "maybe", None):
+        assert in_ci(spelling) is False, spelling
+
+
+def test_in_ci_drives_the_module_level_flag() -> None:
+    """The flag the guard actually branches on comes from the predicate."""
+    assert IN_CI == in_ci(os.environ.get("CI"))
