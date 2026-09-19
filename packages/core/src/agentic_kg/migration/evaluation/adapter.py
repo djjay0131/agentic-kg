@@ -210,10 +210,24 @@ class SurfaceIndex:
 
     alias_to_canonical: Mapping[tuple[str, str, str], str]
     extras: Mapping[tuple[str, str, str], AcceptableExtra]
+    surface_to_typed: Mapping[tuple[str, str], tuple[tuple[str, str], ...]] = ()
 
     def resolve(self, slug: str, bucket: str, surface: str) -> str | None:
         """The canonical this surface names in this paper+bucket, if any."""
         return self.alias_to_canonical.get((slug, bucket, normalize_surface(surface)))
+
+    def resolve_any_type(self, slug: str, surface: str) -> tuple[tuple[str, str], ...]:
+        """Every ``(bucket, canonical)`` this surface names in this paper, any type.
+
+        The deliberately *type-insensitive* companion to :meth:`resolve`, and it
+        exists only to diagnose. Grading stays strict — a Model emitted as a
+        Method is a real error and must score as one. But strict grading alone
+        cannot distinguish "the extractor never found this entity" from "it found
+        it and filed it under the wrong type", and those are different defects
+        with different fixes. This lookup is what lets the report say which one
+        happened instead of leaving a reader to assume the worse.
+        """
+        return self.surface_to_typed.get((slug, normalize_surface(surface)), ())
 
     def excuse(self, slug: str, bucket: str, surface: str) -> AcceptableExtra | None:
         """The ``acceptable_extras`` entry covering this surface, if any.
@@ -275,7 +289,73 @@ def build_surface_index(papers: Sequence[ReconciledPaper]) -> SurfaceIndex:
                 (extra.slug, extra.bucket, normalize_surface(extra.name)), extra
             )
 
-    return SurfaceIndex(alias_to_canonical=aliases, extras=extras)
+    # Type-insensitive view, for the cross-type diagnostic only. Built here so it
+    # derives from exactly the same surfaces the strict index does and cannot
+    # drift from it.
+    typed: dict[tuple[str, str], list[tuple[str, str]]] = {}
+    for paper in papers:
+        for entity in paper.entities:
+            for surface in entity.surfaces():
+                bucket_canonical = (entity.bucket, entity.canonical)
+                entries = typed.setdefault((entity.slug, normalize_surface(surface)), [])
+                if bucket_canonical not in entries:
+                    entries.append(bucket_canonical)
+
+    return SurfaceIndex(
+        alias_to_canonical=aliases,
+        extras=extras,
+        surface_to_typed={k: tuple(v) for k, v in typed.items()},
+    )
+
+
+@dataclass(frozen=True)
+class CrossTypeMatch:
+    """A gold entity an arm found but filed under the wrong entity type."""
+
+    slug: str
+    emitted_surface: str
+    emitted_bucket: str
+    gold_bucket: str
+    gold_canonical: str
+
+    @property
+    def gold_key(self) -> tuple[str, str]:
+        return (self.slug, self.gold_canonical)
+
+
+def cross_type_matches(
+    papers: Sequence[ArmPaper],
+    index: SurfaceIndex,
+) -> tuple[CrossTypeMatch, ...]:
+    """Gold entities an arm reached under some *other* type.
+
+    Only emissions that fail strict resolution are considered — a candidate that
+    already satisfies its own type's obligation is not confused about anything.
+    What is left is the set of entities the extractor demonstrably located in the
+    text and then mis-filed.
+
+    This never changes a score. It is reported beside the strict numbers so that
+    a low recall can be read correctly: recall 0.071 with two cross-type matches
+    is a typing defect, not blindness, and the two call for different work.
+    """
+    out: list[CrossTypeMatch] = []
+    for paper in papers:
+        for entity in paper.entities:
+            if index.resolve(entity.slug, entity.bucket, entity.name) is not None:
+                continue
+            for gold_bucket, canonical in index.resolve_any_type(entity.slug, entity.name):
+                if gold_bucket == entity.bucket:
+                    continue
+                out.append(
+                    CrossTypeMatch(
+                        slug=entity.slug,
+                        emitted_surface=entity.name,
+                        emitted_bucket=entity.bucket,
+                        gold_bucket=gold_bucket,
+                        gold_canonical=canonical,
+                    )
+                )
+    return tuple(out)
 
 
 # --------------------------------------------------------------------------
@@ -460,6 +540,7 @@ def _citation_candidate(
 
 __all__ = [
     "CITES",
+    "CrossTypeMatch",
     "PAPER_ENTITY_TYPE",
     "PAPER_NAMESPACE",
     "RECORDED_AT",
@@ -468,6 +549,7 @@ __all__ = [
     "build_candidates",
     "build_goldset",
     "build_surface_index",
+    "cross_type_matches",
     "filter_candidates",
     "paper_ref",
     "source_locator",

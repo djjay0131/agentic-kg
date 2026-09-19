@@ -167,7 +167,10 @@ def test_doi_case_folding_is_load_bearing(importer_output_dir: Path) -> None:
     """The importer emitted ``ACCESS`` where everything else says ``access``.
 
     Without folding, the one citation edge the legacy importer got right grades
-    as a simultaneous false positive and false negative.
+    is silently DROPPED — it never becomes a candidate, so it is a false
+    negative only (tp 0, fp 0, fn 2). A silent drop is the harder failure to
+    notice: nothing looks anomalous, recall is just lower, and the natural
+    reading is that the importer missed a citation it actually found.
     """
     assert normalize_doi("10.1109/ACCESS.2022.3220241") == PAPER_DOIS["fact_completion"]
     arm_papers = {p.slug: p for p in load_importer_output(importer_output_dir)}

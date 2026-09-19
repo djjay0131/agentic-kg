@@ -80,11 +80,19 @@ class ArmUnavailable:
 
 @dataclass(frozen=True)
 class BuiltArm:
-    """A runnable arm: its ``ArmOutput`` plus the audit trail behind it."""
+    """A runnable arm: its ``ArmOutput`` plus the audit trail behind it.
+
+    ``arm_papers`` and ``index`` are carried so diagnostics that need the raw,
+    pre-grading emissions can run without re-deriving them. The cross-type
+    diagnostic is the case in point: it has to look at surfaces the strict
+    grader already discarded, which by then are gone from ``output.candidates``.
+    """
 
     output: ArmOutput
     outcomes: tuple[FilterOutcome, ...]
     coverage: CorpusCoverage
+    arm_papers: tuple[ArmPaper, ...] = ()
+    index: SurfaceIndex | None = None
 
     @property
     def arm_id(self) -> str:
@@ -162,6 +170,8 @@ def build_legacy_arm(
         ),
         outcomes=outcomes,
         coverage=coverage,
+        arm_papers=tuple(graded),
+        index=index,
     )
 
 
@@ -221,6 +231,8 @@ def build_gold_arm(
         ),
         outcomes=outcomes,
         coverage=coverage,
+        arm_papers=arm_papers,
+        index=index,
     )
 
 
@@ -278,6 +290,8 @@ def build_new_arm(
         ),
         outcomes=outcomes,
         coverage=coverage,
+        arm_papers=tuple(graded),
+        index=index,
     )
 
 

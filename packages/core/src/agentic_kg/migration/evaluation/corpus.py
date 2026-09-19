@@ -140,10 +140,17 @@ def normalize_doi(doi: str) -> str:
 
     DOIs are case-insensitive, and this corpus exercises that: the importer
     emitted ``10.1109/ACCESS.2022.3220241`` where the curation table and both
-    gold reviews say ``10.1109/access.2022.3220241``. Without folding, the one
-    citation edge the legacy importer actually got right grades as a false
-    positive *and* a false negative at once — a 100% error rate manufactured
-    entirely by letter case.
+    gold reviews say ``10.1109/access.2022.3220241``. Without folding, the DOI
+    resolves to no slug in the eight-paper set, so ``_resolve_cited_slugs``
+    drops it: the one citation edge the legacy importer actually got right is
+    never emitted as a candidate at all. Citation recall falls from 0.5 to 0.0
+    (tp 0, fp 0, fn 2) purely on letter case.
+
+    Note the failure is a *silent drop*, not a false positive — the edge
+    disappears rather than being scored wrong, which is the harder kind to
+    notice. Nothing in the report would look anomalous; recall would simply be
+    lower, and the natural reading would be that the importer missed a citation
+    it in fact found.
     """
     return doi.strip().casefold()
 

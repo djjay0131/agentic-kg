@@ -30,11 +30,17 @@ from pathlib import Path
 from kg_eval.ablation import AblationResult, AblationVerdict, compare_arms
 from kg_eval.bootstrap import BootstrapConfig
 from kg_eval.goldset import GoldSet
+from kg_eval.matching import match_entities
 from kg_eval.metrics import ExtractionMetrics, MetricValue, evaluate_extraction
 from kg_eval.providers import MetricProviderRegistry
 from kg_eval.report import EvaluationResult, evaluate_arms, render_json, render_markdown
 
-from agentic_kg.migration.evaluation.adapter import build_goldset, build_surface_index
+from agentic_kg.migration.evaluation.adapter import (
+    CrossTypeMatch,
+    build_goldset,
+    build_surface_index,
+    cross_type_matches,
+)
 from agentic_kg.migration.evaluation.arms import (
     GOLD_ARM,
     LEGACY_ARM,
@@ -60,6 +66,7 @@ from agentic_kg.migration.evaluation.metrics import (
     CurationMetricProvider,
     NamedResourceDisposition,
     count_named_resource_emissions,
+    named_resource_emissions_by_bucket,
     named_resource_note,
 )
 
@@ -83,10 +90,33 @@ class TypedMetrics:
     metrics: ExtractionMetrics
     precision: MetricValue
     recall: MetricValue
+    named_resource_emissions: int = 0
+    cross_type_hits: tuple[CrossTypeMatch, ...] = ()
 
     @property
     def precision_is_gated(self) -> bool:
         return self.metrics.entity.precision.value is not None and self.precision.value is None
+
+    @property
+    def type_insensitive_recall(self) -> MetricValue:
+        """Recall counting a gold item found under the wrong type as found.
+
+        Published *beside* the strict recall, never instead of it. Strict recall
+        is the score — a mis-typed entity is a real error. But the gap between
+        the two is the diagnosis, and without it a reader cannot tell blindness
+        from mis-filing. ResearchConcept recall of 0.071 invites "the extractor
+        cannot see research concepts"; the 0.214 beside it says it saw three of
+        them and filed two as Methods. Different defect, much cheaper fix.
+        """
+        if self.gold_count == 0:
+            return MetricValue.insufficient("no gold items of this type")
+        found = self.metrics.entity.tp + len(self.cross_type_hits)
+        return MetricValue.measured(found / self.gold_count)
+
+    @property
+    def type_confusion_count(self) -> int:
+        """Gold items of this type that the arm reached under another type."""
+        return len(self.cross_type_hits)
 
 
 @dataclass(frozen=True)
@@ -151,6 +181,16 @@ def _gate_precision(
       keeps the ``gold`` control arm's self-check readable: a control that came
       back "insufficient" on precision could not tell anyone the adapter's keys
       line up.
+
+    ``affected`` is counted **per entity type**, and that is what makes the gate
+    truthful rather than merely cautious. A corpus-wide count gates every type on
+    a decision that may not touch most of them: on this corpus the arm's only
+    named-resource emission is ``SCICERO``, under ``concepts``. Method precision
+    is 0.286 under all four options, and nulling it published a reason — "the
+    same arm output yields four different precisions" — that was false for that
+    type. A null carrying a reason that does not apply is its own kind of
+    fabrication; :func:`named_resource_note` returns ``None`` when ``affected``
+    is zero.
     """
     if metrics.entity.precision.value is None:
         return metrics.entity.precision
@@ -166,7 +206,8 @@ def _typed_metrics(
     arm: BuiltArm,
     papers: Sequence[ReconciledPaper],
     disposition: NamedResourceDisposition,
-    affected: int,
+    affected_by_bucket: Mapping[str, int],
+    cross_type: Sequence[CrossTypeMatch],
     boot: BootstrapConfig | None,
 ) -> tuple[TypedMetrics, ...]:
     out: list[TypedMetrics] = []
@@ -183,6 +224,17 @@ def _typed_metrics(
         metrics = evaluate_extraction(
             restrict_to_entity_type(arm.output, entity_type), slice_gold, boot=boot
         )
+        affected = affected_by_bucket.get(bucket, 0)
+        # Deduplicated by gold key: two mis-typed emissions naming the same gold
+        # entity are one entity found, not two.
+        hits: dict[tuple[str, str], CrossTypeMatch] = {}
+        for match in cross_type:
+            if match.gold_bucket == bucket:
+                hits.setdefault(match.gold_key, match)
+        # A gold item already matched strictly is not "confused about" anything;
+        # counting it again would push type-insensitive recall above the truth.
+        matched_strictly = _strictly_matched(arm, slice_gold, entity_type)
+        confused = tuple(m for k, m in sorted(hits.items()) if k not in matched_strictly)
         out.append(
             TypedMetrics(
                 entity_type=entity_type,
@@ -191,9 +243,26 @@ def _typed_metrics(
                 metrics=metrics,
                 precision=_gate_precision(metrics, disposition, affected),
                 recall=metrics.entity.recall,
+                named_resource_emissions=affected,
+                cross_type_hits=confused,
             )
         )
     return tuple(out)
+
+
+def _strictly_matched(
+    arm: BuiltArm, slice_gold: GoldSet, entity_type: str
+) -> set[tuple[str, str]]:
+    """Gold keys of this type the arm already matched under the correct type."""
+    narrowed = restrict_to_entity_type(arm.output, entity_type)
+    match = match_entities(narrowed.candidates, slice_gold)
+    matched: set[tuple[str, str]] = set()
+    for index, hit in enumerate(match.gold_hits):
+        if hit:
+            key = slice_gold.entities[index].semantic_key
+            slug, _, canonical = key.partition("/")
+            matched.add((slug, canonical))
+    return matched
 
 
 def _arm_report(
@@ -207,21 +276,30 @@ def _arm_report(
         return ArmReport(arm_id=arm.arm_id, unavailable_reason=arm.reason)
 
     affected = count_named_resource_emissions(arm.outcomes)
+    by_bucket = named_resource_emissions_by_bucket(arm.outcomes)
     registry = MetricProviderRegistry()
     registry.register(
         CurationMetricProvider(
             gold_item_count=len(gold.entities),
-            has_confidence=any(
-                o.entity.confidence is not None for o in arm.outcomes if o.kept
-            ),
-            has_review_queue=False,
-            has_cluster_labels=False,
+            # All three are None on this corpus: no arm emits per-candidate
+            # confidence, no mention-level cluster labels exist in the reconciled
+            # gold, and no arm has a review queue. Each is a real estimator input,
+            # so each null is liftable by supplying data rather than by editing a
+            # note.
+            calibration=None,
+            clustering=None,
+            review_count=None,
         )
     )
+    # `index` is optional on BuiltArm only so the dataclass stays constructible in
+    # isolation; every builder supplies it, and a diagnostic silently reporting
+    # "no confusion" because it was absent would be worse than not running.
+    assert arm.index is not None, f"arm {arm.arm_id!r} was built without a SurfaceIndex"
+    cross_type = cross_type_matches(arm.arm_papers, arm.index)
     return ArmReport(
         arm_id=arm.arm_id,
         coverage=arm.coverage,
-        typed=_typed_metrics(arm, papers, disposition, affected, boot),
+        typed=_typed_metrics(arm, papers, disposition, by_bucket, cross_type, boot),
         overall=evaluate_extraction(arm.output, gold, boot=boot),
         provider_metrics=registry.evaluate_all(arm.output, gold),
         excluded_candidates=arm.excluded_count,
@@ -357,6 +435,19 @@ def _fmt(value: MetricValue) -> str:
     return text
 
 
+def _fmt_ratio(value: float | None, note: str) -> str:
+    """Render a bare ``float | None`` ratio without inventing a zero.
+
+    The honest-null rule is a property of the *rendered report*, not only of the
+    model behind it. ``f"{(x or 0.0):.3f}"`` reads as a formatting convenience
+    and prints ``0.000`` for an unmeasured value — indistinguishable from a real
+    zero, which is exactly the confusion ``MetricValue`` exists to prevent. Every
+    optional number in this renderer goes through here or through :func:`_fmt`;
+    no `or 0` coalescing is permitted in a rendering path.
+    """
+    return f"insufficient ({note})" if value is None else f"{value:.3f}"
+
+
 def render_report(report: EvaluationReport) -> str:
     """A Markdown summary of what this corpus can and cannot say today.
 
@@ -394,22 +485,42 @@ def render_report(report: EvaluationReport) -> str:
                 f"{cov.graded_failed} failed",
                 f"- Corpus scope (not a metric denominator): {cov.corpus_attempted} "
                 f"attempted, {cov.corpus_failed} failed "
-                f"({(cov.corpus_failure_rate or 0.0):.3f})",
+                f"({_fmt_ratio(cov.corpus_failure_rate, 'no attempted inputs')})",
                 f"- Candidates excluded as acceptable_extras: {arm.excluded_candidates} "
                 f"(of which named-resource: {arm.named_resource_emissions})",
                 "",
             ]
         lines += [
-            "| Entity type | Gold | Precision | Recall | TP | FP | FN |",
-            "| --- | --- | --- | --- | --- | --- | --- |",
+            "| Entity type | Gold | Precision | Recall (strict) | Recall (type-insensitive) "
+            "| Mis-typed | TP | FP | FN |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
         for typed in arm.typed:
             prf = typed.metrics.entity
             lines.append(
                 f"| {typed.entity_type} | {typed.gold_count} | {_fmt(typed.precision)} "
-                f"| {_fmt(typed.recall)} | {prf.tp} | {prf.fp} | {prf.fn} |"
+                f"| {_fmt(typed.recall)} | {_fmt(typed.type_insensitive_recall)} "
+                f"| {typed.type_confusion_count} | {prf.tp} | {prf.fp} | {prf.fn} |"
             )
         lines.append("")
+        confused = [t for t in arm.typed if t.cross_type_hits]
+        if confused:
+            lines += [
+                "**Type confusion** — gold entities this arm located in the text and filed "
+                "under the wrong type. These score as misses (strict recall is the score); "
+                "they are listed because a low recall caused by mis-typing calls for "
+                "different work than one caused by not finding the entity at all.",
+                "",
+            ]
+            for typed in confused:
+                for match in typed.cross_type_hits:
+                    lines.append(
+                        f"- `{match.slug}` {typed.entity_type} "
+                        f"**{match.gold_canonical}** was emitted as "
+                        f"{BUCKET_TO_ENTITY_TYPE[match.emitted_bucket]} "
+                        f'("{match.emitted_surface}")'
+                    )
+            lines.append("")
         if arm.overall is not None:
             rel = arm.overall.relation
             lines += [
