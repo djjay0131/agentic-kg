@@ -116,7 +116,7 @@ def test_the_scan_would_notice_a_violation(tmp_path: Path) -> None:
     assert found == ["GraphMutationStore"]
 
 
-def test_temporal_graph_reader_isinstance_is_vacuous(make_canonical_store) -> None:
+def test_temporal_graph_reader_isinstance_is_vacuous() -> None:
     """Why no test here asserts ``isinstance(x, TemporalGraphReader)``.
 
     `TemporalGraphReader` extends `GraphReader` and declares **no additional
@@ -135,6 +135,8 @@ def test_temporal_graph_reader_isinstance_is_vacuous(make_canonical_store) -> No
     This test pins the *reason*: if upstream ever gives `TemporalGraphReader` a
     distinguishing member, the ``isinstance`` check stops being vacuous and
     should come back, and this failure is the prompt to do it.
+
+    Takes no fixture — it inspects the pinned protocols and needs no database.
     """
     extra = set(TemporalGraphReader.__protocol_attrs__) - set(GraphReader.__protocol_attrs__)
     assert extra == set(), (
