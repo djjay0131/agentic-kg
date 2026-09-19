@@ -36,17 +36,22 @@ deployment turns out to be.
 Value encoding
 --------------
 Each node stores the full record as a ``model_dump_json`` string in ``payload``
-and *denormalizes* only the fields the read filters need. Reads reconstruct
-through ``model_validate_json``, so round-trip fidelity is the pydantic model's
-problem, not a hand-written column mapping's. Timestamps are denormalized as
-POSIX floats (``*_ts``) so temporal predicates are plain numeric comparisons
-with no timezone semantics in the query layer; the authoritative,
-timezone-carrying value always comes back out of ``payload``.
+and denormalizes only the fields a *query* selects on — namespace, entity type,
+alias, subject, object, predicate, epoch. Reads reconstruct through
+``model_validate_json``, so round-trip fidelity is the pydantic model's problem
+rather than a hand-written column mapping's.
+
+Bitemporal predicates (``valid_at``, ``transaction_at``) and curation status are
+deliberately **not** denormalized into columns. They are resolved once, in
+``store.py``, from the reconstructed record. Denormalizing them as well would
+give each rule two implementations — a Cypher one and a Python one — and a rule
+enforced twice cannot be shown by a mutation test to be enforced at all; the
+epoch bound was written that way first and the duplicate had to be removed
+before the suite could detect its removal. Adding a temporal index later is a
+deliberate change with its own test, not a silent second gate.
 """
 
 from __future__ import annotations
-
-from datetime import UTC, datetime
 
 #: Separator inside synthetic ``uid`` values. ASCII unit separator: it cannot
 #: occur in an identity id (``kg://<graph>/identity/<ulid>``) or a ULID.
@@ -85,19 +90,3 @@ DDL_STATEMENTS: tuple[str, ...] = (
 def uid(namespace: str, key: str) -> str:
     """The synthetic single-property primary key for a canonical node."""
     return f"{namespace}{UID_SEP}{key}"
-
-
-def to_ts(value: datetime | None) -> float | None:
-    """POSIX seconds for a denormalized timestamp column.
-
-    A naive datetime is read as UTC rather than as local time. Local time would
-    make the same stored record compare differently depending on the machine
-    that wrote it, which is a silently wrong temporal query — exactly what the
-    bitemporal contract exists to prevent. The authoritative value is the one in
-    ``payload``; this is only the comparison key.
-    """
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=UTC)
-    return value.timestamp()

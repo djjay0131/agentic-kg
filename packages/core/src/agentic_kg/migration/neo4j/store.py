@@ -91,7 +91,6 @@ from agentic_kg.migration.neo4j.schema import (
     LABEL_IDENTITY,
     LABEL_META,
     LABEL_VERSION,
-    to_ts,
     uid,
 )
 
@@ -644,7 +643,6 @@ class Neo4jCanonicalGraphStore:
             f"    a.subject_identity = $subject_identity, "
             f"    a.object_identity = $object_identity, a.predicate = $predicate, "
             f"    a.curation_epoch = $curation_epoch, a.seq = $seq, "
-            f"    a.valid_from_ts = $valid_from_ts, a.valid_to_ts = $valid_to_ts, "
             f"    a.payload = $payload, a.status_history = $status_history, "
             f"    a.subject_lineage = NULL, a.object_lineage = NULL",
             uid=uid(self._namespace, assertion.assertion_id),
@@ -655,8 +653,6 @@ class Neo4jCanonicalGraphStore:
             predicate=assertion.predicate,
             curation_epoch=assertion.curation_epoch,
             seq=self._next_seq(tx),
-            valid_from_ts=to_ts(assertion.valid_period.valid_from),
-            valid_to_ts=to_ts(assertion.valid_period.valid_to),
             payload=assertion.model_dump_json(),
             status_history=json.dumps(history),
         ).consume()
