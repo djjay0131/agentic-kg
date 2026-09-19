@@ -15,7 +15,13 @@ dependencies = [
     # transitively hard-pins openai==1.99.9 (via cmbagent-autogen), which
     # conflicts with instructor>=1.14's openai>=2.0 and breaks entity
     # extraction. See llm/features/extraction-dep-pinning.md.
-    "neo4j>=5.0.0",
+    # Bounded deliberately. ">=5.0.0" alone resolved to driver 6.3.1 against a
+    # 5.26 server in this repo's own test runs - it happened to work, but a
+    # major-version bump arriving silently on a fresh resolve is exactly the
+    # kind of breakage nothing here would catch until runtime. <7.0.0 keeps
+    # 6.x (what is actually exercised) and excludes the next major, which must
+    # be adopted deliberately.
+    "neo4j>=5.0.0,<7.0.0",
     "pydantic>=2.0.0",
     "openai>=2.0",
 ]

@@ -61,6 +61,81 @@ jobs:
           name: unit-test-results
           path: test-results/
 
+  migration-canonical-adapter:
+    # The KGIS/KGCS `migration` extra is opt-in, so no other job installs it —
+    # ADR-0004 recorded that as an accepted risk only "until PR 2", i.e. until
+    # the extra gained a real call site. The Neo4j canonical adapter is that
+    # call site, so this is the job that keeps its conformance suite honest:
+    # without it the seven shared contract tests would silently skip forever.
+    name: KGCS canonical adapter (contract suite)
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-migration-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies (WITH the opt-in migration extra)
+        run: |
+          pip install --upgrade pip
+          pip install pytest pytest-asyncio "testcontainers[neo4j]" docker
+          pip install -e "./packages/core[migration]"
+
+      - name: Assert the extra actually resolved
+        # A skipped suite and a passing suite look identical in a green check.
+        # Fail loudly here rather than letting `importorskip` quietly turn this
+        # whole job into a no-op.
+        run: |
+          python -c "import kg_contracts, kgcs; print(kg_contracts.__file__); print(kgcs.__file__)"
+
+      - name: Type-check the adapter (mypy, WITH the extra resolved)
+        # Deliberately NOT `|| true`, and deliberately in *this* job: the
+        # repo's other mypy invocation (code-review.yml) both swallows its exit
+        # code and runs without the migration extra, so `kg_contracts` degrades
+        # to `Any` there and the check is doubly meaningless. kg_contracts DOES
+        # ship py.typed (unlike kgis/kg_eval/kgcs), so with the extra installed
+        # mypy really does check this adapter against the port signatures.
+        run: |
+          pip install mypy
+          mypy packages/core/src/agentic_kg/migration/ --ignore-missing-imports
+
+      - name: Run the canonical-adapter tests (testcontainers Neo4j)
+        run: |
+          pytest packages/core/tests/migration \
+            -v --tb=short \
+            --junitxml=test-results/migration-adapter.xml
+
+      - name: Assert the shared conformance suite actually ran
+        # NOT a count. An earlier version of this step asserted only
+        # "tests > 0 and skipped == 0"; deleting test_contract_conformance.py
+        # left 53 other tests passing and the gate went green while the seven
+        # shared contract tests were gone. suite_gate.py identifies them by
+        # name - derived at runtime from kg_contracts, not transcribed - so a
+        # deleted module, a class renamed out of collection, a skip, a failure,
+        # or a partial run all go red. test_suite_gate.py proves each of those.
+        if: always()
+        run: |
+          python packages/core/tests/migration/neo4j/suite_gate.py \
+            test-results/migration-adapter.xml
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: migration-adapter-results
+          path: test-results/
+
   integration-tests:
     name: Integration Tests (Neo4j)
     runs-on: ubuntu-latest
