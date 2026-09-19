@@ -28,7 +28,7 @@ from kg_contracts.curation import CurationOperation, CurationOperationType
 from kg_contracts.stores import GraphMutationBatch, GraphReadOptions
 from kg_contracts.testing.factories import make_assertion, make_entity
 
-from .scenarios import assert_entity_version_guard
+from .scenarios import assert_entity_version_guard, probe_version
 
 pytestmark = pytest.mark.integration
 
@@ -497,3 +497,206 @@ def test_entity_version_precondition_guards_replay(make_canonical_store) -> None
     copy of them — against a store with the counter disabled.
     """
     assert_entity_version_guard(make_canonical_store)
+
+
+# --- version-bump semantics, pinned so they cannot drift silently -------------
+#
+# ``entity_version`` is not exposed by any port, so nothing outside the adapter
+# could notice these changing. That is precisely why they are written down: a
+# reviewer flagged the bump policy as an *unpinned divergence* from the
+# reference store - not a defect (monotonicity and staleness both hold, and
+# `kgcs.planner` only ever emits ``expected="0"``), but a degree of freedom no
+# test constrained.
+#
+# The reference ``MemoryGraphStore`` bumps once per created entity plus once
+# per attached assertion, with **no de-duplication** within a batch. This
+# adapter matches that for the two operations upstream implements. The other
+# four have no reference semantics at all - ``MemoryGraphStore.apply`` raises
+# ``NotImplementedError`` for them - so their rows below are this adapter's own
+# decision, recorded rather than inferred.
+
+
+def test_probe_is_a_read(make_canonical_store) -> None:
+    """The measuring instrument must not perturb what it measures.
+
+    Everything below is expressed through ``probe_version``. If probing mutated
+    the store, each assertion would be reading a state its own predecessor
+    created, and the whole section would be measuring itself.
+    """
+    store = make_canonical_store()
+    entity, _ = _seed(store, key="probe-is-a-read")
+    epoch_before = store.current_epoch()
+
+    first = probe_version(store, entity.identity_id)
+    second = probe_version(store, entity.identity_id)
+
+    assert first == second
+    assert store.current_epoch() == epoch_before
+    assert len(store.assertions_for(entity.identity_id)) == 1
+
+
+def test_unknown_subject_is_version_zero(make_canonical_store) -> None:
+    store = make_canonical_store()
+    assert probe_version(store, "kg://g1/identity/00000000000000000000000000") == 0
+
+
+def test_create_and_attach_bump_once_each_with_no_dedup(make_canonical_store) -> None:
+    """One bump per *operation*, not one per subject per batch.
+
+    ``CREATE_IDENTITY(X)`` and ``ATTACH_ASSERTION(about X)`` in a single batch
+    take X from 0 to **2**, not to 1. That matches ``MemoryGraphStore.apply``,
+    which extends one list with the created entities and the attached
+    assertions and increments once per element.
+    """
+    store = make_canonical_store()
+    entity = make_entity(key="bump-no-dedup")
+    assert probe_version(store, entity.identity_id) == 0
+
+    result = store.apply(
+        _batch(
+            "pl_bump1",
+            _op(CurationOperationType.CREATE_IDENTITY, entity.model_dump(mode="json")),
+            _op(
+                CurationOperationType.ATTACH_ASSERTION,
+                make_assertion(subject_identity=entity.identity_id, predicate="a").model_dump(
+                    mode="json"
+                ),
+            ),
+        ),
+        preconditions=(),
+    )
+    assert result.committed is True, result.error
+    assert probe_version(store, entity.identity_id) == 2
+
+    # Two assertions about the same subject in one batch: +2, again no dedup.
+    store.apply(
+        _batch(
+            "pl_bump2",
+            _op(
+                CurationOperationType.ATTACH_ASSERTION,
+                make_assertion(subject_identity=entity.identity_id, predicate="b").model_dump(
+                    mode="json"
+                ),
+            ),
+            _op(
+                CurationOperationType.ATTACH_ASSERTION,
+                make_assertion(subject_identity=entity.identity_id, predicate="c").model_dump(
+                    mode="json"
+                ),
+            ),
+        ),
+        preconditions=(),
+    )
+    assert probe_version(store, entity.identity_id) == 4
+
+
+def test_retract_bumps_only_the_subject(make_canonical_store) -> None:
+    store = make_canonical_store()
+    entity, assertion = _seed(store, key="bump-retract")
+    other, _ = _seed(store, key="bump-bystander")
+    before = probe_version(store, entity.identity_id)
+    bystander_before = probe_version(store, other.identity_id)
+
+    store.apply(
+        _batch(
+            "pl_bump_retract",
+            _op(
+                CurationOperationType.RETRACT_ASSERTION,
+                {
+                    "assertion_id": assertion.assertion_id,
+                    "superseded_at": "2026-08-01T00:00:00+00:00",
+                },
+            ),
+        ),
+        preconditions=(),
+    )
+    assert probe_version(store, entity.identity_id) == before + 1
+    assert probe_version(store, other.identity_id) == bystander_before
+
+
+def test_merge_bumps_survivor_and_every_member_once(make_canonical_store) -> None:
+    """This adapter's own choice - upstream implements no MERGE to match.
+
+    One bump for the survivor and one per merged member, regardless of how many
+    assertions actually moved. The alternative (one per moved assertion) would
+    make an optimistic guard on the survivor depend on the *size* of the merge,
+    which is not something a planner computing against a snapshot can know.
+    """
+    store = make_canonical_store()
+    survivor, _ = _seed(store, key="bump-survivor")
+    merged, _ = _seed(store, key="bump-merged")
+    survivor_before = probe_version(store, survivor.identity_id)
+    merged_before = probe_version(store, merged.identity_id)
+
+    result = store.apply(
+        _batch(
+            "pl_bump_merge",
+            _op(
+                CurationOperationType.MERGE_IDENTITIES,
+                {
+                    "survivor_identity": survivor.identity_id,
+                    "merged_identities": [merged.identity_id],
+                },
+            ),
+        ),
+        preconditions=(),
+    )
+    assert result.committed is True, result.error
+    assert probe_version(store, survivor.identity_id) == survivor_before + 1
+    assert probe_version(store, merged.identity_id) == merged_before + 1
+
+
+def test_reassign_bumps_both_endpoints_once(make_canonical_store) -> None:
+    """Also this adapter's choice: the source and the target each move.
+
+    Both endpoints change - one loses an assertion, one gains it - so a plan
+    computed against either endpoint's old version is stale and must be
+    rejected. Bumping only the target would let a stale plan about the source
+    through.
+    """
+    store = make_canonical_store()
+    source, assertion = _seed(store, key="bump-from")
+    target, _ = _seed(store, key="bump-to")
+    source_before = probe_version(store, source.identity_id)
+    target_before = probe_version(store, target.identity_id)
+
+    result = store.apply(
+        _batch(
+            "pl_bump_reassign",
+            _op(
+                CurationOperationType.REASSIGN_ASSERTION,
+                {
+                    "assertion_id": assertion.assertion_id,
+                    "from_identity": source.identity_id,
+                    "to_identity": target.identity_id,
+                },
+            ),
+        ),
+        preconditions=(),
+    )
+    assert result.committed is True, result.error
+    assert probe_version(store, source.identity_id) == source_before + 1
+    assert probe_version(store, target.identity_id) == target_before + 1
+
+
+def test_a_refused_batch_bumps_nothing(make_canonical_store) -> None:
+    """Atomicity, restated on the counter rather than on the graph."""
+    store = make_canonical_store()
+    entity, _ = _seed(store, key="bump-refused")
+    before = probe_version(store, entity.identity_id)
+
+    result = store.apply(
+        _batch(
+            "pl_bump_refused",
+            _op(
+                CurationOperationType.ATTACH_ASSERTION,
+                make_assertion(subject_identity=entity.identity_id, predicate="never").model_dump(
+                    mode="json"
+                ),
+            ),
+            _op(CurationOperationType.RETRACT_ASSERTION, {"assertion_id": "as_nope"}),
+        ),
+        preconditions=(),
+    )
+    assert result.committed is False
+    assert probe_version(store, entity.identity_id) == before

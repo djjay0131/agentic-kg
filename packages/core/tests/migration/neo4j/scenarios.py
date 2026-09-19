@@ -113,3 +113,44 @@ def assert_entity_version_guard(make_store: Callable[[], object]) -> None:
         "optimistic-concurrency guard computed against the old version still "
         "passes"
     )
+
+
+#: An assertion id guaranteed not to exist, used by :func:`probe_version`.
+_ABSENT_ASSERTION = "as_probe_never_written"
+
+
+def probe_version(store, subject: str, *, ceiling: int = 12) -> int:
+    """Read a subject's ``entity_version`` **without mutating anything**.
+
+    No port exposes the version counter - that is deliberate, and it is also
+    why the bump semantics went unpinned. It is still observable, because
+    ``apply`` checks preconditions before it writes and this adapter rolls the
+    whole transaction back when an operation is refused:
+
+    * guard does not hold -> ``failed_preconditions`` non-empty, nothing ran;
+    * guard holds -> the batch proceeds and its ``RETRACT_ASSERTION`` of a
+      nonexistent assertion raises ``CommitRefused``, rolling the transaction
+      back **including the epoch bump**.
+
+    Either way the store is untouched, so scanning candidate versions is a pure
+    read. ``test_a_refused_batch_is_an_atomic_no_op`` is what makes that safe
+    to rely on, and the assertion below re-checks it on every probe step.
+    """
+    refusal = CurationOperation(
+        type=CurationOperationType.RETRACT_ASSERTION,
+        payload={"assertion_id": _ABSENT_ASSERTION},
+    )
+    for candidate in range(ceiling + 1):
+        result = store.apply(
+            GraphMutationBatch(plan_id=f"pl_probe_{candidate}", operations=(refusal,)),
+            preconditions=(
+                Precondition(kind=ENTITY_VERSION, subject=subject, expected=str(candidate)),
+            ),
+        )
+        assert result.committed is False, "the probe must never commit - it would stop being a read"
+        if not result.failed_preconditions:
+            assert result.error is not None and result.error.startswith("unknown_assertion"), (
+                f"probe refused for an unexpected reason: {result.error!r}"
+            )
+            return candidate
+    raise AssertionError(f"entity_version for {subject!r} exceeds the probe ceiling {ceiling}")

@@ -116,16 +116,100 @@ def test_the_scan_would_notice_a_violation(tmp_path: Path) -> None:
     assert found == ["GraphMutationStore"]
 
 
+def test_temporal_graph_reader_isinstance_is_vacuous(make_canonical_store) -> None:
+    """Why no test here asserts ``isinstance(x, TemporalGraphReader)``.
+
+    `TemporalGraphReader` extends `GraphReader` and declares **no additional
+    members**, so at runtime the two protocols have identical
+    ``__protocol_attrs__`` and ``isinstance(x, TemporalGraphReader)`` is true
+    for anything that is a `GraphReader` at all — including an adapter that
+    raises ``UnsupportedCapabilityError`` on every temporal option. Upstream
+    says as much: the class docstring calls it a *marker*.
+
+    An assertion that cannot fail is the exact defect this suite exists to hunt,
+    so those assertions were deleted rather than kept for the look of rigour.
+    What replaces them is behavioural —
+    :func:`test_read_only_surface_actually_honours_temporal_options` — and a
+    capability check on the store, both of which can fail.
+
+    This test pins the *reason*: if upstream ever gives `TemporalGraphReader` a
+    distinguishing member, the ``isinstance`` check stops being vacuous and
+    should come back, and this failure is the prompt to do it.
+    """
+    extra = set(TemporalGraphReader.__protocol_attrs__) - set(GraphReader.__protocol_attrs__)
+    assert extra == set(), (
+        f"TemporalGraphReader now declares {sorted(extra)} beyond GraphReader, "
+        f"so isinstance() against it is no longer vacuous - restore the "
+        f"structural assertions this test exists to justify removing"
+    )
+
+
 def test_read_only_surface_is_not_a_mutation_store(make_canonical_store) -> None:
     store = make_canonical_store()
     reader = store.read_only()
 
     assert isinstance(reader, Neo4jCanonicalGraphReader)
     assert isinstance(reader, GraphReader)
-    assert isinstance(reader, TemporalGraphReader)
+    # No `isinstance(reader, TemporalGraphReader)` here: it cannot fail. See
+    # test_temporal_graph_reader_isinstance_is_vacuous.
     assert not isinstance(reader, GraphMutationStore)
     assert not isinstance(reader, CandidateSink)
     assert not hasattr(reader, "apply")
+
+
+def test_read_only_surface_actually_honours_temporal_options(make_canonical_store) -> None:
+    """The behavioural replacement: the façade really is temporal.
+
+    Attaches one assertion with a bounded valid period, then reads the façade
+    at an instant inside the window and at one outside it. A reader that
+    ignored ``valid_at`` would return the assertion both times; one that could
+    not honour it at all would raise ``UnsupportedCapabilityError``. Either way
+    this goes red — which is more than the protocol ``isinstance`` could ever
+    do.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from kg_contracts.curation import CurationOperation, CurationOperationType
+    from kg_contracts.evidence import ValidPeriod
+    from kg_contracts.stores import GraphMutationBatch, GraphReadOptions
+    from kg_contracts.testing.factories import make_assertion, make_entity
+
+    now = datetime(2026, 7, 12, tzinfo=UTC)
+    store = make_canonical_store()
+    entity = make_entity(key="temporal-probe")
+    bounded = make_assertion(
+        subject_identity=entity.identity_id,
+        predicate="in_window",
+        valid_period=ValidPeriod(
+            valid_from=now - timedelta(days=1), valid_to=now + timedelta(days=1)
+        ),
+    )
+    result = store.apply(
+        GraphMutationBatch(
+            plan_id="pl_temporal",
+            operations=(
+                CurationOperation(
+                    type=CurationOperationType.CREATE_IDENTITY,
+                    payload=entity.model_dump(mode="json"),
+                ),
+                CurationOperation(
+                    type=CurationOperationType.ATTACH_ASSERTION,
+                    payload=bounded.model_dump(mode="json"),
+                ),
+            ),
+        ),
+        preconditions=(),
+    )
+    assert result.committed is True, result.error
+
+    reader = store.read_only()
+    inside = reader.assertions_for(entity.identity_id, options=GraphReadOptions(valid_at=now))
+    assert [a.assertion_id for a in inside] == [bounded.assertion_id]
+
+    outside = reader.assertions_for(
+        entity.identity_id, options=GraphReadOptions(valid_at=now + timedelta(days=30))
+    )
+    assert outside == [], "valid_at was ignored by the read-only facade"
 
 
 def test_read_only_surface_is_not_a_ledger_reader(make_canonical_store) -> None:
@@ -154,18 +238,31 @@ def test_no_attribute_of_the_reader_reaches_a_write_surface(make_canonical_store
 
 
 def test_the_store_itself_is_the_full_executor_surface(make_canonical_store) -> None:
-    """The counterpart: the executor's object really does satisfy all three.
+    """The counterpart: the executor's object really does satisfy the union.
 
     Without this the previous tests could pass against a reader that is simply
     broken. `kg_contracts.testing.contract._TestableGraphStore` is the union the
-    shared suite casts to (`contract.py:49`); this asserts each leg of it.
+    shared suite casts to (`contract.py:49`) —
+    ``GraphMutationStore + TemporalGraphReader + CapabilityDeclaring``.
+
+    Two of the three legs are asserted structurally. The third,
+    `TemporalGraphReader`, is asserted **by capability declaration** instead:
+    the protocol adds no members over `GraphReader`, so an ``isinstance``
+    against it cannot fail (see
+    :func:`test_temporal_graph_reader_isinstance_is_vacuous`), whereas
+    ``supports_temporal_queries`` is a real claim this store could get wrong —
+    and if it declared ``False``, the shared suite's
+    ``test_capability_conformance_for_temporal_options`` would then demand an
+    ``UnsupportedCapabilityError`` this adapter does not raise, so the two
+    checks are wired to each other rather than each asserting themselves.
     """
     from kg_contracts.stores import CapabilityDeclaring
 
     store = make_canonical_store()
     assert isinstance(store, GraphMutationStore)
-    assert isinstance(store, TemporalGraphReader)
+    assert isinstance(store, GraphReader)
     assert isinstance(store, CapabilityDeclaring)
+    assert store.capabilities().supports_temporal_queries is True
 
 
 def test_writer_primitives_are_not_public(make_canonical_store) -> None:

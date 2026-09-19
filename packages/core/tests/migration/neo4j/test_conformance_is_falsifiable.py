@@ -34,6 +34,10 @@ from kg_contracts.stores import GraphMutationBatch, GraphReadOptions
 from kg_contracts.testing.contract import GraphMutationStoreContract
 from kg_contracts.testing.factories import make_assertion, make_entity
 
+# Imported as a *module*, never `from ... import TestNeo4j...`: binding a
+# `Test`-prefixed class into this namespace would make pytest collect and run
+# the seven contract tests a second time here.
+from . import test_contract_conformance as conformance_module
 from .scenarios import assert_entity_version_guard
 
 pytestmark = pytest.mark.integration
@@ -333,3 +337,88 @@ def test_frozen_version_counter_breaks_the_replay_guard(
     _mutate_version_counter_frozen(monkeypatch)
     with pytest.raises(AssertionError, match="version counter did not advance"):
         assert_entity_version_guard(make_canonical_store)
+
+
+# --- the gate hole a junit-level check cannot close --------------------------
+
+
+def shadowed_contract_methods(cls: type) -> set[str]:
+    """Contract test methods this class (or a subclass of it) redefines.
+
+    Walks the MRO down to `GraphMutationStoreContract` and collects any
+    ``test_*`` name defined *below* it. The base class's own definitions are
+    the real ones and are not shadowing.
+    """
+    expected = set(CONTRACT_TESTS)
+    shadowed: set[str] = set()
+    for klass in cls.__mro__:
+        if klass is GraphMutationStoreContract:
+            break
+        shadowed |= expected & set(vars(klass))
+    return shadowed
+
+
+def test_the_conforming_class_shadows_no_contract_method() -> None:
+    """Closes the last hole in ``suite_gate.py``, which junit alone cannot see.
+
+    A subclass that overrides all seven contract methods with ``pass`` (and a
+    ``make_store`` that raises) still emits seven passing testcases under one
+    classname, so the gate reports ``7/7 shared contract tests passed`` and
+    exits 0. The junit report records *that* the names ran, never *what* ran —
+    an XML-level gate cannot distinguish the real body from a stub, and no
+    amount of counting or naming fixes that.
+
+    The check has to live at the class level instead, which is here: a
+    conforming class must inherit every contract method, not redefine one.
+    Overriding is the only way to keep the name while replacing the body, so
+    forbidding it closes the case the gate structurally cannot.
+
+    (``make_store`` is *expected* to be defined by the subclass — it is the
+    factory the suite asks for — and is not a ``test_*`` name, so it is not
+    caught by this and should not be.)
+    """
+    classes = [
+        obj
+        for obj in vars(conformance_module).values()
+        if isinstance(obj, type)
+        and issubclass(obj, GraphMutationStoreContract)
+        and obj is not GraphMutationStoreContract
+    ]
+    assert classes, (
+        "test_contract_conformance.py defines no GraphMutationStoreContract "
+        "subclass - the conformance suite is not wired up at all"
+    )
+    for cls in classes:
+        assert shadowed_contract_methods(cls) == set(), (
+            f"{cls.__name__} redefines {sorted(shadowed_contract_methods(cls))}. "
+            f"A conforming class must inherit every contract method unchanged; "
+            f"an override keeps the name in the junit report while replacing "
+            f"what it does, which suite_gate.py cannot detect."
+        )
+
+
+def test_the_shadowing_check_would_notice_an_override() -> None:
+    """Obligation 5 for the check above: it can fail for the reason it names.
+
+    The stub class is defined inside the function, so pytest never collects it
+    — it exists only to be inspected.
+    """
+
+    class StubbedOutConformance(GraphMutationStoreContract):
+        def make_store(self):  # type: ignore[no-untyped-def]
+            raise AssertionError("never called - every test below is a no-op")
+
+        def test_create_and_attach_commits_and_returns_new_epoch(self) -> None:
+            pass
+
+        def test_snapshot_read_at_old_epoch_hides_later_records(self) -> None:
+            pass
+
+    assert shadowed_contract_methods(StubbedOutConformance) == {
+        "test_create_and_attach_commits_and_returns_new_epoch",
+        "test_snapshot_read_at_old_epoch_hides_later_records",
+    }
+    # And an honest subclass - one that only supplies the factory - is clean.
+    assert (
+        shadowed_contract_methods(conformance_module.TestNeo4jGraphMutationStoreContract) == set()
+    )
