@@ -122,30 +122,118 @@ def neo4j_config(neo4j_container, monkeypatch):
     yield config
 
 
+class SharedDatabaseSweepError(RuntimeError):
+    """
+    Raised when a global test-data sweep is attempted against a database that
+    this pytest session does not exclusively own.
+
+    The sweep below matches test data by *prefix*, and the prefix is global
+    rather than per-run. Two CI runs pointed at the same Neo4j therefore share
+    one namespace: each run's setup/teardown sweep deletes the other run's
+    in-flight rows, producing "NotFoundError: <uuid> not found" failures on
+    freshly created nodes. That is a data race, not flakiness, and the fix is
+    to give every run its own database -- not to make the sweep cleverer.
+    """
+
+
+# Identifying properties that mark a node as test data. Kept in one place so
+# the predicate used to count and the predicate used to delete cannot drift.
+#
+# NOTE: '10.1/TEST-' is included deliberately. Tests in test_method_repository
+# and test_model_repository mint Paper DOIs as f"10.1/TEST-{uuid4().hex[:6]}",
+# which the original predicate ('10.TEST_' only) could never match. Those
+# Papers accumulated in the shared staging database indefinitely, and with only
+# 6 hex characters of entropy the birthday collision eventually surfaced as
+# "DuplicateError: Paper with DOI 10.1/TEST-c854bd already exists".
+TEST_DATA_PREDICATE = """
+        n.id STARTS WITH 'TEST_'
+           OR n.doi STARTS WITH '10.TEST_'
+           OR n.doi STARTS WITH '10.1/TEST-'
+           OR n.name STARTS WITH 'TEST_'
+           OR n.domain STARTS WITH 'TEST_'
+           OR n.statement STARTS WITH 'TEST_'
+"""
+
+TEST_DATA_COUNT_QUERY = f"MATCH (n) WHERE {TEST_DATA_PREDICATE} RETURN count(n) AS n"
+TEST_DATA_SWEEP_QUERY = f"MATCH (n) WHERE {TEST_DATA_PREDICATE} DETACH DELETE n"
+
+
+def session_owns_database(container) -> bool:
+    """
+    True when this pytest session exclusively owns the Neo4j it is talking to.
+
+    Ownership is a *fact*, not an assertion: it is true exactly when this
+    session started its own throwaway container. There is deliberately no
+    environment variable or flag that can claim ownership of a database the
+    session did not create.
+
+    An earlier revision of this fix accepted ``AKG_NEO4J_EPHEMERAL=1`` as proof
+    of ownership. That made the guard bypassable by the one configuration it
+    exists to prevent -- NEO4J_URI pointed at shared staging plus the flag set
+    -- and CI carried the flag pre-set, so restoring NEO4J_URI to that step
+    would have silently re-armed the data race while every test stayed green.
+    A switch whose only function is to disable a safety property must not exist.
+    """
+    return container is not None
+
+
+def sweep_test_data(repo, *, ephemeral: bool) -> int:
+    """
+    Delete every node matching the test-data predicate.
+
+    Refuses to run unless the caller owns the database exclusively. This is the
+    guard that makes concurrent CI runs safe: a run that does not own its
+    database cannot issue a cross-run destructive sweep, full stop.
+
+    Returns the number of nodes deleted.
+    """
+    if not ephemeral:
+        raise SharedDatabaseSweepError(
+            "Refusing to run a global TEST_-prefix sweep against a database this "
+            "session does not own. The prefix is global, so this sweep would "
+            "delete test data belonging to any other run sharing this instance. "
+            "Run integration tests against a per-run Neo4j: leave NEO4J_URI "
+            "unset and the fixtures start a throwaway container for this "
+            "session alone. There is no flag to override this."
+        )
+
+    with repo.session() as session:
+        record = session.run(TEST_DATA_COUNT_QUERY).single()
+        doomed = record["n"] if record else 0
+        session.run(TEST_DATA_SWEEP_QUERY)
+    return doomed
+
+
+@pytest.fixture(scope="session")
+def neo4j_exclusive(neo4j_container) -> bool:
+    """Whether this session exclusively owns the Neo4j under test."""
+    return session_owns_database(neo4j_container)
+
+
 @pytest.fixture
-def neo4j_repository(neo4j_config):
+def neo4j_repository(neo4j_config, neo4j_exclusive):
     """
     Create a repository connected to Neo4j.
 
-    Initializes schema and cleans up test data after each test.
-    When using staging/CI, only cleans up TEST_ prefixed data.
+    Initializes schema and sweeps this session's test data on teardown.
+
+    Requires an exclusively-owned database (see ``session_owns_database``). The
+    sweep is teardown-only: a per-run database starts empty, so the old
+    pre-test sweep bought nothing and doubled the window in which a concurrent
+    run's rows could be destroyed.
     """
     from agentic_kg.knowledge_graph.repository import Neo4jRepository
     from agentic_kg.knowledge_graph.schema import SchemaManager
 
-    repo = Neo4jRepository(config=neo4j_config)
+    if not neo4j_exclusive:
+        raise SharedDatabaseSweepError(
+            "Integration tests require a Neo4j exclusive to this run; refusing "
+            "to run against a shared instance because teardown would sweep "
+            "other runs' data. Unset NEO4J_URI so this session starts its own "
+            "container."
+        )
 
-    # Cleans up any node whose identifying property is TEST_-marked:
-    # Problem.id / statement, Paper.doi, Author.name, or domain.
-    cleanup_query = """
-        MATCH (n)
-        WHERE n.id STARTS WITH 'TEST_'
-           OR n.doi STARTS WITH '10.TEST_'
-           OR n.name STARTS WITH 'TEST_'
-           OR n.domain STARTS WITH 'TEST_'
-           OR n.statement STARTS WITH 'TEST_'
-        DETACH DELETE n
-    """
+    repo = Neo4jRepository(config=neo4j_config)
 
     try:
         # Verify connection
@@ -155,16 +243,10 @@ def neo4j_repository(neo4j_config):
         schema_manager = SchemaManager(repository=repo)
         schema_manager.initialize(force=False)
 
-        # Sweep leftovers from any prior crashed run before starting
-        with repo.session() as session:
-            session.run(cleanup_query)
-
         yield repo
 
-        # Clean up test data (safe for shared instances)
-        with repo.session() as session:
-            session.run(cleanup_query)
-
+        # Teardown-only sweep, guarded by exclusive ownership.
+        sweep_test_data(repo, ephemeral=neo4j_exclusive)
     finally:
         repo.close()
 
