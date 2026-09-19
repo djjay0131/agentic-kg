@@ -38,7 +38,7 @@ from kg_contracts.testing.factories import make_assertion, make_entity
 # `Test`-prefixed class into this namespace would make pytest collect and run
 # the seven contract tests a second time here.
 from . import test_contract_conformance as conformance_module
-from .scenarios import assert_entity_version_guard
+from .scenarios import assert_entity_version_guard, assert_valid_time_window_honoured
 
 pytestmark = pytest.mark.integration
 
@@ -422,3 +422,50 @@ def test_the_shadowing_check_would_notice_an_override() -> None:
     assert (
         shadowed_contract_methods(conformance_module.TestNeo4jGraphMutationStoreContract) == set()
     )
+
+
+# --- half a window is half a test -------------------------------------------
+
+
+def _mutate_valid_from_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Honour ``valid_to`` but drop ``valid_from`` — one edge, not both."""
+
+    def half(assertion, valid_at):  # noqa: ANN001, ANN202
+        period = assertion.valid_period
+        if period.valid_to is not None and valid_at > period.valid_to:
+            return False
+        return True
+
+    monkeypatch.setattr(store_module, "_valid_at_matches", half)
+
+
+def test_half_dropped_valid_window_survives_the_shared_suite(
+    make_canonical_store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Measured, not assumed: the shared suite cannot see a dropped lower edge.
+
+    ``test_capability_conformance_for_temporal_options`` probes ``valid_at``
+    only *inside* the window and *after* it, so an implementation that dropped
+    the ``valid_from`` comparison passes all seven. So did this repo's own
+    façade probe, until a reviewer pointed the mutation at it — 84 passed with
+    the lower bound deleted.
+    """
+    _mutate_valid_from_ignored(monkeypatch)
+    results = run_contract(make_canonical_store)
+    assert len(results) == 7
+    assert [name for name, ok in results.items() if not ok] == [], (
+        "if the shared suite now probes below valid_from, this test and the "
+        "one below are obsolete - delete them"
+    )
+
+
+def test_half_dropped_valid_window_breaks_the_facade_probe(
+    make_canonical_store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """And the check that does catch it — the same assertions, not a copy."""
+    # Control: the scenario passes against the unmutated adapter.
+    assert_valid_time_window_honoured(make_canonical_store)
+
+    _mutate_valid_from_ignored(monkeypatch)
+    with pytest.raises(AssertionError, match="lower bound"):
+        assert_valid_time_window_honoured(make_canonical_store)

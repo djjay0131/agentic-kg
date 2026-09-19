@@ -43,6 +43,8 @@ from kg_contracts.stores import (
     TemporalGraphReader,
 )
 
+from .scenarios import assert_valid_time_window_honoured
+
 REPO_ROOT = Path(__file__).resolve().parents[5]
 APPLICATION_TREES = (
     REPO_ROOT / "packages" / "api",
@@ -160,58 +162,21 @@ def test_read_only_surface_is_not_a_mutation_store(make_canonical_store) -> None
 
 
 def test_read_only_surface_actually_honours_temporal_options(make_canonical_store) -> None:
-    """The behavioural replacement: the façade really is temporal.
+    """The behavioural replacement for the vacuous protocol ``isinstance``.
 
-    Attaches one assertion with a bounded valid period, then reads the façade
-    at an instant inside the window and at one outside it. A reader that
-    ignored ``valid_at`` would return the assertion both times; one that could
-    not honour it at all would raise ``UnsupportedCapabilityError``. Either way
-    this goes red — which is more than the protocol ``isinstance`` could ever
-    do.
+    Attaches one assertion with a bounded valid period and probes the façade at
+    an instant inside the window and at one beyond **each** edge. A reader that
+    ignored ``valid_at`` returns it every time; one that could not honour it at
+    all raises ``UnsupportedCapabilityError``; one that dropped a single edge
+    fails exactly that edge. All three are red — which is more than the
+    protocol ``isinstance`` could ever be, since `TemporalGraphReader` declares
+    no members to check.
+
+    The assertions live in ``scenarios.assert_valid_time_window_honoured`` so
+    ``test_conformance_is_falsifiable.py`` can falsify *them* rather than a
+    copy of them.
     """
-    from datetime import UTC, datetime, timedelta
-
-    from kg_contracts.curation import CurationOperation, CurationOperationType
-    from kg_contracts.evidence import ValidPeriod
-    from kg_contracts.stores import GraphMutationBatch, GraphReadOptions
-    from kg_contracts.testing.factories import make_assertion, make_entity
-
-    now = datetime(2026, 7, 12, tzinfo=UTC)
-    store = make_canonical_store()
-    entity = make_entity(key="temporal-probe")
-    bounded = make_assertion(
-        subject_identity=entity.identity_id,
-        predicate="in_window",
-        valid_period=ValidPeriod(
-            valid_from=now - timedelta(days=1), valid_to=now + timedelta(days=1)
-        ),
-    )
-    result = store.apply(
-        GraphMutationBatch(
-            plan_id="pl_temporal",
-            operations=(
-                CurationOperation(
-                    type=CurationOperationType.CREATE_IDENTITY,
-                    payload=entity.model_dump(mode="json"),
-                ),
-                CurationOperation(
-                    type=CurationOperationType.ATTACH_ASSERTION,
-                    payload=bounded.model_dump(mode="json"),
-                ),
-            ),
-        ),
-        preconditions=(),
-    )
-    assert result.committed is True, result.error
-
-    reader = store.read_only()
-    inside = reader.assertions_for(entity.identity_id, options=GraphReadOptions(valid_at=now))
-    assert [a.assertion_id for a in inside] == [bounded.assertion_id]
-
-    outside = reader.assertions_for(
-        entity.identity_id, options=GraphReadOptions(valid_at=now + timedelta(days=30))
-    )
-    assert outside == [], "valid_at was ignored by the read-only facade"
+    assert_valid_time_window_honoured(make_canonical_store)
 
 
 def test_read_only_surface_is_not_a_ledger_reader(make_canonical_store) -> None:

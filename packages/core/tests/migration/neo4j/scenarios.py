@@ -12,9 +12,11 @@ Not named ``test_*``, so pytest does not collect it directly.
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 
 from kg_contracts.curation import CurationOperation, CurationOperationType, Precondition
-from kg_contracts.stores import GraphMutationBatch
+from kg_contracts.evidence import ValidPeriod
+from kg_contracts.stores import GraphMutationBatch, GraphReadOptions
 from kg_contracts.testing.factories import make_assertion, make_entity
 
 #: The precondition kind the reference store enforces and KGCS's planner emits.
@@ -154,3 +156,73 @@ def probe_version(store, subject: str, *, ceiling: int = 12) -> int:
             )
             return candidate
     raise AssertionError(f"entity_version for {subject!r} exceeds the probe ceiling {ceiling}")
+
+
+#: Fixed instant the valid-time scenario builds its window around.
+WINDOW_CENTRE = datetime(2026, 7, 12, tzinfo=UTC)
+
+
+def assert_valid_time_window_honoured(make_store) -> None:
+    """Probe a bounded ``valid_period`` on **both** sides through the façade.
+
+    A reviewer found the first version of this checked only the upper bound:
+    deleting the ``valid_from`` comparison from ``_valid_at_matches`` left the
+    whole suite at 84 passed. Not vacuous - a store ignoring ``valid_at``
+    entirely still failed it - but half a test, which is the shape this
+    programme keeps rediscovering. Both edges are asserted now.
+
+    Lives here rather than inline so the mutation test can falsify *these*
+    assertions rather than a copy of them.
+
+    Raises:
+        AssertionError: if either edge of the window is not honoured.
+    """
+    store = make_store()
+    entity = make_entity(key="valid-window")
+    bounded = make_assertion(
+        subject_identity=entity.identity_id,
+        predicate="in_window",
+        valid_period=ValidPeriod(
+            valid_from=WINDOW_CENTRE - timedelta(days=1),
+            valid_to=WINDOW_CENTRE + timedelta(days=1),
+        ),
+    )
+    result = store.apply(
+        GraphMutationBatch(
+            plan_id="pl_valid_window",
+            operations=(
+                CurationOperation(
+                    type=CurationOperationType.CREATE_IDENTITY,
+                    payload=entity.model_dump(mode="json"),
+                ),
+                CurationOperation(
+                    type=CurationOperationType.ATTACH_ASSERTION,
+                    payload=bounded.model_dump(mode="json"),
+                ),
+            ),
+        ),
+        preconditions=(),
+    )
+    assert result.committed is True, result.error
+
+    reader = store.read_only()
+
+    inside = reader.assertions_for(
+        entity.identity_id, options=GraphReadOptions(valid_at=WINDOW_CENTRE)
+    )
+    assert [a.assertion_id for a in inside] == [bounded.assertion_id], (
+        "an assertion inside its own valid period was not returned - if this "
+        "is empty the two edge checks below are vacuous"
+    )
+
+    after = reader.assertions_for(
+        entity.identity_id,
+        options=GraphReadOptions(valid_at=WINDOW_CENTRE + timedelta(days=30)),
+    )
+    assert after == [], "valid_at upper bound (valid_to) was ignored"
+
+    before = reader.assertions_for(
+        entity.identity_id,
+        options=GraphReadOptions(valid_at=WINDOW_CENTRE - timedelta(days=30)),
+    )
+    assert before == [], "valid_at lower bound (valid_from) was ignored"
