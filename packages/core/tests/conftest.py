@@ -217,7 +217,7 @@ def neo4j_repository(neo4j_config, neo4j_exclusive):
 
     Initializes schema and sweeps this session's test data on teardown.
 
-    Requires an exclusively-owned database (see ``neo4j_is_ephemeral``). The
+    Requires an exclusively-owned database (see ``session_owns_database``). The
     sweep is teardown-only: a per-run database starts empty, so the old
     pre-test sweep bought nothing and doubled the window in which a concurrent
     run's rows could be destroyed.

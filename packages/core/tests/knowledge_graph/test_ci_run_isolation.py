@@ -276,14 +276,47 @@ class TestDoiCleanupCoverage:
             "entropy they eventually collide (DuplicateError in CI run 35448203443)"
         )
 
-    def test_e2e_cleanup_covers_paper_dois(self):
-        """The same leak existed in the E2E helper, which matched no DOI at all."""
-        source = (
-            REPO_ROOT / "packages/core/tests/e2e/utils.py"
-        ).read_text(encoding="utf-8")
-        start = source.index("def clear_test_data(")
-        body = source[start : source.index("def ", start + 10)]
-        assert "10.1/TEST-" in body and "10.TEST_" in body, (
-            "tests/e2e/utils.py:clear_test_data matches no Paper DOI, so every "
-            "TEST_ Paper it creates leaks into real staging permanently"
+    def test_e2e_cleanup_actually_deletes_papers_by_doi(self, neo4j_repository):
+        """The same leak existed in the E2E helper, which matched no DOI at all.
+
+        Behavioural, deliberately. An earlier version of this test grepped
+        ``clear_test_data``'s source for the two DOI literals -- and the
+        docstring added alongside the fix contains both, so stripping the DOI
+        clauses out of the Cypher left the test green. A text scan over code
+        trips on the very words written to describe that code. So: seed real
+        Papers, run the real function, assert they are gone.
+        """
+        from ..e2e.utils import clear_test_data
+
+        # These Papers carry no `id`, so only the DOI clauses of the predicate
+        # can possibly match them. Both historical DOI shapes are covered.
+        old_shape = f"10.TEST_E2E/{uuid.uuid4().hex[:8]}"
+        new_shape = f"10.1/TEST-{uuid.uuid4().hex[:6]}"
+
+        with neo4j_repository.session() as session:
+            for doi in (old_shape, new_shape):
+                session.run(
+                    "CREATE (p:Paper {doi: $doi, title: 'e2e cleanup probe'})",
+                    doi=doi,
+                )
+
+        def _remaining() -> int:
+            with neo4j_repository.session() as session:
+                record = session.run(
+                    "MATCH (p:Paper) WHERE p.doi IN $dois RETURN count(p) AS n",
+                    dois=[old_shape, new_shape],
+                ).single()
+            return record["n"] if record else 0
+
+        assert _remaining() == 2, "probe Papers were not created"
+
+        with neo4j_repository.session() as session:
+            clear_test_data(session)
+
+        assert _remaining() == 0, (
+            "tests/e2e/utils.py:clear_test_data left TEST_ Papers behind. Papers "
+            "are keyed by `doi`, never `id`, so an id-only predicate matches no "
+            "Paper at all and every one the E2E suite creates leaks into real "
+            "staging permanently (DuplicateError: 10.1/TEST-c854bd, CI run "
+            "35448203443)."
         )
