@@ -150,11 +150,29 @@ class TestRealFixturePath:
             "have refused to touch this database"
         )
 
-    def test_session_that_owns_its_database_runs_normally(self):
+    def test_session_that_owns_its_database_runs_normally(self, neo4j_container):
         """The guard must not be a blanket refusal -- the supported path works.
 
-        No NEO4J_URI, so the session starts its own container and proceeds.
+        No NEO4J_URI, so the child session starts its own container and proceeds.
+
+        Gated on ``neo4j_container`` like every other test that needs a real
+        database. That fixture skips when Docker is unavailable, which is the
+        only honest thing to do here: the child session cannot start a container
+        either, so it skips, and asserting "1 passed" on its output would be
+        asserting something the environment cannot deliver. The `test (3.12)`
+        job runs this file without Docker; an earlier revision took no fixture,
+        ran there, and reported a false failure -- the mirror image of the false
+        successes this PR exists to remove. Both come from an assertion with an
+        unstated precondition.
+
+        The two negative cases above need no such gate: a refusal is still a
+        refusal without Docker.
         """
+        if neo4j_container is None:
+            pytest.skip(
+                "needs Docker: the child session must be able to start its own "
+                "container for the positive path to mean anything"
+            )
         env = {k: v for k, v in os.environ.items() if not k.startswith("NEO4J_")}
         env.pop("AKG_NEO4J_EPHEMERAL", None)
         result = subprocess.run(
