@@ -1,6 +1,13 @@
 # Integration Tests Workflow
-# Runs integration tests against staging Neo4j instance
-# Tests clean up after themselves using TEST_ prefix
+#
+# The integration job runs against a PER-RUN, throwaway Neo4j (testcontainers),
+# NOT shared staging. History: it used staging, and the test fixture swept every
+# TEST_-prefixed node before and after each test. The prefix is run-global, so
+# two runs on different refs deleted one another's in-flight rows -- surfacing
+# as "NotFoundError: <uuid> not found" on nodes the test had just created.
+# Every integration-job failure in the 40 runs before 2026-09-19 sat inside an
+# overlap window with another integration job. A per-run database removes the
+# shared namespace entirely; it is also faster (~47s vs ~150s) than staging.
 
 name: Integration Tests
 
@@ -15,6 +22,10 @@ on:
 
 # A merge into a long-lived integration branch fires both the PR-close and the
 # push event; without a group they race and burn double the runner minutes.
+#
+# NOTE: this group is keyed per-ref and therefore does NOT serialise different
+# PRs against each other. It never did. Do not rely on it for database
+# isolation -- that is the per-run Neo4j container's job.
 concurrency:
   group: integration-tests-${{ github.ref }}
   cancel-in-progress: true
@@ -92,9 +103,11 @@ jobs:
 
       - name: Run integration tests
         env:
-          NEO4J_URI: ${{ secrets.STAGING_NEO4J_URI }}
-          NEO4J_USERNAME: neo4j
-          NEO4J_PASSWORD: ${{ secrets.STAGING_NEO4J_PASSWORD }}
+          # No NEO4J_URI: the conftest starts a throwaway Neo4j container that
+          # belongs to this run alone. AKG_NEO4J_EPHEMERAL asserts exclusive
+          # ownership, which is what licenses the teardown sweep; without it the
+          # fixture refuses to run rather than risk deleting another run's data.
+          AKG_NEO4J_EPHEMERAL: '1'
         run: |
           pytest packages/core/tests/knowledge_graph/ \
             -m integration \
