@@ -28,6 +28,8 @@ from kg_contracts.curation import CurationOperation, CurationOperationType
 from kg_contracts.stores import GraphMutationBatch, GraphReadOptions
 from kg_contracts.testing.factories import make_assertion, make_entity
 
+from .scenarios import assert_entity_version_guard
+
 pytestmark = pytest.mark.integration
 
 
@@ -474,3 +476,24 @@ def test_a_refused_batch_is_an_atomic_no_op(make_canonical_store) -> None:
             entity.identity_id, options=GraphReadOptions(include_superseded=True)
         )
     }
+
+
+# --- optimistic concurrency: the version counter actually moves ---------------
+
+
+def test_entity_version_precondition_guards_replay(make_canonical_store) -> None:
+    """A *satisfiable* ``entity_version`` guard, and the replay it must block.
+
+    The shared suite only ever uses ``expected="99"`` against a fresh identity,
+    which fails whatever the counter does — so conformance says nothing about
+    the version *increment*, and a store whose counter is frozen at zero passes
+    all seven tests while silently letting a replayed ``CREATE_IDENTITY``
+    clobber an existing identity. `kgcs.planner` guards every creation with
+    ``entity_version=0`` and the executor's "idempotent replay" property rests
+    on the store failing that guard the second time.
+
+    The assertions live in ``scenarios.assert_entity_version_guard`` so that
+    ``test_conformance_is_falsifiable.py`` can run *these* assertions — not a
+    copy of them — against a store with the counter disabled.
+    """
+    assert_entity_version_guard(make_canonical_store)

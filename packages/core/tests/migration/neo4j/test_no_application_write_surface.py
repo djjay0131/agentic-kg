@@ -1,24 +1,31 @@
-"""Applications cannot obtain a canonical write surface. Proven, not promised.
+"""The read surface is structurally not a write surface, and AC-1's two trees are clean.
 
-Mapping spec §2 rule 1 / **AC-1**: "No module under ``packages/api/`` or
-``packages/core/src/agentic_kg/agents/`` imports ``GraphMutationStore``, and no
-such module holds an object satisfying it. Asserted by a test, not by review."
+Scope, stated precisely, because the obvious summary would overclaim. This does
+**not** prove "no application code anywhere can obtain a canonical write
+surface". It proves two narrower things:
+
+1. **Structural, and unconditional.** The object handed to non-executor code
+   (:class:`Neo4jCanonicalGraphReader`) does not satisfy `GraphMutationStore`,
+   and no attribute reachable from it does either. `GraphMutationStore` is
+   ``@runtime_checkable``, so ``isinstance`` is a real check against the real
+   protocol, not a name comparison. This holds for every caller.
+2. **Static, and scoped to exactly the two trees AC-1 names** —
+   ``packages/api/`` and ``packages/core/src/agentic_kg/agents/``. Mapping spec
+   §2 rule 1 / AC-1: "No module under ``packages/api/`` or
+   ``packages/core/src/agentic_kg/agents/`` imports ``GraphMutationStore``, and
+   no such module holds an object satisfying it. Asserted by a test, not by
+   review." Nothing here scans ``packages/core/src/agentic_kg/`` at large, the
+   CLI, the scripts, or the notebooks. A module outside those two trees that
+   constructs the store directly would not be caught, and widening the scan is
+   a change to AC-1, not to this test.
+
 Plus **AC-3**: the canonical reader is not a `LedgerReader`, and vice versa
 (KGIS ADR-0011 — canonical reads and ledger reads are never one access path).
 
-Two kinds of evidence here, because neither alone is sufficient:
-
-* **structural** — the object handed to non-executor code
-  (:class:`Neo4jCanonicalGraphReader`) does not satisfy `GraphMutationStore`,
-  and no attribute reachable from it does either. `GraphMutationStore` is
-  ``@runtime_checkable``, so ``isinstance`` is a real check against the real
-  protocol rather than a name comparison;
-* **static** — a source scan of the two application trees, which catches the
-  case the structural test cannot: someone constructing the store directly.
-
-The static scan asserts it actually looked at files (obligation 1). A scan over
-an empty file set is the canonical vacuous check, and the whole AC would pass on
-a typo in a path.
+The static scan asserts it actually looked at files (§9.0 obligation 1) and a
+companion test points the same detector at a deliberately offending module
+(obligation 5). A scan over an empty file set is the canonical vacuous check,
+and the whole AC would otherwise pass on a typo in a path.
 """
 
 from __future__ import annotations

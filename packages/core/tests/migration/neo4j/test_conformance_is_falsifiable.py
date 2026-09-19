@@ -34,6 +34,8 @@ from kg_contracts.stores import GraphMutationBatch, GraphReadOptions
 from kg_contracts.testing.contract import GraphMutationStoreContract
 from kg_contracts.testing.factories import make_assertion, make_entity
 
+from .scenarios import assert_entity_version_guard
+
 pytestmark = pytest.mark.integration
 
 #: Every test method the shared suite defines. Derived, not transcribed, so a
@@ -283,3 +285,51 @@ def test_in_place_status_mutation_breaks_the_epoch_read(
         "the in-place mutant is supposed to LOSE the epoch-N reading; if it is "
         "still there, this test is no longer demonstrating the defect"
     )
+
+
+# --- a mutant the shared suite cannot catch, and the test that does ----------
+
+
+def _mutate_version_counter_frozen(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Never advance a subject's ``entity_version``."""
+    monkeypatch.setattr(Neo4jCanonicalGraphStore, "_bump_version", lambda self, tx, subject: None)
+
+
+def test_frozen_version_counter_survives_the_whole_shared_suite(
+    make_canonical_store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gap, stated as a measurement rather than as a worry.
+
+    ``GraphMutationStoreContract`` only ever asks for ``entity_version="99"``
+    against a fresh identity. ``0 != 99`` and ``0 != 99`` — the guard fails
+    either way, so freezing the counter changes nothing the suite can see. This
+    asserts that directly: 7/7 green with the counter disabled.
+
+    Run before the next test so the pair reads as "the suite does not catch
+    this, and here is what does".
+    """
+    _mutate_version_counter_frozen(monkeypatch)
+    results = run_contract(make_canonical_store)
+    assert len(results) == 7
+    assert [name for name, ok in results.items() if not ok] == [], (
+        "if the shared suite now catches a frozen version counter, this test "
+        "has become obsolete - delete it and the one below"
+    )
+
+
+def test_frozen_version_counter_breaks_the_replay_guard(
+    make_canonical_store, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """And the defect it hides: a replayed CREATE_IDENTITY clobbers an identity.
+
+    Same assertions as
+    ``test_operations_declaration.py::test_entity_version_precondition_guards_replay``
+    — literally the same function, not a copy — so this is a falsification of
+    that test rather than of a restatement of it.
+    """
+    # Control: the scenario passes against the unmutated adapter.
+    assert_entity_version_guard(make_canonical_store)
+
+    _mutate_version_counter_frozen(monkeypatch)
+    with pytest.raises(AssertionError, match="version counter did not advance"):
+        assert_entity_version_guard(make_canonical_store)
