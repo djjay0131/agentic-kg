@@ -16,26 +16,40 @@ That is a data race, not flakiness.
 
 The fix
 -------
-The sweep is now (a) teardown-only and (b) refused outright unless this pytest
-session exclusively owns the database. CI provisions a per-run throwaway Neo4j,
-so the sweep is safe by construction and the shared-instance configuration that
-permitted cross-run destruction is unreachable.
+The sweep is now (a) teardown-only and (b) refused unless this pytest session
+*started the database itself*. CI provisions a per-run throwaway Neo4j, so the
+sweep is safe by construction and the shared-instance topology is unreachable.
 
-These tests fail if either half of that guard is reverted.
+Testing the guard, not just its argument
+----------------------------------------
+``TestRealFixturePath`` drives a whole pytest session in a subprocess with
+``NEO4J_URI`` aimed at a database this session owns -- the configuration that
+caused the outage -- and asserts the suite refuses and leaves foreign rows
+intact. An earlier revision of this file only called ``sweep_test_data`` with a
+hand-passed ``ephemeral=`` argument, which tested the parameter and not the
+plumbing that computes it: all eight tests passed while the fixture happily
+destroyed a concurrent run's data. The subprocess test is the one that would
+have caught that, so it is the load-bearing test here.
 """
 
+import os
+import subprocess
+import sys
 import uuid
+from pathlib import Path
 
 import pytest
 
 from ..conftest import (
     TEST_DATA_SWEEP_QUERY,
     SharedDatabaseSweepError,
-    neo4j_is_ephemeral,
+    session_owns_database,
     sweep_test_data,
 )
 
 pytestmark = pytest.mark.integration
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def _seed_foreign_run(repo, run_label: str) -> str:
@@ -59,14 +73,139 @@ def _exists(repo, node_id: str) -> bool:
     return bool(record and record["n"])
 
 
-class TestSweepOwnershipGuard:
-    """The sweep must refuse to run against a database we do not own."""
+# =============================================================================
+# The load-bearing test: the real fixture path, end to end.
+# =============================================================================
 
-    def test_sweep_refuses_non_exclusive_database(self, neo4j_repository):
+
+class TestRealFixturePath:
+    """Drive a real pytest session the way CI does and observe what it does."""
+
+    # A genuine integration test that uses the neo4j_repository fixture.
+    TARGET = (
+        "packages/core/tests/knowledge_graph/test_citation_graph.py"
+        "::TestLinkPaperCitesPaper::test_link_creates_edge_and_increments_counters"
+    )
+
+    def _run_session_against(self, uri: str, password: str, extra_env: dict):
+        env = dict(os.environ)
+        env["NEO4J_URI"] = uri
+        env["NEO4J_USERNAME"] = "neo4j"
+        env["NEO4J_PASSWORD"] = password
+        env["NEO4J_DATABASE"] = "neo4j"
+        env.update(extra_env)
+        return subprocess.run(
+            [
+                sys.executable, "-m", "pytest", self.TARGET,
+                "-m", "integration", "-q", "-p", "no:cacheprovider", "--no-header",
+            ],
+            cwd=REPO_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+
+    # The second case is the one that matters most: an environment variable
+    # asserting ownership of a database the session did not create. That exact
+    # combination -- AKG_NEO4J_EPHEMERAL=1 plus a shared NEO4J_URI -- made an
+    # earlier revision of this fix pass all its tests while deleting a
+    # concurrent run's rows. No flag may buy ownership.
+    @pytest.mark.parametrize(
+        "extra_env",
+        [
+            pytest.param({}, id="no-flags"),
+            pytest.param({"AKG_NEO4J_EPHEMERAL": "1"}, id="ownership-flag-set"),
+        ],
+    )
+    def test_session_pointed_at_a_shared_database_refuses_and_preserves_data(
+        self, neo4j_container, neo4j_repository, extra_env
+    ):
+        """The configuration that caused the outage must fail, not pass quietly.
+
+        This is the exact shape of the production defect: a pytest session whose
+        NEO4J_URI names a database somebody else is also using. The session must
+        refuse, and the other party's rows must survive.
+        """
+        if neo4j_container is None:
+            pytest.skip("needs a container this session owns to stand in for staging")
+
+        uri = neo4j_container.get_connection_url()
+        foreign = _seed_foreign_run(neo4j_repository, "FOREIGN")
+        assert _exists(neo4j_repository, foreign)
+
+        result = self._run_session_against(uri, "testpassword", extra_env)
+        combined = result.stdout + result.stderr
+
+        assert result.returncode != 0, (
+            "a pytest session pointed at a shared database exited successfully; "
+            "the ownership guard is not on the real fixture path.\n" + combined[-3000:]
+        )
+        assert "SharedDatabaseSweepError" in combined, (
+            "session failed, but not for the reason this test names.\n"
+            + combined[-3000:]
+        )
+        assert _exists(neo4j_repository, foreign), (
+            "a concurrent run's data was destroyed by a session that should "
+            "have refused to touch this database"
+        )
+
+    def test_session_that_owns_its_database_runs_normally(self):
+        """The guard must not be a blanket refusal -- the supported path works.
+
+        No NEO4J_URI, so the session starts its own container and proceeds.
+        """
+        env = {k: v for k, v in os.environ.items() if not k.startswith("NEO4J_")}
+        env.pop("AKG_NEO4J_EPHEMERAL", None)
+        result = subprocess.run(
+            [
+                sys.executable, "-m", "pytest", self.TARGET,
+                "-m", "integration", "-q", "-p", "no:cacheprovider", "--no-header",
+            ],
+            cwd=REPO_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+        combined = result.stdout + result.stderr
+        assert result.returncode == 0, (
+            "a session that owns its own database was refused.\n" + combined[-3000:]
+        )
+        assert "1 passed" in combined, combined[-3000:]
+
+
+class TestOwnershipIsAFactNotAnAssertion:
+    """No flag may claim ownership of a database the session did not create."""
+
+    def test_no_container_means_not_owned(self):
+        assert session_owns_database(None) is False
+
+    def test_environment_cannot_claim_ownership(self, monkeypatch):
+        """Guards against reintroducing an env-var bypass.
+
+        ``AKG_NEO4J_EPHEMERAL`` used to make this return True, which is how a
+        shared database passed as owned.
+        """
+        for name in ("AKG_NEO4J_EPHEMERAL", "AKG_NEO4J_OWNED", "NEO4J_EPHEMERAL"):
+            monkeypatch.setenv(name, "1")
+        assert session_owns_database(None) is False
+
+    def test_a_started_container_means_owned(self):
+        assert session_owns_database(object()) is True
+
+
+# =============================================================================
+# Unit-level properties of the sweep itself.
+# =============================================================================
+
+
+class TestSweepOwnershipGuard:
+    def test_sweep_refuses_non_owned_database(self, neo4j_repository):
         with pytest.raises(SharedDatabaseSweepError):
             sweep_test_data(neo4j_repository, ephemeral=False)
 
-    def test_sweep_runs_on_an_exclusively_owned_database(self, neo4j_repository):
+    def test_sweep_runs_on_an_owned_database(self, neo4j_repository):
         node_id = _seed_foreign_run(neo4j_repository, "OWNED")
         assert _exists(neo4j_repository, node_id)
 
@@ -74,40 +213,11 @@ class TestSweepOwnershipGuard:
 
         assert not _exists(neo4j_repository, node_id)
 
-    def test_shared_staging_uri_is_not_considered_exclusive(self, monkeypatch):
-        """An operator pointing at staging must not be treated as exclusive."""
-        monkeypatch.delenv("AKG_NEO4J_EPHEMERAL", raising=False)
-        assert neo4j_is_ephemeral(container=None) is False
-
-
-class TestConcurrentRunsDoNotInterfere:
-    """Model two CI runs sharing one Neo4j; neither may destroy the other's data."""
-
-    def test_foreign_run_data_survives_our_teardown(self, neo4j_repository):
-        # Run A (some other PR's CI job) has live rows in the shared database.
-        run_a_node = _seed_foreign_run(neo4j_repository, "RUNA")
-
-        # Run B (us) reaches fixture teardown while Run A is still executing.
-        # Pre-fix this issued the global sweep and deleted Run A's row. It must
-        # now refuse, because Run B does not exclusively own this database.
-        with pytest.raises(SharedDatabaseSweepError):
-            sweep_test_data(neo4j_repository, ephemeral=False)
-
-        # Run A's data is intact: no cross-run destruction occurred.
-        assert _exists(neo4j_repository, run_a_node), (
-            "a concurrent run's data was destroyed by our teardown sweep"
-        )
-
-        # Clean up as an owner would.
-        sweep_test_data(neo4j_repository, ephemeral=True)
-
     def test_unguarded_sweep_is_what_destroyed_concurrent_runs(self, neo4j_repository):
-        """Pin the mechanism: the raw sweep query is indiscriminate by prefix.
+        """Pin the mechanism: the raw query cannot tell whose rows it deletes.
 
-        This documents *why* the guard is required rather than asserting the
-        guard again -- the query itself cannot distinguish our rows from a
-        concurrent run's, which is exactly why it may only run on a database we
-        own outright.
+        This documents *why* an ownership guard is required rather than a
+        smarter predicate -- the query is indiscriminate by construction.
         """
         run_a_node = _seed_foreign_run(neo4j_repository, "RUNA")
         run_b_node = _seed_foreign_run(neo4j_repository, "RUNB")
@@ -123,14 +233,23 @@ class TestTeardownOnlyCleanup:
     """The pre-test sweep is gone; each test must still start clean."""
 
     _LEAKED = "TEST_LEAK_probe_marker"
+    _seeded = False
 
     def test_a_leaves_a_row_behind(self, neo4j_repository):
         with neo4j_repository.session() as session:
             session.run("CREATE (n:Problem {id: $id})", id=self._LEAKED)
         assert _exists(neo4j_repository, self._LEAKED)
+        TestTeardownOnlyCleanup._seeded = True
 
     def test_b_does_not_see_the_previous_test_row(self, neo4j_repository):
-        """Teardown-only cleanup is sufficient: no pre-test sweep required."""
+        """Teardown-only cleanup is sufficient: no pre-test sweep required.
+
+        Ordered pair -- skips rather than passing vacuously when run alone.
+        """
+        if not TestTeardownOnlyCleanup._seeded:
+            pytest.skip(
+                "requires test_a_leaves_a_row_behind to have run in this session"
+            )
         assert not _exists(neo4j_repository, self._LEAKED), (
             "teardown sweep did not remove the previous test's data, so the "
             "pre-test sweep cannot be dropped"
@@ -155,4 +274,16 @@ class TestDoiCleanupCoverage:
         assert record["n"] == 0, (
             "10.1/TEST- DOIs leak into the database forever; with 6 hex chars of "
             "entropy they eventually collide (DuplicateError in CI run 35448203443)"
+        )
+
+    def test_e2e_cleanup_covers_paper_dois(self):
+        """The same leak existed in the E2E helper, which matched no DOI at all."""
+        source = (
+            REPO_ROOT / "packages/core/tests/e2e/utils.py"
+        ).read_text(encoding="utf-8")
+        start = source.index("def clear_test_data(")
+        body = source[start : source.index("def ", start + 10)]
+        assert "10.1/TEST-" in body and "10.TEST_" in body, (
+            "tests/e2e/utils.py:clear_test_data matches no Paper DOI, so every "
+            "TEST_ Paper it creates leaks into real staging permanently"
         )

@@ -102,12 +102,11 @@ jobs:
           pip install -e ./packages/api
 
       - name: Run integration tests
-        env:
-          # No NEO4J_URI: the conftest starts a throwaway Neo4j container that
-          # belongs to this run alone. AKG_NEO4J_EPHEMERAL asserts exclusive
-          # ownership, which is what licenses the teardown sweep; without it the
-          # fixture refuses to run rather than risk deleting another run's data.
-          AKG_NEO4J_EPHEMERAL: '1'
+        # No NEO4J_URI and no ownership flag. The conftest starts a throwaway
+        # Neo4j container belonging to this run alone, and that -- starting the
+        # container -- is the only thing that licenses the teardown sweep.
+        # Adding NEO4J_URI here does not re-enable the shared-staging topology;
+        # it makes the suite refuse to run.
         run: |
           pytest packages/core/tests/knowledge_graph/ \
             -m integration \

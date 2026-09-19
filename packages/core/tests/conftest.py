@@ -158,21 +158,23 @@ TEST_DATA_COUNT_QUERY = f"MATCH (n) WHERE {TEST_DATA_PREDICATE} RETURN count(n) 
 TEST_DATA_SWEEP_QUERY = f"MATCH (n) WHERE {TEST_DATA_PREDICATE} DETACH DELETE n"
 
 
-def neo4j_is_ephemeral(container=None) -> bool:
+def session_owns_database(container) -> bool:
     """
     True when this pytest session exclusively owns the Neo4j it is talking to.
 
-    Two ways to earn that:
-      * the session started its own throwaway container (testcontainers), or
-      * the operator asserted it by setting AKG_NEO4J_EPHEMERAL=1 (used by the
-        Integration Tests workflow, which now provisions a per-run container).
+    Ownership is a *fact*, not an assertion: it is true exactly when this
+    session started its own throwaway container. There is deliberately no
+    environment variable or flag that can claim ownership of a database the
+    session did not create.
 
-    Anything else -- notably a NEO4J_URI pointing at shared staging -- is NOT
-    ephemeral, and the global sweep is refused there.
+    An earlier revision of this fix accepted ``AKG_NEO4J_EPHEMERAL=1`` as proof
+    of ownership. That made the guard bypassable by the one configuration it
+    exists to prevent -- NEO4J_URI pointed at shared staging plus the flag set
+    -- and CI carried the flag pre-set, so restoring NEO4J_URI to that step
+    would have silently re-armed the data race while every test stayed green.
+    A switch whose only function is to disable a safety property must not exist.
     """
-    if container is not None:
-        return True
-    return os.environ.get("AKG_NEO4J_EPHEMERAL", "").strip().lower() in {"1", "true", "yes"}
+    return container is not None
 
 
 def sweep_test_data(repo, *, ephemeral: bool) -> int:
@@ -190,9 +192,9 @@ def sweep_test_data(repo, *, ephemeral: bool) -> int:
             "Refusing to run a global TEST_-prefix sweep against a database this "
             "session does not own. The prefix is global, so this sweep would "
             "delete test data belonging to any other run sharing this instance. "
-            "Run integration tests against a per-run Neo4j (testcontainers, the "
-            "default when NEO4J_URI is unset) or set AKG_NEO4J_EPHEMERAL=1 only "
-            "if the database really is exclusive to this run."
+            "Run integration tests against a per-run Neo4j: leave NEO4J_URI "
+            "unset and the fixtures start a throwaway container for this "
+            "session alone. There is no flag to override this."
         )
 
     with repo.session() as session:
@@ -205,7 +207,7 @@ def sweep_test_data(repo, *, ephemeral: bool) -> int:
 @pytest.fixture(scope="session")
 def neo4j_exclusive(neo4j_container) -> bool:
     """Whether this session exclusively owns the Neo4j under test."""
-    return neo4j_is_ephemeral(neo4j_container)
+    return session_owns_database(neo4j_container)
 
 
 @pytest.fixture
@@ -226,9 +228,9 @@ def neo4j_repository(neo4j_config, neo4j_exclusive):
     if not neo4j_exclusive:
         raise SharedDatabaseSweepError(
             "Integration tests require a Neo4j exclusive to this run; refusing "
-            "to run against a shared instance because teardown would sweep other "
-            "runs' data. Unset NEO4J_URI to use testcontainers, or set "
-            "AKG_NEO4J_EPHEMERAL=1 if the instance really is per-run."
+            "to run against a shared instance because teardown would sweep "
+            "other runs' data. Unset NEO4J_URI so this session starts its own "
+            "container."
         )
 
     repo = Neo4jRepository(config=neo4j_config)
