@@ -19,6 +19,7 @@ them once the extra happens to be installed.
 from __future__ import annotations
 
 import ast
+import uuid
 from pathlib import Path
 
 import pytest
@@ -128,6 +129,10 @@ def test_the_flag_check_reads_the_injected_config_not_the_environment(
     enabled = MigrationConfig(use_kgcs_resolution=True)
     assert MigrationConfig().use_kgcs_resolution is False, "environment must say off"
 
-    store = canonical_store_from_driver(canonical_driver, enabled, namespace="cfg-injection-test")
+    # A fresh namespace, so the epoch assertion below still holds when the
+    # tests are pointed at a persistent Neo4j via NEO4J_CANONICAL_URI rather
+    # than a throwaway container.
+    namespace = f"cfg-injection-{uuid.uuid4().hex}"
+    store = canonical_store_from_driver(canonical_driver, enabled, namespace=namespace)
     assert store.current_epoch() == 0
-    assert store.namespace == "cfg-injection-test"
+    assert store.namespace == namespace
