@@ -220,37 +220,22 @@ def test_provenance_completeness_is_live(report) -> None:
     ],
 )
 def test_unmeasurable_metrics_are_null_with_a_reason_not_zero(report, metric: str) -> None:
+    """Null on this corpus, each naming an input that would lift it.
+
+    "Supply X and this computes" is the claim test_diagnostics.py then cashes by
+    supplying X. A note without such a handle would be a permanent excuse.
+    """
     value = report.arm(LEGACY_ARM).provider_metrics[metric]
     assert value.value is None
     assert value.sufficient is False
     assert value.note and len(value.note) > 40
+    assert "Supply" in value.note or "below the" in value.note
 
 
-def test_cluster_metrics_become_computable_once_labels_exist(report) -> None:
-    """The null must be about the corpus, not a permanent refusal."""
-    from agentic_kg.migration.evaluation.metrics import CurationMetricProvider
-
-    arm = next(a for a in report.kg_eval_result.arms if a.arm.arm_id == LEGACY_ARM)
-    assert arm is not None
-    without = CurationMetricProvider(gold_item_count=53)
-    with_labels = CurationMetricProvider(gold_item_count=53, has_cluster_labels=True)
-    a = without._cluster_metric("false merge rate")
-    b = with_labels._cluster_metric("false merge rate")
-    assert a.note != b.note
-    assert "no mention-level cluster labels" in a.note
-    assert "no mention-level cluster labels" not in b.note
-
-
-def test_calibration_names_both_disqualifying_reasons(report) -> None:
-    from agentic_kg.migration.evaluation.metrics import CurationMetricProvider
-
-    note = CurationMetricProvider(gold_item_count=53)._calibration().note
-    assert "no per-candidate confidence" in note
-    assert "53 gold items" in note
-    # Fix only the confidence gap and the sample-size reason survives alone.
-    note_conf = CurationMetricProvider(gold_item_count=53, has_confidence=True)._calibration().note
-    assert "no per-candidate confidence" not in note_conf
-    assert "53 gold items" in note_conf
+# The liftable-null estimators (false merge/split, calibration ECE, review rate)
+# and the rendering-layer honest-null obligation are exercised in
+# test_diagnostics.py, which supplies the inputs each null names and asserts a
+# real number comes back.
 
 
 def test_cost_and_latency_are_not_measured_for_legacy(report) -> None:
@@ -276,16 +261,91 @@ def test_relation_ci_is_insufficient_on_two_items(report) -> None:
 # --------------------------------------------------------------------------
 
 
-def test_pending_decision_blocks_entity_precision(report) -> None:
-    """The gate reports an honest null rather than a number, and says why."""
+def test_pending_decision_blocks_precision_only_where_it_bites(report) -> None:
+    """Per-type. ResearchConcept is gated; Method and Model are NOT.
+
+    The arm's only named-resource emission is `SCICERO`, filed under `concepts`.
+    Method emits none, so Method precision is 0.286 under all four options — a
+    decided number. Nulling it would withhold a settled value *and* publish a
+    reason ("yields four different precisions") that is false for that type.
+    """
     assert report.disposition is NamedResourceDisposition.PENDING
-    for entity_type in ("ResearchConcept", "Method"):
-        typed = _typed(report.arm(LEGACY_ARM), entity_type)
-        assert typed.metrics.entity.fp > 0
-        assert typed.precision.value is None, entity_type
-        assert "named-resource decision" in typed.precision.note
-        assert "docs/ground-truth/named-resources.md" in typed.precision.note
-        assert typed.precision_is_gated
+    legacy = report.arm(LEGACY_ARM)
+
+    concept = _typed(legacy, "ResearchConcept")
+    assert concept.named_resource_emissions == 1
+    assert concept.metrics.entity.fp > 0
+    assert concept.precision.value is None
+    assert "named-resource decision" in concept.precision.note
+    assert "docs/ground-truth/named-resources.md" in concept.precision.note
+    assert concept.precision_is_gated
+
+    # Method HAS false positives, so the old fp==0 escape does not explain this:
+    # it is ungated because the decision cannot move it.
+    method = _typed(legacy, "Method")
+    assert method.named_resource_emissions == 0
+    assert method.metrics.entity.fp == 10
+    assert method.precision.value == pytest.approx(2 / 7)
+    assert not method.precision_is_gated
+
+    model = _typed(legacy, "Model")
+    assert model.named_resource_emissions == 0
+    assert model.precision.value == pytest.approx(1.0)
+
+
+def test_ungated_precision_is_identical_under_every_disposition(
+    chain_root: Path, importer_output_dir: Path
+) -> None:
+    """The justification for leaving a type ungated, asserted directly.
+
+    Method precision must be the same number under all four options, or the
+    claim the gate relies on is wrong and it should be gating Method after all.
+    """
+    values = {}
+    for disposition in NamedResourceDisposition:
+        result = run_evaluation(
+            chain_root=chain_root,
+            importer_output_dir=importer_output_dir,
+            disposition=disposition,
+        )
+        values[disposition] = _typed(result.arm(LEGACY_ARM), "Method").precision.value
+    assert all(v == pytest.approx(2 / 7) for v in values.values()), values
+    assert len(values) == 5  # PENDING plus all four options
+
+
+def test_a_named_resource_emission_of_a_type_does_gate_it(surface_index) -> None:
+    """The gate is not simply off for Methods — give it cause and it fires.
+
+    Guards the per-type scoping against over-correction: an arm that DOES emit a
+    named resource as a Method must have Method precision gated.
+    """
+    from agentic_kg.migration.evaluation.arms import build_legacy_arm
+    from agentic_kg.migration.evaluation.metrics import (
+        count_named_resource_emissions,
+        named_resource_emissions_by_bucket,
+        named_resource_note,
+    )
+
+    arm = build_legacy_arm(
+        (
+            ArmPaper(
+                "cskg",
+                "extracted",
+                (
+                    ArmEntity("cskg", "methods", "CS-KG"),
+                    ArmEntity("cskg", "methods", "not labelled anywhere"),
+                ),
+            ),
+        ),
+        surface_index,
+        graded_slugs=frozenset({"cskg"}),
+    )
+    by_bucket = named_resource_emissions_by_bucket(arm.outcomes)
+    assert by_bucket == {"methods": 1}
+    assert count_named_resource_emissions(arm.outcomes, "methods") == 1
+    assert count_named_resource_emissions(arm.outcomes, "concepts") == 0
+    assert named_resource_note(NamedResourceDisposition.PENDING, 1) is not None
+    assert named_resource_note(NamedResourceDisposition.PENDING, 0) is None
 
 
 def test_the_gate_lifts_when_the_decision_closes(
@@ -301,7 +361,7 @@ def test_the_gate_lifts_when_the_decision_closes(
         importer_output_dir=importer_output_dir,
         disposition=NamedResourceDisposition.EXCLUDED_AS_FALSE_POSITIVE,
     )
-    typed = _typed(settled.arm(LEGACY_ARM), "Method")
+    typed = _typed(settled.arm(LEGACY_ARM), "ResearchConcept")
     assert typed.precision.value is not None
     assert 0.0 < typed.precision.value < 1.0
 
@@ -346,6 +406,8 @@ def test_options_needing_new_gold_stay_null_and_say_so(
     typed = _typed(result.arm(LEGACY_ARM), "ResearchConcept")
     assert typed.precision.value is None
     assert "gold" in typed.precision.note.lower()
+    # ...and a type the decision cannot touch still reports a number.
+    assert _typed(result.arm(LEGACY_ARM), "Method").precision.value is not None
 
 
 def test_the_gate_never_hides_a_decision_independent_value(report) -> None:
@@ -455,6 +517,12 @@ def test_a_different_seed_changes_only_intervals(
 
 
 def test_rendered_report_never_prints_a_fake_zero(report) -> None:
+    """Substring checks on the report as a whole.
+
+    The stronger assertion — that no rendering path coalesces ``None`` into
+    ``0.0`` at all — is in test_diagnostics.py, because a substring check cannot
+    catch a fabricated zero that happens to look like a real one.
+    """
     text = render_report(report)
     assert "insufficient (" in text
     assert "53" in text and "8 attempted, 4 failed" in text
