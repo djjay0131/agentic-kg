@@ -76,7 +76,11 @@ jobs:
     name: Integration Tests (Neo4j)
     runs-on: ubuntu-latest
     needs: unit-tests
-    # Only run if we have the secrets configured
+    # This job no longer consumes any secret -- it runs against a container it
+    # starts itself -- so the fork restriction below is no longer about secret
+    # availability. It is kept only to bound runner spend on fork PRs, and can
+    # be dropped safely. Do NOT re-add staging credentials here to "fix" a fork
+    # PR: the suite is designed to refuse a shared database.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v4
