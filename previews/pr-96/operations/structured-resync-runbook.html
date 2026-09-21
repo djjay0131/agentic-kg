@@ -1,0 +1,154 @@
+<h1 id="structured-re-sync-runbook">Structured re-sync runbook</h1>
+
+<p><strong>Applies to:</strong> any deployment that reads a structured source (a database table,
+a warehouse view) through KGIS’s <code class="language-plaintext highlighter-rouge">StructuredRecordReader</code> <strong>on a schedule</strong>.
+It does <strong>not</strong> apply to a one-shot import.</p>
+
+<hr />
+
+<h2 id="the-operator-check">The operator check</h2>
+
+<blockquote>
+  <p><strong>If a source is read on a schedule and its locator ends in <code class="language-plaintext highlighter-rouge">@snapshot=</code>,
+it is misconfigured.</strong></p>
+</blockquote>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>sqlite://players@snapshot=snap_9f2c1b...   &lt;-- misconfigured for a re-sync
+sqlite://players                            &lt;-- correct for a re-sync
+</code></pre></div></div>
+
+<p>The locator is visible on every candidate as
+<code class="language-plaintext highlighter-rouge">candidate.source_coordinates.locator</code>, and on every canonical record as
+<code class="language-plaintext highlighter-rouge">assertion.provenance.source_ref</code>. A single Cypher or ledger query for
+<code class="language-plaintext highlighter-rouge">@snapshot=</code> answers the question for a whole deployment.</p>
+
+<hr />
+
+<h2 id="symptom">Symptom</h2>
+
+<p>A scheduled re-sync completes successfully. Nothing errors, nothing warns, and
+the run report looks normal. But the canonical graph keeps growing: the same
+unchanged row acquires another <code class="language-plaintext highlighter-rouge">ACTIVE</code> record on every run, and every
+downstream count — fact totals, per-entity assertion counts, corroboration —
+climbs without any source data having changed.</p>
+
+<p>Thirty daily re-syncs of <strong>one unchanged row</strong> produce <strong>thirty</strong> identical
+<code class="language-plaintext highlighter-rouge">ACTIVE</code> records instead of one. That is a measured number, not an estimate:
+<code class="language-plaintext highlighter-rouge">packages/core/tests/migration/ingestion/test_structured_locator.py</code> reproduces
+both halves (30 with the default, 1 with the flag off) against the real reader
+and the real KGCS planner.</p>
+
+<h2 id="why-it-happens">Why it happens</h2>
+
+<p><code class="language-plaintext highlighter-rouge">StructuredRecordReader</code> stamps the snapshot version into its locator by
+default:</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nd">@property</span>
+<span class="k">def</span> <span class="nf">locator</span><span class="p">(</span><span class="n">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="n">base</span> <span class="o">=</span> <span class="n">self</span><span class="p">.</span><span class="n">_provider</span><span class="p">.</span><span class="n">locator</span>
+    <span class="k">if</span> <span class="n">self</span><span class="p">.</span><span class="n">_include_snapshot</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="sh">"</span><span class="si">{</span><span class="n">base</span><span class="si">}</span><span class="s">@snapshot=</span><span class="si">{</span><span class="n">self</span><span class="p">.</span><span class="nf">_snap</span><span class="p">().</span><span class="n">version</span><span class="si">}</span><span class="sh">"</span>
+    <span class="k">return</span> <span class="n">base</span>
+</code></pre></div></div>
+
+<p>From <code class="language-plaintext highlighter-rouge">agentic-kgcs@f68d1d7</code>, an <code class="language-plaintext highlighter-rouge">assertion_id</code> is minted from
+<code class="language-plaintext highlighter-rouge">record_seed(fact_id, object, valid_period, evidence_refs, provenance)</code> — and
+<code class="language-plaintext highlighter-rouge">provenance.source_ref</code> <strong>is</strong> that locator. So the snapshot token is part of
+the record’s identity.</p>
+
+<p>The token is stable when it is <em>derived</em> (a digest of the ordered rows:
+unchanged data → unchanged token). It is <strong>not</strong> stable when the provider is
+given an explicit <code class="language-plaintext highlighter-rouge">snapshot_version</code> — a database transaction id, an LSN, a
+watermark — which is exactly what a production re-sync uses. There the token
+moves every run whether or not the data did:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Run</th>
+      <th>Locator</th>
+      <th>Minted <code class="language-plaintext highlighter-rouge">assertion_id</code></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td><code class="language-plaintext highlighter-rouge">sqlite://players@snapshot=txn_1</code></td>
+      <td><code class="language-plaintext highlighter-rouge">as_AAAA…</code></td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><code class="language-plaintext highlighter-rouge">sqlite://players@snapshot=txn_2</code></td>
+      <td><code class="language-plaintext highlighter-rouge">as_BBBB…</code></td>
+    </tr>
+    <tr>
+      <td>30</td>
+      <td><code class="language-plaintext highlighter-rouge">sqlite://players@snapshot=txn_30</code></td>
+      <td><code class="language-plaintext highlighter-rouge">as_ZZZZ…</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Thirty different ids for one fact. Because each id is genuinely new, the
+<code class="language-plaintext highlighter-rouge">assertion_absent</code> guard that normally refuses a replay does not fire — from the
+executor’s point of view these are thirty distinct records, and it is right.</p>
+
+<h2 id="the-fix">The fix</h2>
+
+<p>Set <code class="language-plaintext highlighter-rouge">include_snapshot_in_locator=False</code>.</p>
+
+<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="kn">from</span> <span class="n">agentic_kg.migration.ingestion</span> <span class="kn">import</span> <span class="n">structured_reader</span>
+
+<span class="n">reader</span> <span class="o">=</span> <span class="nf">structured_reader</span><span class="p">(</span><span class="n">provider</span><span class="p">)</span>          <span class="c1"># flag pinned off
+</span></code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">structured_reader()</code> and <code class="language-plaintext highlighter-rouge">structured_config()</code> in
+<code class="language-plaintext highlighter-rouge">agentic_kg.migration.ingestion.structured</code> are the only places this repository
+builds a structured reader. Both pin the flag off and <strong>raise</strong>
+<code class="language-plaintext highlighter-rouge">SnapshotLocatorRefused</code> if a call site asks for <code class="language-plaintext highlighter-rouge">True</code>, so the safe value
+cannot be undone by a keyword argument — only by editing that module, which is
+a reviewable change. An AST check fails the build if any other module under
+<code class="language-plaintext highlighter-rouge">migration/ingestion/</code> constructs a <code class="language-plaintext highlighter-rouge">StructuredRecordReader</code> or
+<code class="language-plaintext highlighter-rouge">StructuredSyncConfig</code> directly.</p>
+
+<p>Turning it off does <strong>not</strong> merge things that genuinely differ: two different
+sources asserting different values for the same subject still mint two records
+(<code class="language-plaintext highlighter-rouge">test_two_genuine_sources_still_mint_different_records_when_guarded</code>).</p>
+
+<h2 id="what-to-do-about-records-already-written">What to do about records already written</h2>
+
+<p>The flag is a <strong>going-forward</strong> fix. It does not retract duplicates a previous
+misconfiguration already committed. Two remedies, both from
+<code class="language-plaintext highlighter-rouge">kgcs/records.py</code>:</p>
+
+<ol>
+  <li><strong>Supersede</strong> the duplicates, keeping one record current
+(<code class="language-plaintext highlighter-rouge">RETRACT_ASSERTION</code> → <code class="language-plaintext highlighter-rouge">SUPERSEDED</code>). History is preserved and each retired
+record stays queryable at its own epoch.</li>
+  <li><strong>Re-mint</strong> the surviving record’s id from a snapshot-free seed with
+<code class="language-plaintext highlighter-rouge">kgcs.records.backfill_record_id</code>, so a future re-sync replays onto it
+instead of minting yet another.</li>
+</ol>
+
+<p>Do <strong>not</strong> delete. A deletion loses the record of what was written and by which
+run; a supersession does not.</p>
+
+<h2 id="current-status-in-this-repository">Current status in this repository</h2>
+
+<p>Today’s shadow-ingestion path does <strong>not</strong> use the structured reader — it reads
+committed importer-output files and builds <code class="language-plaintext highlighter-rouge">SourceCoordinates</code> by hand. No
+locator this repository emits carries <code class="language-plaintext highlighter-rouge">@snapshot=</code>; that is measured over all
+252 candidates of a shadow run by
+<code class="language-plaintext highlighter-rouge">test_no_shadow_candidate_carries_a_snapshot_locator</code>, not assumed.</p>
+
+<p>The prerequisite is enforced now so that it is already in place on the day the
+structured arm is pointed at a real source.</p>
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">packages/core/src/agentic_kg/migration/ingestion/structured.py</code> — the guard</li>
+  <li><code class="language-plaintext highlighter-rouge">packages/core/tests/migration/ingestion/test_structured_locator.py</code> — the measurement</li>
+  <li><code class="language-plaintext highlighter-rouge">kgis/structured/reader.py</code> (upstream) — where the default lives</li>
+  <li><code class="language-plaintext highlighter-rouge">kgcs/records.py</code> (upstream) — <code class="language-plaintext highlighter-rouge">record_seed</code>, <code class="language-plaintext highlighter-rouge">backfill_record_id</code></li>
+</ul>

@@ -1,0 +1,124 @@
+_note: IMPORTER OUTPUT — machine extraction to diff against the human answer key; NOT the reconciled ground
+  truth.
+_caveats:
+- Topic (BELONGS_TO) not populated — known bug (topics_linked counter increments but no edge persists).
+- Concepts/Models/Methods store name+aliases only; no per-paper quoted_text/confidence retained (only
+  Problems do).
+paper:
+  n: '2'
+  title: 'CS-KG 2.0: A Large-scale Knowledge Graph of Computer Science'
+  doi: 10.1038/s41597-025-05200-8
+  year: 2025
+  venue: Scientific Data
+  s2_paper_id: 403a63564964bccdb8529f504ca7a10fc6bb355b
+  status: extracted
+topic:
+  domain: null
+  area: null
+  subtopic: null
+  _note: empty — BELONGS_TO bug
+research_concepts:
+- name: CS-KG Ontology
+  aliases: []
+  description: An ontology that defines the schema for the CS-KG knowledge graph, including entity types
+    and object properties.
+- name: CS-KG50
+  aliases: []
+  description: A large-scale knowledge graph of computer science built using the SCICERO pipeline.
+- name: Link Prediction
+  aliases: []
+  description: A task in machine learning involving predicting the existence of edges in a graph, used
+    for evaluating the knowledge graph.
+- name: SCICERO
+  aliases: []
+  description: An automatic pipeline used for building the knowledge graph in the paper.
+models:
+- name: BERT
+  aliases:
+  - BERT-based
+- name: ComplEx
+  aliases: []
+- name: DistMult
+  aliases: []
+- name: DyGIEpp
+  aliases: []
+- name: RESCAL
+  aliases: []
+- name: SciBERT
+  aliases: []
+- name: TransR
+  aliases: []
+- name: Word2Vec
+  aliases: []
+methods:
+- name: CSO Classifier Module
+  aliases: []
+  method_type: data_processing
+- name: Context Enrichment Module
+  aliases:
+  - Time Enrichment Module
+  method_type: data_processing
+- name: Dependency Module
+  aliases: []
+  method_type: data_processing
+- name: DyGIEpp Module
+  aliases: []
+  method_type: data_processing
+- name: Entity Cleaner and Validator
+  aliases: []
+  method_type: data_processing
+- name: Ontology Validator Module
+  aliases: []
+  method_type: data_processing
+- name: OpenIE Module
+  aliases: []
+  method_type: data_processing
+- name: PoS Tagger Module
+  aliases: []
+  method_type: data_processing
+- name: Reification
+  aliases: []
+  method_type: data_processing
+- name: Relationship Integrator
+  aliases: []
+  method_type: data_processing
+- name: SCICERO Pipeline
+  aliases: []
+  method_type: data_processing
+- name: SciBERT Fine-tuning
+  aliases: []
+  method_type: training
+- name: Transformer Validator Module
+  aliases: []
+  method_type: data_processing
+problems:
+- statement: The SCICERO pipeline's extraction modules may introduce noise by capturing irrelevant or
+    weakly associated relationships between entities, which can affect the quality of the generated triples.
+  quoted_text: To minimize the inclusion of irrelevant or weakly associated relationships, the module
+    applies a filtering mechanism to exclude entity pairs that are too distant within the text. Specifically,
+    it considers only entity pairs separated by a number of tokens within a predefined window size. This
+    approach effectively reduces the likelihood of capturing noisy or spurious relationships between entities,
+    ensuring a focus on those with meaningful or direct relevance.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: The SCICERO pipeline's validation modules may discard potentially valid triples due to strict
+    adherence to domain and range constraints, leading to information loss.
+  quoted_text: During this phase, triples that do not adhere to the semantics of the ontology are discarded.
+    For instance, the triple <cskg:textbook_dataset, uses, cskg:spatial_prediction>, where cskg:textbook_dataset
+    is a cskg-ont:Material and cskg:spatial_prediction is a cskg-ont:Task, is discarded because the class
+    cskg-ont:Material is not in the domain of the property cskg-ont:usesTask.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: The SCICERO pipeline's reliance on support from multiple papers to validate triples may lead
+    to the exclusion of less common but potentially valuable information.
+  quoted_text: Conversely, triples found in only one or a few papers tend to be more prone to noise. To
+    discern between reliable and possibly problematic triples, we introduce the concept of support denoting
+    the number of papers associated with a specific triple. However, discarding all uncertain triples
+    could lead to significant information loss, since many of these triples may still be valid.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+cites_within_set:
+- 10.1109/ACCESS.2022.3220241
