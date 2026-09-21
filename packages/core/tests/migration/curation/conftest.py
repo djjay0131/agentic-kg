@@ -9,22 +9,16 @@ plan to ``kg_contracts.testing.memory.MemoryGraphStore`` — the reference
 in-memory ``GraphMutationStore``. No Docker, no database, no network, no clock.
 
 The **integration tier** (``test_neo4j_curation.py``) applies the same plan to
-the real :class:`Neo4jCanonicalGraphStore`. Its container fixtures are
-duplicated from ``tests/migration/neo4j/conftest.py`` rather than imported: a
-fixture is only visible below the ``conftest`` that defines it, so sharing one
-container between two sibling directories means hoisting it to
-``tests/migration/conftest.py`` — a file this change does not own. The
-duplication is noted here so it is a known copy rather than an accident; the two
-must be changed together, and hoisting is the real fix.
+the real :class:`Neo4jCanonicalGraphStore`, against a Neo4j **this session
+starts and declares**. See the comment above the container fixture for why there
+is no environment variable and no raw driver here — the short version is that
+the first draft copied both from a sibling conftest that PR #87 had since
+stripped of a live defect, and PR #87's guard caught the copy on the rebase.
 
-**The cost of the copy is a second Neo4j in the same job**, so this one is
-explicitly sized down (:data:`NEO4J_MEMORY_ENV`) rather than left on Neo4j 5's
-defaults, which reserve heap *and* page cache as if they were the only database
-on the host. Two default-sized instances contend, and the symptom is not a clean
-failure — it is a connection refused at fixture setup that reads like a bug in
-the adapter. Connectivity is also retried for a bounded window: ``start()``
-returning is not the same fact as the bolt port accepting connections, and a
-single attempt turns a slow boot into a red suite.
+Starting a container of its own is a real cost — this job now runs several —
+and hoisting the fixture to ``tests/migration/conftest.py`` so the migration
+suites share one is the proper fix. That file is outside this change's scope;
+the cost is recorded rather than hidden.
 
 A skipped suite and a passing suite look identical in a green check. The
 ``migration-canonical-adapter`` CI job runs the whole ``tests/migration`` tree
@@ -34,7 +28,6 @@ whole-suite ``importorskip`` here would turn that job red rather than green.
 
 from __future__ import annotations
 
-import os
 import uuid
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -157,34 +150,34 @@ def memory_store() -> object:
 
 
 # --------------------------------------------------------------------------
-# Integration tier: a real Neo4j. Duplicated from tests/migration/neo4j/conftest.
+# Integration tier: a Neo4j this session started, and nothing else.
 # --------------------------------------------------------------------------
-
-
-def _external_neo4j() -> tuple[str, str, str] | None:
-    uri = os.environ.get("NEO4J_CANONICAL_URI")
-    if not uri:
-        return None
-    return (
-        uri,
-        os.environ.get("NEO4J_CANONICAL_USERNAME", "neo4j"),
-        os.environ.get("NEO4J_CANONICAL_PASSWORD", NEO4J_TEST_PASSWORD),
-    )
+#
+# There is deliberately **no environment variable** pointing this suite at an
+# existing Neo4j, and no raw ``GraphDatabase.driver`` anywhere in this file.
+#
+# The first version of this conftest had both, because it was copied from
+# ``tests/migration/neo4j/conftest.py`` *before* PR #87 removed them there. That
+# PR removed the ``NEO4J_CANONICAL_URI`` route because it was a live defect, not
+# a style problem: setting the variable short-circuited every skip condition and
+# ``ensure_schema()`` then ran DDL against whatever it named, over a driver that
+# never passed the ownership seam. The copy here reintroduced it verbatim, and
+# ``TestNoConftestSelectsADatabaseFromTheEnvironment`` caught it on the rebase —
+# which is the guard doing exactly its job, on exactly the file that deserved it.
+#
+# So: one answer to "which Neo4j?" — one this session started. It is declared to
+# the ownership registry in ``tests/conftest.py``, and the store is built through
+# ``canonical_store_from_config`` (production code, which owns its own driver)
+# rather than by opening one here.
 
 
 @pytest.fixture(scope="session")
-def curation_neo4j() -> Iterator[tuple[str, tuple[str, str]]]:
-    """A Neo4j to curate into: URI plus auth tuple."""
-    external = _external_neo4j()
-    if external is not None:
-        uri, user, password = external
-        yield uri, (user, password)
-        return
-
+def curation_neo4j() -> Iterator[str]:
+    """A throwaway Neo4j container for this suite, declared as owned."""
     try:
         from testcontainers.neo4j import Neo4jContainer
     except ImportError:  # pragma: no cover - environment-dependent
-        pytest.skip("testcontainers[neo4j] not installed and NEO4J_CANONICAL_URI not set")
+        pytest.skip("testcontainers[neo4j] not installed; this suite needs an owned Neo4j")
         return
 
     try:
@@ -192,7 +185,7 @@ def curation_neo4j() -> Iterator[tuple[str, tuple[str, str]]]:
 
         docker.from_env().ping()
     except Exception:  # pragma: no cover - environment-dependent
-        pytest.skip("Docker is not available and NEO4J_CANONICAL_URI not set")
+        pytest.skip("Docker is not available; this suite needs an owned Neo4j")
         return
 
     container = Neo4jContainer(NEO4J_IMAGE, password=NEO4J_TEST_PASSWORD)
@@ -200,69 +193,72 @@ def curation_neo4j() -> Iterator[tuple[str, tuple[str, str]]]:
         container = container.with_env(key, value)
     container.start()
     try:
-        yield container.get_connection_url(), ("neo4j", NEO4J_TEST_PASSWORD)
+        url = container.get_connection_url()
+        # Starting it is what declares it.
+        from ...conftest import declare_session_database
+
+        declare_session_database(
+            url,
+            reason="this session started this throwaway curation-pipeline container",
+        )
+        yield url
     finally:
         container.stop()
 
 
-@pytest.fixture(scope="session")
-def curation_driver(curation_neo4j: tuple[str, tuple[str, str]]) -> Iterator[object]:
-    """A driver whose connectivity is retried, not assumed.
-
-    ``Neo4jContainer.start()`` returning means the container is up; it does not
-    mean bolt is accepting connections, and under contention the gap is seconds.
-    A single ``verify_connectivity()`` turns that gap into four errored tests
-    whose message points at the adapter rather than at the wait.
-    """
-    import time
-
-    from neo4j import GraphDatabase
-    from neo4j.exceptions import Neo4jError, ServiceUnavailable
-
-    uri, auth = curation_neo4j
-    driver = GraphDatabase.driver(uri, auth=auth)
-    deadline = time.monotonic() + CONNECT_TIMEOUT_SECONDS
-    last: Exception | None = None
-    while time.monotonic() < deadline:
-        try:
-            driver.verify_connectivity()
-            last = None
-            break
-        except (ServiceUnavailable, Neo4jError, OSError) as exc:  # pragma: no cover
-            last = exc
-            time.sleep(1.0)
-    if last is not None:  # pragma: no cover - environment-dependent
-        driver.close()
-        raise RuntimeError(
-            f"the curation suite's Neo4j at {uri} never accepted a connection "
-            f"within {CONNECT_TIMEOUT_SECONDS:.0f}s. This suite starts a SECOND "
-            f"container alongside the canonical-adapter suite's; if the host is "
-            f"short of memory that is the first thing to suspect. "
-            f"Last error: {last}"
-        ) from last
-    try:
-        yield driver
-    finally:
-        driver.close()
-
-
 @pytest.fixture
-def make_canonical_store(curation_driver: object) -> Callable[[], object]:
+def make_canonical_store(curation_neo4j: str) -> Iterator[Callable[[], object]]:
     """Factory returning a **pristine** canonical store on every call.
 
     Pristine by minting a fresh namespace rather than deleting anything: every
     read and write in the adapter is namespace-scoped, so a new namespace is an
     empty graph by construction and ``current_epoch()`` starts at zero — which
     the executor's snapshot precondition depends on.
+
+    Built through ``canonical_store_from_config``, the production constructor,
+    which opens and owns its own driver. That keeps the raw-driver call inside
+    ``src/`` where the ownership seam can see it, instead of in the test tree
+    where PR #87's scan correctly refuses it.
+
+    Connectivity is retried for a bounded window: ``start()`` returning is not
+    the same fact as bolt accepting connections, and under contention the gap is
+    seconds. A single attempt turns a slow boot into errored tests whose message
+    points at the adapter rather than at the wait.
     """
+    import time
+
     from agentic_kg.migration.config import MigrationConfig as _Config
-    from agentic_kg.migration.neo4j import canonical_store_from_driver
+    from agentic_kg.migration.neo4j import canonical_store_from_config
+
+    created: list[object] = []
 
     def factory() -> object:
-        return canonical_store_from_driver(
-            curation_driver,  # type: ignore[arg-type]
-            _Config(use_kgcs_resolution=True),
-            namespace=f"c{uuid.uuid4().hex}",
+        deadline = time.monotonic() + CONNECT_TIMEOUT_SECONDS
+        last: Exception | None = None
+        while time.monotonic() < deadline:
+            try:
+                store = canonical_store_from_config(
+                    _Config(use_kgcs_resolution=True),
+                    uri=curation_neo4j,
+                    auth=("neo4j", NEO4J_TEST_PASSWORD),
+                    namespace=f"c{uuid.uuid4().hex}",
+                )
+            except Exception as exc:  # pragma: no cover - environment-dependent
+                last = exc
+                time.sleep(1.0)
+                continue
+            created.append(store)
+            return store
+        raise RuntimeError(  # pragma: no cover - environment-dependent
+            f"the curation suite's Neo4j at {curation_neo4j} never accepted a "
+            f"connection within {CONNECT_TIMEOUT_SECONDS:.0f}s. This suite starts "
+            f"its own container alongside the other migration suites'; if the host "
+            f"is short of memory that is the first thing to suspect. "
+            f"Last error: {last}"
         )
 
-    return factory
+    try:
+        yield factory
+    finally:
+        for store in created:
+            store.close()  # type: ignore[attr-defined]
