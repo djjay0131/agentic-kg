@@ -104,16 +104,21 @@ REQUIRED_MODULES: tuple[str, ...] = (
 #: reason, which is exactly the conversation that was missing.
 MINIMUM_REQUIRED_TESTS = 105
 
-#: Tests allowed to skip, with the reason each is allowed to.
+#: Tests allowed to skip, with the reason each is allowed to. **Empty.**
 #:
-#: Exactly one entry, and it disappears when PR #73 merges. An open-ended
-#: allowlist would let any future skip be waved through, which is how a suite
-#: erodes into a green check over nothing.
-PERMITTED_SKIPS: dict[str, str] = {
-    "test_the_runner_can_construct_its_own_types_from_this_payload": (
-        "PR #73 (the evaluation runner) is not on this branch's base yet"
-    ),
-}
+#: It held exactly one entry --
+#: ``test_the_runner_can_construct_its_own_types_from_this_payload``, which
+#: could not run until PR #73 put the evaluation runner on this branch's base.
+#: #73 merged (``03abb9d``), the test now exercises the real
+#: ``ArmPaper``/``ArmEntity``, and the entry was removed *after* the rebase --
+#: in that order, because dropping it first turns the gate red.
+#:
+#: Empty means **no skip passes this gate**, which is the strongest form and
+#: matches the canonical-adapter gate next door. The mechanism is kept rather
+#: than deleted so a future legitimate skip has somewhere to be declared with a
+#: stated reason; what is not kept is an open-ended allowlist, which is how a
+#: suite erodes into a green check over nothing.
+PERMITTED_SKIPS: dict[str, str] = {}
 
 
 class SuiteGateError(AssertionError):

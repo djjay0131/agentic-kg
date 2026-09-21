@@ -101,18 +101,49 @@ def test_a_full_passing_run_is_accepted(
     assert "OK" in check(report)
 
 
-def test_the_permitted_skip_is_accepted(
-    tmp_path: Path, required: frozenset[str]
-) -> None:
-    """Exactly the one #73-dependent test, and only it."""
-    assert len(PERMITTED_SKIPS) == 1
-    permitted = next(iter(PERMITTED_SKIPS))
-    matching = [key for key in required if key.split("::", 1)[-1] == permitted]
-    assert len(matching) == 1, matching
+def test_no_skip_is_permitted(tmp_path: Path, required: frozenset[str]) -> None:
+    """The allowlist is empty, so any skip in a required test fails the gate.
+
+    It held one entry while PR #73 was unmerged; #73 landed, the arm test now
+    runs against the real `ArmPaper`/`ArmEntity`, and the entry was removed
+    after the rebase. Empty is the strongest setting and matches the
+    canonical-adapter gate next door.
+
+    Asserted behaviourally as well as by inspecting the dict: an empty
+    allowlist and a broken skip-check look identical from a passing run, so a
+    skip is actually fed to `check` and required to be rejected.
+    """
+    assert PERMITTED_SKIPS == {}, (
+        f"the allowlist is no longer empty ({sorted(PERMITTED_SKIPS)}); if that "
+        f"is deliberate, this test should assert the new entry and its reason"
+    )
+    victim = "test_documents::test_chunk_offsets_resolve_to_the_chunk_text"
+    assert victim in required
     cases = [
-        (key, "skipped" if key in matching else "passed") for key in sorted(required)
+        (key, "skipped" if key == victim else "passed") for key in sorted(required)
     ]
-    assert "OK" in check(_write(tmp_path, cases))
+    with pytest.raises(SuiteGateError, match="did not pass"):
+        check(_write(tmp_path, cases))
+
+
+def test_an_allowlisted_skip_would_be_accepted(
+    tmp_path: Path, required: frozenset[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """...and the allowlist still works, so emptying it is a choice not a break.
+
+    Without this, `PERMITTED_SKIPS` could have stopped being consulted at all
+    and every test here would still pass -- the mechanism would be dead code
+    wearing a docstring.
+    """
+    from . import suite_gate
+
+    victim = "test_documents::test_chunk_offsets_resolve_to_the_chunk_text"
+    bare = victim.split("::", 1)[-1]
+    monkeypatch.setattr(suite_gate, "PERMITTED_SKIPS", {bare: "a stated reason"})
+    cases = [
+        (key, "skipped" if key == victim else "passed") for key in sorted(required)
+    ]
+    assert "OK" in suite_gate.check(_write(tmp_path, cases))
 
 
 def test_a_whole_suite_skipped_is_rejected(
