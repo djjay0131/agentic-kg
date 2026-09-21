@@ -176,25 +176,27 @@ def store_aliases(tree: ast.AST, root: str = STORE_PARAM) -> set[str]:
     fixed point, so a chain (``a = store; b = a``) is tracked too, and — since
     the second review — so is a walrus binding.
 
-    Only *local* rebinding produces an alias. A name declared ``global`` or
-    ``nonlocal`` is not an alias to keep watching, it is an escape, and
-    :func:`store_reachings` reports it as one.
+    A name declared ``global`` or ``nonlocal`` is tracked here like any other,
+    *and* reported as an escape by :func:`store_reachings` — both, deliberately.
+    An earlier draft excluded it from the alias set as well, which read like
+    safety work and was inert: the escape is flagged from ``store_reachings``'
+    own scan, so the exclusion changed no outcome and only removed later uses of
+    the name from view. The round-3 mutation battery caught it by reporting the
+    mutation of that line as *survived* — a line no test could kill is a line
+    doing nothing.
 
     Still syntactic, and still not a security boundary: an alias built through
     a closure, ``getattr`` or ``globals()`` is not detectable this way. It
     catches accident and drift, which is what happens.
     """
-    escaping = rebound_names(tree)
     aliases = {root}
     changed = True
     while changed:
         changed = False
         for _node, target, value in assignments(tree):
-            if not isinstance(value, ast.Name) or value.id not in aliases:
+            if not _is_alias(value, aliases):
                 continue
             if isinstance(target, ast.Name) and target.id not in aliases:
-                if target.id in escaping:
-                    continue
                 aliases.add(target.id)
                 changed = True
     return aliases
