@@ -1,15 +1,23 @@
-""""Shadow only" as a structural property, not a promise in a docstring.
+""""Shadow only", checked on the source rather than taken on trust.
 
 ADR-0003 decision 1: the candidate ledger is written by applications through
 `CandidateSink.submit()`; the canonical graph is written by the KGCS
-`PlanExecutor` alone. A shadow-ingestion path that *could* reach the canonical
-graph is a shadow path in name only, and the difference is invisible in a
-passing test run — the code that would do it simply never executes.
+`PlanExecutor` alone. A shadow-ingestion path that *names* a canonical store is
+one edit away from using it, and the difference is invisible in a passing test
+run — the code that would do it simply never executes.
 
-So the check is on what this subpackage can reach at all. It is run through
-`astscan`, and — this is the part that was missing — the matcher is itself
-tested against every evasion a reviewer found, because "assert nothing matched"
-passes just as convincingly when the matcher is broken.
+**What these tests establish, stated exactly.** No module in this subpackage
+names a canonical or production-graph module, or a canonical write surface, in
+its own source. That is a real and useful property. It is **not** the same as
+the canonical store being unreachable, and an earlier version of this docstring
+blurred the two. The scan is one-hop and syntactic: importing this package
+already loads `neo4j` and `agentic_kg.knowledge_graph.*` into `sys.modules`
+transitively through the `agentic_kg.extraction` segmenter import the design
+deliberately allows. This catches accident and drift; it is not a sandbox.
+
+The matcher itself is tested against every evasion two rounds of review found —
+five so far — because "assert nothing matched" passes just as convincingly when
+the matcher is broken as when the property holds.
 """
 
 from __future__ import annotations
@@ -32,10 +40,13 @@ from .astscan import (
     matches_prefix,
     opaque_dynamic_imports,
     package_modules,
+    package_of,
     parse,
+    unresolvable_relative_imports,
 )
 
 PACKAGE_DIR = Path(ingestion_package.__file__).resolve().parent
+PACKAGE_NAME = ingestion_package.__name__
 
 #: Import roots that would give this subpackage a route to the production or
 #: canonical graph. `agentic_kg.extraction` is deliberately absent: the
@@ -83,13 +94,31 @@ EVASION_SAMPLES: tuple[tuple[str, str], ...] = (
     ("importlib", "import importlib\nx = importlib.import_module('neo4j')\n"),
     ("dunder import", "x = __import__('neo4j')\n"),
     ("from-import of a driver symbol", "from neo4j import GraphDatabase\n"),
+    # Found by a second review, in the fix for the four above. Every outward
+    # relative form escaped, because `node.level` was never read.
+    (
+        "outward relative import (yielded a live store handle)",
+        "from .. import neo4j as _n\n",
+    ),
+    ("outward relative submodule", "from ..neo4j import store\n"),
+    (
+        "outward relative symbol import",
+        "from ..neo4j.store import Neo4jCanonicalGraphStore\n",
+    ),
+    ("two levels out", "from ... import knowledge_graph\n"),
+    ("two levels out, with a module", "from ...knowledge_graph import auto_linker\n"),
 )
 
 
-def _forbidden_hits(tree: ast.AST) -> list[str]:
+#: The package the evasion samples are resolved against — this subpackage,
+#: which is where a relative import in one of its modules would start from.
+SAMPLE_PACKAGE = "agentic_kg.migration.ingestion"
+
+
+def _forbidden_hits(tree: ast.AST, package: str = SAMPLE_PACKAGE) -> list[str]:
     return [
         f"line {lineno}: {name}"
-        for lineno, name in imported_names(tree)
+        for lineno, name in imported_names(tree, package=package)
         if matches_prefix(name, FORBIDDEN_IMPORT_PREFIXES)
     ]
 
@@ -149,7 +178,8 @@ def test_the_matcher_does_not_flag_what_this_package_legitimately_uses() -> None
 def test_no_module_can_reach_the_canonical_or_production_graph() -> None:
     offenders: list[str] = []
     for path in package_modules(PACKAGE_DIR):
-        for hit in _forbidden_hits(parse(path)):
+        package = package_of(path, PACKAGE_DIR, PACKAGE_NAME)
+        for hit in _forbidden_hits(parse(path), package=package):
             offenders.append(f"{path.name} {hit}")
     assert not offenders, (
         f"the shadow ingestion path can reach a canonical/production graph: {offenders}"
@@ -160,7 +190,8 @@ def test_no_module_names_a_canonical_write_surface() -> None:
     """Not even by name. Holding one is what ADR-0003 rule 1 forbids."""
     offenders: list[str] = []
     for path in package_modules(PACKAGE_DIR):
-        for lineno, module, symbol in imported_symbols(parse(path)):
+        package = package_of(path, PACKAGE_DIR, PACKAGE_NAME)
+        for lineno, module, symbol in imported_symbols(parse(path), package=package):
             if symbol in CANONICAL_WRITE_SURFACES:
                 offenders.append(f"{path.name}:{lineno} {module}.{symbol}")
     assert not offenders, f"canonical write surfaces imported: {offenders}"
@@ -170,13 +201,14 @@ def test_the_write_surface_matcher_catches_a_real_import() -> None:
     sample = (
         "from kg_contracts.stores import GraphMutationStore, LedgerEntry\n"
         "from agentic_kg.migration.neo4j.store import Neo4jCanonicalGraphStore\n"
+        "from ..neo4j.store import PlanExecutor\n"  # the relative form too
     )
     hits = {
         symbol
-        for _l, _m, symbol in imported_symbols(parse_source(sample))
+        for _l, _m, symbol in imported_symbols(parse_source(sample), package=SAMPLE_PACKAGE)
         if symbol in CANONICAL_WRITE_SURFACES
     }
-    assert hits == {"GraphMutationStore", "Neo4jCanonicalGraphStore"}
+    assert hits == {"GraphMutationStore", "Neo4jCanonicalGraphStore", "PlanExecutor"}
 
 
 def test_no_module_hides_an_import_behind_a_computed_name() -> None:
@@ -200,6 +232,54 @@ def test_the_opaque_import_check_would_notice_one() -> None:
     sample = "import importlib\nname = 'neo' + '4j'\nx = importlib.import_module(name)\n"
     assert opaque_dynamic_imports(parse_source(sample)) == [3]
     assert opaque_dynamic_imports(parse_source("import os\n")) == []
+
+
+def test_relative_imports_resolve_against_the_importing_package() -> None:
+    """`node.level` arithmetic, checked directly rather than only through hits.
+
+    The defect it catches is off-by-one in the dot count: resolving `..` as if
+    it were `.` would map `from .. import neo4j` to
+    `agentic_kg.migration.ingestion.neo4j`, which does not exist and does not
+    match the forbidden prefix — a miss that looks exactly like a pass.
+    """
+    from .astscan import resolve_relative
+
+    pkg = "agentic_kg.migration.ingestion"
+    assert resolve_relative("documents", 1, pkg) == f"{pkg}.documents"
+    assert resolve_relative(None, 2, pkg) == "agentic_kg.migration"
+    assert resolve_relative("neo4j", 2, pkg) == "agentic_kg.migration.neo4j"
+    assert resolve_relative("knowledge_graph", 3, pkg) == "agentic_kg.knowledge_graph"
+    # Climbing past the root is unresolvable, not silently empty.
+    assert resolve_relative("x", 9, pkg) is None
+
+
+def test_package_of_matches_python_s_own_package_resolution() -> None:
+    """`__init__.py` and a submodule share a package; a subdirectory does not."""
+    root = PACKAGE_DIR
+    assert package_of(root / "documents.py", root, PACKAGE_NAME) == PACKAGE_NAME
+    assert package_of(root / "__init__.py", root, PACKAGE_NAME) == PACKAGE_NAME
+    assert (
+        package_of(root / "sub" / "mod.py", root, PACKAGE_NAME) == f"{PACKAGE_NAME}.sub"
+    )
+
+
+def test_no_module_hides_an_import_behind_an_unresolvable_relative_form() -> None:
+    """A relative import that climbs past the root is a hole, not an all-clear."""
+    offenders: list[str] = []
+    for path in package_modules(PACKAGE_DIR):
+        package = package_of(path, PACKAGE_DIR, PACKAGE_NAME)
+        for lineno in unresolvable_relative_imports(parse(path), package):
+            offenders.append(f"{path.name}:{lineno}")
+    assert not offenders, f"unresolvable relative imports: {offenders}"
+
+
+def test_the_unresolvable_relative_check_would_notice_one() -> None:
+    assert unresolvable_relative_imports(
+        parse_source("from ........ import something\n"), "a.b"
+    ) == [1]
+    assert unresolvable_relative_imports(
+        parse_source("from .. import neo4j\n"), "agentic_kg.migration.ingestion"
+    ) == []
 
 
 def parse_source(source: str) -> ast.Module:

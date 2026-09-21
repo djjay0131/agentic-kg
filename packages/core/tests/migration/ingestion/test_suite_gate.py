@@ -19,6 +19,7 @@ from .suite_gate import (
     SuiteGateError,
     check,
     expected_tests,
+    qualified_tests,
 )
 
 #: Outcome -> the junit child element that records it. `failed` is written as
@@ -32,14 +33,22 @@ _OUTCOME_TAG = {"failed": "failure", "error": "error", "skipped": "skipped"}
 
 
 def _junit(cases: list[tuple[str, str]]) -> str:
-    """A junit document with `(name, outcome)` cases."""
+    """A junit document with `(qualified_or_bare_name, outcome)` cases.
+
+    A `module::test` key is split back into the `classname`/`name` pair pytest
+    actually writes, so these fixtures exercise the same parsing path as a real
+    report rather than a convenient shorthand.
+    """
     body = []
-    for name, outcome in cases:
-        if outcome == "passed":
-            inner = ""
-        else:
-            inner = f"<{_OUTCOME_TAG[outcome]} message='x'/>"
-        body.append(f"<testcase classname='c' name='{name}'>{inner}</testcase>")
+    for key, outcome in cases:
+        module, _, name = key.rpartition("::")
+        classname = (
+            f"packages.core.tests.migration.ingestion.{module}" if module else "c"
+        )
+        inner = "" if outcome == "passed" else f"<{_OUTCOME_TAG[outcome]} message='x'/>"
+        body.append(
+            f"<testcase classname='{classname}' name='{name}'>{inner}</testcase>"
+        )
     return f"<testsuites><testsuite tests='{len(cases)}'>{''.join(body)}</testsuite></testsuites>"
 
 
@@ -70,15 +79,19 @@ def _write(tmp_path: Path, cases: list[tuple[str, str]]) -> Path:
 
 @pytest.fixture
 def required() -> frozenset[str]:
-    return frozenset(name for names in expected_tests().values() for name in names)
+    """The qualified `module::test` keys — the set the gate actually counts."""
+    return frozenset(qualified_tests(expected_tests()))
 
 
 def test_the_expected_set_is_derived_and_non_empty(required: frozenset[str]) -> None:
     """A gate that expects nothing passes over nothing."""
     assert len(REQUIRED_MODULES) >= 9
     assert len(required) >= 60, len(required)
-    assert "test_chunk_offsets_resolve_to_the_chunk_text" in required
-    assert "test_naive_section_offsets_break_the_resolvability_check" in required
+    assert "test_documents::test_chunk_offsets_resolve_to_the_chunk_text" in required
+    assert (
+        "test_shadow_is_falsifiable::"
+        "test_naive_section_offsets_break_the_resolvability_check"
+    ) in required
 
 
 def test_a_full_passing_run_is_accepted(
@@ -94,9 +107,10 @@ def test_the_permitted_skip_is_accepted(
     """Exactly the one #73-dependent test, and only it."""
     assert len(PERMITTED_SKIPS) == 1
     permitted = next(iter(PERMITTED_SKIPS))
-    assert permitted in required
+    matching = [key for key in required if key.split("::", 1)[-1] == permitted]
+    assert len(matching) == 1, matching
     cases = [
-        (name, "skipped" if name == permitted else "passed") for name in sorted(required)
+        (key, "skipped" if key in matching else "passed") for key in sorted(required)
     ]
     assert "OK" in check(_write(tmp_path, cases))
 
@@ -117,9 +131,9 @@ def test_a_whole_suite_skipped_is_rejected(
 def test_a_deleted_test_is_rejected(tmp_path: Path, required: frozenset[str]) -> None:
     """One check quietly removed from collection while the rest pass."""
     cases = [
-        (name, "passed")
-        for name in sorted(required)
-        if name != "test_chunk_offsets_resolve_to_the_chunk_text"
+        (key, "passed")
+        for key in sorted(required)
+        if key != "test_documents::test_chunk_offsets_resolve_to_the_chunk_text"
     ]
     with pytest.raises(SuiteGateError, match="never ran"):
         check(_write(tmp_path, cases))
@@ -127,8 +141,13 @@ def test_a_deleted_test_is_rejected(tmp_path: Path, required: frozenset[str]) ->
 
 def test_a_failing_test_is_rejected(tmp_path: Path, required: frozenset[str]) -> None:
     cases = [
-        (name, "failed" if name == "test_every_evidence_ref_resolves" else "passed")
-        for name in sorted(required)
+        (
+            key,
+            "failed"
+            if key == "test_shadow_run::test_every_evidence_ref_resolves"
+            else "passed",
+        )
+        for key in sorted(required)
     ]
     with pytest.raises(SuiteGateError, match="did not pass"):
         check(_write(tmp_path, cases))
@@ -136,8 +155,13 @@ def test_a_failing_test_is_rejected(tmp_path: Path, required: frozenset[str]) ->
 
 def test_an_errored_test_is_rejected(tmp_path: Path, required: frozenset[str]) -> None:
     cases = [
-        (name, "error" if name == "test_the_run_produced_candidates" else "passed")
-        for name in sorted(required)
+        (
+            key,
+            "error"
+            if key == "test_shadow_run::test_the_run_produced_candidates"
+            else "passed",
+        )
+        for key in sorted(required)
     ]
     with pytest.raises(SuiteGateError, match="did not pass"):
         check(_write(tmp_path, cases))
@@ -246,6 +270,104 @@ def test_the_floor_is_below_the_suite_and_not_trivially_satisfied(
         f"the floor ({MINIMUM_REQUIRED_TESTS}) has drifted far below the suite "
         f"({len(required)}); raise it so it still binds"
     )
+
+
+def test_a_name_shared_by_two_modules_counts_twice() -> None:
+    """The second round's finding, and the reason keys are qualified.
+
+    `test_the_package_has_modules_to_check` is defined in both
+    `test_config_injection.py` and `test_isolation.py`. Under bare-name keying
+    the union held 104 entries while the multiset held 105, the gate required
+    the union and compared the floor against the multiset, and the two numbers
+    were never the same quantity. This asserts the collision is real (so the
+    test is not hypothetical) and that both copies survive qualification.
+    """
+    required = expected_tests()
+    owners = [
+        module
+        for module, names in required.items()
+        if "test_the_package_has_modules_to_check" in names
+    ]
+    assert len(owners) == 2, (
+        f"the duplicated name this test is about is no longer duplicated "
+        f"({owners}); pick another or delete this test rather than letting it "
+        f"quietly stop checking anything"
+    )
+    keys = qualified_tests(required)
+    for module in owners:
+        assert f"{module}::test_the_package_has_modules_to_check" in keys
+    # The flattened form loses one of them. That loss was the bug.
+    flattened = {name for names in required.values() for name in names}
+    assert len(keys) == len(flattened) + 1
+
+
+def test_deleting_a_duplicated_test_is_visible(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reviewer deleted one and the gate's output did not change at all.
+
+    Two modules define `test_shared`. Under bare-name keying, removing it from
+    one module left the other's copy in the union, the required count was
+    unchanged, and `check` passed a report that never ran it. Qualified keys
+    make the deletion a `never ran` failure.
+    """
+    from . import suite_gate
+
+    (tmp_path / "test_a.py").write_text(
+        "def test_shared() -> None:\n    pass\n"
+        "def test_only_a() -> None:\n    pass\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "test_b.py").write_text(
+        "def test_shared() -> None:\n    pass\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(suite_gate, "HERE", tmp_path)
+    monkeypatch.setattr(suite_gate, "REQUIRED_MODULES", ("test_a.py", "test_b.py"))
+    monkeypatch.setattr(suite_gate, "MINIMUM_REQUIRED_TESTS", 0)
+
+    full = [
+        ("test_a::test_shared", "passed"),
+        ("test_a::test_only_a", "passed"),
+        ("test_b::test_shared", "passed"),
+    ]
+    assert "3 required tests" in suite_gate.check(_write(tmp_path, full))
+
+    # test_b's copy silently stops running; the other module still has one.
+    without_b = [c for c in full if c[0] != "test_b::test_shared"]
+    with pytest.raises(SuiteGateError, match="never ran"):
+        suite_gate.check(_write(tmp_path, without_b))
+
+
+def test_the_floor_compares_the_number_the_gate_prints(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One quantity, used for the floor, the requirement and the report.
+
+    The defect: counting the multiset for the floor and requiring the union.
+    With a duplicated name the two differ, so a suite could sit below the floor
+    while the floor believed it was above it — and the printed number matched
+    neither comparison.
+    """
+    from . import suite_gate
+
+    (tmp_path / "test_a.py").write_text(
+        "def test_shared() -> None:\n    pass\n", encoding="utf-8"
+    )
+    (tmp_path / "test_b.py").write_text(
+        "def test_shared() -> None:\n    pass\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(suite_gate, "HERE", tmp_path)
+    monkeypatch.setattr(suite_gate, "REQUIRED_MODULES", ("test_a.py", "test_b.py"))
+    monkeypatch.setattr(suite_gate, "MINIMUM_REQUIRED_TESTS", 2)
+
+    cases = [("test_a::test_shared", "passed"), ("test_b::test_shared", "passed")]
+    message = suite_gate.check(_write(tmp_path, cases))
+    assert "2 required tests" in message
+    assert "floor 2" in message
+
+    monkeypatch.setattr(suite_gate, "MINIMUM_REQUIRED_TESTS", 3)
+    with pytest.raises(SuiteGateError, match="the suite requires 2 tests"):
+        suite_gate.check(_write(tmp_path, cases))
 
 
 def test_every_required_module_exists_today() -> None:

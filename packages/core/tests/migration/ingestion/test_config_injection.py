@@ -34,9 +34,17 @@ from agentic_kg.migration.ingestion.pipeline import (
     build_shadow_pipeline,
 )
 
-from .astscan import called_names, imported_names, package_modules, parse, root_of
+from .astscan import (
+    called_names,
+    imported_names,
+    package_modules,
+    package_of,
+    parse,
+    root_of,
+)
 
 PACKAGE_DIR = Path(ingestion_package.__file__).resolve().parent
+PACKAGE_NAME = ingestion_package.__name__
 
 #: The module allowed to import the optional packages. One door, and it is
 #: guarded; a guard in `__init__.py` alone is bypassed by importing a submodule.
@@ -88,7 +96,8 @@ def test_only_the_guard_module_imports_the_optional_packages() -> None:
     for path in _modules():
         if path.name == GUARD_MODULE:
             continue
-        for lineno, name in imported_names(_tree(path)):
+        package = package_of(path, PACKAGE_DIR, PACKAGE_NAME)
+        for lineno, name in imported_names(_tree(path), package=package):
             if root_of(name) in OPTIONAL_ROOTS:
                 offenders.append(f"{path.name}:{lineno} imports {name}")
     assert not offenders, (
@@ -117,15 +126,15 @@ def test_the_optional_import_matcher_catches_every_known_evasion() -> None:
     for label, source in samples.items():
         hits = [
             name
-            for _l, name in imported_names(ast.parse(source))
+            for _l, name in imported_names(ast.parse(source), package=PACKAGE_NAME)
             if root_of(name) in OPTIONAL_ROOTS
         ]
         assert hits, f"{label} evaded the optional-import matcher"
 
-    benign = "import yaml\nfrom pathlib import Path\n"
+    benign = "import yaml\nfrom pathlib import Path\nfrom . import identity\n"
     assert not [
         name
-        for _l, name in imported_names(ast.parse(benign))
+        for _l, name in imported_names(ast.parse(benign), package=PACKAGE_NAME)
         if root_of(name) in OPTIONAL_ROOTS
     ]
 
@@ -164,11 +173,9 @@ def test_the_guard_module_actually_guards() -> None:
         and node.func.id.startswith("require_")
     ]
     import_lines = [
-        node.lineno
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom)
-        and node.module
-        and node.module.split(".")[0] in OPTIONAL_ROOTS
+        lineno
+        for lineno, name in imported_names(tree, package=PACKAGE_NAME)
+        if root_of(name) in OPTIONAL_ROOTS
     ]
     assert guard_lines, f"{GUARD_MODULE} makes no require_* call"
     assert import_lines, f"{GUARD_MODULE} imports none of {sorted(OPTIONAL_ROOTS)}"

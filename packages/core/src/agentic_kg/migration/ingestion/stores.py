@@ -7,12 +7,22 @@ holds no `GraphMutationStore`. That is not a convention this module hopes
 callers follow — :class:`ShadowStores` is the only way `pipeline.py` can build a
 run, and it has no Neo4j-shaped constructor to misuse.
 
-**The isolation is asserted, not assumed.** `test_isolation.py` walks this
-subpackage's AST for any import of `neo4j`, `agentic_kg.knowledge_graph` or
-`agentic_kg.migration.neo4j`, and for any name from `kg_contracts.stores` that
-is a mutation surface. A shadow path that could reach the canonical graph is a
-shadow path in name only, and "we checked at review time" is what the eleven
-vacuous checks this programme has found all had in common.
+**The isolation is asserted, not assumed — and the assertion is narrower than
+it first appears.** `test_isolation.py` walks this subpackage's AST for any
+import of `neo4j`, `agentic_kg.knowledge_graph` or `agentic_kg.migration.neo4j`,
+resolving relative forms, and for any `kg_contracts.stores` mutation surface
+imported by name.
+
+What that establishes: **no module here names a canonical or production-graph
+module, or a canonical write surface, in its own source**, and the runtime path
+this code takes never constructs one. What it does **not** establish — an
+earlier draft of this docstring claimed it did, and a reviewer was right to
+strike it — is that the canonical store is *unreachable*. The scan is one-hop
+and syntactic: importing this package already pulls `neo4j` and
+`agentic_kg.knowledge_graph.*` into `sys.modules` transitively, by way of the
+`agentic_kg.extraction` segmenter import this design deliberately allows. The
+guard catches accident and drift, which is what actually happens; it is not a
+sandbox.
 
 **Deployment concern, recorded rather than solved.** `SqliteCandidateLedger` is
 single-writer: SQLite serialises writers, and a WAL database is three files

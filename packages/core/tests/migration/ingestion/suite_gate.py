@@ -73,7 +73,7 @@ REQUIRED_MODULES: tuple[str, ...] = (
 #: with it and reports OK. This is the one value that does not move on its own.
 #: Raise it when the suite grows; a *drop* has to be an explicit edit with a
 #: reason, which is exactly the conversation that was missing.
-MINIMUM_REQUIRED_TESTS = 100
+MINIMUM_REQUIRED_TESTS = 105
 
 #: Tests allowed to skip, with the reason each is allowed to.
 #:
@@ -96,6 +96,11 @@ def expected_tests() -> dict[str, frozenset[str]]:
 
     Derived rather than transcribed, so the gate tracks the suite. An empty
     result is itself an error: a gate that expects nothing passes over nothing.
+
+    Note the value is a per-module set. Flattening it to one set of bare names
+    loses any test whose name is shared with another module, which is how a
+    required test was deleted with no change in this gate's output; use
+    :func:`qualified_tests` for anything that counts.
     """
     found: dict[str, frozenset[str]] = {}
     for filename in REQUIRED_MODULES:
@@ -123,12 +128,24 @@ def expected_tests() -> dict[str, frozenset[str]]:
     return found
 
 
+def qualified_tests(required: dict[str, frozenset[str]]) -> set[str]:
+    """`{"module::test"}` — the one set the gate counts, requires and prints.
+
+    Qualified, because two modules may legitimately define the same test name
+    and a bare-name set silently merges them. Everything downstream uses this,
+    so the number checked against the floor is the number reported.
+    """
+    return {f"{module}::{name}" for module, names in required.items() for name in names}
+
+
 def _ran(junit_path: Path) -> tuple[dict[str, str], int]:
-    """`({test name: outcome}, total)` from a junit XML report.
+    """`({"module::test": outcome}, total)` from a junit XML report.
 
     Outcomes are `"passed"`, `"skipped"`, `"failed"` or `"error"`. Parametrized
     cases arrive as `name[param]`; the bracket is stripped so a parametrized
-    test counts once under its function name.
+    test counts once under its function name. The module comes from the last
+    segment of the junit `classname` (`...ingestion.test_isolation`), which is
+    what keeps two same-named tests in different modules distinct.
     """
     root = ElementTree.parse(junit_path).getroot()
     outcomes: dict[str, str] = {}
@@ -136,6 +153,8 @@ def _ran(junit_path: Path) -> tuple[dict[str, str], int]:
     for case in root.iter("testcase"):
         total += 1
         name = (case.get("name") or "").split("[", 1)[0]
+        module = (case.get("classname") or "").rsplit(".", 1)[-1]
+        key = f"{module}::{name}"
         if case.find("failure") is not None:
             outcome = "failed"
         elif case.find("error") is not None:
@@ -146,8 +165,8 @@ def _ran(junit_path: Path) -> tuple[dict[str, str], int]:
             outcome = "passed"
         # A parametrized test whose cases disagree keeps the worse outcome.
         rank = {"passed": 0, "skipped": 1, "failed": 2, "error": 3}
-        if rank[outcome] >= rank.get(outcomes.get(name, "passed"), 0):
-            outcomes[name] = outcome
+        if rank[outcome] >= rank.get(outcomes.get(key, "passed"), 0):
+            outcomes[key] = outcome
     return outcomes, total
 
 
@@ -157,10 +176,14 @@ def check(junit_path: Path, expected: dict[str, frozenset[str]] | None = None) -
     if not required:
         raise SuiteGateError("the expected-test set is empty; the gate checks nothing")
 
-    total_required = sum(len(names) for names in required.values())
-    if total_required < MINIMUM_REQUIRED_TESTS:
+    # ONE set, qualified by module, used for the floor, the requirement and the
+    # printed count alike. Earlier versions counted the multiset here and
+    # required the union below; the two differed by every duplicated test name,
+    # so a required test could be deleted with no change in this gate's output.
+    wanted = qualified_tests(required)
+    if len(wanted) < MINIMUM_REQUIRED_TESTS:
         raise SuiteGateError(
-            f"the suite requires {total_required} tests, below the pinned floor "
+            f"the suite requires {len(wanted)} tests, below the pinned floor "
             f"of {MINIMUM_REQUIRED_TESTS}. Tests were removed from the required "
             f"set -- deleted, renamed off the `test_` prefix, or nested under a "
             f"false condition. If the shrink is intended, lower "
@@ -174,7 +197,6 @@ def check(junit_path: Path, expected: dict[str, frozenset[str]] | None = None) -
     if total == 0:
         raise SuiteGateError(f"{junit_path} records zero test cases")
 
-    wanted = {name for names in required.values() for name in names}
     missing = sorted(wanted - set(outcomes))
     if missing:
         raise SuiteGateError(
@@ -185,24 +207,25 @@ def check(junit_path: Path, expected: dict[str, frozenset[str]] | None = None) -
         )
 
     bad: list[str] = []
-    for name in sorted(wanted):
-        outcome = outcomes[name]
+    for key in sorted(wanted):
+        outcome = outcomes[key]
         if outcome == "passed":
             continue
-        if outcome == "skipped" and name in PERMITTED_SKIPS:
+        if outcome == "skipped" and key.split("::", 1)[-1] in PERMITTED_SKIPS:
             continue
-        bad.append(f"{name}: {outcome}")
+        bad.append(f"{key}: {outcome}")
     if bad:
         raise SuiteGateError(
             "required tests did not pass: " + "; ".join(bad) + ". A skip is a "
             "failure here unless it is in PERMITTED_SKIPS with a stated reason."
         )
 
-    skipped = sorted(n for n in wanted if outcomes[n] == "skipped")
+    skipped = sorted(k for k in wanted if outcomes[k] == "skipped")
     return (
         f"shadow-ingestion suite gate OK: {len(wanted)} required tests ran and "
         f"passed across {len(required)} modules "
-        f"({total} cases total; permitted skips: {skipped or 'none'})"
+        f"(floor {MINIMUM_REQUIRED_TESTS}; {total} cases total; "
+        f"permitted skips: {skipped or 'none'})"
     )
 
 
