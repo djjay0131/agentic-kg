@@ -538,7 +538,19 @@ def load_sample_data(clear: bool = False) -> None:
 
         # Optionally clear existing data
         if clear:
-            schema_manager.drop_all(confirm=True)
+            target = repo._config.database
+            logger.warning(
+                "--clear will DELETE EVERY node and relationship in database "
+                "%r at %s",
+                target,
+                repo._config.uri,
+            )
+            if sys.stdin.isatty():
+                answer = input(f"Type the database name {target!r} to confirm: ")
+                if answer.strip() != target:
+                    logger.error("Confirmation did not match; aborting.")
+                    sys.exit(1)
+            schema_manager.drop_all(confirm=True, expect_database=target)
             schema_manager.initialize(force=True)
             logger.info("Cleared existing data")
 

@@ -10,8 +10,13 @@ install:
 test: test-core test-api
 
 # Core library tests
+# --ignore=e2e matches README.md and every CI job. Without it this target -- which
+# CONTRIBUTING.md makes a merge requirement -- collects packages/core/tests/e2e,
+# whose acquisition tests call the live Semantic Scholar API and fail on rate
+# limits with no key (issue #76). Run the e2e suite deliberately via `make
+# test-e2e`, which is what it is for.
 test-core:
-	pytest packages/core/tests/ -v
+	pytest packages/core/tests/ --ignore=packages/core/tests/e2e -v
 
 # API tests
 test-api:

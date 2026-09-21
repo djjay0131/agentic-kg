@@ -59,21 +59,26 @@ from agentic_kg.knowledge_graph.schema import initialize_schema
 # Configuration
 # =============================================================================
 
-# Check if Neo4j is available
-NEO4J_AVAILABLE = all([
-    os.getenv("NEO4J_URI"),
-    os.getenv("NEO4J_USER") or os.getenv("NEO4J_USERNAME"),
-    os.getenv("NEO4J_PASSWORD"),
-])
-
 # Check if live LLM testing is enabled
 ENABLE_LIVE_LLM = os.getenv("ENABLE_LIVE_LLM", "").lower() == "true"
 
-# Skip all tests if Neo4j not available
-pytestmark = pytest.mark.skipif(
-    not NEO4J_AVAILABLE,
-    reason="Neo4j not available (set NEO4J_URI, NEO4J_USER/NEO4J_USERNAME, NEO4J_PASSWORD)",
-)
+# Issue #78. This module used to gate on
+#
+#     NEO4J_AVAILABLE = all([os.getenv("NEO4J_URI"), ...])
+#     pytestmark = pytest.mark.skipif(not NEO4J_AVAILABLE, ...)
+#
+# which inverted the polarity of every other gate in the suite: credentials in
+# the environment *enabled* these tests, and they then built a bare
+# Neo4jRepository() from those credentials and ran initialize_schema(force=True)
+# against whatever NEO4J_URI named. With no `integration` marker, no -m filter
+# deselected them, so `make test` and the README's "unit tests" line both ran
+# them. Measured against a stand-in database, that took it from 0 to 10
+# constraints.
+#
+# Now marked `integration` (so -m filters work) and routed through the
+# ownership-guarded `neo4j_repository` fixture, which runs against a throwaway
+# container this session starts and skips when there is none.
+pytestmark = pytest.mark.integration
 
 
 # =============================================================================
@@ -164,20 +169,25 @@ LOW_CONFIDENCE_CASES = [
 # =============================================================================
 
 
-@pytest.fixture(scope="module")
-def neo4j_repo():
-    """Create Neo4j repository for testing."""
-    if not NEO4J_AVAILABLE:
-        pytest.skip("Neo4j not available")
+@pytest.fixture
+def neo4j_repo(neo4j_repository):
+    """Repository for testing -- an owned, throwaway database (issue #78).
 
-    repo = Neo4jRepository()
-    yield repo
+    Delegates to the guarded fixture rather than constructing
+    ``Neo4jRepository()`` from the environment. Function-scoped, because the
+    owned fixture is: each test now gets a clean database rather than whatever
+    the previous test in this module left behind.
+    """
+    return neo4j_repository
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def setup_schema(neo4j_repo):
-    """Initialize schema before tests."""
-    initialize_schema(force=True)
+    """Schema is already initialised by ``neo4j_repository``.
+
+    Kept so the tests that request it keep working; it no longer calls
+    ``initialize_schema(force=True)`` against an environment-named database.
+    """
     yield
 
 
@@ -241,7 +251,7 @@ def mock_evaluator_agent():
 @pytest.fixture
 def mock_consensus_agents():
     """Create mock maker/hater/arbiter agents."""
-    from agentic_kg.agents.matching.maker import MakerAgent, MakerLLMResponse, Argument
+    from agentic_kg.agents.matching.maker import MakerAgent, MakerLLMResponse
     from agentic_kg.agents.matching.hater import HaterAgent, HaterLLMResponse
     from agentic_kg.agents.matching.arbiter import ArbiterAgent, ArbiterLLMResponse
 
@@ -249,17 +259,23 @@ def mock_consensus_agents():
     mock_maker_llm = MagicMock()
     mock_maker_llm.extract = AsyncMock(return_value=MagicMock(content=MakerLLMResponse(
         confidence=0.75,
+        # `MakerLLMResponse.arguments` is `list[dict]`, not `list[Argument]`
+        # (maker.py:80), and the consumer reads `arg_dict.get("strength", 0.5)`
+        # as a float (maker.py:208). This fixture used to build `Argument`
+        # objects with `strength="strong"` -- wrong on both counts, so it had
+        # raised at setup for as long as the model has been typed. The old
+        # env-gated skip hid it; issue #78 unhid it.
         arguments=[
-            Argument(
-                claim="Same core problem domain",
-                evidence="Both address efficiency in neural networks",
-                strength="strong",
-            ),
-            Argument(
-                claim="Similar methodology scope",
-                evidence="Both focus on optimization techniques",
-                strength="moderate",
-            ),
+            {
+                "claim": "Same core problem domain",
+                "evidence": "Both address efficiency in neural networks",
+                "strength": 0.85,
+            },
+            {
+                "claim": "Similar methodology scope",
+                "evidence": "Both focus on optimization techniques",
+                "strength": 0.6,
+            },
         ],
         strongest_argument="Same core problem domain",
         acknowledged_weaknesses=["Slightly different terminology"],
@@ -271,11 +287,11 @@ def mock_consensus_agents():
     mock_hater_llm.extract = AsyncMock(return_value=MagicMock(content=HaterLLMResponse(
         confidence=0.60,
         arguments=[
-            Argument(
-                claim="Different specific focus",
-                evidence="Mention targets specific technique vs general approach",
-                strength="moderate",
-            ),
+            {
+                "claim": "Different specific focus",
+                "evidence": "Mention targets specific technique vs general approach",
+                "strength": 0.6,
+            },
         ],
         strongest_argument="Different specific focus",
         acknowledged_strengths=["Semantic similarity is high"],
@@ -436,7 +452,7 @@ class TestLowConfidenceConsensusWorkflow:
 
         # Run arbiter
         arbiter_state = {**hater_state, "hater_results": [hater_result.model_dump()]}
-        arbiter_state, arbiter_result = await mock_consensus_agents["arbiter"].arbitrate(arbiter_state)
+        arbiter_state, arbiter_result = await mock_consensus_agents["arbiter"].decide(arbiter_state)
 
         # Verify arbiter decision
         assert arbiter_result.decision in [
@@ -470,13 +486,28 @@ class TestLowConfidenceConsensusWorkflow:
         _, hater_result = await mock_consensus_agents["hater"].argue(state)
         state["hater_results"] = [hater_result.model_dump()]
 
-        _, arbiter_result = await mock_consensus_agents["arbiter"].arbitrate(state)
+        _, arbiter_result = await mock_consensus_agents["arbiter"].decide(state)
 
         duration = time.perf_counter() - start
 
         assert duration < 15.0, f"Consensus round took {duration:.2f}s (should be <15s)"
 
     @pytest.mark.asyncio
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "Product defect, not a stale expectation: arbiter.py:385-390 converts a "
+            "final-round RETRY into LINK and calls it 'conservative'. Linking is the "
+            "committing action; escalating is the conservative one. Because the "
+            "arbiter never emits RETRY on the final round, the workflow routing this "
+            "test describes can never see it, so the escalate-to-human path is "
+            "unreachable and an unresolved match is auto-linked at confidence 0.55 -- "
+            "below the 0.7 threshold the same function enforces everywhere else. "
+            "Marked xfail(strict) rather than rewritten to match the code: changing "
+            "the assertion would convert a live defect into a documented feature. "
+            "Tracked in https://github.com/djjay0131/agentic-kg/issues/85."
+        ),
+    )
     async def test_max_rounds_escalates_to_human_review(self, mock_consensus_agents):
         """After 3 rounds with no consensus, escalate to human review."""
         # Create mock arbiter that always returns RETRY
@@ -510,7 +541,7 @@ class TestLowConfidenceConsensusWorkflow:
         state["hater_results"] = [{"confidence": 0.6}]
 
         # Run arbiter on final round
-        updated_state, arbiter_result = await retry_arbiter.arbitrate(state)
+        updated_state, arbiter_result = await retry_arbiter.decide(state)
 
         # On final round, retry should become escalate
         # The workflow routing handles this - arbiter just returns retry
@@ -523,6 +554,22 @@ class TestLowConfidenceConsensusWorkflow:
 # =============================================================================
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Production defect, not a test bug: review_queue.py calls "
+        "self._repo.write_transaction/read_transaction at 8 call sites, and "
+        "Neo4jRepository has neither -- it exposes only session() "
+        "(repository.py:143). The whole review-queue subsystem raises "
+        "AttributeError against a real repository. CI stayed green because "
+        "test_review_queue.py:44-47 assigns those methods onto a MagicMock, "
+        "inventing an API the real class never had, while this integration "
+        "test -- the only one holding a real repository -- was disabled behind "
+        "the environment gate fixed in #78. Marked xfail(strict) so it fails "
+        "loudly again once the subsystem works. "
+        "Tracked in https://github.com/djjay0131/agentic-kg/issues/86."
+    ),
+)
 class TestHumanReviewQueue:
     """Tests for human review queue operations."""
 
@@ -845,7 +892,7 @@ class TestPerformanceBenchmarks:
             _, hater_result = await mock_consensus_agents["hater"].argue(state)
             state["hater_results"] = state.get("hater_results", []) + [hater_result.model_dump()]
 
-            _, arbiter_result = await mock_consensus_agents["arbiter"].arbitrate(state)
+            _, arbiter_result = await mock_consensus_agents["arbiter"].decide(state)
             state["arbiter_results"] = state.get("arbiter_results", []) + [arbiter_result.model_dump()]
 
         duration = time.perf_counter() - start

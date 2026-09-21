@@ -6,6 +6,7 @@ Provides common test data and fixtures used across test modules.
 
 from datetime import datetime, timezone
 from typing import Generator
+from urllib.parse import urlparse
 import uuid
 
 import pytest
@@ -23,36 +24,138 @@ import pytest
 import os
 
 
-def _get_neo4j_from_env():
-    """Check if Neo4j connection details are in environment."""
-    uri = os.environ.get("NEO4J_URI")
-    password = os.environ.get("NEO4J_PASSWORD")
-    return uri, password
+# =============================================================================
+# Ownership enforced at the seam (issue #78)
+# =============================================================================
+#
+# The guard below sits on ``Neo4jRepository.__init__`` -- the single choke point
+# every database access in this codebase passes through. Bare
+# ``Neo4jRepository()``, ``get_repository()`` and ``initialize_schema()`` all
+# construct one, so guarding here covers paths no per-file patch could.
+#
+# Why it exists: two integration modules gated themselves on
+# ``skipif(not NEO4J_AVAILABLE)``, so the presence of NEO4J_* credentials
+# *enabled* them, and they then built a bare ``Neo4jRepository()`` from those
+# same credentials and ran ``initialize_schema(force=True)`` against it. Neither
+# carried ``pytest.mark.integration``, so no ``-m`` filter deselected them, and
+# they are collected by ``make test``, ``make test-core`` and the command
+# README.md documents as "unit tests". Measured on a stand-in database: running
+# that documented command with NEO4J_* set took the target from 0 to 10
+# constraints -- unauthorised DDL -- while the ownership guard added in #75
+# correctly refused everything that went through its fixture.
+#
+# That is the polarity inversion the audit named: the same environment variable
+# that makes the fixture refuse made those modules run. Fixing the two files
+# would leave the next such file free to reintroduce it, so the rule is enforced
+# structurally instead: a repository may only be constructed against a database
+# this session has declared, and the only thing that declares one is starting it.
+
+
+class UnownedDatabaseError(RuntimeError):
+    """
+    Raised when a repository is constructed against a database this pytest
+    session has not declared as its own.
+
+    Declaration is not an assertion anyone can make from the environment. A
+    target becomes declared by being *started* by this session
+    (``neo4j_container``), or -- for the e2e suite alone, whose entire purpose
+    is to exercise a deployed environment and which runs only under explicit
+    commands -- by ``tests/e2e/conftest.py`` naming its staging target
+    deliberately in code.
+    """
+
+
+# Targets this session is allowed to talk to, as (host, port).
+_DECLARED_TARGETS: set = set()
+
+
+def _target_key(uri: str):
+    """Normalise a bolt/neo4j URI to the (host, port) pair it addresses."""
+    parsed = urlparse(uri)
+    if parsed.hostname:
+        return (parsed.hostname, parsed.port)
+    return (uri, None)
+
+
+def declare_session_database(uri: str, *, reason: str) -> None:
+    """Declare a database as one this session may talk to.
+
+    ``reason`` is required so every declaration carries its justification at the
+    call site; there are exactly two in this repository.
+    """
+    _DECLARED_TARGETS.add(_target_key(uri))
+
+
+def database_is_declared(uri: str) -> bool:
+    return _target_key(uri) in _DECLARED_TARGETS
+
+
+def _forget_declared_databases() -> None:
+    """Test hook: reset the registry."""
+    _DECLARED_TARGETS.clear()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def enforce_database_ownership():
+    """Refuse any repository built against an undeclared database.
+
+    Autouse and session-scoped, so it covers every test module in this tree
+    automatically -- including ones written after this fixture. A new test file
+    that constructs a bare ``Neo4jRepository()`` gets an
+    ``UnownedDatabaseError`` rather than a silent write to whatever ``NEO4J_URI``
+    happens to name.
+    """
+    from agentic_kg.knowledge_graph import repository as repository_module
+
+    original_init = repository_module.Neo4jRepository.__init__
+
+    def guarded_init(self, config=None):
+        original_init(self, config)
+        uri = getattr(getattr(self, "_config", None), "uri", None)
+        if uri is None or database_is_declared(uri):
+            return
+        raise UnownedDatabaseError(
+            f"Refusing to build a Neo4jRepository against {uri!r}: this pytest "
+            "session has not declared that database as its own.\n\n"
+            "Tests must obtain a repository from the `neo4j_repository` fixture, "
+            "which runs against a throwaway container this session starts. Do not "
+            "construct `Neo4jRepository()` directly, and do not gate a test on "
+            "NEO4J_* being present -- credentials in the environment are not "
+            "permission to write to the database they name.\n\n"
+            "If Docker is unavailable the fixture skips, which is the correct "
+            "outcome: a test that cannot get an owned database does not run."
+        )
+
+    repository_module.Neo4jRepository.__init__ = guarded_init
+    try:
+        yield
+    finally:
+        repository_module.Neo4jRepository.__init__ = original_init
 
 
 @pytest.fixture(scope="session")
 def neo4j_container():
     """
-    Start a Neo4j container for integration tests.
+    Start a throwaway Neo4j container for integration tests.
 
-    This fixture is session-scoped to avoid starting a new container
-    for each test. Tests should clean up their own data.
+    Session-scoped, so one container serves the whole run.
 
-    If NEO4J_URI is set in environment, this fixture is skipped
-    (we use the external Neo4j instance instead).
+    NEO4J_URI is deliberately ignored (issue #78). This fixture used to hand
+    back ``None`` when NEO4J_* were set, so the suite would address an external
+    database instead; the guard added in #75 then refused it, turning every such
+    test into a setup *error* on any machine that happened to export those
+    variables. Errors are noisy enough to invite people to disable the guard,
+    and the fallback had no legitimate user: CI sets no NEO4J_URI, and the e2e
+    suite reads STAGING_* through its own config.
+
+    So there is now exactly one answer to "which database do integration tests
+    use?" -- one this session started. When it cannot start one, the tests skip,
+    which is the honest outcome.
     """
-    # Check if we should use environment variables instead
-    uri, password = _get_neo4j_from_env()
-    if uri and password:
-        # Return None - we'll use env vars in neo4j_config
-        yield None
-        return
-
-    # Otherwise, try to use testcontainers
     try:
         from testcontainers.neo4j import Neo4jContainer
     except ImportError:
-        pytest.skip("testcontainers not installed and NEO4J_URI not set")
+        pytest.skip("testcontainers not installed; integration tests need an owned Neo4j")
         return
 
     # Check if Docker is available
@@ -61,7 +164,7 @@ def neo4j_container():
         client = docker.from_env()
         client.ping()
     except Exception:
-        pytest.skip("Docker not available and NEO4J_URI not set")
+        pytest.skip("Docker not available; integration tests need an owned Neo4j")
         return
 
     container = Neo4jContainer("neo4j:5.26-community", password="testpassword")
@@ -69,6 +172,12 @@ def neo4j_container():
 
     try:
         container.start()
+        # Starting it is what makes it ours -- the only way a target becomes
+        # declared for the integration suite.
+        declare_session_database(
+            container.get_connection_url(),
+            reason="this session started this throwaway container",
+        )
         yield container
     finally:
         container.stop()
@@ -79,22 +188,15 @@ def neo4j_config(neo4j_container, monkeypatch):
     """
     Configure Neo4j connection for tests.
 
-    Uses environment variables if set, otherwise uses testcontainer.
-    Returns the Neo4jConfig for direct use.
+    Always the container this session started -- see ``neo4j_container`` for why
+    the environment-variable branch was removed (issue #78). The NEO4J_* values
+    are monkeypatched to point at that container, so code under test that calls
+    ``get_repository()`` or ``initialize_schema()`` resolves to the owned
+    database rather than to whatever the developer's shell exports.
     """
     from agentic_kg.config import Neo4jConfig, reset_config
 
-    # Check for environment variables first
-    env_uri, env_password = _get_neo4j_from_env()
-
-    if env_uri and env_password:
-        # Use environment variables (CI mode)
-        uri = env_uri
-        username = os.environ.get("NEO4J_USERNAME", "neo4j")
-        password = env_password
-        database = os.environ.get("NEO4J_DATABASE", "neo4j")
-    elif neo4j_container is not None:
-        # Use testcontainer (local dev mode)
+    if neo4j_container is not None:
         uri = neo4j_container.get_connection_url()
         username = "neo4j"
         password = "testpassword"  # Must match Neo4jContainer(password=...)

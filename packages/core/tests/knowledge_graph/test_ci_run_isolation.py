@@ -134,20 +134,24 @@ class TestRealFixturePath:
         foreign = _seed_foreign_run(neo4j_repository, "FOREIGN")
         assert _exists(neo4j_repository, foreign)
 
-        result = self._run_session_against(uri, "testpassword", extra_env)
-        combined = result.stdout + result.stderr
+        self._run_session_against(uri, "testpassword", extra_env)
 
-        assert result.returncode != 0, (
-            "a pytest session pointed at a shared database exited successfully; "
-            "the ownership guard is not on the real fixture path.\n" + combined[-3000:]
-        )
-        assert "SharedDatabaseSweepError" in combined, (
-            "session failed, but not for the reason this test names.\n"
-            + combined[-3000:]
-        )
+        # The assertion is about the database, not about how the child failed.
+        #
+        # When this test was written the child *refused* with
+        # SharedDatabaseSweepError, and it asserted exactly that. Issue #78 then
+        # removed the environment fallback entirely, so a child session no longer
+        # consults NEO4J_URI at all -- it starts its own container and passes.
+        # Asserting on the refusal mechanism would now fail against behaviour
+        # that is strictly safer than what it was written to check.
+        #
+        # So assert the invariant the mechanism existed to protect: whatever the
+        # child did, the database named only by environment variables is
+        # untouched. That survives a change of mechanism, and still fails if any
+        # future change lets a child reach a database it was merely told about.
         assert _exists(neo4j_repository, foreign), (
             "a concurrent run's data was destroyed by a session that should "
-            "have refused to touch this database"
+            "never have addressed this database"
         )
 
     def test_session_that_owns_its_database_runs_normally(self, neo4j_container):
