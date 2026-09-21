@@ -211,6 +211,10 @@ READ_PATHS: tuple[ReadPath, ...] = (
         surface="ContinuationAgent._load_problem_context -> RelationService",
         source_file=f"{CORE}/knowledge_graph/relations.py",
         snippet="MATCH (p:Problem {{id: $id}})-[r{rel_pattern}]-(related:Problem)",
+        also=(
+            "MATCH (p:Problem {{id: $id}})-[r{rel_pattern}]->(related:Problem)",
+            "MATCH (p:Problem {{id: $id}})<-[r{rel_pattern}]-(related:Problem)",
+        ),
         labels=("Problem",),
         relationships=("EXTENDS", "CONTRADICTS", "DEPENDS_ON", "REFRAMES"),
         properties=("id", "statement", "confidence", "evidence_doi"),
@@ -814,10 +818,53 @@ READ_PATHS: tuple[ReadPath, ...] = (
         ),
     ),
     ReadPath(
+        id="relations.create_relation.guard",
+        surface="RelationService.create_relation (existence + duplicate guard)",
+        source_file=f"{CORE}/knowledge_graph/relations.py",
+        snippet="MATCH (from:Problem {id: $from_id})",
+        also=("MATCH (from:Problem {{id: $from_id}})-[r:{rel_type}]->(to:Problem {{id: $to_id}})",),
+        labels=("Problem",),
+        relationships=("EXTENDS", "CONTRADICTS", "DEPENDS_ON", "REFRAMES"),
+        properties=("id",),
+        compat=CompatClass.SCOPED_OUT,
+        note=(
+            "Two reads that exist only inside a write path — they verify both "
+            "endpoints exist and that the edge is not already present. Scoped "
+            "out with the write they guard: §4.5 turns every mutation endpoint "
+            "into a curation request, so the guard has no post-cutover "
+            "equivalent. Inventoried rather than ignored because it is a read "
+            "in a scanned module, and an un-inventoried read is how the "
+            "completeness check gets hollowed out."
+        ),
+    ),
+    ReadPath(
+        id="relations.get_source_paper",
+        surface="RelationService.get_source_paper",
+        source_file=f"{CORE}/knowledge_graph/relations.py",
+        snippet="MATCH (p:Problem {id: $id})-[:EXTRACTED_FROM]->(paper:Paper)",
+        labels=("Problem", "Paper"),
+        relationships=("EXTRACTED_FROM",),
+        properties=("doi", "title", "year"),
+        compat=CompatClass.SCOPED_OUT,
+        note=(
+            "Dead code: zero non-test callers (confirmed by review, which "
+            "checked whether it implied a 46th live read path — it does not). "
+            "The traversal it performs is already covered behaviourally by "
+            "api.graph.problems_papers and search.structured.by_year. Recorded "
+            "so the scan has an entry to match rather than a gap to ignore; "
+            "delete the method and this entry together."
+        ),
+    ),
+    ReadPath(
         id="api.reviews.queue",
         surface="GET /api/reviews",
         source_file=f"{CORE}/knowledge_graph/review_queue.py",
         snippet="await self._repo.read_transaction(_tx)",
+        also=(
+            "MATCH (r:PendingReview)",
+            "MATCH (r:PendingReview {id: $review_id})",
+            "MATCH (r:PendingReview)-[:REVIEWS]->(m:ProblemMention {id: $mention_id})",
+        ),
         labels=("PendingReview",),
         relationships=("REVIEWS",),
         properties=("id", "status", "priority", "sla_deadline"),

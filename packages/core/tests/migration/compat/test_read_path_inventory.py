@@ -281,8 +281,15 @@ APPLICATION_TREES = (
     REPO_ROOT / "packages" / "api" / "src" / "agentic_kg_api",
     REPO_ROOT / "packages" / "core" / "src" / "agentic_kg" / "agents",
 )
-EXTRA_READ_MODULES = (
-    REPO_ROOT / "packages" / "core" / "src" / "agentic_kg" / "knowledge_graph" / "search.py",
+#: Core modules outside the two application trees that nevertheless issue graph
+#: reads the application reaches. ``relations.py`` and ``review_queue.py`` were
+#: missing: review planted a ``[:SMUGGLED_EDGE]`` read with an ``ORDER BY`` in
+#: ``relations.py``, called it from ``continuation.py``, and it passed all 69
+#: inventory tests. A module in no scan set is a hole regardless of how good
+#: the scans are.
+EXTRA_READ_MODULES = tuple(
+    REPO_ROOT / "packages" / "core" / "src" / "agentic_kg" / "knowledge_graph" / name
+    for name in ("search.py", "relations.py", "review_queue.py")
 )
 ROUTERS = REPO_ROOT / "packages" / "api" / "src" / "agentic_kg_api" / "routers"
 REPOSITORY = (
@@ -297,15 +304,28 @@ INDEX_SCAN_ROOTS = (
 DEAD_VECTOR_INDEXES = frozenset({"mention_embedding_idx"})
 
 
+#: Cypher write clauses. A literal carrying one of these is a mutation, and
+#: mutations are out of this harness's scope by declaration (see
+#: SCOPED_OUT_SURFACES and bound 1 in the PR body) -- leg A would otherwise
+#: demand inventory entries for every CREATE/MERGE in the modules it scans,
+#: including the ``MATCH ... CREATE`` prologue of a write.
+_WRITE_CLAUSE = re.compile(r"\b(CREATE|MERGE|SET|DELETE|REMOVE)\b")
+
+
+def _is_read(cypher: str) -> bool:
+    return (
+        "MATCH (" in cypher or "db.index.vector.queryNodes" in cypher
+    ) and not _WRITE_CLAUSE.search(cypher)
+
+
 def _cypher_literals(path: Path) -> list[tuple[int, int]]:
-    """(start_line, end_line) of every string literal that issues a graph read."""
+    """(start_line, end_line) of every string literal that issues a graph *read*."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     spans: list[tuple[int, int]] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
             continue
-        text = node.value
-        if "MATCH (" in text or "db.index.vector.queryNodes" in text:
+        if _is_read(node.value):
             spans.append((node.lineno, node.end_lineno or node.lineno))
     return spans
 
@@ -390,6 +410,89 @@ def test_the_completeness_scan_can_fail(tmp_path: Path) -> None:
     assert _snippet_lines(rogue) == {}
 
 
+def test_relations_and_review_queue_are_in_the_scan_set() -> None:
+    """The smuggling path review demonstrated: a module in no scan set.
+
+    A ``[:SMUGGLED_EDGE]`` read with an ``ORDER BY`` was planted in
+    ``relations.py``, called from ``continuation.py``, and it passed all 69
+    inventory tests -- because ``relations.py`` was scanned by neither leg.
+    Both modules are now scanned, and both are asserted to actually contain
+    Cypher so the fix cannot be a path that matches nothing.
+    """
+    scanned = {path.name for path in _scanned_files()}
+    assert {"relations.py", "review_queue.py", "search.py"} <= scanned, sorted(scanned)
+    for name in ("relations.py", "review_queue.py"):
+        path = next(p for p in _scanned_files() if p.name == name)
+        assert _cypher_literals(path), f"{name} is scanned but yields no read literals"
+
+
+def test_a_smuggled_read_in_a_scanned_module_is_caught(tmp_path: Path) -> None:
+    """Obligation 5 for the widened scan set, using review's exact shape."""
+    smuggled = tmp_path / "relations_like.py"
+    smuggled.write_text(
+        'QUERY = """\n'
+        "MATCH (p:Problem {id: $id})-[:SMUGGLED_EDGE]->(x:Problem)\n"
+        "RETURN x ORDER BY x.name\n"
+        '"""\n',
+        encoding="utf-8",
+    )
+    spans = _cypher_literals(smuggled)
+    assert len(spans) == 1, "leg A did not see the smuggled read"
+    assert _snippet_lines(smuggled) == {}, "nothing in READ_PATHS claims it"
+
+
+def test_an_untyped_traversal_carries_a_contract() -> None:
+    """Hardening 2, and the case that made it necessary.
+
+    The criterion required a typed ``-[:TYPE``, so every untyped form was
+    silently exempt -- including the two queries this harness calls its widest
+    leak surface. They were safe only because they sit inline in a router,
+    where leg A has no exemption. Now the rule is what makes them safe.
+    """
+    for cypher in (
+        "MATCH (p:Problem)-[r]->(p2:Problem) RETURN p",          # graph.py:86
+        "MATCH (p:Problem) OPTIONAL MATCH (p)-[r]-(n) RETURN r",  # graph.py:235
+        "MATCH (a)--(b) RETURN a",
+        "MATCH (a)-->(b) RETURN a",
+        "MATCH (a)<--(b) RETURN a",
+        "MATCH (a)-[*1..3]->(b) RETURN a",
+    ):
+        assert _carries_a_compatibility_contract(cypher), cypher
+
+
+def test_unordered_pagination_and_aggregates_carry_a_contract() -> None:
+    """The other silently-exempt shapes review named."""
+    assert _carries_a_compatibility_contract("MATCH (p:Paper) RETURN p LIMIT $limit")
+    assert _carries_a_compatibility_contract("MATCH (p:Paper) RETURN p SKIP $o")
+    assert _carries_a_compatibility_contract("MATCH (p:Problem) RETURN count(p)")
+    assert _carries_a_compatibility_contract("CALL apoc.path.expand(n, '>', '', 1, 3)")
+
+
+def test_a_single_node_key_fetch_is_still_exempt() -> None:
+    """The exemption must stay narrow, not vanish.
+
+    A widened rule that demanded everything would make leg B noise, and noise
+    is how a completeness check stops being read.
+    """
+    assert not _carries_a_compatibility_contract("MATCH (p:Problem {id: $id}) RETURN p")
+    assert not _carries_a_compatibility_contract("MATCH (t:Topic {name: $n}) RETURN t")
+
+
+def test_the_criterion_reads_cypher_not_python_source() -> None:
+    """``->`` in a return annotation and ``--`` in a docstring are not traversals.
+
+    Widening the pattern made the input matter: run it over Python source and
+    every annotated function becomes a false positive.
+    """
+    module = ast.parse(
+        'def f(x) -> None:\n'
+        '    """Notes -- see above."""\n'
+        '    return tx.run("MATCH (p:Problem {id: $id}) RETURN p")\n'
+    )
+    func = next(n for n in ast.walk(module) if isinstance(n, ast.FunctionDef))
+    assert not _carries_a_compatibility_contract(_cypher_in(func))
+
+
 def _router_repo_calls() -> set[str]:
     """Every ``repo.X(...)`` / ``repository.X(...)`` method name used by a router."""
     names: set[str] = set()
@@ -425,14 +528,66 @@ def _router_repo_calls() -> set[str]:
 #: exemption from the criterion removes the leak and every future variant of
 #: it: there is no longer a place to write an exemption that the criterion does
 #: not justify.
-_RELATIONSHIP_PATTERN = re.compile(r"-\[:[A-Z_]+|<-\[:[A-Z_]+|\[:[A-Z_]+\*")
+#: Any Cypher relationship syntax, typed or not.
+#:
+#: The first version required a typed ``-[:TYPE``, which silently exempted
+#: ``(p)--(n)``, ``-->``, ``-[r]-`` and variable-length forms — and the two
+#: queries this harness itself calls its widest leak surface
+#: (``GET /api/graph``'s ``-[r]->`` and ``/graph/node/{id}``'s
+#: ``-[r]-(neighbor)``) are untyped. They were safe only because they sit
+#: inline in a router where leg A has no exemption at all: safety by
+#: coincidence of placement, not by the rule. Widened so the rule is what makes
+#: them safe.
+_RELATIONSHIP_PATTERN = re.compile(r"-\[|\]-|<--|-->|--(?!\s*$)")
+
+#: Multi-row shapes that carry a contract even with no ORDER BY: pagination
+#: (spec U-8 — the order is incidental, but the *page* is still a contract),
+#: aggregates, and apoc procedures.
+_MULTI_ROW_PATTERN = re.compile(
+    r"\bLIMIT\b|\bSKIP\b|\b(count|collect|sum|avg|min|max)\s*\(|apoc\.", re.IGNORECASE
+)
 
 
 def _carries_a_compatibility_contract(body: str) -> bool:
+    """True unless the query is a single-node fetch by primary key.
+
+    Stated as "what is exempt" rather than "what counts", because the
+    exemption is the narrow half: a ``MATCH (n:Label {key}) RETURN n`` cannot
+    be reordered, re-paginated or re-shaped by the projection, so the probes
+    could express nothing about it. Everything else can.
+    """
     return bool(
         _RELATIONSHIP_PATTERN.search(body)
-        or "ORDER BY" in body
+        or "ORDER BY" in body.upper()
         or "db.index.vector.queryNodes" in body
+        or _MULTI_ROW_PATTERN.search(body)
+    )
+
+
+def _non_docstring_strings(node: ast.AST) -> str:
+    """Every string literal in a function except docstrings, joined.
+
+    Write detection must see *all* of them. A query assembled from f-string
+    fragments can put ``MATCH`` in one literal and ``CREATE``/``SET`` in
+    another -- ``assign_entity_to_topic`` does exactly that -- so filtering to
+    Cypher-looking literals first would hide the write clause and
+    misclassify a mutation as a read.
+    """
+    docstrings = {
+        id(inner.body[0].value)
+        for inner in ast.walk(node)
+        if isinstance(inner, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module))
+        and inner.body
+        and isinstance(inner.body[0], ast.Expr)
+        and isinstance(inner.body[0].value, ast.Constant)
+        and isinstance(inner.body[0].value.value, str)
+    }
+    return "\n".join(
+        child.value
+        for child in ast.walk(node)
+        if isinstance(child, ast.Constant)
+        and isinstance(child.value, str)
+        and id(child) not in docstrings
     )
 
 
@@ -444,9 +599,36 @@ def _repository_reads() -> dict[str, bool]:
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        body = ast.get_source_segment(source, node) or ""
-        out[node.name] = "MATCH (" in body or "db.index.vector.queryNodes" in body
+        out[node.name] = _is_read(_non_docstring_strings(node))
     return out
+
+
+def _cypher_in(node: ast.AST) -> str:
+    """Every string literal inside a function, joined.
+
+    The criterion runs over the *Cypher*, not the Python source: a ``->`` in a
+    return annotation and a ``--`` in a docstring would both false-positive
+    against the widened relationship pattern.
+    """
+    docstrings = {
+        id(inner.body[0].value)
+        for inner in ast.walk(node)
+        if isinstance(inner, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module))
+        and inner.body
+        and isinstance(inner.body[0], ast.Expr)
+        and isinstance(inner.body[0].value, ast.Constant)
+        and isinstance(inner.body[0].value.value, str)
+    }
+    return "\n".join(
+        child.value
+        for child in ast.walk(node)
+        if isinstance(child, ast.Constant)
+        and isinstance(child.value, str)
+        and id(child) not in docstrings
+        # Only Cypher: prose that happens to contain "--" is not a traversal,
+        # and the widened pattern makes that distinction load-bearing.
+        and ("MATCH (" in child.value or "db.index.vector.queryNodes" in child.value)
+    )
 
 
 def _repository_reads_carrying_a_contract() -> set[str]:
@@ -457,9 +639,13 @@ def _repository_reads_carrying_a_contract() -> set[str]:
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        body = ast.get_source_segment(source, node) or ""
-        if ("MATCH (" in body or "db.index.vector.queryNodes" in body) and (
-            _carries_a_compatibility_contract(body)
+        # Write detection over every literal; the contract criterion over the
+        # Cypher-looking ones only. Writes are out of scope by declaration, and
+        # a mutation's `MATCH ... DELETE` prologue would otherwise demand a
+        # read-path entry for a surface the harness deliberately does not
+        # certify.
+        if _is_read(_non_docstring_strings(node)) and _carries_a_compatibility_contract(
+            _cypher_in(node)
         ):
             out.add(node.name)
     return out
