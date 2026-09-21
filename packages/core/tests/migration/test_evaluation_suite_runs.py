@@ -34,6 +34,45 @@ silently void this entire suite:
    the only one — an earlier version of this guard relied on workflow-grepping
    alone and was defeated twice by install spellings it had not anticipated.
 
+   **And a third time, by a path prefix.** This check used to be the regex
+   ``pytest\\s+packages/core/tests/migration\\b``. ``\\b`` is a word boundary,
+   and
+   it matches at the ``/`` in ``packages/core/tests/migration/neo4j`` — so a job
+   narrowed to the ``neo4j`` subdirectory satisfied the assertion while every
+   test under ``evaluation/`` stopped running. PR #83 did exactly that, for an
+   unrelated and locally reasonable reason, and this guard stayed green through
+   it; #83 reverted its own change and reported the defect rather than patching
+   this file. The assertion and the fact it names had come apart: the assertion
+   said "some job runs this directory", the regex actually tested "some job runs
+   a path that *starts with* this directory's name", and a subdirectory
+   satisfies the second without satisfying the first.
+
+   The check is therefore no longer textual. It parses the workflow, and for
+   **each job** asks two questions together: does this job install the
+   ``migration`` extra, and does it run a ``pytest`` target that *contains* the
+   evaluation directory — that directory itself or an ancestor of it, with any
+   path excluded by ``--ignore``/``--deselect`` on the same invocation
+   discounted? A subdirectory is not an ancestor, so the narrowing that defeated
+   the regex now fails the assertion.
+
+   **Both questions, of one job.** Fixing the containment check alone was not
+   enough, and the way it failed is worth recording because it is the same
+   defect wearing different clothes. The old assertion asked "does any line in
+   this file install the extra?" and "does any line in this file run this path?"
+   as two independent searches over one blob of text — and ``unit-tests`` runs
+   ``pytest packages/core/tests/``, a genuine *ancestor* of the evaluation
+   directory, while installing no extras. So a containment check that ignored
+   job boundaries was satisfied by a job in which these tests provably skip,
+   and it stayed green against the very narrowing it was written to catch.
+   Two true facts about two different jobs do not compose into the fact the
+   assertion names. The unit of the claim is a job, so the unit of the check is
+   a job. ``test_an_ancestor_path_in_a_job_without_the_extra_does_not_count``
+   pins that specific hole.
+
+   ``test_the_guard_rejects_*`` drives the rejection for real, per §9.0
+   obligation 5: a criterion that cannot fail for the reason it names is not a
+   criterion.
+
 This module lives one directory **above** ``evaluation/`` on purpose: a
 module-level ``pytest.importorskip`` in a ``conftest.py`` skips the whole
 directory it governs at collection time, so a copy of this file inside
@@ -47,12 +86,20 @@ from __future__ import annotations
 import importlib.util
 import os
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 TEST_WORKFLOW = REPO_ROOT / ".github/workflows/test.yml"
 INTEGRATION_WORKFLOW = REPO_ROOT / ".github/workflows/integration-tests.yml"
 EVALUATION_DIR = Path(__file__).parent / "evaluation"
+
+#: The same directory, repo-relative and POSIX-spelled — the form a workflow
+#: writes and the form the containment check compares against. Derived from
+#: :data:`EVALUATION_DIR` rather than typed twice, so moving the directory
+#: cannot leave this guard silently asserting over a path that is gone.
+EVALUATION_DIR_REL = PurePosixPath(EVALUATION_DIR.relative_to(REPO_ROOT).as_posix())
 
 #: Modules the evaluation subpackage needs. Both ship in ``agentic-kgis``.
 REQUIRED_MODULES = ("kg_eval", "kg_contracts")
@@ -89,8 +136,7 @@ def _evaluation_stack_importable() -> bool:
     return all(_importable(name) for name in REQUIRED_MODULES)
 
 
-def _install_lines(workflow: Path) -> list[str]:
-    text = workflow.read_text(encoding="utf-8")
+def _install_lines_in(text: str) -> list[str]:
     return [
         line.strip()
         for line in text.splitlines()
@@ -98,12 +144,131 @@ def _install_lines(workflow: Path) -> list[str]:
     ]
 
 
-def _installs_the_extra(workflow: Path) -> list[str]:
+def _install_lines(workflow: Path) -> list[str]:
+    return _install_lines_in(workflow.read_text(encoding="utf-8"))
+
+
+def _extra_install_lines(lines: list[str]) -> list[str]:
     return [
         line
-        for line in _install_lines(workflow)
+        for line in lines
         if re.search(r"\[[^\]]*migration", line) or re.search(r"agentic[-_]kgis", line)
     ]
+
+
+def _installs_the_extra(workflow: Path) -> list[str]:
+    return _extra_install_lines(_install_lines(workflow))
+
+
+#: A ``pytest`` invocation, anchored so it is a command and not a substring of
+#: one (``pytest-asyncio`` in an install line must not match).
+_PYTEST_CALL = re.compile(r"(?:^|[\s;|&])pytest(?=\s)(?P<args>[^;|&]*)")
+
+#: Options that remove a path from a run that would otherwise have included it.
+_EXCLUDING_OPTS = ("--ignore", "--ignore-glob", "--deselect")
+
+
+def _logical_lines(text: str) -> list[str]:
+    """Workflow lines with shell backslash-continuations joined.
+
+    A ``run: |`` block writes one command across several lines. Reading the file
+    line-by-line would see ``pytest packages/core/tests/migration \\`` and the
+    flags beneath it as unrelated lines, and would miss a target written on a
+    continuation line entirely.
+    """
+    return re.sub(r"\\\s*\n\s*", " ", text).splitlines()
+
+
+def _pytest_invocations(text: str) -> list[tuple[list[str], list[str]]]:
+    """Every ``pytest`` call in ``text`` as ``(target_paths, excluded_paths)``.
+
+    Path-shaped positional arguments are targets; paths given to ``--ignore``,
+    ``--ignore-glob`` or ``--deselect`` are exclusions. Both are needed: a job
+    that names this directory and then ignores the evaluation subdirectory is
+    not running the evaluation suite, and counting it would reintroduce exactly
+    the gap this guard exists to close, one option further along.
+    """
+    invocations: list[tuple[list[str], list[str]]] = []
+    for line in _logical_lines(text):
+        for call in _PYTEST_CALL.finditer(line):
+            targets: list[str] = []
+            excluded: list[str] = []
+            for token in call.group("args").split():
+                if token.startswith("-"):
+                    option, _, value = token.partition("=")
+                    if option in _EXCLUDING_OPTS and value:
+                        excluded.append(value.rstrip("/"))
+                    continue
+                if "/" in token:
+                    targets.append(token.rstrip("/"))
+            if targets:
+                invocations.append((targets, excluded))
+    return invocations
+
+
+def _covers_evaluation(target: str) -> bool:
+    """Does running ``target`` run the evaluation directory?
+
+    True only when ``target`` **is** that directory or an **ancestor** of it.
+    This is the whole correction: the old regex asked whether the workflow text
+    started with the migration directory's name, which a *sub*directory also
+    satisfies. Containment is the fact the assertion names, so containment is
+    what is tested.
+    """
+    try:
+        candidate = PurePosixPath(target)
+    except (TypeError, ValueError):  # pragma: no cover - defensive
+        return False
+    return EVALUATION_DIR_REL == candidate or EVALUATION_DIR_REL.is_relative_to(candidate)
+
+
+def _targets_running_the_evaluation_suite(text: str) -> list[str]:
+    """Targets of a ``pytest`` call that really would run ``evaluation/``."""
+    running: list[str] = []
+    for targets, excluded in _pytest_invocations(text):
+        if any(_covers_evaluation(path) for path in excluded):
+            continue
+        running.extend(target for target in targets if _covers_evaluation(target))
+    return running
+
+
+def _run_scripts(text: str) -> dict[str, str]:
+    """``job id -> that job's shell, and only that job's shell``.
+
+    Parsed, not grepped. The whole point of this function is the boundary: a
+    ``run:`` block belongs to exactly one job, and an assertion about "a job
+    that installs the extra and runs this path" is only true if one job does
+    both. Flattening the file to text loses precisely the distinction the claim
+    depends on.
+    """
+    document = yaml.safe_load(text) or {}
+    jobs = document.get("jobs") or {}
+    scripts: dict[str, str] = {}
+    for job_id, job in jobs.items():
+        steps = (job or {}).get("steps") or []
+        scripts[str(job_id)] = "\n".join(
+            step["run"]
+            for step in steps
+            if isinstance(step, dict) and isinstance(step.get("run"), str)
+        )
+    return scripts
+
+
+def _jobs_running_the_evaluation_suite(text: str) -> dict[str, list[str]]:
+    """Jobs that install the ``migration`` extra **and** run ``evaluation/``.
+
+    Both conditions, of the same job. A job with the extra that runs a narrower
+    path does not run these tests; a job that runs a containing path without the
+    extra skips them. Only their conjunction is the fact worth asserting.
+    """
+    qualifying: dict[str, list[str]] = {}
+    for job_id, script in _run_scripts(text).items():
+        if not _extra_install_lines(_install_lines_in(script)):
+            continue
+        targets = _targets_running_the_evaluation_suite(script)
+        if targets:
+            qualifying[job_id] = targets
+    return qualifying
 
 
 # --------------------------------------------------------------------------
@@ -145,9 +310,164 @@ def test_a_ci_job_installs_the_extra_and_runs_this_directory() -> None:
         "one, every test under tests/migration/evaluation/ skips in CI and the "
         "suite verifies nothing while reporting green."
     )
-    assert re.search(r"pytest\s+packages/core/tests/migration\b", text), (
-        "no job runs `pytest packages/core/tests/migration`, so the evaluation "
-        "suite is not executed by CI at all."
+    qualifying = _jobs_running_the_evaluation_suite(text)
+    assert qualifying, (
+        "no job in integration-tests.yml both installs the 'migration' extra "
+        f"and runs a pytest target containing {EVALUATION_DIR_REL}, so the "
+        "evaluation suite is not executed by CI at all — it collects, skips, "
+        "and reports green.\n"
+        f"Per job (installs extra, pytest targets): {_diagnose(text)}\n"
+        "Two things this deliberately does NOT accept: a path *under* the "
+        "migration directory (e.g. packages/core/tests/migration/neo4j), which "
+        "does not run this suite; and a containing path run by a job that "
+        "installs no extras (e.g. unit-tests), where these tests skip."
+    )
+
+
+def _diagnose(text: str) -> dict[str, tuple[bool, list[str]]]:
+    """Per-job (installs the extra, pytest targets) — for the failure message."""
+    return {
+        job_id: (
+            bool(_extra_install_lines(_install_lines_in(script))),
+            [t for targets, _ in _pytest_invocations(script) for t in targets],
+        )
+        for job_id, script in _run_scripts(text).items()
+    }
+
+
+#: A minimal one-job workflow: installs the extra, then runs whatever is given.
+#: Synthetic on purpose — these tests must be able to express a workflow the
+#: repo does not have, which is the only way to drive the rejection paths.
+_WORKFLOW_TEMPLATE = """name: t
+jobs:
+  migration-canonical-adapter:
+    steps:
+      - name: Install
+        run: |
+          pip install -e "./packages/core[migration]"
+      - name: Run
+        run: |
+{run}
+"""
+
+
+def _workflow(run_block: str) -> str:
+    return _WORKFLOW_TEMPLATE.format(run=run_block)
+
+
+def test_the_guard_rejects_a_path_narrowed_to_a_subdirectory() -> None:
+    """§9.0 obligation 5: the criterion must fail for the reason it names.
+
+    This is PR #83's change, reconstructed: the extra is installed, the job
+    runs, and the path is scoped one level down. The superseded regex
+    ``pytest\\s+packages/core/tests/migration\\b`` matched it, because ``\\b``
+    matches at the ``/`` — the assertion stayed green while the evaluation suite
+    stopped running. If this test ever passes vacuously, the guard has gone back
+    to verifying nothing.
+    """
+    narrowed = _workflow("          pytest packages/core/tests/migration/neo4j -v\n")
+
+    assert re.search(r"pytest\s+packages/core/tests/migration\b", narrowed), (
+        "the superseded regex no longer matches the narrowed spelling, so this "
+        "test is no longer reconstructing the defect it documents"
+    )
+    assert _jobs_running_the_evaluation_suite(narrowed) == {}, (
+        "a job scoped to migration/neo4j does not run migration/evaluation, but "
+        "the guard counted it as one that does"
+    )
+
+
+def test_the_guard_accepts_the_directory_itself_and_its_ancestors() -> None:
+    """The other half: the spellings that really do run it must be recognised.
+
+    A check that rejected everything would also pass the test above.
+    """
+    for target in (
+        "packages/core/tests/migration/evaluation",
+        "packages/core/tests/migration",
+        "packages/core/tests/migration/",
+        "packages/core/tests",
+        "packages/core",
+    ):
+        text = _workflow(f"          pytest {target} -v --tb=short\n")
+        assert _jobs_running_the_evaluation_suite(text) == {
+            "migration-canonical-adapter": [target.rstrip("/")]
+        }, f"{target} contains the evaluation directory but was not recognised"
+
+
+def test_an_ancestor_path_in_a_job_without_the_extra_does_not_count() -> None:
+    """The hole that a job-blind containment check left open.
+
+    ``unit-tests`` really does run ``packages/core/tests/`` — an ancestor of the
+    evaluation directory — and really does install no extras, so these tests
+    skip there. Reading the workflow as one blob, "something installs the extra"
+    and "something runs a containing path" are both true while no job does both,
+    and the guard goes green against the exact narrowing it exists to catch.
+    """
+    text = """name: t
+jobs:
+  unit-tests:
+    steps:
+      - run: |
+          pip install -e ./packages/core
+      - run: |
+          pytest packages/core/tests/ -m "not integration"
+  migration-canonical-adapter:
+    steps:
+      - run: |
+          pip install -e "./packages/core[migration]"
+      - run: |
+          pytest packages/core/tests/migration/neo4j -v
+"""
+    assert _extra_install_lines(_install_lines_in(text)), "precondition: extra installed somewhere"
+    assert _targets_running_the_evaluation_suite(text) == ["packages/core/tests"], (
+        "precondition: a containing path is run somewhere in this workflow"
+    )
+    assert _jobs_running_the_evaluation_suite(text) == {}, (
+        "no single job both installs the extra and runs the evaluation "
+        "directory, but the guard accepted the workflow anyway"
+    )
+
+
+def test_a_target_whose_evaluation_dir_is_ignored_does_not_count() -> None:
+    """Same defect class, one option further along.
+
+    Naming the directory and then excluding it runs none of these tests. A check
+    that looked only at positional targets would call that green.
+    """
+    text = _workflow(
+        "          pytest packages/core/tests/migration "
+        "--ignore=packages/core/tests/migration/evaluation -v\n"
+    )
+    assert _jobs_running_the_evaluation_suite(text) == {}
+
+
+def test_pytest_is_matched_as_a_command_not_as_a_substring() -> None:
+    """``pip install pytest-asyncio`` is not a pytest invocation."""
+    assert _pytest_invocations("          pip install pytest-asyncio ./packages/core\n") == []
+
+
+def test_a_target_on_a_continuation_line_is_still_seen() -> None:
+    """Backslash-continuations are joined before parsing.
+
+    A line-by-line reader would miss this target entirely and report "no job
+    runs the suite" for a workflow that does.
+    """
+    text = _workflow(
+        "          pytest \\\n            packages/core/tests/migration \\\n            -v\n"
+    )
+    assert _jobs_running_the_evaluation_suite(text) == {
+        "migration-canonical-adapter": ["packages/core/tests/migration"]
+    }
+
+
+def test_the_real_workflow_job_is_the_one_we_think_it_is() -> None:
+    """Name the job, so a rename is a decision rather than a silent drift."""
+    qualifying = _jobs_running_the_evaluation_suite(
+        INTEGRATION_WORKFLOW.read_text(encoding="utf-8")
+    )
+    assert "migration-canonical-adapter" in qualifying, (
+        f"expected migration-canonical-adapter to run the suite; got {qualifying}"
     )
 
 
