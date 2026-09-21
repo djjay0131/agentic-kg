@@ -84,6 +84,8 @@ wired. `test_policy.py` measures that as well.
 
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from agentic_kg.migration.curation._contracts import (
@@ -120,21 +122,99 @@ CONTRACT_DEFAULT_POLICY = ConfidencePolicy()
 #: The one-field opt-in described in the module docstring. Not a default.
 STRUCTURED_IDENTITY_POLICY = ConfidencePolicy(require_identity_confidence_for_auto=False)
 
-#: Alias namespaces that carry a **registered identifier** — an identity settled
-#: outside this pipeline by a registry, not inferred from a surface form.
+#: How a DOI is spelled. Not decoration: review demonstrated that checking the
+#: *namespace* alone admitted ``namespace="doi", key="banana"`` and
+#: ``key="  not-a-doi  "``. A namespace is a claim about which registry settles
+#: an identity; a key that registry could never issue is not that identity.
+DOI_PATTERN = re.compile(r"^10\.[0-9]{4,9}/\S+$")
+
+
+@dataclass(frozen=True)
+class RegisteredIdentifier:
+    """A registry that settles identity, and the limits of what it settles.
+
+    Three fields because review showed that one is not enough. The first
+    version of this guard was a bare namespace allowlist, and an independent
+    reviewer walked through it four ways: a ``Topic`` with a ``doi``-namespaced
+    key of ``"banana"``; the same with whitespace; a ``Topic`` whose *second*
+    alias was a DOI; and — the one that mattered — two candidates carrying the
+    **identical** DOI minting two irreversible identities.
+
+    * ``namespace`` — which registry the alias claims.
+    * ``identifies`` — what that registry can identify. A DOI names a *work*;
+      it says nothing about whether two ``Topic`` candidates are one topic. An
+      alias whose registry cannot identify the candidate's type is not a
+      registered identifier for that candidate, however it is namespaced.
+    * ``pattern`` — what a key this registry could have issued looks like.
+
+    Together these make "carries a registered identifier" checkable instead of
+    assertable. Uniqueness — the fourth hole — cannot live on this record,
+    because it is a property of a *batch* rather than of a candidate; it is
+    enforced in ``pipeline.unkeyed_new_identities``' sibling,
+    ``duplicate_registered_identities``.
+    """
+
+    namespace: str
+    identifies: frozenset[str]
+    pattern: re.Pattern[str]
+
+    def keys(self, candidate_entity_type: str, alias_namespace: str, alias_key: str) -> bool:
+        """Does this alias actually identify a candidate of that type?"""
+        return (
+            alias_namespace == self.namespace
+            and candidate_entity_type in self.identifies
+            and bool(self.pattern.match(alias_key))
+        )
+
+    def canonical(self, alias_key: str) -> str:
+        """The form two spellings of one identifier must share to compare equal.
+
+        DOIs are case-insensitive and this corpus exercises it — the importer
+        emitted ``10.1109/ACCESS...`` where the curation table says
+        ``10.1109/access...``. Two candidates whose DOIs differ only in case are
+        the same paper, and the duplicate check has to see that.
+        """
+        return " ".join(alias_key.split()).casefold()
+
+
+#: The registries this repo accepts as settling identity without entity
+#: resolution, and exactly what each settles.
 #:
 #: This is the whole content of the claim "no entity resolution is needed here":
 #: two candidates carrying the same DOI are the same paper because the DOI
-#: system says so, and two candidates carrying different DOIs are different
-#: papers for the same reason. A surface form carries no such guarantee, which
-#: is precisely what ER exists to supply.
+#: system says so. Note what that sentence commits to — that the pipeline
+#: actually *treats* them as one paper. It did not; see
+#: ``pipeline.duplicate_registered_identities``, which is the part that makes
+#: the sentence true rather than merely written down.
 #:
-#: Deliberately a namespace allowlist rather than an entity-type allowlist. An
-#: entity type is a label this repo chooses; a namespace names the registry. A
-#: future ``Author`` keyed by ORCID would be admitted by adding ``"orcid"``
-#: here, with the same argument — and a ``Paper`` that somehow arrived without a
-#: DOI alias would still, correctly, be refused.
-REGISTERED_IDENTIFIER_NAMESPACES: frozenset[str] = frozenset({"doi"})
+#: A future ``Author`` keyed by ORCID is added here with its own pattern and its
+#: own ``identifies`` set, and gets the same argument on its own evidence.
+REGISTERED_IDENTIFIERS: dict[str, RegisteredIdentifier] = {
+    "doi": RegisteredIdentifier(
+        namespace="doi",
+        identifies=frozenset({"Paper"}),
+        pattern=DOI_PATTERN,
+    )
+}
+
+#: Derived view, kept because it reads well at call sites and in error messages.
+#: Membership in it is necessary and — as review demonstrated — **not
+#: sufficient**; use :func:`registered_identifier_for`.
+REGISTERED_IDENTIFIER_NAMESPACES: frozenset[str] = frozenset(REGISTERED_IDENTIFIERS)
+
+
+def registered_identifier_for(entity_type: str, alias) -> tuple[str, str] | None:
+    """``(namespace, canonical key)`` if this alias really identifies, else ``None``.
+
+    The single place the four checks are applied together, so no caller can
+    perform three of them.
+    """
+    registry = REGISTERED_IDENTIFIERS.get(getattr(alias, "namespace", ""))
+    if registry is None:
+        return None
+    if not registry.keys(entity_type, alias.namespace, alias.key):
+        return None
+    return registry.namespace, registry.canonical(alias.key)
 
 #: The empty-graph snapshot, ``kgcs.policy``'s own default. A plan stamped with
 #: it applies only while the graph is still at epoch 0, so a pipeline that never

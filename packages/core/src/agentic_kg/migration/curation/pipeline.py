@@ -95,6 +95,7 @@ from agentic_kg.migration.curation.policy import (
     REGISTERED_IDENTIFIER_NAMESPACES,
     RUN_INSTANT,
     curation_engine,
+    registered_identifier_for,
 )
 
 #: Reason text for a candidate kind that validates and resolves but has no
@@ -366,16 +367,37 @@ def unkeyed_new_identities(
     Empty — always — while the identity gate is on, because the gate is itself
     the guard and nothing routes ``AUTO`` under it. With the gate off, every
     candidate whose ``ResolutionDecision`` says ``create_new_identity`` must
-    carry a registered-identifier alias; the rest are returned for refusal.
+    carry an alias that a registry could actually have issued **for a candidate
+    of that type** — namespace, entity type and key spelling all checked
+    together by ``registered_identifier_for``. Checking the namespace alone was
+    the first version, and review defeated it with ``namespace="doi",
+    key="banana"`` on a ``Topic``.
 
     Read off the decisions the policy actually made, not re-derived from scores:
     a second implementation of the routing rules here would drift from the one
     that mints the identity, and the drift would silently re-open the gap.
     """
+    return tuple(
+        candidate
+        for candidate, keyed in _minting(candidates, engine_result, confidence_policy)
+        if keyed is None
+    )
+
+
+def _minting(
+    candidates: Sequence[Candidate],
+    engine_result: EngineResult,
+    confidence_policy: ConfidencePolicy,
+) -> list[tuple[EntityCandidate, tuple[str, str] | None]]:
+    """Every entity candidate that would mint, with the identifier keying it.
+
+    One walk, used by both the "nothing unkeyed" rule and the "no two the same"
+    rule, so the two cannot disagree about which candidates are in scope.
+    """
     if confidence_policy.require_identity_confidence_for_auto:
-        return ()
+        return []
     by_id = {candidate.candidate_id: candidate for candidate in candidates}
-    unkeyed: list[EntityCandidate] = []
+    minting: list[tuple[EntityCandidate, tuple[str, str] | None]] = []
     for outcome in engine_result.outcomes:
         resolution = outcome.resolution
         if resolution is None or not resolution.create_new_identity:
@@ -383,13 +405,46 @@ def unkeyed_new_identities(
         candidate = by_id[outcome.candidate_id]
         if not isinstance(candidate, EntityCandidate):
             continue
-        if any(
-            alias.namespace in REGISTERED_IDENTIFIER_NAMESPACES
-            for alias in candidate.aliases
-        ):
-            continue
-        unkeyed.append(candidate)
-    return tuple(unkeyed)
+        keyed: tuple[str, str] | None = None
+        for alias in candidate.aliases:
+            keyed = registered_identifier_for(candidate.entity_type, alias)
+            if keyed is not None:
+                break
+        minting.append((candidate, keyed))
+    return minting
+
+
+def duplicate_registered_identities(
+    candidates: Sequence[Candidate],
+    engine_result: EngineResult,
+    confidence_policy: ConfidencePolicy,
+) -> dict[tuple[str, str], tuple[EntityCandidate, ...]]:
+    """Registered identifiers that **two or more** candidates would mint under.
+
+    The hole review found by walking through the first version of this guard,
+    and the one that mattered: two candidates carrying the *identical* DOI each
+    minted an identity, irreversibly, because ``DerivedIdFactory.identity_id``
+    keys on ``candidate_id`` and nothing in the chain dedupes. That is R20's
+    original defect — auto-minting duplicate identities with no entity
+    resolution — reproduced through the very guard added to prevent it, using
+    the guard's own poster-child type and namespace.
+
+    It survived because no test could see it: the corpus's eight DOIs are all
+    distinct, so "a DOI means these are the same paper" was a criterion
+    quantified over an empty set.
+
+    This function does not *merge* them. Minting one identity from a registered
+    identifier instead of from a candidate id is registry-based entity
+    resolution, and it belongs in ``kgcs``' ``IdFactory``/``ResolutionPolicy``,
+    not in an adopter's guard — see the PR body. What it does is make the
+    unenforceable claim refusable: a batch that would mint twice under one
+    identifier is rejected rather than silently duplicated.
+    """
+    grouped: dict[tuple[str, str], list[EntityCandidate]] = {}
+    for candidate, keyed in _minting(candidates, engine_result, confidence_policy):
+        if keyed is not None:
+            grouped.setdefault(keyed, []).append(candidate)
+    return {key: tuple(group) for key, group in grouped.items() if len(group) > 1}
 
 
 def run_curation(
@@ -459,6 +514,25 @@ def run_curation(
     unkeyed = unkeyed_new_identities(
         candidates, engine_result, confidence_policy or CONTRACT_DEFAULT_POLICY
     )
+    duplicates = duplicate_registered_identities(
+        candidates, engine_result, confidence_policy or CONTRACT_DEFAULT_POLICY
+    )
+    if duplicates:
+        shown = "; ".join(
+            f"{namespace}:{key} claimed by {len(group)} candidates"
+            for (namespace, key), group in sorted(duplicates.items())
+        )
+        raise UnsafeIdentityRelaxation(
+            f"{len(duplicates)} registered identifier(s) would mint more than one "
+            f"canonical identity in this batch: {shown}. The relaxed identity gate "
+            "rests on the claim that two candidates carrying the same registered "
+            "identifier are the same thing — but nothing in this chain dedupes "
+            "them, so each would mint its own identity and CREATE_IDENTITY has no "
+            "inverse. Refused rather than duplicated. Resolving them into one "
+            "identity is entity resolution and belongs upstream; until it exists, "
+            "submit one candidate per identifier."
+        )
+
     if unkeyed:
         offenders = ", ".join(
             f"{c.entity_type}/{c.display_name or c.aliases[0].key}" for c in unkeyed[:5]
@@ -466,7 +540,7 @@ def run_curation(
         raise UnsafeIdentityRelaxation(
             f"{len(unkeyed)} candidate(s) would mint a canonical identity with "
             f"require_identity_confidence_for_auto=False and no registered "
-            f"identifier to key them: {offenders}"
+            f"identifier that could have issued it for that entity type: {offenders}"
             + (" ..." if len(unkeyed) > 5 else "")
             + ". Minting an identity without entity resolution is how two "
             "candidates for one concept become two identities, and "
@@ -516,6 +590,7 @@ __all__ = [
     "ExecutionOutcome",
     "UnsafeIdentityRelaxation",
     "classify",
+    "duplicate_registered_identities",
     "run_curation",
     "unkeyed_new_identities",
 ]

@@ -19,27 +19,32 @@ Three checks, and the scope of each is stated rather than implied:
    no-write paths (flag off, empty plan) really do not write — those are in
    ``test_pipeline.py``.
 
-**How much the static check is worth, after review.** Its first version matched
-only a literal ``store`` appearing as a call *argument*, and an independent
-reviewer walked past it twice with the whole suite green: ``_s = store``, then
-leak ``_s``; and receiver-form ``store.apply(batch, ())``, which nothing in the
-file looked at — the docstring had dismissed a direct ``.apply`` as "obvious",
-and obvious is not caught. A second review then defeated *that* with
-``REG['canonical'] = store``: a subscript target, so no alias was created and no
-other branch looked at it. The scan now follows local aliases (including the
-walrus) to a fixed point, flags receiver-form attribute access against a closed
-allowlist, flags an alias placed in a container or returned, and flags **any
-binding whose target is not a plain local name** — subscript, attribute, or a
-name declared ``global``/``nonlocal``. The class is closed rather than the two
-instances that were demonstrated.
-``test_the_detector_catches_the_evasions_that_walked_past_it`` drives both
-evasions plus a direct write through the detector and requires each to be
-flagged, because a rule asserting an empty offender list is satisfied by a
-matcher that matches nothing.
+**How much the static check is worth, and what it does not claim.** An earlier
+version of this docstring said "the class is closed". That was false, and it was
+false in the most instructive way: it was written immediately after closing the
+two instances a reviewer had demonstrated, and a later reviewer then walked
+through the same check **nine more ways** — list, generator and dict
+comprehensions, lambda bodies, default arguments, ``yield``, aliases created
+through ``IfExp`` and ``BoolOp``, and class-body bindings. Four of them, injected
+into the real ``pipeline.py``, passed the entire suite green; one produced a live
+module-global write surface.
 
-It remains **syntactic and one-hop**. An alias built through a container, a
-closure, ``getattr`` or ``globals()`` is not statically detectable and never will
-be. This guards against accident and drift; it is not a security boundary.
+So the claim is corrected and the mechanism is changed. The scan is now
+**polarity-inverted**: it enumerates the positions a store alias may occupy and
+reports every other occurrence, instead of enumerating the shapes it may not.
+A shape-enumerating check protects against the shapes someone thought of, and
+cannot be finished by thinking harder — the language keeps offering new
+positions. A position whitelist fails the other way round: an unanticipated
+construct is unrecognised, and unrecognised is reported. The twenty-five
+parameters of ``test_the_detector_catches_every_known_evasion`` are regression
+evidence for that change, not the mechanism of it.
+
+The honest statement of strength is therefore: **no use of a store alias in this
+subpackage occupies a position outside a whitelist of four**, and the module set
+that rule runs over is derived from the code rather than transcribed. It remains
+**syntactic and one-hop**: an alias built through a closure, ``getattr`` or
+``globals()`` is not detectable by any AST walk, and this is not a security
+boundary. What changed is the direction it fails in.
 
 What this does **not** prove: that no module anywhere else in the repo can
 obtain a canonical store. That claim belongs to
@@ -49,8 +54,6 @@ two application trees AC-1 names. Nothing here widens it.
 
 from __future__ import annotations
 
-import ast
-
 import pytest
 from agentic_kg.migration.config import MigrationConfig
 from agentic_kg.migration.curation import curated_arm, roll_back, run_curation
@@ -59,46 +62,17 @@ from kg_contracts.stores import GraphMutationStore
 from . import _scan
 from ._synthetic import graded_entity_candidate
 
-#: Modules permitted to hold a ``GraphMutationStore`` at all. Both hand it
-#: straight to ``PlanExecutor``; the list is short so that adding a third is a
-#: deliberate edit with a reason.
-STORE_BEARING_MODULES = frozenset({"pipeline", "rollback"})
-
-#: What a store alias may legally be passed to, and why. Everything else is a
-#: leak: a store handed to a helper, a sink, or a returned object becomes
-#: reachable by whatever holds that.
+#: What a store alias may legally be passed to, and why.
 #:
 #: * ``PlanExecutor`` — the only write path in the architecture.
 #: * ``isinstance`` — a type test. Retains no reference.
-#: * ``_current_snapshot`` — module-local and read-only; it asks the store for
-#:   its current epoch so the plan can be stamped with the snapshot it was
-#:   computed against. ``test_the_snapshot_helper_is_local_and_read_only``
-#:   checks both halves of that claim rather than taking the name for it.
+#: * ``_current_snapshot`` — module-local and read-only.
 PERMITTED_STORE_CALLEES = frozenset({"PlanExecutor", "isinstance", "_current_snapshot"})
 
 #: What a store alias may legally be *dereferenced* for. Exactly one read.
 #: ``apply`` is deliberately absent: the executor calls it, this subpackage
-#: never does. Widening this set is how the architectural law gets lost, so it
-#: is a closed list and adding to it is a deliberate edit.
+#: never does.
 PERMITTED_STORE_ATTRS = frozenset({"current_epoch"})
-
-
-def _store_bearing(path) -> bool:
-    return "GraphMutationStore" in path.read_text(encoding="utf-8")
-
-
-def test_only_the_executor_callers_name_a_write_surface() -> None:
-    offenders = sorted(
-        p.name
-        for p in _scan.modules()
-        if p.stem not in STORE_BEARING_MODULES
-        and p.stem != _scan.GATE_MODULE
-        and _store_bearing(p)
-    )
-    assert offenders == [], (
-        f"these modules name a canonical write surface but are not executor "
-        f"callers: {offenders}"
-    )
 
 
 def _offenders_in(source: str, filename: str = "<test>") -> list[str]:
@@ -107,146 +81,116 @@ def _offenders_in(source: str, filename: str = "<test>") -> list[str]:
     One function, used by the rule and by its controls alike, so the thing
     proved able to fire is the thing that runs over the subpackage.
     """
-    tree = ast.parse(source, filename=filename)
-    aliases = _scan.store_aliases(tree)
-    found: list[str] = []
-    for lineno, kind, name in _scan.store_reachings(tree, aliases):
-        if kind == "arg" and name not in PERMITTED_STORE_CALLEES:
-            found.append(f"{filename}:{lineno} passed to {name}")
-        elif kind == "attr" and name not in PERMITTED_STORE_ATTRS:
-            found.append(f"{filename}:{lineno} dereferenced .{name}")
-        elif kind == "escape":
-            found.append(f"{filename}:{lineno} escaped via {name}")
-    return sorted(found)
+    return _scan.store_offenders(
+        source,
+        filename,
+        permitted_callees=PERMITTED_STORE_CALLEES,
+        permitted_attributes=PERMITTED_STORE_ATTRS,
+    )
+
+
+def test_the_scan_derives_the_modules_it_reads() -> None:
+    """The module set is derived from parameters, not transcribed.
+
+    A transcribed list was the fifth hole an independent reviewer found: a new
+    module taking an unannotated ``store`` parameter sat outside it, so nothing
+    looked at the ``store.apply(...)`` inside. Deriving it means a module that
+    starts handling a store starts being scanned in the same commit.
+    """
+    bearing = {p.stem for p in _scan.store_bearing_modules(_scan.modules())}
+    assert bearing == {"pipeline", "rollback"}, (
+        f"the set of modules a store reaches changed: {sorted(bearing)}. That is "
+        f"not necessarily wrong, but it is never incidental."
+    )
 
 
 def test_the_store_is_only_ever_handed_to_the_plan_executor() -> None:
-    """A store alias flows into ``PlanExecutor(...)`` and nowhere else.
+    """A store alias appears only in a permitted position, anywhere it reaches.
 
-    Covers three shapes, the last two added after an independent reviewer walked
-    past the first with the suite green: the store passed as an argument to
-    something that is not the executor; an *alias* of the store leaked the same
-    way; and the store used as a receiver for anything but the one permitted
-    read.
+    Polarity-inverted: the rule enumerates where a store *may* appear and
+    reports everything else, so a construct nobody anticipated is reported
+    rather than missed. See ``_scan`` for why three shape-enumerating versions
+    were abandoned.
     """
     offenders: list[str] = []
-    for path in _scan.modules():
-        if path.stem not in STORE_BEARING_MODULES:
-            continue
+    for path in _scan.store_bearing_modules(_scan.modules()):
         offenders.extend(_offenders_in(path.read_text(encoding="utf-8"), path.name))
     assert offenders == [], (
-        f"the canonical store (or an alias of it) escaped the executor: {offenders}"
+        f"the canonical store (or an alias of it) reached a position that is not "
+        f"on the whitelist: {offenders}"
     )
 
 
-@pytest.mark.parametrize(
-    ("source", "expected_fragment"),
-    [
-        # Round one: passed as an argument, aliased, or dereferenced.
-        ("def f(store):\n    return SomeSink(store)\n", "passed to SomeSink"),
-        ("def f(store):\n    _s = store\n    return SomeSink(_s)\n", "passed to SomeSink"),
-        ("def f(store):\n    a = store\n    b = a\n    return Sink(b)\n", "passed to Sink"),
-        ("def f(store, batch):\n    return store.apply(batch, ())\n", "dereferenced .apply"),
-        ("def f(store):\n    return store.read_only()\n", "dereferenced .read_only"),
-        ("def f(store):\n    _s = store\n    _sink = (_s,)\n", "escaped via tuple"),
-        ("def f(store):\n    _sink = {'s': store}\n", "escaped via dict"),
-        ("def f(store):\n    return store\n", "escaped via return"),
-        # Round two: the binding target is not a plain local name. The first is
-        # the reviewer's exact evasion; the rest are the remainder of its class.
-        (
-            "REG = {}\ndef f(store):\n    REG['canonical'] = store\n",
-            "escaped via subscript assignment",
-        ),
-        (
-            "def f(store, holder):\n    holder.canonical = store\n",
-            "escaped via attribute assignment",
-        ),
-        (
-            "REG = None\ndef f(store):\n    global REG\n    REG = store\n",
-            "escaped via global binding",
-        ),
-        ("def f(store):\n    return Sink(alias := store)\n", "passed to Sink"),
-        ("def f(store):\n    (alias := store)\n    return Sink(alias)\n", "passed to Sink"),
-    ],
-    ids=[
-        "direct-arg",
-        "one-hop-alias",
-        "two-hop-alias",
-        "receiver-apply",
-        "receiver-other",
-        "alias-into-container",
-        "into-dict",
-        "returned",
-        "subscript-assign",
-        "attribute-assign",
-        "global-binding",
-        "walrus-inline",
-        "walrus-then-leak",
-    ],
-)
-def test_the_detector_catches_the_evasions_that_walked_past_it(
-    source: str, expected_fragment: str
-) -> None:
-    """The detector discriminates — pointed at each evasion, it fires.
+EVASIONS = {
+    # The two an independent reviewer used against version three.
+    "subscript-assign": "REG = {}\ndef f(store):\n    REG['canonical'] = store\n",
+    "global-binding": "REG = None\ndef f(store):\n    global REG\n    REG = store\n",
+    # The nine it found against version four, each of which passed that suite.
+    "list-comprehension": "def f(store):\n    return [s for s in (store,)]\n",
+    "gen-comprehension": "def f(store):\n    return (s for s in [store])\n",
+    "dict-comprehension": "def f(store):\n    return {'s': v for v in [store]}\n",
+    "lambda-body": "def f(store):\n    return lambda: store\n",
+    "default-argument": "def f(store):\n    def g(s=store):\n        return s\n    return g\n",
+    "yield": "def f(store):\n    yield store\n",
+    "ifexp-alias": "def f(store, flag):\n    a = store if flag else None\n    return Sink(a)\n",
+    "boolop-alias": "def f(store):\n    a = store or None\n    return Sink(a)\n",
+    "class-body": (
+        "def f(store):\n    class Holder:\n        canonical = store\n    return Holder\n"
+    ),
+    # Earlier rounds, kept so no regression re-opens them.
+    "direct-arg": "def f(store):\n    return SomeSink(store)\n",
+    "one-hop-alias": "def f(store):\n    _s = store\n    return SomeSink(_s)\n",
+    "two-hop-alias": "def f(store):\n    a = store\n    b = a\n    return Sink(b)\n",
+    "receiver-apply": "def f(store, batch):\n    return store.apply(batch, ())\n",
+    "receiver-other": "def f(store):\n    return store.read_only()\n",
+    "alias-into-container": "def f(store):\n    _s = store\n    _sink = (_s,)\n",
+    "into-dict": "def f(store):\n    _sink = {'s': store}\n",
+    "returned": "def f(store):\n    return store\n",
+    "walrus-inline": "def f(store):\n    return Sink(alias := store)\n",
+    "walrus-then-leak": "def f(store):\n    (alias := store)\n    return Sink(alias)\n",
+    "attribute-assign": "def f(store, holder):\n    holder.canonical = store\n",
+    "star-arg": "def f(store):\n    return Sink(*[store])\n",
+    "annotated-param": (
+        "def f(db: GraphMutationStore, batch):\n    return db.apply(batch, ())\n"
+    ),
+    "unannotated-new-module": "def helper(store, plan):\n    return store.apply(plan, ())\n",
+    "globals-lambda": "def f(store):\n    globals()['_G'] = lambda: store\n",
+}
 
-    Two rounds of independent review are encoded here, and the second round is
-    why the parameter list is shaped by *class* rather than by instance. Round
-    one defeated the original matcher with ``_s = store`` and with receiver-form
-    ``store.apply(...)``; both were fixed, and round two then defeated the fix
-    with ``REG['canonical'] = store`` — a subscript target, so no alias was
-    created and no other branch looked at it. Patching that one line would have
-    left ``holder.attr = store``, ``global REG; REG = store`` and the walrus
-    open, which is the pattern this programme keeps paying for. All four target
-    forms are covered, each with its own parameter.
 
-    Without these parameters the rule above asserts an empty list, and an empty
-    list is exactly what a matcher that matches nothing also produces.
+@pytest.mark.parametrize("name", sorted(EVASIONS))
+def test_the_detector_catches_every_known_evasion(name: str) -> None:
+    """Twenty-five shapes, from four rounds of review. Each must be reported.
+
+    Eleven of these defeated an earlier version of this scan. They are kept as
+    parameters rather than fixed one at a time, because the lesson of those
+    rounds is that the list is never finished — which is why the rule is now a
+    position whitelist and these are regression evidence rather than the
+    mechanism.
     """
-    offenders = _offenders_in(source)
-    assert offenders, f"the detector missed: {source!r}"
-    assert any(expected_fragment in o for o in offenders), offenders
+    offenders = _offenders_in(EVASIONS[name])
+    assert offenders, f"the detector missed {name}: {EVASIONS[name]!r}"
 
 
 def test_the_detector_passes_the_legal_shapes() -> None:
-    """The control for the control: the permitted uses are not flagged.
+    """The control for the control: permitted uses are not flagged.
 
-    A detector that flagged everything would satisfy every test above and would
-    make the rule unpassable for correct code — which is how an over-broad check
-    gets loosened back into uselessness.
+    A whitelist that flagged everything would satisfy every test above and make
+    the rule unpassable for correct code — which is how an over-broad check gets
+    loosened back into uselessness. This is the real shape of ``pipeline.py``'s
+    own usage.
     """
     legal = (
-        "def f(store):\n"
+        "def f(store, plan):\n"
+        "    snapshot = _current_snapshot(store)\n"
+        "    executor = PlanExecutor(store, clock=None)\n"
+        "    return executor, snapshot\n"
+        "def _current_snapshot(store):\n"
         "    if isinstance(store, GraphReader):\n"
         "        return str(store.current_epoch())\n"
-        "    return PlanExecutor(store)\n"
+        "    return '0'\n"
     )
     assert _offenders_in(legal) == []
-
-
-def test_the_snapshot_helper_is_local_and_read_only() -> None:
-    """``_current_snapshot`` is defined where it is used and cannot write.
-
-    The allowlist above would otherwise let a store be handed to *any* function
-    that happened to be named ``_current_snapshot`` — including an imported one
-    from somewhere that does hold a write surface.
-    """
-    pipeline = next(p for p in _scan.modules() if p.stem == "pipeline")
-    source = pipeline.read_text(encoding="utf-8")
-    tree = ast.parse(source, filename=str(pipeline))
-    helper = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.FunctionDef) and node.name == "_current_snapshot"
-    )
-    called = {
-        node.func.attr
-        for node in ast.walk(helper)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-    }
-    assert called == {"current_epoch"}, (
-        f"_current_snapshot calls {sorted(called)} on the store; only a read is "
-        f"permitted"
-    )
 
 
 def test_no_returned_object_is_or_holds_a_write_surface(memory_store: object) -> None:

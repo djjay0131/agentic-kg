@@ -35,6 +35,7 @@ from agentic_kg.migration.curation.pipeline import (
     Deferral,
     UnsafeIdentityRelaxation,
     classify,
+    duplicate_registered_identities,
     run_curation,
     unkeyed_new_identities,
 )
@@ -42,9 +43,11 @@ from agentic_kg.migration.curation.policy import (
     CONTRACT_DEFAULT_POLICY,
     CURATION_GRAPH_ID,
     REGISTERED_IDENTIFIER_NAMESPACES,
+    REGISTERED_IDENTIFIERS,
     RUN_INSTANT,
     STRUCTURED_IDENTITY_POLICY,
     curation_engine,
+    registered_identifier_for,
 )
 from agentic_kg.migration.curation.rollback import (
     NotRollbackable,
@@ -57,6 +60,7 @@ __all__ = [
     "CONTRACT_DEFAULT_POLICY",
     "CURATION_GRAPH_ID",
     "GRADED_ENTITY_TYPES",
+    "REGISTERED_IDENTIFIERS",
     "REGISTERED_IDENTIFIER_NAMESPACES",
     "RUN_INSTANT",
     "STRUCTURED_IDENTITY_POLICY",
@@ -70,7 +74,9 @@ __all__ = [
     "UnsafeIdentityRelaxation",
     "classify",
     "curated_arm",
+    "duplicate_registered_identities",
     "curation_engine",
+    "registered_identifier_for",
     "roll_back",
     "run_curation",
     "unkeyed_new_identities",

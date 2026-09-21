@@ -120,22 +120,68 @@ def _import_roots_of(node: ast.Import | ast.ImportFrom) -> set[str]:
 # --------------------------------------------------------------------------
 # Store-reachability scan (see test_no_application_write_surface.py)
 # --------------------------------------------------------------------------
+#
+# **Polarity.** This scan does not enumerate the shapes a store may not appear
+# in. It enumerates the positions a store may appear in, and reports every other
+# occurrence.
+#
+# That inversion is the whole design, and it was arrived at the hard way. Three
+# successive versions enumerated bad shapes; each was defeated, and the third —
+# which claimed in its own docstring that "the class is closed" — was walked
+# through by an independent reviewer **nine more ways**: list, generator and
+# dict comprehensions, lambda bodies, default arguments, ``yield``, aliases
+# created through ``IfExp`` and ``BoolOp``, and class-body bindings. Four of
+# them, injected into the real ``pipeline.py``, passed the entire suite green,
+# and one produced a live module-global write surface.
+#
+# A shape-enumerating check protects against the shapes someone thought of. It
+# cannot be completed by thinking harder, because the language keeps offering
+# new positions. A position whitelist fails the other way: a construct nobody
+# anticipated is unrecognised, and unrecognised is *reported*.
+#
+# What this still is not: it is syntactic and one-hop. An alias built through a
+# closure, ``getattr``, or ``globals()`` is not statically detectable by any AST
+# walk, and this is not a security boundary. What changed is the direction it
+# fails in.
 
-#: The parameter name a canonical ``GraphMutationStore`` arrives under in this
-#: subpackage. Every module that takes one calls it ``store``.
 STORE_PARAM = "store"
+
+#: Substring identifying a parameter annotated as a canonical write surface, so
+#: a parameter that holds one under another name is still a root. The fifth hole
+#: review found was structural rather than syntactic: a *new* module with an
+#: unannotated ``store`` parameter calling ``store.apply(...)`` was scanned by
+#: neither check, because the module list was transcribed. Roots are now derived
+#: from parameters, and so is the set of modules worth scanning.
+STORE_ANNOTATION = "GraphMutationStore"
+
+
+def _parent_map(tree: ast.AST) -> dict[ast.AST, ast.AST]:
+    return {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+
+
+def _parameters(node: ast.AST):
+    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        return
+    a = node.args
+    for arg in [*a.posonlyargs, *a.args, *a.kwonlyargs, a.vararg, a.kwarg]:
+        if arg is not None:
+            yield arg
+
+
+def store_roots(tree: ast.AST) -> set[str]:
+    """Parameter names that receive a canonical store, by name or annotation."""
+    roots: set[str] = set()
+    for node in ast.walk(tree):
+        for arg in _parameters(node):
+            if arg.arg == STORE_PARAM:
+                roots.add(arg.arg)
+            elif arg.annotation is not None and STORE_ANNOTATION in ast.unparse(arg.annotation):
+                roots.add(arg.arg)
+    return roots
 
 
 def assignments(tree: ast.AST):
-    """Every ``(node, target, value)`` binding in ``tree``, one row per target.
-
-    Covers the four binding forms a store can travel through — ``x = store``,
-    ``x: T = store``, ``x += store`` and the walrus ``(x := store)``. The walrus
-    is here because it was the fourth of four evasions an independent reviewer
-    used against the previous version: ``store_aliases`` read only ``Assign``
-    and ``AnnAssign``, so ``(alias := store)`` bound a name the scanner had
-    never heard of and every later use of it was invisible.
-    """
+    """Every ``(node, target, value)`` binding in ``tree``, one row per target."""
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
             for target in node.targets:
@@ -151,14 +197,9 @@ def assignments(tree: ast.AST):
 def rebound_names(tree: ast.AST) -> set[str]:
     """Names declared ``global`` or ``nonlocal`` anywhere in ``tree``.
 
-    Assigning a store to one of these does not create a local alias — it
-    publishes the store into an enclosing or module scope, where anything can
-    reach it. The set is collected module-wide rather than per-scope, which is
-    deliberately *over*-broad: a name that is ``global`` in one function and a
-    plain local in another is treated as escaping in both. Over-broad is the
-    safe direction for this check, and
-    ``test_the_detector_passes_the_legal_shapes`` keeps it from becoming
-    over-broad enough to flag correct code.
+    Assigning a store to one of these publishes it into an enclosing scope, so
+    such a binding is an escape rather than a local alias. Collected
+    module-wide, which is deliberately over-broad in the safe direction.
     """
     names: set[str] = set()
     for node in ast.walk(tree):
@@ -167,29 +208,17 @@ def rebound_names(tree: ast.AST) -> set[str]:
     return names
 
 
-def store_aliases(tree: ast.AST, root: str = STORE_PARAM) -> set[str]:
-    """``root`` plus every name transitively assigned from it in ``tree``.
+def store_aliases(tree: ast.AST, roots: set[str] | None = None) -> set[str]:
+    """Every local name that transitively holds a store.
 
-    Review of the first version of this scanner defeated it with one line:
-    ``_s = store`` and then leaking ``_s``, which the matcher never saw because
-    it looked only for the literal name ``store``. Assignment is followed to a
-    fixed point, so a chain (``a = store; b = a``) is tracked too, and — since
-    the second review — so is a walrus binding.
-
-    A name declared ``global`` or ``nonlocal`` is tracked here like any other,
-    *and* reported as an escape by :func:`store_reachings` — both, deliberately.
-    An earlier draft excluded it from the alias set as well, which read like
-    safety work and was inert: the escape is flagged from ``store_reachings``'
-    own scan, so the exclusion changed no outcome and only removed later uses of
-    the name from view. The round-3 mutation battery caught it by reporting the
-    mutation of that line as *survived* — a line no test could kill is a line
-    doing nothing.
-
-    Still syntactic, and still not a security boundary: an alias built through
-    a closure, ``getattr`` or ``globals()`` is not detectable this way. It
-    catches accident and drift, which is what happens.
+    Only a binding whose target is a plain local ``Name`` and whose value is
+    already an alias extends the set. Everything else that *contains* an alias —
+    a comprehension, a lambda, a subscript target, a ``global`` rebind — is not
+    an alias to keep following; it is an escape, and :func:`store_offenders`
+    reports it as one.
     """
-    aliases = {root}
+    aliases = set(roots if roots is not None else store_roots(tree))
+    escaping = rebound_names(tree)
     changed = True
     while changed:
         changed = False
@@ -197,76 +226,127 @@ def store_aliases(tree: ast.AST, root: str = STORE_PARAM) -> set[str]:
             if not _is_alias(value, aliases):
                 continue
             if isinstance(target, ast.Name) and target.id not in aliases:
+                if target.id in escaping:
+                    continue
                 aliases.add(target.id)
                 changed = True
     return aliases
 
 
 def _is_alias(expr: ast.expr | None, aliases: set[str]) -> bool:
-    """Does ``expr`` evaluate to a store alias, seeing through a walrus?
-
-    ``Sink(alias := store)`` passes the store as an argument, but the argument
-    node is a ``NamedExpr``, not a ``Name`` — which is how the inline walrus
-    slipped past the first attempt at closing this class. Unwrapping here means
-    every use site (argument, element, return, receiver) gets the same reading
-    instead of each growing its own special case.
-    """
+    """Does ``expr`` evaluate to a store alias, seeing through a walrus?"""
     while isinstance(expr, ast.NamedExpr):
         expr = expr.value
     return isinstance(expr, ast.Name) and expr.id in aliases
 
 
-def store_reachings(tree: ast.AST, aliases: set[str]) -> list[tuple[int, str, str]]:
-    """Every place a store alias is used, as ``(line, kind, name)``.
+def store_offenders(
+    source: str,
+    filename: str,
+    *,
+    permitted_callees: frozenset[str],
+    permitted_attributes: frozenset[str],
+) -> list[str]:
+    """Every use of a store alias that is not in a permitted position.
 
-    Three kinds, because the first version of this scan only had one:
+    The three permitted positions, and nothing else:
 
-    * ``"arg"`` — the alias passed as a positional or keyword argument. ``name``
-      is the callee.
-    * ``"attr"`` — the alias used as a *receiver*, ``store.something``. ``name``
-      is the attribute. Nothing checked this before, so a literal
-      ``store.apply(batch, ())`` — a direct canonical write, on a dead branch or
-      otherwise — passed the whole suite green. The module docstring called that
-      "obvious"; obvious is not caught.
-    * ``"escape"`` — the alias leaves this function without a call. Two rounds
-      of review found this family one instance at a time, so it is now closed
-      as a *class* rather than as the cases that happened to be demonstrated:
-      a container display or a ``return`` (round one, ``_s = store`` then
-      ``_sink = (_s,)``), and **any binding whose target is not a plain local
-      name** (round two, ``REG['canonical'] = store`` — a subscript target, so
-      no alias was created and nothing else in the scan looked at it). The
-      target forms now covered are subscript, attribute, and a name declared
-      ``global``/``nonlocal``; the walrus is handled by :func:`store_aliases`,
-      which now tracks it. ``name`` says which shape.
+    * an argument to a callee in ``permitted_callees``;
+    * the receiver of an attribute in ``permitted_attributes``;
+    * the value of a binding whose target is a plain local name — which creates
+      another alias, and every use of *that* is checked by this same rule;
+    * either side of an ``is`` / ``is not`` comparison against ``None``, which
+      retains no reference. This is the one position real code needed that the
+      first draft of the whitelist did not have, and it was found the right way
+      round: the rule reported ``if store is not None`` in ``pipeline.py`` and
+      the position was added deliberately, rather than the construct slipping
+      through unnoticed.
     """
-    found: list[tuple[int, str, str]] = []
+    tree = ast.parse(source, filename=filename)
+    aliases = store_aliases(tree)
+    if not aliases:
+        return []
+    parents = _parent_map(tree)
     escaping = rebound_names(tree)
-    for node, target, value in assignments(tree):
-        if not _is_alias(value, aliases):
-            continue
-        if isinstance(target, ast.Subscript):
-            found.append((node.lineno, "escape", "subscript assignment"))
-        elif isinstance(target, ast.Attribute):
-            found.append((node.lineno, "escape", "attribute assignment"))
-        elif isinstance(target, ast.Name) and target.id in escaping:
-            found.append((node.lineno, "escape", f"global binding of {target.id!r}"))
+
+    offenders: list[str] = []
     for node in ast.walk(tree):
-        if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
-            if any(_is_alias(e, aliases) for e in node.elts):
-                found.append((node.lineno, "escape", type(node).__name__.lower()))
-        elif isinstance(node, ast.Dict):
-            if any(_is_alias(v, aliases) for v in node.values):
-                found.append((node.lineno, "escape", "dict"))
-        elif isinstance(node, ast.Return):
-            if _is_alias(node.value, aliases):
-                found.append((node.lineno, "escape", "return"))
-        elif isinstance(node, ast.Attribute):
-            if _is_alias(node.value, aliases):
-                found.append((node.lineno, "attr", node.attr))
-        elif isinstance(node, ast.Call):
-            used = any(_is_alias(a, aliases) for a in node.args) or any(
-                _is_alias(k.value, aliases) for k in node.keywords
-            )
-            if used:
-                found.append((node.lineno, "arg", _call_name(node) or "<expr>"))
+        if not (isinstance(node, ast.Name) and node.id in aliases):
+            continue
+        if not isinstance(node.ctx, ast.Load):
+            continue
+        verdict = _position(node, parents, escaping, permitted_callees, permitted_attributes)
+        if verdict is not None:
+            offenders.append(f"{filename}:{node.lineno} {verdict}")
+    return sorted(offenders)
+
+
+def _position(node, parents, escaping, permitted_callees, permitted_attributes) -> str | None:
+    """``None`` if this use is permitted, else why it is reported."""
+    parent = parents.get(node)
+
+    # A walrus is transparent: judge the binding it sits in.
+    while isinstance(parent, ast.NamedExpr) and parent.value is node:
+        node, parent = parent, parents.get(parent)
+
+    if isinstance(parent, ast.Call) and any(
+        arg is node for arg in parent.args
+    ) or (
+        isinstance(parent, ast.keyword) and parent.value is node
+    ):
+        call = parent if isinstance(parent, ast.Call) else parents.get(parent)
+        callee = _call_name(call) if isinstance(call, ast.Call) else None
+        if callee in permitted_callees:
+            return None
+        return f"passed to {callee or '<expr>'}"
+
+    if isinstance(parent, ast.Compare):
+        operands = [parent.left, *parent.comparators]
+        only_identity = all(isinstance(op, (ast.Is, ast.IsNot)) for op in parent.ops)
+        against_none = all(
+            isinstance(other, ast.Constant) and other.value is None
+            for other in operands
+            if other is not node
+        )
+        if only_identity and against_none:
+            return None
+        return "compared with something other than None"
+
+    if isinstance(parent, ast.Attribute) and parent.value is node:
+        if parent.attr in permitted_attributes:
+            return None
+        return f"dereferenced .{parent.attr}"
+
+    if isinstance(parent, (ast.Assign, ast.AnnAssign, ast.AugAssign, ast.NamedExpr)):
+        targets = parent.targets if isinstance(parent, ast.Assign) else [parent.target]
+        # A binding in a class body is a class attribute, not a local alias:
+        # it outlives the function and is reachable from the class object.
+        in_class_body = isinstance(parents.get(parent), ast.ClassDef)
+        if not in_class_body and all(
+            isinstance(t, ast.Name) and t.id not in escaping for t in targets
+        ):
+            return None
+        if in_class_body:
+            return "bound into a class attribute"
+        shapes = ", ".join(
+            "global binding" if isinstance(t, ast.Name) else type(t).__name__.lower()
+            for t in targets
+        )
+        return f"bound into {shapes}"
+
+    return f"used in {type(parent).__name__ if parent is not None else 'module'}"
+
+
+def store_bearing_modules(paths) -> list:
+    """The modules a store actually reaches, derived rather than transcribed.
+
+    A transcribed list is the fifth hole review found: a new module taking an
+    unannotated ``store`` parameter was outside it, so nothing scanned the
+    ``store.apply(...)`` inside.
+    """
+    found = []
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        if store_roots(tree):
+            found.append(path)
     return found

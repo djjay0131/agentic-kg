@@ -230,3 +230,160 @@ def test_the_namespace_allowlist_is_what_admits_the_paper_arm() -> None:
             confidence_policy=STRUCTURED_IDENTITY_POLICY,
         )
     assert "Paper" in str(excinfo.value)
+
+
+# --------------------------------------------------------------------------
+# The four ways an independent reviewer walked through the first version
+# --------------------------------------------------------------------------
+#
+# The first version checked only that *some* alias carried a registered
+# namespace. Each test below is one of the reviewer's attacks, and each names
+# which of the four checks now stops it: namespace, entity type, key spelling,
+# and — the one that mattered — uniqueness within the batch.
+
+
+def doi_keyed(entity_type: str = "Paper", *, doi: str, key: str) -> object:
+    """A candidate whose alias claims the DOI registry.
+
+    ``entity_type`` is a parameter because the attacks turn on the combination:
+    a DOI-namespaced alias on a ``Topic`` is the whole of attack A.
+    """
+    from kg_contracts.candidates import EntityCandidate, SourceCoordinates
+    from kg_contracts.identity import EntityRef
+
+    from ._synthetic import GRAPH_ID
+
+    return EntityCandidate(
+        graph_id=GRAPH_ID,
+        producer="test-producer",
+        producer_run_id="run-synthetic",
+        ontology_version="1",
+        source_coordinates=SourceCoordinates(source_type="paper", locator="paper://doi/x"),
+        semantic_key=f"{entity_type.lower()}/{key}",
+        scores=unkeyed_scores(),
+        entity_type=entity_type,
+        aliases=(EntityRef(entity_type=entity_type, namespace="doi", key=doi),),
+        display_name=key,
+        properties={},
+    )
+
+
+@pytest.mark.parametrize(
+    ("entity_type", "doi", "why"),
+    [
+        ("Topic", "banana", "attack A: a key the DOI registry could never issue"),
+        ("Topic", "  not-a-doi  ", "attack B: whitespace around a non-DOI"),
+        ("Topic", "10.1007/978-3-031-19433-7_39", "attack D: a real DOI on a Topic"),
+    ],
+    ids=["nonsense-key", "whitespace-key", "real-doi-wrong-type"],
+)
+def test_a_doi_namespace_alone_no_longer_admits_a_candidate(
+    entity_type: str, doi: str, why: str
+) -> None:
+    """Namespace is necessary and not sufficient — measured, not argued.
+
+    All three passed the first version of this guard. A namespace is a *claim*
+    about which registry settles an identity; a key that registry could not have
+    issued is not that identity, and a registry that identifies works says
+    nothing about whether two topics are one topic.
+    """
+    with pytest.raises(UnsafeIdentityRelaxation):
+        run_curation(
+            [doi_keyed(entity_type, doi=doi, key="t1")],
+            config=enabled(),
+            confidence_policy=STRUCTURED_IDENTITY_POLICY,
+        )
+
+
+def test_a_real_doi_on_a_paper_is_still_admitted() -> None:
+    """The control. Tightening the check must not close the case it exists for."""
+    result = run_curation(
+        [doi_keyed("Paper", doi="10.1007/978-3-031-19433-7_39", key="p1")],
+        config=enabled(),
+        confidence_policy=STRUCTURED_IDENTITY_POLICY,
+    )
+    assert result.operation_counts() == {"CREATE_IDENTITY": 1}
+
+
+def test_two_papers_with_the_same_doi_are_refused_not_duplicated() -> None:
+    """**Attack C.** The original defect, reproduced through its own fix.
+
+    Two candidates carrying the identical DOI each minted an identity —
+    irreversibly, since ``CREATE_IDENTITY`` has no inverse — because
+    ``DerivedIdFactory.identity_id`` keys on ``candidate_id`` and nothing
+    dedupes. ``policy.py`` stated "two candidates carrying the same DOI are the
+    same paper" as the entire content of the relaxation's justification, and the
+    pipeline did not act on it.
+
+    No existing test could have caught this: the corpus's eight DOIs are all
+    distinct, so the claim was quantified over an empty set. **This corpus
+    contains a repeated DOI**, which is the point of it.
+    """
+    doi = "10.1007/978-3-031-19433-7_39"
+    batch = [doi_keyed("Paper", doi=doi, key="p1"), doi_keyed("Paper", doi=doi, key="p2")]
+
+    with pytest.raises(UnsafeIdentityRelaxation) as excinfo:
+        run_curation(batch, config=enabled(), confidence_policy=STRUCTURED_IDENTITY_POLICY)
+    message = str(excinfo.value)
+    assert "doi:" + doi in message
+    assert "claimed by 2 candidates" in message
+    assert "CREATE_IDENTITY has no inverse" in message
+
+
+def test_the_same_doi_in_different_case_is_the_same_identifier() -> None:
+    """DOIs are case-insensitive, and this corpus exercises it.
+
+    The importer emitted ``10.1109/ACCESS...`` where the curation table says
+    ``10.1109/access...``. A duplicate check that compared raw bytes would let
+    exactly that pair through — two identities for one paper, on a difference
+    the DOI system says does not exist.
+    """
+    batch = [
+        doi_keyed("Paper", doi="10.1109/ACCESS.2022.3220241", key="p1"),
+        doi_keyed("Paper", doi="10.1109/access.2022.3220241", key="p2"),
+    ]
+    with pytest.raises(UnsafeIdentityRelaxation):
+        run_curation(batch, config=enabled(), confidence_policy=STRUCTURED_IDENTITY_POLICY)
+
+
+def test_two_papers_with_different_dois_are_not_refused() -> None:
+    """The control for the duplicate rule: distinct identifiers still commit.
+
+    Without this, the rule above would be satisfied by a check that refused any
+    batch with two papers in it — which is every real batch.
+    """
+    batch = [
+        doi_keyed("Paper", doi="10.1007/978-3-031-19433-7_39", key="p1"),
+        doi_keyed("Paper", doi="10.1038/s41597-025-05200-8", key="p2"),
+    ]
+    result = run_curation(
+        batch, config=enabled(), confidence_policy=STRUCTURED_IDENTITY_POLICY
+    )
+    assert result.operation_counts() == {"CREATE_IDENTITY": 2}
+
+
+def test_the_duplicate_rule_is_inert_under_the_contract_default() -> None:
+    """With the gate on nothing mints, so there is nothing to duplicate."""
+    doi = "10.1007/978-3-031-19433-7_39"
+    batch = [doi_keyed("Paper", doi=doi, key="p1"), doi_keyed("Paper", doi=doi, key="p2")]
+    result = run_curation(
+        batch, config=enabled(), confidence_policy=CONTRACT_DEFAULT_POLICY
+    )
+    assert result.plan is None
+
+
+def test_the_real_corpus_has_distinct_dois_which_is_why_it_missed_this() -> None:
+    """Named so the gap is recorded, not just closed.
+
+    The control corpus cannot exercise the duplicate rule, and a reader who sees
+    it pass should not conclude the rule was tested. It was tested by the
+    synthetic batch above; this asserts *why* the corpus could not do it.
+    """
+    from agentic_kg.migration.ingestion.corpus import load_corpus
+
+    dois = [paper.doi.casefold() for paper in load_corpus()]
+    assert len(dois) == 8
+    assert len(set(dois)) == 8, (
+        "the corpus now repeats a DOI; the duplicate rule is no longer quantified "
+        "over an empty set there, and this test's premise needs rewriting"
+    )
