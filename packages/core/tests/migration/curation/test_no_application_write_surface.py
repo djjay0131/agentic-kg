@@ -24,10 +24,14 @@ only a literal ``store`` appearing as a call *argument*, and an independent
 reviewer walked past it twice with the whole suite green: ``_s = store``, then
 leak ``_s``; and receiver-form ``store.apply(batch, ())``, which nothing in the
 file looked at — the docstring had dismissed a direct ``.apply`` as "obvious",
-and obvious is not caught. It now follows single-assignment aliases to a fixed
-point, flags receiver-form attribute access against a closed allowlist, and
-flags an alias placed in a container or returned — which needs no call at all,
-and was the exact shape of the reviewer's second evasion.
+and obvious is not caught. A second review then defeated *that* with
+``REG['canonical'] = store``: a subscript target, so no alias was created and no
+other branch looked at it. The scan now follows local aliases (including the
+walrus) to a fixed point, flags receiver-form attribute access against a closed
+allowlist, flags an alias placed in a container or returned, and flags **any
+binding whose target is not a plain local name** — subscript, attribute, or a
+name declared ``global``/``nonlocal``. The class is closed rather than the two
+instances that were demonstrated.
 ``test_the_detector_catches_the_evasions_that_walked_past_it`` drives both
 evasions plus a direct write through the detector and requires each to be
 flagged, because a rule asserting an empty offender list is satisfied by a
@@ -112,7 +116,7 @@ def _offenders_in(source: str, filename: str = "<test>") -> list[str]:
         elif kind == "attr" and name not in PERMITTED_STORE_ATTRS:
             found.append(f"{filename}:{lineno} dereferenced .{name}")
         elif kind == "escape":
-            found.append(f"{filename}:{lineno} escaped into a {name}")
+            found.append(f"{filename}:{lineno} escaped via {name}")
     return sorted(found)
 
 
@@ -138,14 +142,31 @@ def test_the_store_is_only_ever_handed_to_the_plan_executor() -> None:
 @pytest.mark.parametrize(
     ("source", "expected_fragment"),
     [
+        # Round one: passed as an argument, aliased, or dereferenced.
         ("def f(store):\n    return SomeSink(store)\n", "passed to SomeSink"),
         ("def f(store):\n    _s = store\n    return SomeSink(_s)\n", "passed to SomeSink"),
         ("def f(store):\n    a = store\n    b = a\n    return Sink(b)\n", "passed to Sink"),
         ("def f(store, batch):\n    return store.apply(batch, ())\n", "dereferenced .apply"),
         ("def f(store):\n    return store.read_only()\n", "dereferenced .read_only"),
-        ("def f(store):\n    _s = store\n    _sink = (_s,)\n", "escaped into a tuple"),
-        ("def f(store):\n    _sink = {'s': store}\n", "escaped into a dict"),
-        ("def f(store):\n    return store\n", "escaped into a return"),
+        ("def f(store):\n    _s = store\n    _sink = (_s,)\n", "escaped via tuple"),
+        ("def f(store):\n    _sink = {'s': store}\n", "escaped via dict"),
+        ("def f(store):\n    return store\n", "escaped via return"),
+        # Round two: the binding target is not a plain local name. The first is
+        # the reviewer's exact evasion; the rest are the remainder of its class.
+        (
+            "REG = {}\ndef f(store):\n    REG['canonical'] = store\n",
+            "escaped via subscript assignment",
+        ),
+        (
+            "def f(store, holder):\n    holder.canonical = store\n",
+            "escaped via attribute assignment",
+        ),
+        (
+            "REG = None\ndef f(store):\n    global REG\n    REG = store\n",
+            "escaped via global binding",
+        ),
+        ("def f(store):\n    return Sink(alias := store)\n", "passed to Sink"),
+        ("def f(store):\n    (alias := store)\n    return Sink(alias)\n", "passed to Sink"),
     ],
     ids=[
         "direct-arg",
@@ -156,6 +177,11 @@ def test_the_store_is_only_ever_handed_to_the_plan_executor() -> None:
         "alias-into-container",
         "into-dict",
         "returned",
+        "subscript-assign",
+        "attribute-assign",
+        "global-binding",
+        "walrus-inline",
+        "walrus-then-leak",
     ],
 )
 def test_the_detector_catches_the_evasions_that_walked_past_it(
@@ -163,11 +189,18 @@ def test_the_detector_catches_the_evasions_that_walked_past_it(
 ) -> None:
     """The detector discriminates — pointed at each evasion, it fires.
 
-    The middle three are the reviewer's, reproduced: ``_s = store`` then leaking
-    ``_s``, and receiver-form ``store.apply(...)``, both of which passed the
-    entire 55-test suite before this. Without these parameters the rule above
-    asserts an empty list, and an empty list is exactly what a matcher that
-    matches nothing also produces.
+    Two rounds of independent review are encoded here, and the second round is
+    why the parameter list is shaped by *class* rather than by instance. Round
+    one defeated the original matcher with ``_s = store`` and with receiver-form
+    ``store.apply(...)``; both were fixed, and round two then defeated the fix
+    with ``REG['canonical'] = store`` — a subscript target, so no alias was
+    created and no other branch looked at it. Patching that one line would have
+    left ``holder.attr = store``, ``global REG; REG = store`` and the walrus
+    open, which is the pattern this programme keeps paying for. All four target
+    forms are covered, each with its own parameter.
+
+    Without these parameters the rule above asserts an empty list, and an empty
+    list is exactly what a matcher that matches nothing also produces.
     """
     offenders = _offenders_in(source)
     assert offenders, f"the detector missed: {source!r}"

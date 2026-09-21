@@ -49,9 +49,30 @@ What it costs, stated plainly: the identity gate is the fail-closed guard that
 says "do not auto-mint an identity when no entity resolution has told you this
 is a new one". With it off, two candidates naming the same real-world entity
 mint two identities (``DerivedIdFactory.identity_id`` keys on the candidate id),
-and nothing dedupes them. That is acceptable only where identity is carried by
-a registered identifier rather than inferred — which is why this constant is
-named for the *structured* arm, whose `Paper` candidates are keyed by DOI.
+and nothing dedupes them — irreversibly, because ``CREATE_IDENTITY`` has no
+inverse. An independent reviewer demonstrated exactly that: two ``Topic``
+candidates for one concept, ``identity_confidence=None``, two identities minted,
+``roll_back`` returning ``plan=None`` with both operations non-compensable.
+
+That is acceptable only where identity is carried by a **registered
+identifier** rather than inferred — which is what the *structured* arm's
+`Paper` candidates have, keyed by DOI.
+
+**And that justification is now enforced, not merely written down.** A
+``ConfidencePolicy`` is batch-wide; the argument for relaxing it was
+candidate-level, and the same reviewer pointed out that nothing held the line
+except the LLM extractor's 0.8/0.75 scores happening to keep graded entities
+away from ``AUTO``. So :func:`~agentic_kg.migration.curation.pipeline.run_curation`
+refuses — before anything is executed — any run in which the identity gate is
+off *and* a new identity would be minted for an entity that no registered
+identifier keys (see :data:`REGISTERED_IDENTIFIER_NAMESPACES`). The refusal
+keys on the ``require_identity_confidence_for_auto`` **field**, not on this
+constant, so an ad-hoc policy with the gate off is guarded identically.
+
+The guard's seam is ``run_curation``. A caller that drives
+:func:`curation_engine` directly, builds its own ``PlanExecutor`` and applies
+the plan itself is outside it — stated here rather than left to be discovered,
+because "enforced" should name where.
 
 What it does **not** buy: any graded research entity. `Topic`, `ResearchConcept`,
 `Model` and `Method` candidates come from the LLM extractor at
@@ -98,6 +119,22 @@ CONTRACT_DEFAULT_POLICY = ConfidencePolicy()
 
 #: The one-field opt-in described in the module docstring. Not a default.
 STRUCTURED_IDENTITY_POLICY = ConfidencePolicy(require_identity_confidence_for_auto=False)
+
+#: Alias namespaces that carry a **registered identifier** — an identity settled
+#: outside this pipeline by a registry, not inferred from a surface form.
+#:
+#: This is the whole content of the claim "no entity resolution is needed here":
+#: two candidates carrying the same DOI are the same paper because the DOI
+#: system says so, and two candidates carrying different DOIs are different
+#: papers for the same reason. A surface form carries no such guarantee, which
+#: is precisely what ER exists to supply.
+#:
+#: Deliberately a namespace allowlist rather than an entity-type allowlist. An
+#: entity type is a label this repo chooses; a namespace names the registry. A
+#: future ``Author`` keyed by ORCID would be admitted by adding ``"orcid"``
+#: here, with the same argument — and a ``Paper`` that somehow arrived without a
+#: DOI alias would still, correctly, be refused.
+REGISTERED_IDENTIFIER_NAMESPACES: frozenset[str] = frozenset({"doi"})
 
 #: The empty-graph snapshot, ``kgcs.policy``'s own default. A plan stamped with
 #: it applies only while the graph is still at epoch 0, so a pipeline that never

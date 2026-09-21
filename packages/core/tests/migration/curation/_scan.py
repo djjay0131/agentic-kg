@@ -126,36 +126,92 @@ def _import_roots_of(node: ast.Import | ast.ImportFrom) -> set[str]:
 STORE_PARAM = "store"
 
 
+def assignments(tree: ast.AST):
+    """Every ``(node, target, value)`` binding in ``tree``, one row per target.
+
+    Covers the four binding forms a store can travel through — ``x = store``,
+    ``x: T = store``, ``x += store`` and the walrus ``(x := store)``. The walrus
+    is here because it was the fourth of four evasions an independent reviewer
+    used against the previous version: ``store_aliases`` read only ``Assign``
+    and ``AnnAssign``, so ``(alias := store)`` bound a name the scanner had
+    never heard of and every later use of it was invisible.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                yield node, target, node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            yield node, node.target, node.value
+        elif isinstance(node, ast.AugAssign):
+            yield node, node.target, node.value
+        elif isinstance(node, ast.NamedExpr):
+            yield node, node.target, node.value
+
+
+def rebound_names(tree: ast.AST) -> set[str]:
+    """Names declared ``global`` or ``nonlocal`` anywhere in ``tree``.
+
+    Assigning a store to one of these does not create a local alias — it
+    publishes the store into an enclosing or module scope, where anything can
+    reach it. The set is collected module-wide rather than per-scope, which is
+    deliberately *over*-broad: a name that is ``global`` in one function and a
+    plain local in another is treated as escaping in both. Over-broad is the
+    safe direction for this check, and
+    ``test_the_detector_passes_the_legal_shapes`` keeps it from becoming
+    over-broad enough to flag correct code.
+    """
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Global, ast.Nonlocal)):
+            names.update(node.names)
+    return names
+
+
 def store_aliases(tree: ast.AST, root: str = STORE_PARAM) -> set[str]:
     """``root`` plus every name transitively assigned from it in ``tree``.
 
     Review of the first version of this scanner defeated it with one line:
     ``_s = store`` and then leaking ``_s``, which the matcher never saw because
     it looked only for the literal name ``store``. Assignment is followed to a
-    fixed point, so a chain (``a = store; b = a``) is tracked too.
+    fixed point, so a chain (``a = store; b = a``) is tracked too, and — since
+    the second review — so is a walrus binding.
+
+    Only *local* rebinding produces an alias. A name declared ``global`` or
+    ``nonlocal`` is not an alias to keep watching, it is an escape, and
+    :func:`store_reachings` reports it as one.
 
     Still syntactic, and still not a security boundary: an alias built through
-    a container, a closure or ``globals()`` is not detectable this way. It
+    a closure, ``getattr`` or ``globals()`` is not detectable this way. It
     catches accident and drift, which is what happens.
     """
+    escaping = rebound_names(tree)
     aliases = {root}
     changed = True
     while changed:
         changed = False
-        for node in ast.walk(tree):
-            value = None
-            targets: list[ast.expr] = []
-            if isinstance(node, ast.Assign):
-                value, targets = node.value, list(node.targets)
-            elif isinstance(node, ast.AnnAssign) and node.value is not None:
-                value, targets = node.value, [node.target]
+        for _node, target, value in assignments(tree):
             if not isinstance(value, ast.Name) or value.id not in aliases:
                 continue
-            for target in targets:
-                if isinstance(target, ast.Name) and target.id not in aliases:
-                    aliases.add(target.id)
-                    changed = True
+            if isinstance(target, ast.Name) and target.id not in aliases:
+                if target.id in escaping:
+                    continue
+                aliases.add(target.id)
+                changed = True
     return aliases
+
+
+def _is_alias(expr: ast.expr | None, aliases: set[str]) -> bool:
+    """Does ``expr`` evaluate to a store alias, seeing through a walrus?
+
+    ``Sink(alias := store)`` passes the store as an argument, but the argument
+    node is a ``NamedExpr``, not a ``Name`` — which is how the inline walrus
+    slipped past the first attempt at closing this class. Unwrapping here means
+    every use site (argument, element, return, receiver) gets the same reading
+    instead of each growing its own special case.
+    """
+    while isinstance(expr, ast.NamedExpr):
+        expr = expr.value
+    return isinstance(expr, ast.Name) and expr.id in aliases
 
 
 def store_reachings(tree: ast.AST, aliases: set[str]) -> list[tuple[int, str, str]]:
@@ -170,34 +226,44 @@ def store_reachings(tree: ast.AST, aliases: set[str]) -> list[tuple[int, str, st
       ``store.apply(batch, ())`` — a direct canonical write, on a dead branch or
       otherwise — passed the whole suite green. The module docstring called that
       "obvious"; obvious is not caught.
-    * ``"escape"`` — the alias placed in a container display or returned, which
-      needs no call at all. The reviewer's evasion was exactly this: ``_s =
-      store`` and then ``_sink = (_s,)``. ``name`` says which shape.
+    * ``"escape"`` — the alias leaves this function without a call. Two rounds
+      of review found this family one instance at a time, so it is now closed
+      as a *class* rather than as the cases that happened to be demonstrated:
+      a container display or a ``return`` (round one, ``_s = store`` then
+      ``_sink = (_s,)``), and **any binding whose target is not a plain local
+      name** (round two, ``REG['canonical'] = store`` — a subscript target, so
+      no alias was created and nothing else in the scan looked at it). The
+      target forms now covered are subscript, attribute, and a name declared
+      ``global``/``nonlocal``; the walrus is handled by :func:`store_aliases`,
+      which now tracks it. ``name`` says which shape.
     """
     found: list[tuple[int, str, str]] = []
+    escaping = rebound_names(tree)
+    for node, target, value in assignments(tree):
+        if not _is_alias(value, aliases):
+            continue
+        if isinstance(target, ast.Subscript):
+            found.append((node.lineno, "escape", "subscript assignment"))
+        elif isinstance(target, ast.Attribute):
+            found.append((node.lineno, "escape", "attribute assignment"))
+        elif isinstance(target, ast.Name) and target.id in escaping:
+            found.append((node.lineno, "escape", f"global binding of {target.id!r}"))
     for node in ast.walk(tree):
         if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
-            if any(isinstance(e, ast.Name) and e.id in aliases for e in node.elts):
+            if any(_is_alias(e, aliases) for e in node.elts):
                 found.append((node.lineno, "escape", type(node).__name__.lower()))
         elif isinstance(node, ast.Dict):
-            if any(
-                isinstance(v, ast.Name) and v.id in aliases
-                for v in node.values
-                if v is not None
-            ):
+            if any(_is_alias(v, aliases) for v in node.values):
                 found.append((node.lineno, "escape", "dict"))
         elif isinstance(node, ast.Return):
-            if isinstance(node.value, ast.Name) and node.value.id in aliases:
+            if _is_alias(node.value, aliases):
                 found.append((node.lineno, "escape", "return"))
-        elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
-            if node.value.id in aliases:
+        elif isinstance(node, ast.Attribute):
+            if _is_alias(node.value, aliases):
                 found.append((node.lineno, "attr", node.attr))
         elif isinstance(node, ast.Call):
-            used = any(
-                isinstance(a, ast.Name) and a.id in aliases for a in node.args
-            ) or any(
-                isinstance(k.value, ast.Name) and k.value.id in aliases
-                for k in node.keywords
+            used = any(_is_alias(a, aliases) for a in node.args) or any(
+                _is_alias(k.value, aliases) for k in node.keywords
             )
             if used:
                 found.append((node.lineno, "arg", _call_name(node) or "<expr>"))

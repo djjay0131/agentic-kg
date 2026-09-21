@@ -89,8 +89,10 @@ from agentic_kg.migration.curation._contracts import (
     is_identity_id,
 )
 from agentic_kg.migration.curation.policy import (
+    CONTRACT_DEFAULT_POLICY,
     CURATION_GRAPH_ID,
     DEFAULT_SNAPSHOT_VERSION,
+    REGISTERED_IDENTIFIER_NAMESPACES,
     RUN_INSTANT,
     curation_engine,
 )
@@ -115,6 +117,29 @@ UNRESOLVED_SUBJECT_REASON = (
     "entity resolution is not wired, so kgcs.policy escalated the route and "
     "claimed no identity. An ATTACH_ASSERTION cannot be built without one."
 )
+
+
+class UnsafeIdentityRelaxation(RuntimeError):
+    """The identity gate is off and an unkeyed identity would be minted.
+
+    ``ConfidencePolicy.require_identity_confidence_for_auto`` is the fail-closed
+    guard against auto-minting a duplicate identity when no entity resolution
+    has run. Turning it off is defensible for entities whose identity comes from
+    a **registered identifier** — a DOI settles whether two paper candidates are
+    the same paper — and indefensible for entities identified by a surface form,
+    where deciding sameness is exactly ER's job.
+
+    The policy, however, is batch-wide while that argument is candidate-level.
+    Review of this subpackage demonstrated the gap: two ``Topic`` candidates for
+    one concept minting two identities, irreversibly, because
+    ``CREATE_IDENTITY`` has no inverse. Nothing held the line except the LLM
+    extractor's scores happening to keep graded entities away from ``AUTO``.
+
+    So the argument is enforced here rather than documented: with the gate off,
+    a candidate that would mint an identity must carry an alias in
+    :data:`~agentic_kg.migration.curation.policy.REGISTERED_IDENTIFIER_NAMESPACES`.
+    Raised **before any execution**, so nothing reaches the graph.
+    """
 
 
 class CurationDisabled(RuntimeError):
@@ -331,6 +356,42 @@ def classify(
     return tuple(rejected), tuple(deferred), planned_ids
 
 
+def unkeyed_new_identities(
+    candidates: Sequence[Candidate],
+    engine_result: EngineResult,
+    confidence_policy: ConfidencePolicy,
+) -> tuple[EntityCandidate, ...]:
+    """Entity candidates this run would mint an identity for without a registry.
+
+    Empty — always — while the identity gate is on, because the gate is itself
+    the guard and nothing routes ``AUTO`` under it. With the gate off, every
+    candidate whose ``ResolutionDecision`` says ``create_new_identity`` must
+    carry a registered-identifier alias; the rest are returned for refusal.
+
+    Read off the decisions the policy actually made, not re-derived from scores:
+    a second implementation of the routing rules here would drift from the one
+    that mints the identity, and the drift would silently re-open the gap.
+    """
+    if confidence_policy.require_identity_confidence_for_auto:
+        return ()
+    by_id = {candidate.candidate_id: candidate for candidate in candidates}
+    unkeyed: list[EntityCandidate] = []
+    for outcome in engine_result.outcomes:
+        resolution = outcome.resolution
+        if resolution is None or not resolution.create_new_identity:
+            continue
+        candidate = by_id[outcome.candidate_id]
+        if not isinstance(candidate, EntityCandidate):
+            continue
+        if any(
+            alias.namespace in REGISTERED_IDENTIFIER_NAMESPACES
+            for alias in candidate.aliases
+        ):
+            continue
+        unkeyed.append(candidate)
+    return tuple(unkeyed)
+
+
 def run_curation(
     candidates: Sequence[Candidate],
     *,
@@ -368,6 +429,9 @@ def run_curation(
 
     Raises:
         CurationDisabled: ``config.use_kgcs_resolution`` is ``False``.
+        UnsafeIdentityRelaxation: the identity gate is off and a candidate with
+            no registered-identifier alias would mint an identity. Raised before
+            any execution.
     """
     if not config.use_kgcs_resolution:
         raise CurationDisabled(
@@ -388,6 +452,32 @@ def run_curation(
         audit_sink=audit_sink,
     )
     engine_result = engine.curate(candidates)
+
+    # Before anything is executed, and regardless of whether a store was
+    # supplied: a plan-only run still hands back CREATE_IDENTITY operations a
+    # caller could apply itself.
+    unkeyed = unkeyed_new_identities(
+        candidates, engine_result, confidence_policy or CONTRACT_DEFAULT_POLICY
+    )
+    if unkeyed:
+        offenders = ", ".join(
+            f"{c.entity_type}/{c.display_name or c.aliases[0].key}" for c in unkeyed[:5]
+        )
+        raise UnsafeIdentityRelaxation(
+            f"{len(unkeyed)} candidate(s) would mint a canonical identity with "
+            f"require_identity_confidence_for_auto=False and no registered "
+            f"identifier to key them: {offenders}"
+            + (" ..." if len(unkeyed) > 5 else "")
+            + ". Minting an identity without entity resolution is how two "
+            "candidates for one concept become two identities, and "
+            "CREATE_IDENTITY has no inverse, so it cannot be rolled back. "
+            "Relaxing the identity gate is defensible only for entities keyed "
+            "by a registry (namespaces: "
+            f"{sorted(REGISTERED_IDENTIFIER_NAMESPACES)}). Either wire entity "
+            "resolution, or curate these candidates under the contract-default "
+            "policy, which defers them."
+        )
+
     rejected, deferred, planned_ids = classify(candidates, engine_result)
 
     execution: ExecutionRecord | None = None
@@ -424,6 +514,8 @@ __all__ = [
     "CurationRunResult",
     "Deferral",
     "ExecutionOutcome",
+    "UnsafeIdentityRelaxation",
     "classify",
     "run_curation",
+    "unkeyed_new_identities",
 ]
