@@ -47,9 +47,12 @@ pytest.importorskip(
     ),
 )
 
-# No module-level `integration` marker: the three structural tests below need no
-# database and should run in the plain unit job too, where they are the cheapest
-# possible guard on the label prefix. Only the two behavioural tests are marked.
+# No module-level `integration` marker. The three structural tests below need no
+# database -- only the `migration` extra, because reaching `schema.py` imports
+# the subpackage whose `__init__` gates on `kg_contracts`. Marking the whole
+# module `integration` would have excluded them from any run that filters on the
+# marker while having a perfectly usable extra installed. Only the two
+# behavioural tests, which do need Neo4j, are marked.
 
 
 # ---------------------------------------------------------------------------
