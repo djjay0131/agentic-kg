@@ -35,6 +35,7 @@ real ``PlanExecutor`` applies them, and a real Neo4j holds the result.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -220,86 +221,96 @@ def test_transaction_time_window_closes_at_the_supersession(evolved) -> None:
     assert [a.assertion_id for a in after] == [evolved["new"].assertion_id]
 
 
-def _compensate(evolved, *, restamp: bool):
+def _compensate(evolved):
     """Build the compensating plan for the supersession.
 
-    ``restamp=True`` replaces the carried snapshot precondition with one naming
-    the graph's *current* epoch — see
-    :func:`test_compensator_carries_a_stale_snapshot_precondition` for why that
-    is necessary and what it says about upstream.
+    No re-stamping workaround. Before agentic-kgcs#34,
+    ``Compensator._carry_snapshot_precondition`` copied the *source plan's*
+    snapshot precondition into the compensating plan verbatim; since the plan
+    being compensated has by definition already committed, the graph had
+    advanced past that snapshot and ``PlanExecutor`` rejected every
+    compensation as ``STALE``. This module used to hand-rebuild the
+    precondition to get past it.
+
+    Since #34 that is the compensator's own job: ``against_snapshot`` is a
+    required keyword-only argument naming the epoch the original plan
+    committed at, and the guard is rebased onto it. ``snapshot_guarded`` is
+    gone from ``CompensationResult`` (it was a constant, not a signal), so
+    ``non_compensable`` is the thing to check.
     """
     from kgcs.executor.compensate import Compensator
-    from kgcs.planner import SNAPSHOT_PRECONDITION_KIND
 
     store = evolved["store"]
     compensation = Compensator(snapshot_version=str(store.current_epoch())).compensate(
-        evolved["supersede_plan"]
+        evolved["supersede_plan"],
+        against_snapshot=evolved["supersede"].new_epoch,
     )
     assert compensation.plan is not None
-    assert compensation.fully_compensable
-    if not restamp:
-        return compensation.plan
-    current = str(store.current_epoch())
-    return compensation.plan.model_copy(
-        update={
-            "snapshot_version": current,
-            "preconditions": tuple(
-                p.model_copy(update={"expected": current})
-                if p.kind == SNAPSHOT_PRECONDITION_KIND
-                else p
-                for p in compensation.plan.preconditions
-            ),
-        }
-    )
+    assert compensation.non_compensable == ()
+    return compensation.plan
 
 
-def test_compensator_carries_a_stale_snapshot_precondition(evolved) -> None:
-    """Upstream defect, recorded by a test rather than by a comment.
+def _raw_history(store, assertion_id: str) -> list[dict]:
+    """The assertion's stored status history, straight out of Neo4j.
 
-    ``Compensator._carry_snapshot_precondition`` copies the *source plan's*
-    snapshot precondition into the compensating plan verbatim. The
-    ``snapshot_version`` constructor argument only stamps
-    ``CurationPlan.snapshot_version``; it does not reach the precondition. But
-    the plan being compensated has, by definition, already committed — so the
-    graph has advanced past that snapshot and ``PlanExecutor`` (which enforces
-    snapshot guards itself whenever it holds a `GraphReader`, and the store *is*
-    one) rejects every compensation as ``STALE``.
+    Read directly rather than through :meth:`assertions_for` because the
+    property under test is that *every* entry survives a compensating upsert,
+    and the read surface deliberately collapses the history to the one entry
+    in force at the requested epoch.
+    """
+    with store._driver.session(database=store._database) as session:
+        record = session.run(
+            "MATCH (a:Canon__Assertion {uid: $uid}) RETURN a.status_history AS h",
+            uid=f"{store.namespace}\x1f{assertion_id}",
+        ).single()
+    assert record is not None, f"no assertion node for {assertion_id!r}"
+    return json.loads(record["h"])
 
-    This is not a property of this adapter: it reproduces against any store the
-    executor can read. Asserted here so the workaround in the next test is
-    visibly a workaround.
+
+def test_compensator_rebases_the_snapshot_guard_onto_the_committed_epoch(evolved) -> None:
+    """The guard is meetable, so the compensation reaches the store at all.
+
+    The inverse of the test this module used to carry. Under the pre-#34
+    compensator the guard named the epoch the source plan was *built* against,
+    which its own commit had already invalidated, so the executor refused every
+    compensation ``STALE`` before the payload was ever looked at.
+
+    Fails for the reason it names in both directions: if KGCS regresses to
+    carrying the source plan's snapshot, ``expected`` is the pre-supersession
+    epoch and the first assertion reds; if the guard is rebased but onto the
+    wrong epoch, the executor returns ``STALE`` and the second reds.
     """
     from kgcs.planner import SNAPSHOT_PRECONDITION_KIND
 
     store = evolved["store"]
-    plan = _compensate(evolved, restamp=False)
+    plan = _compensate(evolved)
+
     carried = [p for p in plan.preconditions if p.kind == SNAPSHOT_PRECONDITION_KIND]
-    assert carried, "the compensating plan is expected to carry a snapshot guard"
-    assert carried[0].expected != str(store.current_epoch())
+    assert len(carried) == 1, "every compensating plan carries exactly one snapshot guard"
+    assert carried[0].expected == str(store.current_epoch()), (
+        "the guard must name the epoch the source plan committed at, not the "
+        "one it was built against"
+    )
 
     executor = PlanExecutor(store, supported_operations=SUPPORTED_OPERATIONS)
     record = executor.execute(plan, is_compensation=True)
-    assert record.outcome is ExecutionOutcome.STALE
-    assert store.current_epoch() == int(evolved["supersede"].new_epoch)
+    assert record.outcome is ExecutionOutcome.COMMITTED, record.error
 
 
 def test_supersession_is_reversible_through_the_kgcs_compensator(evolved) -> None:
     """The ``ATTACH↔RETRACT`` inverse actually applies against this adapter.
 
-    ``Compensator`` builds the inverse of a ``RETRACT_ASSERTION`` as an
-    ``ATTACH_ASSERTION`` whose payload is the retract's ``reversal_data`` — i.e.
-    ``{assertion_id, subject_identity, restore_status, ...}``, **not** a full
-    ``Assertion``. An adapter that only accepted full-assertion attach payloads
-    would reject every rollback of a supersession, so this exercises the second
-    payload shape ``store._apply_attach`` documents.
-
-    The snapshot precondition is re-stamped at the current epoch first; without
-    that the executor never reaches the store at all (previous test).
+    Since agentic-kgcs#34 fixed defect (b), the inverse of a supersession
+    ``RETRACT_ASSERTION`` is a **full ``Assertion``** — the pre-retraction dump,
+    carrying the ``assertion_id`` it restores — rather than the partial
+    ``{assertion_id, subject_identity, restore_status, ...}`` restore record it
+    used to be. So this now exercises the *first* payload shape
+    ``store._apply_attach`` documents, reached as an upsert by id.
     """
     store, entity = evolved["store"], evolved["entity"]
     executor = PlanExecutor(store, supported_operations=SUPPORTED_OPERATIONS)
 
-    record = executor.execute(_compensate(evolved, restamp=True), is_compensation=True)
+    record = executor.execute(_compensate(evolved), is_compensation=True)
     assert record.outcome is ExecutionOutcome.COMMITTED, record.error
 
     restored = store.assertions_for(entity.identity_id)
@@ -317,3 +328,82 @@ def test_supersession_is_reversible_through_the_kgcs_compensator(evolved) -> Non
     )
     retired = {a.assertion_id: a for a in at_supersession}[evolved["old"].assertion_id]
     assert retired.status is CurationStatus.SUPERSEDED
+
+
+def test_compensating_attach_upserts_without_rewriting_history(evolved) -> None:
+    """ADR-0018 Decision 5, discharged without destroying the record's past.
+
+    The obligation: *"a compensating ATTACH_ASSERTION is an UPSERT BY
+    ``assertion_id``, never an append ... an adapter MUST replace in place"*.
+    The trap: the obvious way to replace in place is to re-run the insert, and
+    this adapter's insert is a ``MERGE`` on ``uid`` whose ``SET`` clause
+    restamps ``status_history``, ``curation_epoch`` and ``seq``. That upsert
+    reports ``COMMITTED`` and silently rewrites history — measured against
+    14ffd0e8 before the fix:
+
+        status_history  [{2 ACTIVE}, {3 SUPERSEDED}]  ->  [{4 ACTIVE}]
+        curation_epoch  2                             ->  4
+        read at epoch 2  the old reading, ACTIVE      ->  []
+
+    Both halves of that are independently fatal: ``curation_epoch`` is the only
+    epoch gate on the read path, so restamping it deletes the record from every
+    earlier snapshot; and collapsing the history erases the statuses those
+    snapshots would have reported.
+
+    This test fails for the reason it names. Reintroduce the overwrite — drop
+    the ``existing``-branch in ``_insert_assertion`` — and every numbered
+    assertion below reds, while the seven shared contract tests stay green
+    (the upstream suite never supersedes a committed assertion at a later epoch
+    and reads back at the earlier one; that blind spot is pinned by
+    ``test_conformance_is_falsifiable.py::test_in_place_status_mutation_breaks_the_epoch_read``).
+    """
+    store, entity = evolved["store"], evolved["entity"]
+    old_id = evolved["old"].assertion_id
+    epoch_n = evolved["attach"].new_epoch
+    epoch_supersede = evolved["supersede"].new_epoch
+
+    before = _raw_history(store, old_id)
+    assert [e["epoch"] for e in before] == [epoch_n, epoch_supersede], before
+
+    executor = PlanExecutor(store, supported_operations=SUPPORTED_OPERATIONS)
+    record = executor.execute(_compensate(evolved), is_compensation=True)
+    assert record.outcome is ExecutionOutcome.COMMITTED, record.error
+    epoch_rollback = record.new_epoch
+
+    # 1. the upsert is an upsert: one node, not two.
+    everything = store.assertions_for(
+        entity.identity_id, options=GraphReadOptions(include_superseded=True)
+    )
+    ids = [a.assertion_id for a in everything]
+    assert len(ids) == len(set(ids)) == 2, ids
+    assert set(ids) == {old_id, evolved["new"].assertion_id}
+
+    # 2. the history GREW by exactly the rollback entry; nothing was replaced.
+    after = _raw_history(store, old_id)
+    assert after[: len(before)] == before, (
+        f"the compensating upsert rewrote existing history entries: {before} -> {after}"
+    )
+    assert [e["epoch"] for e in after] == [epoch_n, epoch_supersede, epoch_rollback], after
+    assert after[-1]["status"] == CurationStatus.ACTIVE.value
+
+    # 3. the minting epoch is preserved, so earlier snapshots still contain the
+    #    record at all. Under the overwrite this list is empty.
+    at_n = store.assertions_for(
+        entity.identity_id, options=GraphReadOptions(curation_epoch=epoch_n)
+    )
+    assert [a.assertion_id for a in at_n] == [old_id], [a.assertion_id for a in at_n]
+    assert at_n[0].status is CurationStatus.ACTIVE
+    assert at_n[0].superseded_at is None
+    assert at_n[0].object_value == "the original reading"
+    assert at_n[0].curation_epoch == epoch_n, (
+        "the returned payload must agree with the node's minting epoch"
+    )
+
+    # 4. and the supersession epoch still reports what was true then.
+    at_supersede = store.assertions_for(
+        entity.identity_id,
+        options=GraphReadOptions(curation_epoch=epoch_supersede, include_superseded=True),
+    )
+    retired = {a.assertion_id: a for a in at_supersede}[old_id]
+    assert retired.status is CurationStatus.SUPERSEDED
+    assert retired.superseded_at == evolved["new"].recorded_at

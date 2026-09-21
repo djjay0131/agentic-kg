@@ -634,9 +634,52 @@ class Neo4jCanonicalGraphStore:
         ).consume()
 
     def _insert_assertion(self, tx: ManagedTransaction, assertion: Assertion) -> None:
-        history = [
-            _history_entry(assertion.curation_epoch, assertion.status, assertion.superseded_at)
-        ]
+        """Write a new assertion, or upsert one that already exists by id.
+
+        The upsert branch is a **store obligation**, not an optimisation. KGCS
+        ADR-0018 Decision 5: *"a compensating ATTACH_ASSERTION is an UPSERT BY
+        ``assertion_id``, never an append ... an adapter MUST replace in
+        place"*. Since agentic-kgcs#34 the ``Compensator``'s inverse of a
+        supersession ``RETRACT`` is the **full pre-retraction assertion dump**,
+        so it arrives here carrying the ``assertion_id`` it is restoring, and
+        the ``MERGE`` on ``uid`` is what discharges that obligation.
+
+        Replacing in place must not *rewrite history*. Three properties are the
+        record's identity rather than its content, and are therefore carried
+        over from the existing node instead of being restamped:
+
+        * ``curation_epoch`` — the epoch the record was **minted** at. It is
+          the only epoch gate on the read path (:func:`_epoch_visible`), so
+          restamping it to the compensation's epoch retroactively deletes the
+          assertion from every earlier snapshot. That is §9 law 10 violated by
+          a write that reports ``COMMITTED``.
+        * ``status_history`` — append-only by construction. The status this
+          write establishes is *appended*; the ``SUPERSEDED`` entry the
+          rollback is undoing stays on the record, because a compensation adds
+          a fact, it does not erase one. Overwriting the list collapses every
+          prior status to the newest, which is the same law-10 violation
+          reached by a second route.
+        * ``seq`` — the stable write-order tiebreaker the read path sorts on.
+
+        The history entry itself is stamped at ``assertion.curation_epoch``,
+        which :meth:`_apply_attach` has already set to the epoch of the write
+        happening *now* — so the appended entry correctly names the
+        compensation's epoch while the node keeps the minting epoch.
+        """
+        existing = self._load_assertion(tx, assertion.assertion_id)
+        entry = _history_entry(assertion.curation_epoch, assertion.status, assertion.superseded_at)
+        if existing is None:
+            history = [entry]
+            minted_epoch = assertion.curation_epoch
+            seq = self._next_seq(tx)
+            stored = assertion
+        else:
+            history = [*json.loads(existing["status_history"]), entry]
+            minted_epoch = int(existing["curation_epoch"])
+            seq = int(existing["seq"])
+            # The payload is returned verbatim to readers, so it must agree
+            # with the node's minting epoch rather than the write's epoch.
+            stored = assertion.model_copy(update={"curation_epoch": minted_epoch})
         tx.run(
             f"MERGE (a:{LABEL_ASSERTION} {{uid: $uid}}) "
             f"SET a.ns = $ns, a.assertion_id = $assertion_id, "
@@ -651,9 +694,9 @@ class Neo4jCanonicalGraphStore:
             subject_identity=assertion.subject_identity,
             object_identity=assertion.object_identity,
             predicate=assertion.predicate,
-            curation_epoch=assertion.curation_epoch,
-            seq=self._next_seq(tx),
-            payload=assertion.model_dump_json(),
+            curation_epoch=minted_epoch,
+            seq=seq,
+            payload=stored.model_dump_json(),
             status_history=json.dumps(history),
         ).consume()
 
@@ -661,7 +704,8 @@ class Neo4jCanonicalGraphStore:
         record = tx.run(
             f"MATCH (a:{LABEL_ASSERTION} {{uid: $uid}}) "
             f"RETURN a.payload AS payload, a.subject_identity AS subject_identity, "
-            f"       a.status_history AS status_history, a.curation_epoch AS curation_epoch",
+            f"       a.status_history AS status_history, a.curation_epoch AS curation_epoch, "
+            f"       a.seq AS seq",
             uid=uid(self._namespace, assertion_id),
         ).single()
         return None if record is None else dict(record)
