@@ -309,13 +309,41 @@ DEAD_VECTOR_INDEXES = frozenset({"mention_embedding_idx"})
 #: SCOPED_OUT_SURFACES and bound 1 in the PR body) -- leg A would otherwise
 #: demand inventory entries for every CREATE/MERGE in the modules it scans,
 #: including the ``MATCH ... CREATE`` prologue of a write.
-_WRITE_CLAUSE = re.compile(r"\b(CREATE|MERGE|SET|DELETE|REMOVE)\b")
+_WRITE_CLAUSE = re.compile(r"\b(CREATE|MERGE|SET|DELETE|REMOVE)\b", re.IGNORECASE)
+
+#: Does this literal issue a graph read at all?
+#:
+#: Class [C], fixed: the first version tested ``"MATCH (" in cypher``, so
+#: ``MATCH(p:Problem)`` with no space, or lowercase ``match (``, was not a read
+#: -- and because this predicate gates *both* legs, such a query escaped the
+#: completeness scan entirely. A detector that misses a read on whitespace is
+#: the same shape as every other defect this programme has found, and it cost
+#: one line. One regex, used by every call site, so the legs cannot drift
+#: apart on what counts as Cypher.
+#:
+#: The bracket class after the optional variable is load-bearing. Plain
+#: ``\bMATCH\s*\(`` with ``re.I`` -- the obvious form -- also matches the log
+#: string ``": Evaluating match (similarity="`` in
+#: ``agents/matching/evaluator.py:197`` and reports it as an un-inventoried
+#: read. Requiring a node pattern (``(p:Label``, ``(:Label``, ``(n)``,
+#: ``(n {..}``) keeps every real spelling and drops the prose. Caught by this
+#: suite's own completeness scan when the case-insensitive form was first
+#: introduced, not by review.
+_LOOKS_LIKE_CYPHER = re.compile(
+    r"\bMATCH\s*\(\s*[A-Za-z_][A-Za-z_0-9]*\s*[:){]"   # MATCH (p:Label / (p) / (p {
+    r"|\bMATCH\s*\(\s*[:)]"                              # MATCH (:Label / ()
+    r"|\bdb\.index\.vector\.queryNodes\b",
+    re.IGNORECASE,
+)
 
 
 def _is_read(cypher: str) -> bool:
-    return (
-        "MATCH (" in cypher or "db.index.vector.queryNodes" in cypher
-    ) and not _WRITE_CLAUSE.search(cypher)
+    return bool(_LOOKS_LIKE_CYPHER.search(cypher)) and not _WRITE_CLAUSE.search(cypher)
+
+
+def _cypher_literals_in_text(cypher: str) -> bool:
+    """Leg A's per-literal view of a query string, for the detector tests."""
+    return bool(_LOOKS_LIKE_CYPHER.search(cypher))
 
 
 def _cypher_literals(path: Path) -> list[tuple[int, int]]:
@@ -441,6 +469,61 @@ def test_a_smuggled_read_in_a_scanned_module_is_caught(tmp_path: Path) -> None:
     assert _snippet_lines(smuggled) == {}, "nothing in READ_PATHS claims it"
 
 
+def test_a_read_is_detected_regardless_of_whitespace_or_case() -> None:
+    """Class [C]: the detector gates BOTH legs, so missing a read hides it entirely.
+
+    ``"MATCH (" in cypher`` failed on ``MATCH(p:Problem)`` and on lowercase
+    ``match (``. Either would have escaped leg A *and* leg B -- the broadest of
+    the four latent classes, and a one-line fix.
+    """
+    for cypher in (
+        "MATCH (p:Problem) RETURN p ORDER BY p.id",
+        "MATCH(p:Problem) RETURN p ORDER BY p.id",
+        "MATCH  (p:Problem) RETURN p ORDER BY p.id",
+        "match (p:Problem) return p order by p.id",
+        "Match\n(p:Problem) RETURN p ORDER BY p.id",
+        "CALL DB.INDEX.VECTOR.QUERYNODES('x', 1, $e) YIELD node",
+    ):
+        assert _is_read(cypher), cypher
+        assert _cypher_literals_in_text(cypher), cypher
+
+
+def test_a_split_fstring_query_is_not_split_past_the_criterion() -> None:
+    """Class [A]: the ORDER BY lives in a fragment with no MATCH of its own.
+
+    ``Neo4jRepository.list_problems`` is the real instance -- it builds
+    ``query = "MATCH (p:Problem)"`` then ``query += " ... ORDER BY ... SKIP
+    ... LIMIT ..."``. A Cypher-only view of the literals drops the second
+    fragment, so the method read as contract-free. It was inventoried anyway,
+    which is luck rather than coverage, so this asserts the criterion sees the
+    whole query.
+    """
+    assert "list_problems" in _repository_reads_carrying_a_contract()
+
+    # And the shape in miniature, independent of that one method surviving.
+    fragments = '\n'.join(
+        ['MATCH (p:Problem)', ' RETURN p ORDER BY p.created_at DESC LIMIT $limit']
+    )
+    assert _is_read(fragments)
+    assert _carries_a_compatibility_contract(fragments)
+
+
+def test_a_lowercase_write_is_still_excluded() -> None:
+    """The write-clause half is case-insensitive too, or [C]'s fix opens [D] wider."""
+    assert not _is_read("match (p:Problem) set p.x = 1")
+    assert not _is_read("MATCH (p:Problem) merge (p)-[:R]->(q)")
+
+
+def test_prose_is_not_mistaken_for_cypher() -> None:
+    """The detector must stay narrow: a docstring naming MATCH is not a query."""
+    assert not _is_read("See the MATCH clause documentation for details.")
+    assert not _is_read("Notes -- see above.")
+    # The real one: a log message in agents/matching/evaluator.py:197. The
+    # obvious case-insensitive form reports this as an un-inventoried read.
+    assert not _is_read(": Evaluating match (similarity=")
+    assert not _is_read("Evaluating match (similarity=0.9) for candidate")
+
+
 def test_an_untyped_traversal_carries_a_contract() -> None:
     """Hardening 2, and the case that made it necessary.
 
@@ -555,6 +638,34 @@ def _carries_a_compatibility_contract(body: str) -> bool:
     exemption is the narrow half: a ``MATCH (n:Label {key}) RETURN n`` cannot
     be reordered, re-paginated or re-shaped by the projection, so the probes
     could express nothing about it. Everything else can.
+
+    **What is outside the net.** This rule only ever sees what the literal
+    detector hands it, so the real leg-B exemption is "a key fetch, *plus*
+    anything not recognised as Cypher". Four shapes, named here and in the PR
+    body's bounds section so the edge is findable:
+
+    * **[A]** an f-string with ``MATCH (`` in one fragment and the
+      ``ORDER BY``/traversal in another. **Closed**, and it was *live*:
+      ``list_problems`` builds ``"MATCH (p:Problem)"`` then
+      ``+= " ... ORDER BY ... SKIP ... LIMIT"``, so a Cypher-only view dropped
+      the second fragment and the method read as contract-free. It was
+      inventoried anyway -- luck, not coverage.
+    * **[B]** a module-level Cypher constant -- the function holds no literal,
+      so it is not-a-read. Latent, and verified absent: ``repository.py``
+      defines no module-level Cypher constant today.
+    * **[C]** ``MATCH(`` with no space, or lowercase ``match (``. **Closed** --
+      and it gated *both* legs, which made it the broadest of the four.
+    * **[D]** write-exclusion is wholesale, so a function holding a read *and*
+      any ``SET``/``CREATE`` is classed not-a-read and **the read is exempt
+      too**. Latent for in-scope reads but not hypothetical: four functions
+      mask a contract-carrying read this way (``assign_entity_to_topic``,
+      ``_link_entity_to_node`` and their inner ``_assign``/``_link``). All are
+      mutation surfaces, which the harness excludes anyway. "Read, then bump a
+      counter" is an ordinary shape; expect this to go live first.
+
+    [B] and [D] are leg-B-only -- leg A evaluates per-literal and catches both
+    today. These were measured against the tree, not reasoned about; [A] in
+    particular turned out to be live, which is why the widening was taken.
     """
     return bool(
         _RELATIONSHIP_PATTERN.search(body)
@@ -627,7 +738,7 @@ def _cypher_in(node: ast.AST) -> str:
         and id(child) not in docstrings
         # Only Cypher: prose that happens to contain "--" is not a traversal,
         # and the widened pattern makes that distinction load-bearing.
-        and ("MATCH (" in child.value or "db.index.vector.queryNodes" in child.value)
+        and _LOOKS_LIKE_CYPHER.search(child.value)
     )
 
 
@@ -644,9 +755,15 @@ def _repository_reads_carrying_a_contract() -> set[str]:
         # a mutation's `MATCH ... DELETE` prologue would otherwise demand a
         # read-path entry for a surface the harness deliberately does not
         # certify.
-        if _is_read(_non_docstring_strings(node)) and _carries_a_compatibility_contract(
-            _cypher_in(node)
-        ):
+        literals = _non_docstring_strings(node)
+        # Both halves read *every* non-docstring literal. Class [A] was live
+        # otherwise: `list_problems` assembles its query as
+        # `query = "MATCH (p:Problem)"` then `query += " ... ORDER BY ..."`,
+        # and the second fragment carries no `MATCH (`, so a Cypher-only view
+        # dropped it and the method read as contract-free. It happened to be
+        # inventoried anyway, which is luck, not coverage. Docstrings are still
+        # excluded -- a `--` in prose is not a traversal.
+        if _is_read(literals) and _carries_a_compatibility_contract(literals):
             out.add(node.name)
     return out
 
