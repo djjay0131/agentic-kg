@@ -22,10 +22,23 @@ an edit, and a test *deleted* is caught, because the gate re-reads the source
 at gate time while the junit report reflects what ran. If the two disagree,
 something was collected and not run.
 
-That derivation has one honest limit, stated rather than glossed: deleting a
-whole module removes it from both sides at once. :data:`REQUIRED_MODULES` is
-therefore the transcribed part, and it is deliberately the *smallest* thing
-that can be transcribed — a list of filenames, checked to exist.
+That derivation has two honest limits, both stated rather than glossed.
+
+**Deleting a whole module removes it from both sides at once.**
+:data:`REQUIRED_MODULES` is therefore the transcribed part, and it is
+deliberately the smallest thing that can be transcribed — a list of filenames,
+checked to exist.
+
+**Shrinking the required set is itself an attack.** An independent review
+demonstrated it: the first version walked ``tree.body`` only, so indenting a
+required test under ``if False:`` removed it from the expected set *and* from
+execution, and the gate printed ``OK: 93 required tests ran and passed`` and
+exited 0. Two fixes, and both are needed. Discovery now uses :func:`ast.walk`,
+so a nested or conditionally-defined test is still required. And
+:data:`MINIMUM_REQUIRED_TESTS` pins a floor on the count, because ``ast.walk``
+alone only moves the attack rather than closing it — deleting the function
+outright still shrinks both sides silently. The floor is what makes a shrinking
+suite loud.
 """
 
 from __future__ import annotations
@@ -52,6 +65,15 @@ REQUIRED_MODULES: tuple[str, ...] = (
     "test_shadow_is_falsifiable.py",
     "test_shadow_run.py",
 )
+
+#: Floor on the number of required tests.
+#:
+#: Pinned, not derived, and that is the point: every other number in this gate
+#: is read from the suite, so a suite that shrinks shrinks its own expectations
+#: with it and reports OK. This is the one value that does not move on its own.
+#: Raise it when the suite grows; a *drop* has to be an explicit edit with a
+#: reason, which is exactly the conversation that was missing.
+MINIMUM_REQUIRED_TESTS = 100
 
 #: Tests allowed to skip, with the reason each is allowed to.
 #:
@@ -85,9 +107,13 @@ def expected_tests() -> dict[str, frozenset[str]]:
                 f"one place that notices."
             )
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        # `ast.walk`, not `tree.body`: a top-level-only scan misses a test
+        # indented under `if False:` -- which removes it from the required set
+        # *and* from the run, so the gate reported OK over a suite it had just
+        # stopped requiring.
         names = frozenset(
             node.name
-            for node in tree.body
+            for node in ast.walk(tree)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
             and node.name.startswith("test_")
         )
@@ -130,6 +156,16 @@ def check(junit_path: Path, expected: dict[str, frozenset[str]] | None = None) -
     required = expected_tests() if expected is None else expected
     if not required:
         raise SuiteGateError("the expected-test set is empty; the gate checks nothing")
+
+    total_required = sum(len(names) for names in required.values())
+    if total_required < MINIMUM_REQUIRED_TESTS:
+        raise SuiteGateError(
+            f"the suite requires {total_required} tests, below the pinned floor "
+            f"of {MINIMUM_REQUIRED_TESTS}. Tests were removed from the required "
+            f"set -- deleted, renamed off the `test_` prefix, or nested under a "
+            f"false condition. If the shrink is intended, lower "
+            f"MINIMUM_REQUIRED_TESTS deliberately and say why."
+        )
 
     if not junit_path.is_file():
         raise SuiteGateError(f"no junit report at {junit_path}")

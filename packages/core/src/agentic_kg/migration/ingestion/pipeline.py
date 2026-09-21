@@ -38,6 +38,7 @@ from agentic_kg.migration.ingestion._contracts import (
     BuildContext,
     Candidate,
     CompletionClient,
+    CoverageCounter,
     DeterministicIdStrategy,
     ExtractionPipeline,
     ExtractorConfig,
@@ -56,6 +57,7 @@ from agentic_kg.migration.ingestion.extractors import (
 from agentic_kg.migration.ingestion.ontology import (
     GRAPH_ID,
     ONTOLOGY_VERSION,
+    RESEARCH_ONTOLOGY,
     research_candidate_validator,
 )
 from agentic_kg.migration.ingestion.papers import (
@@ -269,6 +271,7 @@ def run_shadow_ingestion(
         if entry.candidate.producer != STRUCTURED_PRODUCER
         and entry.candidate.producer_run_id == run_id
     )
+    _populate_coverage(report, (*paper_candidates, *submitted))
     return ShadowRunResult(
         report=report,
         candidates=submitted,
@@ -276,6 +279,35 @@ def run_shadow_ingestion(
         stores=stores,
         deterministic_client=is_deterministic(client),
     )
+
+
+def _populate_coverage(report: IngestionReport, candidates: Sequence[Candidate]) -> None:
+    """Fill in `report.coverage`, which `ExtractionPipeline` leaves undeclared.
+
+    `IngestPipeline` (the structured front end) builds an `OntologyCoverage`
+    from its ontology; `ExtractionPipeline` takes no `ontology=` argument at
+    all, so its report always comes back `declared=False` with empty term
+    tallies. That is an honest null for KGIS — it genuinely does not know the
+    vocabulary — but it is *wrong* for this path, which validates every
+    candidate against `RESEARCH_ONTOLOGY` and therefore does know it. A report
+    saying "no ontology was declared" next to a run that rejected undeclared
+    terms contradicts itself, and a reader would reasonably conclude AC-14 was
+    not enforced.
+
+    Reuses `kgis.ontology.CoverageCounter` verbatim — the same accumulator
+    `IngestPipeline` uses — rather than computing the tallies here. A local
+    re-derivation would be a second implementation of a summary this repo does
+    not own, and it would drift.
+
+    Note the `unused_*` axes are as informative as the `unknown_*` ones: a
+    `Topic` term declared and never used is exactly the signal §9.0 wants
+    visible, and it is how the zero-Topic outcome shows up in the report rather
+    than only in a test.
+    """
+    counter = CoverageCounter()
+    for candidate in candidates:
+        counter.observe(candidate)
+    report.coverage = counter.summarize(RESEARCH_ONTOLOGY)
 
 
 __all__ = [

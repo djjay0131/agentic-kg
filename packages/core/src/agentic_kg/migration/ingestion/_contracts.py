@@ -69,7 +69,7 @@ from kgis.extraction.provenance import chunk_evidence_id  # noqa: E402
 from kgis.extraction.runner import ExtractionPipeline  # noqa: E402
 from kgis.ids import DeterministicIdStrategy, stable_suffix  # noqa: E402
 from kgis.ledger.store import SqliteCandidateLedger  # noqa: E402
-from kgis.ontology import Ontology  # noqa: E402
+from kgis.ontology import CoverageCounter, Ontology  # noqa: E402
 from kgis.records import NormalizedRecord  # noqa: E402
 from kgis.report import IngestionReport  # noqa: E402
 from kgis.validate import OntologyCandidateValidator  # noqa: E402
@@ -85,6 +85,7 @@ __all__ = [
     "Chunk",
     "CompletionClient",
     "CompositeCandidateBuilder",
+    "CoverageCounter",
     "DeterministicIdStrategy",
     "Document",
     "EntityCandidate",

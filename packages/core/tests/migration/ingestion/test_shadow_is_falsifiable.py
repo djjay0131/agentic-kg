@@ -332,6 +332,40 @@ def test_a_silent_extractor_breaks_the_type_coverage_check(
 
 
 # ---------------------------------------------------------------------------
+# M6b — the raw upstream report passed through unpopulated
+# ---------------------------------------------------------------------------
+
+
+def test_an_unpopulated_coverage_breaks_the_declaration_check(
+    corpus: tuple[CorpusPaper, ...], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Defect: returning `ExtractionPipeline`'s report as it comes.
+
+    That is the *natural* implementation — the report is already there, and
+    every count on it is right. Only `coverage` is wrong, because the pipeline
+    was never given an ontology, and it reads `declared=False`: the run says no
+    vocabulary was declared while its validator was rejecting undeclared terms.
+    Production mutation: `_populate_coverage` becomes a no-op.
+    """
+    import agentic_kg.migration.ingestion.pipeline as pipeline_module
+
+    monkeypatch.setattr(pipeline_module, "_populate_coverage", lambda report, cands: None)
+    mutated = _fresh_run(corpus)
+    try:
+        assert mutated.report.coverage.declared is False, (
+            "the unmutated pipeline already declares coverage, so this mutation "
+            "changes nothing and proves nothing"
+        )
+        assert reddens(
+            lambda: run_tests.test_the_report_declares_the_ontology_it_was_validated_against(
+                mutated
+            )
+        ), "an undeclared coverage left the declaration check green"
+    finally:
+        mutated.stores.close()
+
+
+# ---------------------------------------------------------------------------
 # M7 — the corpus join table losing a row
 # ---------------------------------------------------------------------------
 

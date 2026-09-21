@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from .suite_gate import (
+    MINIMUM_REQUIRED_TESTS,
     PERMITTED_SKIPS,
     REQUIRED_MODULES,
     SuiteGateError,
@@ -168,6 +169,83 @@ def test_a_missing_required_module_is_rejected(
     )
     with pytest.raises(SuiteGateError, match="required test module is missing"):
         suite_gate.expected_tests()
+
+
+def test_a_test_nested_under_a_false_condition_is_still_required(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reviewer's bypass: `if False:` removed a test from both sides.
+
+    The first version of `expected_tests` walked `tree.body` only. Indenting a
+    required test under `if False:` removed it from the required set *and* from
+    execution, so the gate printed `OK: 93 required tests ran and passed` and
+    exited 0 while the test it was guarding had silently stopped running.
+    `ast.walk` is the fix: the test is still required, so its absence from the
+    report is now a "never ran" failure.
+    """
+    from . import suite_gate
+
+    module = tmp_path / "test_nested.py"
+    module.write_text(
+        "def test_visible() -> None:\n"
+        "    pass\n"
+        "\n"
+        "if False:\n"
+        "    def test_hidden_by_a_false_condition() -> None:\n"
+        "        pass\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(suite_gate, "HERE", tmp_path)
+    monkeypatch.setattr(suite_gate, "REQUIRED_MODULES", ("test_nested.py",))
+
+    required = suite_gate.expected_tests()
+    assert required["test_nested"] == {
+        "test_visible",
+        "test_hidden_by_a_false_condition",
+    }, "a test nested under `if False:` fell out of the required set"
+
+    # ...and the gate now fails over a report that only ran the visible one.
+    monkeypatch.setattr(suite_gate, "MINIMUM_REQUIRED_TESTS", 0)
+    report = _write(tmp_path, [("test_visible", "passed")])
+    with pytest.raises(SuiteGateError, match="never ran"):
+        suite_gate.check(report)
+
+
+def test_a_shrinking_required_set_trips_the_pinned_floor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`ast.walk` moves the attack; the floor closes it.
+
+    Deleting a required test outright still removes it from both the discovered
+    set and the report, so both sides agree and nothing looks wrong. The floor
+    is the only value in this gate that does not shrink with the suite.
+    """
+    from . import suite_gate
+
+    module = tmp_path / "test_tiny.py"
+    module.write_text("def test_one() -> None:\n    pass\n", encoding="utf-8")
+    monkeypatch.setattr(suite_gate, "HERE", tmp_path)
+    monkeypatch.setattr(suite_gate, "REQUIRED_MODULES", ("test_tiny.py",))
+
+    report = _write(tmp_path, [("test_one", "passed")])
+    with pytest.raises(SuiteGateError, match="below the pinned floor"):
+        suite_gate.check(report)
+
+
+def test_the_floor_is_below_the_suite_and_not_trivially_satisfied(
+    required: frozenset[str],
+) -> None:
+    """The floor has to bind: at or just under today's count, never at zero.
+
+    A floor of 0 would pass over any suite at all, which is the same defect one
+    level up.
+    """
+    assert MINIMUM_REQUIRED_TESTS > 0
+    assert MINIMUM_REQUIRED_TESTS <= len(required)
+    assert len(required) - MINIMUM_REQUIRED_TESTS < 25, (
+        f"the floor ({MINIMUM_REQUIRED_TESTS}) has drifted far below the suite "
+        f"({len(required)}); raise it so it still binds"
+    )
 
 
 def test_every_required_module_exists_today() -> None:

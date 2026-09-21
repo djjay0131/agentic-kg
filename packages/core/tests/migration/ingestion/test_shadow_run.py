@@ -16,11 +16,14 @@ a coordinate that stops parsing — not arithmetic drift.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from agentic_kg.migration.config import MigrationConfig
 from agentic_kg.migration.ingestion import ShadowStores, importer_replay_client
 from agentic_kg.migration.ingestion.corpus import CorpusPaper
 from agentic_kg.migration.ingestion.identity import norm, normalize_doi, parse_fragment
+from agentic_kg.migration.ingestion.ontology import ENTITY_TYPES, ONTOLOGY_VERSION
 from agentic_kg.migration.ingestion.papers import STRUCTURED_PRODUCER
 from agentic_kg.migration.ingestion.pipeline import (
     RUN_INSTANT,
@@ -59,17 +62,113 @@ def test_every_configured_entity_type_is_produced(shadow_run: ShadowRunResult) -
 
 
 def test_the_topic_extractor_found_nothing_and_that_is_the_corpus(
+    shadow_run: ShadowRunResult, corpus: tuple[CorpusPaper, ...]
+) -> None:
+    """Zero Topics is a fact about the fixture, and the extractor is live.
+
+    `== 0` alone is not enough, and an independent review was right to say so:
+    it passes identically over a deleted extractor, an extractor whose type the
+    ontology rejects, or one that raises on every chunk. All three are real
+    regressions and all three read as "the corpus has no topics".
+
+    So the assertion has two halves. **Negative:** every committed importer
+    file carries `topic: {domain: null, area: null, subtopic: null}` — the
+    BELONGS_TO bug (issue #58) — so the run correctly yields none.
+    **Positive:** given a topic-bearing payload the *same pipeline, same
+    extractor, same ontology* produces Topic entities with no failures. Only
+    the second half can tell a silent extractor from an empty corpus.
+    """
+    import copy
+    import dataclasses
+
+    import yaml
+
+    assert shadow_run.entity_counts().get("Topic", 0) == 0
+
+    # Negative half: the corpus really is topic-free, checked at source.
+    for paper in corpus:
+        payload = yaml.safe_load(paper.importer_path.read_text(encoding="utf-8"))
+        topic = payload.get("topic") or {}
+        named = [topic.get(level) for level in ("domain", "area", "subtopic")]
+        assert not any(named), f"{paper.slug} carries topics: {named}"
+
+    # Positive half: the same extractor, given topics, emits them.
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        source = corpus[0]
+        payload = copy.deepcopy(
+            yaml.safe_load(source.importer_path.read_text(encoding="utf-8"))
+        )
+        payload["topic"] = {
+            "domain": "Computer Science",
+            "area": "Artificial Intelligence",
+            "subtopic": "Knowledge Graphs",
+        }
+        patched = Path(tmp) / source.importer_path.name
+        patched.write_text(yaml.safe_dump(payload), encoding="utf-8")
+        with_topics = dataclasses.replace(source, importer_path=patched)
+
+        stores = ShadowStores.in_memory()
+        try:
+            result = run_shadow_ingestion(
+                [with_topics],
+                config=MigrationConfig(use_kgis_ingestion=True),
+                client=importer_replay_client([with_topics]),
+                stores=stores,
+                include_papers=False,
+            )
+            assert result.report.failures == [], result.report.failures
+            assert result.entity_counts().get("Topic", 0) == 3, (
+                f"the topic extractor produced no Topic entities from a "
+                f"topic-bearing payload, so the zero above says nothing about "
+                f"the corpus: {result.entity_counts()}"
+            )
+        finally:
+            stores.close()
+
+
+def test_the_report_declares_the_ontology_it_was_validated_against(
     shadow_run: ShadowRunResult,
 ) -> None:
-    """Recorded as a fact about the fixture, not swept under the run.
+    """`report.coverage.declared` must not contradict AC-14.
 
-    Zero Topics is the *correct* output for this replay: the committed importer
-    output carries `topic: {domain: null, area: null, subtopic: null}` for every
-    paper, with a caveat naming the BELONGS_TO bug. Asserting it here means a
-    future fixture that *does* carry topics turns this red and forces the
-    expectation above to be updated, rather than the zero going unnoticed.
+    `ExtractionPipeline` takes no `ontology=` argument, so its report comes back
+    `declared=False` with empty tallies — an honest null for KGIS, which really
+    does not know the vocabulary, but wrong here: this path validates every
+    candidate against `RESEARCH_ONTOLOGY` and rejects undeclared terms. A
+    reader seeing "no ontology declared" beside a strictly-validated run would
+    reasonably conclude AC-14 was not enforced.
+
+    The defect this catches is the raw upstream report being passed through
+    unpopulated. `declared=False` is exactly what that looks like, and nothing
+    else in the suite would notice.
     """
-    assert shadow_run.entity_counts().get("Topic", 0) == 0
+    coverage = shadow_run.report.coverage
+    assert coverage.declared, (
+        "the run's own report says no ontology was declared, contradicting the "
+        "strict validator it was built with"
+    )
+    assert coverage.ontology_version == ONTOLOGY_VERSION
+    assert set(coverage.declared_entity_types) == set(ENTITY_TYPES)
+    assert coverage.entity_types, "no entity terms were tallied"
+    assert not coverage.unknown_entity_types
+    assert not coverage.unknown_attributes
+
+
+def test_the_report_names_the_declared_terms_nothing_used(
+    shadow_run: ShadowRunResult,
+) -> None:
+    """The zero-Topic outcome is visible in the report, not only in a test.
+
+    `unused_*` is the axis that makes "declared a Topic extractor, produced no
+    Topics" legible to an operator reading the run, rather than only to whoever
+    opens the test file.
+    """
+    unused = set(shadow_run.report.coverage.unused_entity_types)
+    assert "Topic" in unused, (
+        f"Topic was declared and never used, so it must appear as unused: {unused}"
+    )
 
 
 def test_one_artifact_candidate_per_paper(

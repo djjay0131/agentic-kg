@@ -11,6 +11,13 @@ reading it:
 An AST walk rather than a `grep` because a grep over source text cannot tell an
 import from the word appearing in a docstring, and this module's own prose names
 every symbol it forbids.
+
+The matchers live in `astscan`, shared with `test_isolation.py`. They were
+originally written here and were evaded four ways — `from agentic_kg.migration
+import neo4j`, `importlib.import_module(...)`, `__import__(...)`, and any file
+in a subdirectory (`glob`, not `rglob`) — with every test green. `astscan`'s
+own docstring records that, and `test_isolation.py` proves each form is now
+caught.
 """
 
 from __future__ import annotations
@@ -27,6 +34,8 @@ from agentic_kg.migration.ingestion.pipeline import (
     build_shadow_pipeline,
 )
 
+from .astscan import called_names, imported_names, package_modules, parse, root_of
+
 PACKAGE_DIR = Path(ingestion_package.__file__).resolve().parent
 
 #: The module allowed to import the optional packages. One door, and it is
@@ -37,11 +46,12 @@ OPTIONAL_ROOTS = frozenset({"kg_contracts", "kgis", "kg_eval", "kgcs"})
 
 
 def _modules() -> list[Path]:
-    return sorted(PACKAGE_DIR.glob("*.py"))
+    """Recursive. A subdirectory is the effortless way out of a `glob` scan."""
+    return package_modules(PACKAGE_DIR)
 
 
 def _tree(path: Path) -> ast.Module:
-    return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return parse(path)
 
 
 def test_the_package_has_modules_to_check() -> None:
@@ -64,18 +74,9 @@ def test_no_module_calls_the_config_singleton() -> None:
     """
     offenders: list[str] = []
     for path in _modules():
-        for node in ast.walk(_tree(path)):
-            if isinstance(node, ast.Call):
-                func = node.func
-                name = (
-                    func.id
-                    if isinstance(func, ast.Name)
-                    else func.attr
-                    if isinstance(func, ast.Attribute)
-                    else None
-                )
-                if name == "get_migration_config":
-                    offenders.append(f"{path.name}:{node.lineno}")
+        for lineno, name in called_names(_tree(path)):
+            if name == "get_migration_config":
+                offenders.append(f"{path.name}:{lineno}")
     assert not offenders, (
         f"get_migration_config() called inline at {offenders}; ADR-0004 "
         f"decision 4 requires an injected MigrationConfig"
@@ -87,20 +88,61 @@ def test_only_the_guard_module_imports_the_optional_packages() -> None:
     for path in _modules():
         if path.name == GUARD_MODULE:
             continue
-        for node in ast.walk(_tree(path)):
-            roots: list[str] = []
-            if isinstance(node, ast.Import):
-                roots = [alias.name.split(".")[0] for alias in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                roots = [node.module.split(".")[0]]
-            for root in roots:
-                if root in OPTIONAL_ROOTS:
-                    offenders.append(f"{path.name}:{node.lineno} imports {root}")
+        for lineno, name in imported_names(_tree(path)):
+            if root_of(name) in OPTIONAL_ROOTS:
+                offenders.append(f"{path.name}:{lineno} imports {name}")
     assert not offenders, (
         f"optional packages imported outside {GUARD_MODULE}: {offenders}. "
         f"Every access must go through the guard, or an operator without the "
         f"extra gets a bare ModuleNotFoundError from deep in the pipeline."
     )
+
+
+def test_the_optional_import_matcher_catches_every_known_evasion() -> None:
+    """Obligation 5 for the "only one door" test above.
+
+    It is an "assert nothing matched" check, and four of these forms passed its
+    original matcher with every test green. The same evasions worked against
+    `test_isolation.py`; `astscan` fixes both, and this asserts the fix holds on
+    this side too.
+    """
+    samples = {
+        "plain": "import kgis\n",
+        "aliased": "import kgis as _k\n",
+        "submodule": "import kgis.extraction.runner\n",
+        "from-import": "from kgis.builders import EntityCandidateBuilder\n",
+        "importlib": "import importlib\nx = importlib.import_module('kgis')\n",
+        "dunder": "x = __import__('kg_contracts')\n",
+    }
+    for label, source in samples.items():
+        hits = [
+            name
+            for _l, name in imported_names(ast.parse(source))
+            if root_of(name) in OPTIONAL_ROOTS
+        ]
+        assert hits, f"{label} evaded the optional-import matcher"
+
+    benign = "import yaml\nfrom pathlib import Path\n"
+    assert not [
+        name
+        for _l, name in imported_names(ast.parse(benign))
+        if root_of(name) in OPTIONAL_ROOTS
+    ]
+
+
+def test_the_singleton_matcher_catches_both_call_forms() -> None:
+    """A bare call and an attribute call are the same defect.
+
+    `config.get_migration_config()` reads as more disciplined than the bare
+    form and is exactly as much of a process-global read.
+    """
+    sample = (
+        "from agentic_kg.migration import config\n"
+        "a = get_migration_config()\n"
+        "b = config.get_migration_config()\n"
+    )
+    hits = [n for _l, n in called_names(ast.parse(sample)) if n == "get_migration_config"]
+    assert len(hits) == 2
 
 
 def test_the_guard_module_actually_guards() -> None:
