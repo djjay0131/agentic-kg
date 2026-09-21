@@ -85,13 +85,26 @@ def wait_for_neo4j(driver: "Driver", timeout: float = 30.0) -> bool:
 
 
 def clear_test_data(session: "Session", prefix: str = "TEST_") -> int:
-    """Clear test data from Neo4j (nodes with IDs starting with prefix)."""
+    """Clear test data from Neo4j (nodes with IDs starting with prefix).
+
+    Matches Paper DOIs as well as id-shaped properties. Papers are identified
+    by ``doi``, never by ``id``, so the id-only predicate this function used to
+    carry matched no Paper at all: every ``10.TEST_*`` and ``10.1/TEST-*``
+    Paper these tests created leaked into real staging permanently. The
+    ``10.1/TEST-`` family carries only 6 hex characters of entropy, so an
+    unbounded population eventually collides -- which is exactly how
+    "DuplicateError: Paper with DOI 10.1/TEST-c854bd already exists" reached
+    CI. Keep this predicate in step with TEST_DATA_PREDICATE in
+    packages/core/tests/conftest.py.
+    """
     result = session.run(
         """
         MATCH (n)
         WHERE n.id STARTS WITH $prefix
            OR n.paper_id STARTS WITH $prefix
            OR n.problem_id STARTS WITH $prefix
+           OR n.doi STARTS WITH '10.TEST_'
+           OR n.doi STARTS WITH '10.1/TEST-'
         DETACH DELETE n
         RETURN count(n) as deleted
         """,

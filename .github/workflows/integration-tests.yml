@@ -1,6 +1,13 @@
 # Integration Tests Workflow
-# Runs integration tests against staging Neo4j instance
-# Tests clean up after themselves using TEST_ prefix
+#
+# The integration job runs against a PER-RUN, throwaway Neo4j (testcontainers),
+# NOT shared staging. History: it used staging, and the test fixture swept every
+# TEST_-prefixed node before and after each test. The prefix is run-global, so
+# two runs on different refs deleted one another's in-flight rows -- surfacing
+# as "NotFoundError: <uuid> not found" on nodes the test had just created.
+# Every integration-job failure in the 40 runs before 2026-09-19 sat inside an
+# overlap window with another integration job. A per-run database removes the
+# shared namespace entirely; it is also faster (~47s vs ~150s) than staging.
 
 name: Integration Tests
 
@@ -15,6 +22,10 @@ on:
 
 # A merge into a long-lived integration branch fires both the PR-close and the
 # push event; without a group they race and burn double the runner minutes.
+#
+# NOTE: this group is keyed per-ref and therefore does NOT serialise different
+# PRs against each other. It never did. Do not rely on it for database
+# isolation -- that is the per-run Neo4j container's job.
 concurrency:
   group: integration-tests-${{ github.ref }}
   cancel-in-progress: true
@@ -140,7 +151,11 @@ jobs:
     name: Integration Tests (Neo4j)
     runs-on: ubuntu-latest
     needs: unit-tests
-    # Only run if we have the secrets configured
+    # This job no longer consumes any secret -- it runs against a container it
+    # starts itself -- so the fork restriction below is no longer about secret
+    # availability. It is kept only to bound runner spend on fork PRs, and can
+    # be dropped safely. Do NOT re-add staging credentials here to "fix" a fork
+    # PR: the suite is designed to refuse a shared database.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@v4
@@ -166,10 +181,11 @@ jobs:
           pip install -e ./packages/api
 
       - name: Run integration tests
-        env:
-          NEO4J_URI: ${{ secrets.STAGING_NEO4J_URI }}
-          NEO4J_USERNAME: neo4j
-          NEO4J_PASSWORD: ${{ secrets.STAGING_NEO4J_PASSWORD }}
+        # No NEO4J_URI and no ownership flag. The conftest starts a throwaway
+        # Neo4j container belonging to this run alone, and that -- starting the
+        # container -- is the only thing that licenses the teardown sweep.
+        # Adding NEO4J_URI here does not re-enable the shared-staging topology;
+        # it makes the suite refuse to run.
         run: |
           pytest packages/core/tests/knowledge_graph/ \
             -m integration \
