@@ -177,6 +177,22 @@ jobs:
           python packages/core/tests/migration/neo4j/suite_gate.py \
             test-results/migration-adapter.xml
 
+      - name: Assert the compatibility harness actually ran
+        # The gate above identifies the seven shared KGCS contract tests by
+        # name and treats everything else as uncounted background. Review of
+        # PR #84 fed it a junit report with the entire compat harness deleted
+        # and it reported success -- correctly, for its scope, and uselessly
+        # for this one. Same "counting is not identification" failure, one
+        # level up. This gate derives every compat test name from the source
+        # tree at runtime and requires each to be present and passed, so a
+        # deleted module, a renamed test, a skip, a failure, or an -m filter
+        # that silently dropped half the suite all go red.
+        # test_suite_gate.py in that directory proves each rejection path.
+        if: always()
+        run: |
+          python packages/core/tests/migration/compat/suite_gate.py \
+            test-results/migration-adapter.xml
+
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
