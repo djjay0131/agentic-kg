@@ -6,10 +6,14 @@ This script populates the Neo4j database with realistic research problems
 extracted from actual papers across NLP, Computer Vision, and Machine Learning.
 
 Usage:
-    python scripts/load_sample_problems.py [--clear]
+    python scripts/load_sample_problems.py
+    python scripts/load_sample_problems.py --clear --database NAME
 
 Options:
-    --clear     Clear existing data before loading
+    --clear         Delete every node and relationship before loading
+    --database      The database name --clear is permitted to wipe. Required
+                    with --clear, and compared against the database the
+                    connection actually resolved to; they must match.
 """
 
 import argparse
@@ -521,8 +525,17 @@ def create_sample_problems() -> list[Problem]:
     return problems
 
 
-def load_sample_data(clear: bool = False) -> None:
-    """Load all sample data into Neo4j."""
+def load_sample_data(clear: bool = False, expect_database: str | None = None) -> None:
+    """Load all sample data into Neo4j.
+
+    ``expect_database`` is the name the *operator* typed on the command line,
+    not a value read back off the connection. That distinction is the whole
+    point of the argument: an earlier revision passed
+    ``repo._config.database`` here, so both sides of ``drop_all``'s equality
+    check were derived from the same artefact and it could not fail (review
+    finding M2). Taking it from the operator makes a misconfigured
+    ``NEO4J_DATABASE`` abort instead of wiping the database it happens to name.
+    """
     repo = Neo4jRepository()
     relation_service = RelationService(repository=repo)
     schema_manager = SchemaManager(repository=repo)
@@ -538,19 +551,28 @@ def load_sample_data(clear: bool = False) -> None:
 
         # Optionally clear existing data
         if clear:
-            target = repo._config.database
+            if not expect_database:
+                raise ValueError(
+                    "--clear requires --database NAME: the name must come from "
+                    "the operator, not from the connection being cleared."
+                )
+            connected_to = repo._config.database
             logger.warning(
                 "--clear will DELETE EVERY node and relationship in database "
                 "%r at %s",
-                target,
+                connected_to,
                 repo._config.uri,
             )
             if sys.stdin.isatty():
-                answer = input(f"Type the database name {target!r} to confirm: ")
-                if answer.strip() != target:
+                answer = input(
+                    f"Type the database name {expect_database!r} to confirm: "
+                )
+                if answer.strip() != expect_database:
                     logger.error("Confirmation did not match; aborting.")
                     sys.exit(1)
-            schema_manager.drop_all(confirm=True, expect_database=target)
+            # `expect_database` is the operator's word; `drop_all` compares it
+            # against the connection's own. A mismatch aborts.
+            schema_manager.drop_all(confirm=True, expect_database=expect_database)
             schema_manager.initialize(force=True)
             logger.info("Cleared existing data")
 
@@ -635,12 +657,29 @@ def main():
     parser.add_argument(
         "--clear",
         action="store_true",
-        help="Clear existing data before loading",
+        help="Delete every node and relationship before loading",
+    )
+    parser.add_argument(
+        "--database",
+        default=None,
+        help=(
+            "Name of the database --clear is permitted to wipe. Required with "
+            "--clear. It is compared against the database the connection "
+            "resolved to, so a misconfigured NEO4J_DATABASE aborts rather than "
+            "wiping whatever it named."
+        ),
     )
     args = parser.parse_args()
 
+    if args.clear and not args.database:
+        parser.error(
+            "--clear requires --database NAME. The name has to come from you, "
+            "not from the connection: taking it off the connection makes the "
+            "check compare a value with itself."
+        )
+
     try:
-        load_sample_data(clear=args.clear)
+        load_sample_data(clear=args.clear, expect_database=args.database)
     except Exception as e:
         logger.error(f"Failed to load sample data: {e}")
         sys.exit(1)

@@ -495,6 +495,7 @@ class TestLowConfidenceConsensusWorkflow:
     @pytest.mark.asyncio
     @pytest.mark.xfail(
         strict=True,
+        raises=AssertionError,
         reason=(
             "Product defect, not a stale expectation: arbiter.py:385-390 converts a "
             "final-round RETRY into LINK and calls it 'conservative'. Linking is the "
@@ -505,6 +506,10 @@ class TestLowConfidenceConsensusWorkflow:
             "below the 0.7 threshold the same function enforces everywhere else. "
             "Marked xfail(strict) rather than rewritten to match the code: changing "
             "the assertion would convert a live defect into a documented feature. "
+            "raises=AssertionError pins the failure mode: without it the marker is "
+            "satisfied by any exception, so if #85 is fixed and this test then "
+            "breaks for an unrelated reason -- fixture drift, a renamed helper -- it "
+            "keeps xfailing silently and the fix goes unnoticed. "
             "Tracked in https://github.com/djjay0131/agentic-kg/issues/85."
         ),
     )
@@ -556,6 +561,7 @@ class TestLowConfidenceConsensusWorkflow:
 
 @pytest.mark.xfail(
     strict=True,
+    raises=AttributeError,
     reason=(
         "Production defect, not a test bug: review_queue.py calls "
         "self._repo.write_transaction/read_transaction at 8 call sites, and "
@@ -566,7 +572,10 @@ class TestLowConfidenceConsensusWorkflow:
         "inventing an API the real class never had, while this integration "
         "test -- the only one holding a real repository -- was disabled behind "
         "the environment gate fixed in #78. Marked xfail(strict) so it fails "
-        "loudly again once the subsystem works. "
+        "loudly again once the subsystem works, and raises=AttributeError so it "
+        "can only absorb *that* failure: an unpinned strict xfail is satisfied by "
+        "any exception, which would let a later, unrelated breakage here go on "
+        "reporting as an expected failure. "
         "Tracked in https://github.com/djjay0131/agentic-kg/issues/86."
     ),
 )

@@ -472,7 +472,12 @@ class SchemaManager:
 
         * ``expect_database`` is required and must name the database actually
           connected. A caller has to state which database it means to destroy,
-          so a misconfigured ``NEO4J_DATABASE`` aborts instead of wiping.
+          so a misconfigured ``NEO4J_DATABASE`` aborts instead of wiping. That
+          only holds if the value comes from *outside* the connection:
+          ``load_sample_problems.py`` originally passed ``repo._config.database``,
+          so both sides of the comparison were derived from the same artefact
+          and it could not fail (review finding M2). It now requires
+          ``--database NAME`` from the operator.
         * ``ENVIRONMENT=production`` / ``staging`` refuses outright, raising
           rather than returning False, because a silent no-op on a destructive
           call is its own hazard.
