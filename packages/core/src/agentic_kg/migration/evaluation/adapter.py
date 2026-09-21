@@ -34,7 +34,7 @@ also names it, because a recall obligation outranks a may-emit.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from kg_contracts.candidates import (
@@ -210,7 +210,13 @@ class SurfaceIndex:
 
     alias_to_canonical: Mapping[tuple[str, str, str], str]
     extras: Mapping[tuple[str, str, str], AcceptableExtra]
-    surface_to_typed: Mapping[tuple[str, str], tuple[tuple[str, str], ...]] = ()
+    # Empty mapping, not an empty tuple: `= ()` type-checks as tuple[()] against a
+    # Mapping annotation and mypy rejects it. That matters here rather than being
+    # a style point — #74's canonical-adapter job runs mypy over this package
+    # WITHOUT `|| true`, so a wrong default fails CI rather than being ignored.
+    surface_to_typed: Mapping[tuple[str, str], tuple[tuple[str, str], ...]] = field(
+        default_factory=dict
+    )
 
     def resolve(self, slug: str, bucket: str, surface: str) -> str | None:
         """The canonical this surface names in this paper+bucket, if any."""
