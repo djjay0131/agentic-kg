@@ -21,6 +21,45 @@ from kg_contracts.policy import AdjudicationRoute, ConfidencePolicy
 
 from ._synthetic import graded_entity_candidate
 
+#: What the eight committed papers actually produce through the KGIS shadow
+#: path. Pinned, and pinned *here*, because these are the numbers the PR body
+#: and the upstream defect report quote — and the first review of this PR caught
+#: the denominator quoted as 272 when it is 252. A prose number that no test
+#: holds is a number that drifts, and this one had already been propagated into
+#: two other repositories before it was caught.
+CORPUS_CANDIDATE_COUNT = 252
+CORPUS_KIND_COUNTS = {"artifact": 8, "attribute_assertion": 130, "entity": 114}
+CORPUS_ENTITY_TYPES = {
+    "Method": 21,
+    "Model": 21,
+    "Paper": 8,
+    "Problem": 40,
+    "ResearchConcept": 24,
+}
+
+
+def test_the_corpus_census_is_what_the_findings_quote(shadow_run) -> None:
+    """The denominator and the type census, pinned against the real run.
+
+    Read off KGIS's own submitted candidates, not off an extractor config: a
+    count taken from the configuration would report what was *asked for* and
+    would stay identical if every extractor returned nothing.
+
+    Two body inaccuracies this closes, both found by review. The denominator was
+    quoted as 272 and is 252. And the four graded types were described as coming
+    from the LLM extractor when the corpus in fact yields **zero** ``Topic``
+    candidates at all — ``Topic`` appears in this PR only as a synthetic fixture
+    — while ``Problem`` (40 candidates, ungraded) went unmentioned.
+    """
+    candidates = (*shadow_run.paper_candidates, *shadow_run.candidates)
+    assert len(candidates) == CORPUS_CANDIDATE_COUNT
+    assert shadow_run.kind_counts() == CORPUS_KIND_COUNTS
+    assert shadow_run.entity_counts() == CORPUS_ENTITY_TYPES
+    assert "Topic" not in shadow_run.entity_counts(), (
+        "the corpus now yields Topic candidates; the PR body's description of "
+        "the graded types is stale"
+    )
+
 
 def test_the_contract_default_policy_auto_routes_nothing_kgis_produces(
     shadow_candidates: tuple[object, ...], enabled_config: MigrationConfig
@@ -38,6 +77,10 @@ def test_the_contract_default_policy_auto_routes_nothing_kgis_produces(
     )
     counts = result.route_counts()
     assert counts, "no candidate was routed at all; the corpus fixture is empty"
+    # The denominator, pinned next to the zero. "0 of 252" is the sentence that
+    # leaves this repo; a bare "no candidate routed AUTO" would stay true over a
+    # corpus of one.
+    assert sum(counts.values()) == CORPUS_CANDIDATE_COUNT
     assert AdjudicationRoute.AUTO.value not in counts, (
         f"a candidate routed AUTO under the unmodified contract policy: {counts}. "
         f"If the platform gained an identity_confidence producer this is good "
@@ -64,6 +107,28 @@ def test_the_structured_policy_changes_exactly_one_contract_field() -> None:
         f"threshold is policy tuning against the gold set."
     )
     assert declared["require_identity_confidence_for_auto"] is False
+
+
+def test_the_contract_default_policy_is_the_contract_default_unchanged() -> None:
+    """Not one threshold on the fail-closed default may move.
+
+    The sibling of the structured-policy guard, and review found it missing:
+    lowering ``CONTRACT_DEFAULT_POLICY``'s extraction thresholds passed the whole
+    suite green, because the identity gate still blocked AUTO and hid the change.
+    That is a latent trap rather than a live defect — the thresholds would
+    already be pre-tuned the day the gate is closed upstream, and the deadlock
+    measurement above would then be reporting a policy nobody declared.
+    """
+    changed = {
+        k
+        for k, v in CONTRACT_DEFAULT_POLICY.model_dump().items()
+        if ConfidencePolicy().model_dump()[k] != v
+    }
+    assert changed == set(), (
+        f"CONTRACT_DEFAULT_POLICY differs from ConfidencePolicy() in "
+        f"{sorted(changed)}. The fail-closed default is the contract's, "
+        f"unmodified; a deliberate adopter policy belongs in a named constant."
+    )
 
 
 def test_no_graded_entity_type_auto_routes_under_either_declared_policy(

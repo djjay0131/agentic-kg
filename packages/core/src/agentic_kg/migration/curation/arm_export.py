@@ -50,6 +50,26 @@ genuinely produced nothing for those papers, and that **is** a measured zero:
 ``arm_papers`` comes back as real records with empty entity tuples and the arm
 is graded. A module that always returned ``None`` on an empty result would be an
 honest-null policy that had quietly become "never report a bad number".
+
+A run that saw **no candidates at all** is the fourth case, and it is not a
+measured zero either. Review of this module found the original version handing
+``run_curation([])`` to the runner as eight real records with ``reason=None``,
+graded 0.0 — "the new pipeline found nothing" asserted about a run in which
+nothing was ever submitted. Ingestion failing, an empty batch and an extractor
+returning nothing all land there. :func:`curated_arm` now refuses it by its own
+rule, and the measured-zero test is driven by a run that really did see
+candidates, because a discriminator only ever exercised on the empty set
+discriminates nothing.
+
+A measurable arm can still be badly incomplete
+----------------------------------------------
+The null above is a step function at exactly zero committed: one graded entity
+committed alongside fifty deferred makes the arm measurable, and a reader taking
+``reason is None`` as "this is a clean measurement" would draw very nearly the
+wrong conclusion the null exists to prevent. So a measurable arm whose run left
+graded entities behind carries a :attr:`CuratedArm.caveat` — the arm is graded,
+and the sentence travels with it. ``reason`` still means "there is no number";
+``caveat`` means "there is a number, and here is what it is missing".
 """
 
 from __future__ import annotations
@@ -81,7 +101,12 @@ class CuratedArm:
     it is ``None``, pass ``None`` and use ``reason`` as the
     ``ArmUnavailable.reason``.
 
-    The four counts are carried because the reason is only credible with them:
+    ``caveat`` is the other half and is set only when ``reason`` is not: the arm
+    *is* gradeable and is nonetheless incomplete, because the run left graded
+    entities deferred, rejected or uncommitted. Report it next to the number.
+
+    The four counts are carried because the reason and the caveat are only
+    credible with them:
     "deferred, not missing" is a claim about numbers, and a reader has to be
     able to check it. ``graded_uncommitted`` counts graded candidates that
     reached the plan and did not reach the graph.
@@ -89,6 +114,7 @@ class CuratedArm:
 
     arm_papers: tuple[ShadowArmPaper, ...] | None
     reason: str | None
+    caveat: str | None
     graded_committed: int
     graded_deferred: int
     graded_rejected: int
@@ -146,35 +172,71 @@ def curated_arm(
         graded_uncommitted=graded_uncommitted,
     )
 
-    unmeasured = graded_deferred or graded_rejected or graded_uncommitted
-    if graded_committed == 0 and unmeasured:
-        outcome = (
-            "no plan was executed"
-            if result.execution is None
-            else f"the apply came back {result.execution.outcome.value}"
-        )
+    if result.candidates_seen == 0:
+        # Nothing was submitted, so nothing was measured. Grading this as a zero
+        # would assert that the pipeline found nothing about eight papers it
+        # never saw a candidate for.
         return CuratedArm(
             arm_papers=None,
             reason=(
-                "the KGCS curation path ran and committed no graded entity: of "
-                f"the graded-type candidates it saw, {graded_deferred} were "
-                f"deferred to adjudication that has not been run, "
-                f"{graded_rejected} were rejected at validation, and "
-                f"{graded_uncommitted} were planned but not committed "
-                f"({outcome}). Reported as unavailable rather than as an empty "
-                "arm: an empty arm grades to a measured recall of 0.0, which "
-                "asserts the new pipeline found nothing, when the fact is that "
-                "it found them and they did not reach the graph. Closing the "
-                "deferred share needs the bounded adviser / review stage, not a "
-                "lower threshold."
+                "the curation run saw no candidates at all, so nothing about "
+                "these papers was measured. An empty batch, a failed ingestion "
+                "and an extractor that returned nothing all arrive here, and "
+                "none of them is evidence that the new pipeline found nothing."
             ),
+            caveat=None,
             **counts,
+        )
+
+    unmeasured = graded_deferred or graded_rejected or graded_uncommitted
+    if graded_committed == 0 and unmeasured:
+        return CuratedArm(
+            arm_papers=None,
+            reason=(
+                "the KGCS curation path ran and committed no graded entity: "
+                + _shortfall(result, graded_deferred, graded_rejected, graded_uncommitted)
+                + ". Reported as unavailable rather than as an empty arm: an "
+                "empty arm grades to a measured recall of 0.0, which asserts the "
+                "new pipeline found nothing, when the fact is that it found them "
+                "and they did not reach the graph. Closing the deferred share "
+                "needs the bounded adviser / review stage, not a lower threshold."
+            ),
+            caveat=None,
+            **counts,
+        )
+
+    caveat = None
+    if unmeasured:
+        total = graded_committed + graded_deferred + graded_rejected + graded_uncommitted
+        caveat = (
+            f"this arm is gradeable but incomplete: {graded_committed} of {total} "
+            f"graded-type candidates reached the graph. "
+            + _shortfall(result, graded_deferred, graded_rejected, graded_uncommitted)
+            + ". Recall computed over this arm is bounded above by that fraction "
+            "and is not a measurement of what the pipeline can extract."
         )
 
     return CuratedArm(
         arm_papers=to_arm_papers(committed, doi_to_slug=doi_to_slug),
         reason=None,
+        caveat=caveat,
         **counts,
+    )
+
+
+def _shortfall(
+    result: CurationRunResult, deferred: int, rejected: int, uncommitted: int
+) -> str:
+    """The sentence naming where the missing graded candidates went."""
+    outcome = (
+        "no plan was executed"
+        if result.execution is None
+        else f"the apply came back {result.execution.outcome.value}"
+    )
+    return (
+        f"{deferred} were deferred to adjudication that has not been run, "
+        f"{rejected} were rejected at validation, and {uncommitted} were "
+        f"planned but not committed ({outcome})"
     )
 
 

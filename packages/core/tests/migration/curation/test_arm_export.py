@@ -119,22 +119,117 @@ def test_an_unavailable_arm_is_reported_as_unavailable_by_the_real_runner(
 
 
 def test_nothing_deferred_and_nothing_committed_is_a_measured_zero(
-    enabled_config: MigrationConfig, doi_to_slug: dict[str, str]
+    enabled_config: MigrationConfig,
+    memory_store: object,
+    doi_to_slug: dict[str, str],
 ) -> None:
     """The discriminator: honest-null must not have become "never report a zero".
 
-    A run whose graded-type candidates were neither deferred nor rejected —
-    here, a run with no graded-type candidates at all — produced nothing
-    *because there was nothing*. That is a real zero and must be graded, not
-    hidden behind a reason string.
+    Driven by a run that **saw a candidate**, and that is the point of its
+    shape. Review found the original version driving this from
+    ``run_curation([])`` — so the branch it exists to exercise was only ever
+    reached on the empty set, and a criterion quantified over the empty set
+    discriminates nothing. Here a real ``Problem`` candidate is curated and
+    committed; no *graded* type was deferred, rejected or left uncommitted,
+    because there were none. That is a real zero for the four scored buckets
+    and must be graded rather than hidden behind a reason string.
     """
-    result = run_curation([], config=enabled_config)
-    arm = curated_arm(result, [], doi_to_slug=doi_to_slug)
+    candidate = graded_entity_candidate(entity_type="Problem", key="p1")
+    result = run_curation(
+        [candidate],
+        config=enabled_config,
+        store=memory_store,
+        confidence_policy=CONTRACT_DEFAULT_POLICY,
+    )
+    assert result.candidates_seen == 1
+    assert result.committed, "the run must really have curated something"
+
+    arm = curated_arm(result, [candidate], doi_to_slug=doi_to_slug)
     assert (arm.graded_deferred, arm.graded_rejected, arm.graded_uncommitted) == (0, 0, 0)
     assert arm.reason is None
+    assert arm.caveat is None
     assert arm.arm_papers is not None
     assert {p.slug for p in arm.arm_papers} == set(doi_to_slug.values())
     assert all(p.entities == () for p in arm.arm_papers)
+
+
+def test_a_run_that_saw_no_candidates_is_not_a_measured_zero(
+    enabled_config: MigrationConfig, doi_to_slug: dict[str, str]
+) -> None:
+    """Nothing submitted is not the same fact as nothing found.
+
+    An empty batch, a failed ingestion and an extractor that returned nothing
+    all arrive here. Grading them 0.0 asserts that the new pipeline found
+    nothing about eight papers it never saw a candidate for — the exact
+    not-measured-becomes-zero laundering this module exists to refuse.
+    """
+    result = run_curation([], config=enabled_config)
+    assert result.candidates_seen == 0
+
+    arm = curated_arm(result, [], doi_to_slug=doi_to_slug)
+    assert arm.arm_papers is None
+    assert arm.reason is not None
+    assert "no candidates at all" in arm.reason
+
+
+def test_a_measurable_but_incomplete_arm_carries_a_caveat(
+    enabled_config: MigrationConfig,
+    memory_store: object,
+    doi_to_slug: dict[str, str],
+) -> None:
+    """One committed alongside many deferred is a number that needs its footnote.
+
+    The honest null is a step function at exactly zero committed, so a run that
+    landed 1 of 4 graded entities reports as measurable. Without the caveat a
+    reader taking ``reason is None`` for "a clean measurement" would draw very
+    nearly the wrong conclusion the null exists to prevent — so the arm is
+    graded *and* the shortfall travels with it.
+    """
+    committed = graded_entity_candidate(surface="Knowledge Graphs", key="k0")
+    deferred = [
+        graded_entity_candidate(surface=f"Deferred Topic {i}", key=f"d{i}").model_copy(
+            update={"scores": committed.scores.model_copy(update={"extraction_confidence": 0.8})}
+        )
+        for i in range(3)
+    ]
+    candidates = [committed, *deferred]
+    result = run_curation(
+        candidates,
+        config=enabled_config,
+        store=memory_store,
+        confidence_policy=CONTRACT_DEFAULT_POLICY,
+    )
+    arm = curated_arm(result, candidates, doi_to_slug=doi_to_slug)
+
+    assert arm.graded_committed == 1
+    assert arm.graded_deferred == 3
+    assert arm.arm_papers is not None, "one commit is enough to grade the arm"
+    assert arm.reason is None
+    assert arm.caveat is not None
+    assert "1 of 4" in arm.caveat
+
+
+def test_a_complete_arm_carries_no_caveat(
+    enabled_config: MigrationConfig,
+    memory_store: object,
+    doi_to_slug: dict[str, str],
+) -> None:
+    """The control for the caveat: it is not simply always attached.
+
+    Without this, the test above would pass against an implementation that
+    stamped every arm with a caveat, which would make the footnote worthless.
+    """
+    candidate = graded_entity_candidate()
+    result = run_curation(
+        [candidate],
+        config=enabled_config,
+        store=memory_store,
+        confidence_policy=CONTRACT_DEFAULT_POLICY,
+    )
+    arm = curated_arm(result, [candidate], doi_to_slug=doi_to_slug)
+    assert arm.graded_committed == 1
+    assert (arm.graded_deferred, arm.graded_rejected, arm.graded_uncommitted) == (0, 0, 0)
+    assert arm.caveat is None
 
 
 # --------------------------------------------------------------------------

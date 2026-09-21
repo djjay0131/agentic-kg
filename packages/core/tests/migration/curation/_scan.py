@@ -115,3 +115,90 @@ def _import_roots_of(node: ast.Import | ast.ImportFrom) -> set[str]:
     if isinstance(node, ast.Import):
         return {alias.name.split(".")[0] for alias in node.names}
     return {(node.module or "").split(".")[0]}
+
+
+# --------------------------------------------------------------------------
+# Store-reachability scan (see test_no_application_write_surface.py)
+# --------------------------------------------------------------------------
+
+#: The parameter name a canonical ``GraphMutationStore`` arrives under in this
+#: subpackage. Every module that takes one calls it ``store``.
+STORE_PARAM = "store"
+
+
+def store_aliases(tree: ast.AST, root: str = STORE_PARAM) -> set[str]:
+    """``root`` plus every name transitively assigned from it in ``tree``.
+
+    Review of the first version of this scanner defeated it with one line:
+    ``_s = store`` and then leaking ``_s``, which the matcher never saw because
+    it looked only for the literal name ``store``. Assignment is followed to a
+    fixed point, so a chain (``a = store; b = a``) is tracked too.
+
+    Still syntactic, and still not a security boundary: an alias built through
+    a container, a closure or ``globals()`` is not detectable this way. It
+    catches accident and drift, which is what happens.
+    """
+    aliases = {root}
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(tree):
+            value = None
+            targets: list[ast.expr] = []
+            if isinstance(node, ast.Assign):
+                value, targets = node.value, list(node.targets)
+            elif isinstance(node, ast.AnnAssign) and node.value is not None:
+                value, targets = node.value, [node.target]
+            if not isinstance(value, ast.Name) or value.id not in aliases:
+                continue
+            for target in targets:
+                if isinstance(target, ast.Name) and target.id not in aliases:
+                    aliases.add(target.id)
+                    changed = True
+    return aliases
+
+
+def store_reachings(tree: ast.AST, aliases: set[str]) -> list[tuple[int, str, str]]:
+    """Every place a store alias is used, as ``(line, kind, name)``.
+
+    Three kinds, because the first version of this scan only had one:
+
+    * ``"arg"`` — the alias passed as a positional or keyword argument. ``name``
+      is the callee.
+    * ``"attr"`` — the alias used as a *receiver*, ``store.something``. ``name``
+      is the attribute. Nothing checked this before, so a literal
+      ``store.apply(batch, ())`` — a direct canonical write, on a dead branch or
+      otherwise — passed the whole suite green. The module docstring called that
+      "obvious"; obvious is not caught.
+    * ``"escape"`` — the alias placed in a container display or returned, which
+      needs no call at all. The reviewer's evasion was exactly this: ``_s =
+      store`` and then ``_sink = (_s,)``. ``name`` says which shape.
+    """
+    found: list[tuple[int, str, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+            if any(isinstance(e, ast.Name) and e.id in aliases for e in node.elts):
+                found.append((node.lineno, "escape", type(node).__name__.lower()))
+        elif isinstance(node, ast.Dict):
+            if any(
+                isinstance(v, ast.Name) and v.id in aliases
+                for v in node.values
+                if v is not None
+            ):
+                found.append((node.lineno, "escape", "dict"))
+        elif isinstance(node, ast.Return):
+            if isinstance(node.value, ast.Name) and node.value.id in aliases:
+                found.append((node.lineno, "escape", "return"))
+        elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            if node.value.id in aliases:
+                found.append((node.lineno, "attr", node.attr))
+        elif isinstance(node, ast.Call):
+            used = any(
+                isinstance(a, ast.Name) and a.id in aliases for a in node.args
+            ) or any(
+                isinstance(k.value, ast.Name) and k.value.id in aliases
+                for k in node.keywords
+            )
+            if used:
+                found.append((node.lineno, "arg", _call_name(node) or "<expr>"))
+    return found

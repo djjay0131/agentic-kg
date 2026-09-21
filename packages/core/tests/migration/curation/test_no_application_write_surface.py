@@ -19,6 +19,24 @@ Three checks, and the scope of each is stated rather than implied:
    no-write paths (flag off, empty plan) really do not write — those are in
    ``test_pipeline.py``.
 
+**How much the static check is worth, after review.** Its first version matched
+only a literal ``store`` appearing as a call *argument*, and an independent
+reviewer walked past it twice with the whole suite green: ``_s = store``, then
+leak ``_s``; and receiver-form ``store.apply(batch, ())``, which nothing in the
+file looked at — the docstring had dismissed a direct ``.apply`` as "obvious",
+and obvious is not caught. It now follows single-assignment aliases to a fixed
+point, flags receiver-form attribute access against a closed allowlist, and
+flags an alias placed in a container or returned — which needs no call at all,
+and was the exact shape of the reviewer's second evasion.
+``test_the_detector_catches_the_evasions_that_walked_past_it`` drives both
+evasions plus a direct write through the detector and requires each to be
+flagged, because a rule asserting an empty offender list is satisfied by a
+matcher that matches nothing.
+
+It remains **syntactic and one-hop**. An alias built through a container, a
+closure, ``getattr`` or ``globals()`` is not statically detectable and never will
+be. This guards against accident and drift; it is not a security boundary.
+
 What this does **not** prove: that no module anywhere else in the repo can
 obtain a canonical store. That claim belongs to
 ``tests/migration/neo4j/test_no_application_write_surface.py``, which scans the
@@ -29,6 +47,7 @@ from __future__ import annotations
 
 import ast
 
+import pytest
 from agentic_kg.migration.config import MigrationConfig
 from agentic_kg.migration.curation import curated_arm, roll_back, run_curation
 from kg_contracts.stores import GraphMutationStore
@@ -41,8 +60,8 @@ from ._synthetic import graded_entity_candidate
 #: deliberate edit with a reason.
 STORE_BEARING_MODULES = frozenset({"pipeline", "rollback"})
 
-#: What a ``store`` name may legally be passed to, and why. Everything else is
-#: a leak: a store handed to a helper, a sink, or a returned object becomes
+#: What a store alias may legally be passed to, and why. Everything else is a
+#: leak: a store handed to a helper, a sink, or a returned object becomes
 #: reachable by whatever holds that.
 #:
 #: * ``PlanExecutor`` — the only write path in the architecture.
@@ -52,6 +71,12 @@ STORE_BEARING_MODULES = frozenset({"pipeline", "rollback"})
 #:   computed against. ``test_the_snapshot_helper_is_local_and_read_only``
 #:   checks both halves of that claim rather than taking the name for it.
 PERMITTED_STORE_CALLEES = frozenset({"PlanExecutor", "isinstance", "_current_snapshot"})
+
+#: What a store alias may legally be *dereferenced* for. Exactly one read.
+#: ``apply`` is deliberately absent: the executor calls it, this subpackage
+#: never does. Widening this set is how the architectural law gets lost, so it
+#: is a closed list and adding to it is a deliberate edit.
+PERMITTED_STORE_ATTRS = frozenset({"current_epoch"})
 
 
 def _store_bearing(path) -> bool:
@@ -72,37 +97,97 @@ def test_only_the_executor_callers_name_a_write_surface() -> None:
     )
 
 
-def test_the_store_is_only_ever_handed_to_the_plan_executor() -> None:
-    """A ``store`` name flows into ``PlanExecutor(...)`` and nowhere else.
+def _offenders_in(source: str, filename: str = "<test>") -> list[str]:
+    """Every illegal use of a store alias in ``source``.
 
-    Checked per call site rather than by grepping for ``.apply``: the failure
-    to catch is not someone writing ``store.apply(...)`` — that is obvious —
-    but someone passing the store to a helper, a returned object, or a sink,
-    from which it becomes reachable by whatever holds that.
+    One function, used by the rule and by its controls alike, so the thing
+    proved able to fire is the thing that runs over the subpackage.
+    """
+    tree = ast.parse(source, filename=filename)
+    aliases = _scan.store_aliases(tree)
+    found: list[str] = []
+    for lineno, kind, name in _scan.store_reachings(tree, aliases):
+        if kind == "arg" and name not in PERMITTED_STORE_CALLEES:
+            found.append(f"{filename}:{lineno} passed to {name}")
+        elif kind == "attr" and name not in PERMITTED_STORE_ATTRS:
+            found.append(f"{filename}:{lineno} dereferenced .{name}")
+        elif kind == "escape":
+            found.append(f"{filename}:{lineno} escaped into a {name}")
+    return sorted(found)
+
+
+def test_the_store_is_only_ever_handed_to_the_plan_executor() -> None:
+    """A store alias flows into ``PlanExecutor(...)`` and nowhere else.
+
+    Covers three shapes, the last two added after an independent reviewer walked
+    past the first with the suite green: the store passed as an argument to
+    something that is not the executor; an *alias* of the store leaked the same
+    way; and the store used as a receiver for anything but the one permitted
+    read.
     """
     offenders: list[str] = []
     for path in _scan.modules():
         if path.stem not in STORE_BEARING_MODULES:
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            uses_store = any(
-                isinstance(a, ast.Name) and a.id == "store" for a in node.args
-            ) or any(
-                isinstance(k.value, ast.Name) and k.value.id == "store"
-                for k in node.keywords
-            )
-            if not uses_store:
-                continue
-            callee = node.func.id if isinstance(node.func, ast.Name) else None
-            if callee not in PERMITTED_STORE_CALLEES:
-                offenders.append(f"{path.name}:{node.lineno} -> {callee}")
+        offenders.extend(_offenders_in(path.read_text(encoding="utf-8"), path.name))
     assert offenders == [], (
-        f"the canonical store was handed to something other than PlanExecutor: "
-        f"{offenders}"
+        f"the canonical store (or an alias of it) escaped the executor: {offenders}"
     )
+
+
+@pytest.mark.parametrize(
+    ("source", "expected_fragment"),
+    [
+        ("def f(store):\n    return SomeSink(store)\n", "passed to SomeSink"),
+        ("def f(store):\n    _s = store\n    return SomeSink(_s)\n", "passed to SomeSink"),
+        ("def f(store):\n    a = store\n    b = a\n    return Sink(b)\n", "passed to Sink"),
+        ("def f(store, batch):\n    return store.apply(batch, ())\n", "dereferenced .apply"),
+        ("def f(store):\n    return store.read_only()\n", "dereferenced .read_only"),
+        ("def f(store):\n    _s = store\n    _sink = (_s,)\n", "escaped into a tuple"),
+        ("def f(store):\n    _sink = {'s': store}\n", "escaped into a dict"),
+        ("def f(store):\n    return store\n", "escaped into a return"),
+    ],
+    ids=[
+        "direct-arg",
+        "one-hop-alias",
+        "two-hop-alias",
+        "receiver-apply",
+        "receiver-other",
+        "alias-into-container",
+        "into-dict",
+        "returned",
+    ],
+)
+def test_the_detector_catches_the_evasions_that_walked_past_it(
+    source: str, expected_fragment: str
+) -> None:
+    """The detector discriminates — pointed at each evasion, it fires.
+
+    The middle three are the reviewer's, reproduced: ``_s = store`` then leaking
+    ``_s``, and receiver-form ``store.apply(...)``, both of which passed the
+    entire 55-test suite before this. Without these parameters the rule above
+    asserts an empty list, and an empty list is exactly what a matcher that
+    matches nothing also produces.
+    """
+    offenders = _offenders_in(source)
+    assert offenders, f"the detector missed: {source!r}"
+    assert any(expected_fragment in o for o in offenders), offenders
+
+
+def test_the_detector_passes_the_legal_shapes() -> None:
+    """The control for the control: the permitted uses are not flagged.
+
+    A detector that flagged everything would satisfy every test above and would
+    make the rule unpassable for correct code — which is how an over-broad check
+    gets loosened back into uselessness.
+    """
+    legal = (
+        "def f(store):\n"
+        "    if isinstance(store, GraphReader):\n"
+        "        return str(store.current_epoch())\n"
+        "    return PlanExecutor(store)\n"
+    )
+    assert _offenders_in(legal) == []
 
 
 def test_the_snapshot_helper_is_local_and_read_only() -> None:
@@ -129,24 +214,6 @@ def test_the_snapshot_helper_is_local_and_read_only() -> None:
         f"_current_snapshot calls {sorted(called)} on the store; only a read is "
         f"permitted"
     )
-
-
-def test_the_detector_would_catch_a_leak() -> None:
-    """The control: the same walk, pointed at a source that does leak.
-
-    ``test_the_store_is_only_ever_handed_to_the_plan_executor`` asserts an empty
-    list, and an empty list is what a broken matcher also produces.
-    """
-    leaking = "def f(store):\n    return SomeSink(store)\n"
-    tree = ast.parse(leaking)
-    found = [
-        node.func.id
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and any(isinstance(a, ast.Name) and a.id == "store" for a in node.args)
-    ]
-    assert found == ["SomeSink"]
 
 
 def test_no_returned_object_is_or_holds_a_write_surface(memory_store: object) -> None:
