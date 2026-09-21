@@ -1,0 +1,25 @@
+_note: IMPORTER OUTPUT — machine extraction to diff against the human answer key; NOT the reconciled ground
+  truth.
+_caveats:
+- Topic (BELONGS_TO) not populated — known bug (topics_linked counter increments but no edge persists).
+- Concepts/Models/Methods store name+aliases only; no per-paper quoted_text/confidence retained (only
+  Problems do).
+paper:
+  n: '7'
+  title: Research hypothesis generation over scientific knowledge graphs
+  doi: 10.1016/j.knosys.2025.113280
+  year: 2025
+  venue: Knowledge-Based Systems
+  s2_paper_id: 930f541b43622e257c8f7ff2a6e5581947339665
+  status: metadata-only (PDF acquisition failed)
+topic:
+  domain: null
+  area: null
+  subtopic: null
+  _note: empty — BELONGS_TO bug
+research_concepts: []
+models: []
+methods: []
+problems: []
+cites_within_set:
+- 10.1109/ACCESS.2022.3220241
