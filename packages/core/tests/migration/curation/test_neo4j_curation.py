@@ -173,3 +173,70 @@ def test_a_create_identity_run_is_still_not_reversible_here(
     assert len(rollback.non_compensable) == 8
     assert rollback.fully_reversed is False
     assert store.current_epoch() == 1
+
+
+def test_adding_evidence_to_a_fact_deletes_it_from_the_live_graph(
+    enabled_config: MigrationConfig, make_canonical_store
+) -> None:
+    """The release-critical criterion, executed, and it FAILS on the real adapter.
+
+    This is the end of the chain ``test_evidence_evolution.py`` pins statically,
+    run against the database this migration actually targets. It asserts the
+    **broken** behaviour on purpose and goes red the day upstream fixes it.
+
+    Sequence: attach a fact cited by ``ev_A``; then run the platform's own
+    designed evidence-evolution path (``plan_supersession``) to re-assert it
+    cited by ``ev_A`` and ``ev_B``. Because ``assertion_id`` is derived from
+    ``candidate_id`` and ``candidate_id`` excludes evidence, the "new" record is
+    the old record, so the plan marks it superseded by itself.
+
+    The apply reports ``COMMITTED`` — a green result — and the fact is then
+    invisible to an ordinary read. Adding evidence to a fact deleted it. That is
+    strictly worse than the ``STALE`` refusal the pinned-snapshot route gives,
+    because this path is the correct API and it fails silently.
+    """
+    from datetime import UTC, datetime
+
+    from kgcs.clock import FixedClock
+    from kgcs.executor import PlanExecutor
+
+    from .test_evidence_evolution import SUBJECT, evidence_candidate, superseding_plan
+
+    store = make_canonical_store()
+    first = run_curation(
+        [evidence_candidate(("ev_A",))],
+        config=enabled_config,
+        store=store,
+        confidence_policy=CONTRACT_DEFAULT_POLICY,
+        supported_operations=SUPPORTED_OPERATIONS,
+    )
+    assert first.execution.outcome is ExecutionOutcome.COMMITTED
+
+    reader = store.read_only()
+    before = reader.assertions_for(SUBJECT)
+    assert [e.evidence_id for e in before[0].evidence_refs] == ["ev_A"]
+
+    _old, _new, compensable = superseding_plan(store_epoch=store.current_epoch())
+    executor = PlanExecutor(
+        store,
+        clock=FixedClock(datetime(2026, 9, 19, tzinfo=UTC)),
+        supported_operations=SUPPORTED_OPERATIONS,
+    )
+    applied = executor.execute(compensable.plan)
+    assert applied.outcome is ExecutionOutcome.COMMITTED, (
+        "the supersession was refused; this test pins the silent-success failure "
+        "mode and a refusal is a different (and better) one"
+    )
+
+    everything = reader.assertions_for(SUBJECT, GraphReadOptions(include_superseded=True))
+    live = reader.assertions_for(SUBJECT)
+
+    assert len(everything) == 1, "one record id, so one row — not a new record"
+    assert everything[0].status.value == "SUPERSEDED"
+    assert [e.evidence_id for e in everything[0].evidence_refs] == ["ev_A", "ev_B"], (
+        "the new evidence did land on the row — it is the *visibility* that was lost"
+    )
+    assert live == [], (
+        "the fact is visible to an ordinary read, so the evidence-evolution "
+        "defect this test pins may be fixed upstream — re-verify and delete this test"
+    )
