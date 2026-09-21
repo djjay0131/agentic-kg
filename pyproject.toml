@@ -39,11 +39,18 @@ migration = [
     # agentic-kgis PR #39 merge commit (fixed `import kgis` failing without
     # pytest). Ships kg_contracts, kgis, kg_eval.
     "agentic-kgis @ git+https://github.com/djjay0131/agentic-kgis@baf0b67e34bd2e7921b5da4492860f741d165464",
-    # agentic-kgcs main @ 4eafa83 — merge commit of agentic-kgcs#30
-    # (identifier strength is entity-type relative). Newer than tag v1.0.0.
+    # agentic-kgcs main @ 14ffd0e8 — squash-merge commit of agentic-kgcs#34
+    # (compensation asserts post-application state; ADR-0018). BREAKING, and
+    # a superset of #30, whose behaviour note still applies.
     # NOTE: after #30, `orcid` is no longer a default strong namespace —
     # Author entity resolution must pass it explicitly.
-    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@4eafa83c20768f9eecffd4791ffd233beb97628d",
+    # NOTE: after #34, `Compensator.compensate()` takes a required
+    # keyword-only `against_snapshot`, `snapshot_guarded` is gone, and
+    # `reversal_data` nests the inverse payload under INVERSE_PAYLOAD_KEY.
+    # ADR-0018 also imposes a STORE OBLIGATION this adapter must honour: a
+    # compensating ATTACH_ASSERTION is an upsert by `assertion_id`, replacing
+    # in place. See packages/core/src/agentic_kg/migration/neo4j/store.py.
+    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@14ffd0e8fde28f265abd41996ede0291b7bfa931",
 ]
 dev = [
     "pytest>=7.0.0",

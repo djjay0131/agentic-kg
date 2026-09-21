@@ -54,17 +54,38 @@ migration = [
     # Ships THREE packages: kg_contracts (ports), kgis (ingestion),
     # kg_eval (evaluation).
     "agentic-kgis @ git+https://github.com/djjay0131/agentic-kgis@baf0b67e34bd2e7921b5da4492860f741d165464",
-    # agentic-kgcs main @ 4eafa83 — the merge commit of agentic-kgcs#30
-    # ("identifier strength is entity-type relative"), which fixes ISSN/ISBN
-    # auto-merging distinct papers. Strictly newer than tag v1.0.0 (609270e);
-    # pinned by SHA because tags are mutable.
+    # agentic-kgcs main @ 14ffd0e8 — the squash-merge commit of agentic-kgcs#34
+    # (a squash: single parent 4eafa83; the PR head 3b3c4b2 is NOT an ancestor)
+    # ("compensation asserts post-application state and carries an applicable
+    # inverse", ADR-0018). Strictly newer than 4eafa83 (#30) and than tag
+    # v1.0.0 (609270e); pinned by SHA because tags are mutable.
     #
     # BEHAVIOUR NOTE for callers: after #30, `orcid` is no longer a default
     # strong namespace, so Author entity resolution must pass it explicitly.
     #
+    # BREAKING at #34, all three faces of one defect in the compensation path
+    # (which had never been executable against a readable store):
+    #   (a) `Compensator.compensate(plan, *, against_snapshot)` — required
+    #       keyword-only. The source plan's snapshot guard is rebased onto the
+    #       epoch the original plan committed at, instead of being carried
+    #       verbatim and therefore always STALE. `CompensationResult
+    #       .snapshot_guarded` is REMOVED (it was a constant, not a signal);
+    #       `fully_compensable` survives as a derived property.
+    #   (b) the RETRACT->ATTACH inverse is now a full `Assertion`, not a
+    #       partial restore record.
+    #   (c) `reversal_data` separates the inverse payload from the forward
+    #       lineage under `INVERSE_PAYLOAD_KEY` ("inverse_payload").
+    #
+    # STORE OBLIGATION created by (b), which THIS PACKAGE must satisfy:
+    # ADR-0018 Decision 5 — "a compensating ATTACH_ASSERTION is an UPSERT BY
+    # assertion_id, never an append ... an adapter MUST replace in place".
+    # Replacing in place must not destroy the record's history; see
+    # `Neo4jGraphMutationStore._insert_assertion` and the test named
+    # test_compensating_attach_upserts_without_rewriting_history.
+    #
     # agentic-kgcs depends on agentic-kgis>=0.2.0, satisfied by the git pin
     # above rather than from PyPI.
-    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@4eafa83c20768f9eecffd4791ffd233beb97628d",
+    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@14ffd0e8fde28f265abd41996ede0291b7bfa931",
 ]
 
 [project.scripts]
