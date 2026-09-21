@@ -8,8 +8,8 @@ Handles database schema setup including:
 - Schema versioning and migrations
 """
 
-import os
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
