@@ -44,6 +44,14 @@ epoch N+1 therefore sees ``ACTIVE``, with no flags, which is what §9 law 10
 mechanism, so a ``MERGE_IDENTITIES`` at epoch N+1 leaves the merged identity
 visible and ``ACTIVE`` at epoch N.
 
+``REVOKED`` is the one status this does *not* apply to, and that exception is
+the contract's rather than this adapter's: ``kg_contracts.curation`` says a
+revoked record "is returned by **no** default read, at any epoch". So a
+revocation is terminal and global - asking for an earlier epoch does not
+un-revoke it - while the record itself is retained at its original
+``curation_epoch`` and served by ``include_revoked=True``. See
+:func:`_reported_status`.
+
 **Stated limitation:** *subject* reassignment (``MERGE_IDENTITIES`` /
 ``SPLIT_IDENTITY`` / ``REASSIGN_ASSERTION``) is applied in place and is **not**
 epoch-versioned — a read at an older epoch shows the post-merge subject. Only
@@ -310,6 +318,8 @@ class Neo4jCanonicalGraphStore:
                 return self._apply_split(tx, payload, epoch)
             if operation.type is CurationOperationType.REASSIGN_ASSERTION:
                 return self._apply_reassign(tx, payload, epoch)
+            if operation.type is CurationOperationType.REVOKE_IDENTITY:
+                return self._apply_revoke_identity(tx, payload, epoch)
         except CommitRefused:
             raise
         except (ValueError, TypeError, KeyError) as exc:
@@ -327,6 +337,42 @@ class Neo4jCanonicalGraphStore:
         entity = CanonicalEntity.model_validate({**payload, "curation_epoch": epoch})
         self._write_identity(tx, entity, history=[_history_entry(epoch, entity.status, None)])
         return [entity.identity_id]
+
+    def _apply_revoke_identity(
+        self, tx: ManagedTransaction, payload: dict[str, Any], epoch: int
+    ) -> list[str]:
+        """Tombstone an identity: the ``CREATE_IDENTITY`` inverse (ADR-0025).
+
+        Payload is ``{"identity_id": ...}`` plus an optional ``reason`` — an
+        identity *reference*, deliberately not an entity dump, so a stale copy
+        carried in a plan cannot overwrite what is actually in the graph. The
+        pre-revoke entity travels in the operation's ``reversal_data``, which
+        is what lets the revoke itself be compensated by a ``CREATE_IDENTITY``.
+
+        Two things this does **not** do, both load-bearing:
+
+        * it does not delete, and it does not advance ``curation_epoch``. The
+          epoch stamp records the epoch the identity was *created* in; moving
+          it forward would make the identity vanish from every epoch-scoped
+          read of the history that created it — a rollback that erases the
+          record of what it rolled back.
+        * it does not reuse ``_RETRACTABLE_TO``. That frozenset governs
+          *assertion* status transitions; an identity revocation is a distinct
+          operation with a distinct payload and its own status entry.
+        """
+        identity_id = payload.get("identity_id")
+        if not isinstance(identity_id, str) or not identity_id:
+            raise CommitRefused(
+                "invalid_payload: REVOKE_IDENTITY requires a non-empty string "
+                f"'identity_id' (got {identity_id!r})"
+            )
+        if self._load_identity(tx, identity_id) is None:
+            raise CommitRefused(
+                f"unknown_identity: REVOKE_IDENTITY names an unknown identity "
+                f"{identity_id!r} in namespace {self._namespace!r}"
+            )
+        self._append_identity_status(tx, identity_id, epoch, CurationStatus.REVOKED)
+        return [identity_id]
 
     def _apply_attach(
         self, tx: ManagedTransaction, payload: dict[str, Any], epoch: int
@@ -996,7 +1042,7 @@ def _read_identities(
 
     The selective predicates (namespace, entity type, alias) are pushed into
     Cypher; epoch and status visibility are resolved in exactly one place,
-    :func:`_epoch_visible` / :func:`_status_visible`. Duplicating the epoch
+    :func:`_epoch_visible` / :func:`_reported_status`. Duplicating the epoch
     bound as a query prefilter as well would be faster and *untestable*: with
     two independent gates enforcing one rule, breaking either leaves the suite
     green, so neither can be shown to be doing its job. One rule, one
@@ -1075,25 +1121,65 @@ def _epoch_visible(record_epoch: int, options: GraphReadOptions) -> bool:
     return options.curation_epoch is None or record_epoch <= options.curation_epoch
 
 
-def _status_visible(status: CurationStatus, options: GraphReadOptions) -> bool:
-    """``SUPERSEDED`` hides by default; ``REVOKED`` does **not**.
+def _reported_status(
+    history: list[dict[str, Any]], options: GraphReadOptions
+) -> tuple[CurationStatus, datetime | None] | None:
+    """The status to report for a record, or ``None`` if it is not visible.
 
-    The asymmetry is deliberate upstream and pinned there by
-    ``test_revoked_record_visible_by_default``: ``GraphReadOptions`` has an
-    ``include_superseded`` flag and no ``include_revoked``, so hiding revoked
-    records by default would be a read-semantics change an adapter has no
-    standing to make. Filtering ``REVOKED`` is the *projector's* job (spec §4.3,
-    AC-8) — a different layer, with a different rule.
+    Two switches over two different statuses, and **neither reveals the
+    other's records** — the property
+    ``test_include_superseded_and_include_revoked_are_independent`` asserts as
+    a cross term. An adapter that collapsed them into one "show me everything"
+    flag passes both single-flag tests and fails that one.
+
+    The two statuses are also scoped differently, and that asymmetry is the
+    contract's, not a convenience here:
+
+    ``SUPERSEDED`` is **epoch-versioned**, per this module's "History is never
+    rewritten" note: a read at epoch N after a supersession at epoch N+1 sees
+    ``ACTIVE``, because that is what was true then.
+
+    ``REVOKED`` is **terminal and global**. ``kg_contracts.curation`` states it
+    in as many words — "a revoked record is returned by **no** default read, at
+    any epoch" — so a revocation is not time-travelled away by asking for an
+    earlier epoch. ``include_revoked=True`` is the one surface that serves it,
+    and it still serves it at its *original* ``curation_epoch``, which is the
+    whole point of not advancing that stamp on revoke.
+
+    Before kg_contracts 2.0.0 this function did the opposite for ``REVOKED``:
+    it let revoked records through every default read, because
+    ``GraphReadOptions`` had no ``include_revoked`` and upstream's own
+    ``test_revoked_record_visible_by_default`` pinned that behaviour. ADR-0025
+    reversed it. Nothing in this repository ever wrote
+    ``CurationStatus.REVOKED`` before this change, so no stored record changes
+    visibility as a result.
     """
-    return not (status is CurationStatus.SUPERSEDED and not options.include_superseded)
+    latest, _ = _effective(history, None)
+    if latest is CurationStatus.REVOKED:
+        if not options.include_revoked:
+            return None
+        # Reported at its own terminal status, not at the status it held at
+        # the requested epoch: the record is being served *because* it was
+        # revoked, and saying ACTIVE here would describe it as live.
+        _, at = _effective(history, options.curation_epoch)
+        return CurationStatus.REVOKED, at
+
+    status, at = _effective(history, options.curation_epoch)
+    if status is CurationStatus.REVOKED:
+        # Revoked at or before the requested epoch, then restored later.
+        return (CurationStatus.REVOKED, at) if options.include_revoked else None
+    if status is CurationStatus.SUPERSEDED and not options.include_superseded:
+        return None
+    return status, at
 
 
 def _visible_entity(row: dict[str, Any], options: GraphReadOptions) -> CanonicalEntity | None:
     if not _epoch_visible(int(row["curation_epoch"]), options):
         return None
-    status, _ = _effective(json.loads(row["status_history"]), options.curation_epoch)
-    if not _status_visible(status, options):
+    reported = _reported_status(json.loads(row["status_history"]), options)
+    if reported is None:
         return None
+    status, _ = reported
     entity = CanonicalEntity.model_validate_json(row["payload"])
     return entity if entity.status is status else entity.model_copy(update={"status": status})
 
@@ -1101,9 +1187,10 @@ def _visible_entity(row: dict[str, Any], options: GraphReadOptions) -> Canonical
 def _visible_assertion(row: dict[str, Any], options: GraphReadOptions) -> Assertion | None:
     if not _epoch_visible(int(row["curation_epoch"]), options):
         return None
-    status, superseded_at = _effective(json.loads(row["status_history"]), options.curation_epoch)
-    if not _status_visible(status, options):
+    reported = _reported_status(json.loads(row["status_history"]), options)
+    if reported is None:
         return None
+    status, superseded_at = reported
     assertion = Assertion.model_validate_json(row["payload"])
     if assertion.status is not status or assertion.superseded_at != superseded_at:
         assertion = assertion.model_copy(update={"status": status, "superseded_at": superseded_at})
