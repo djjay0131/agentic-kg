@@ -103,7 +103,7 @@ class TestRealFixturePath:
             env=env,
             capture_output=True,
             text=True,
-            timeout=300,
+            timeout=600,
         )
 
     # The second case is the one that matters most: an environment variable
@@ -137,17 +137,64 @@ class TestRealFixturePath:
         result = self._run_session_against(uri, "testpassword", extra_env)
         combined = result.stdout + result.stderr
 
-        assert result.returncode != 0, (
-            "a pytest session pointed at a shared database exited successfully; "
-            "the ownership guard is not on the real fixture path.\n" + combined[-3000:]
+        # Liveness first, invariant second.
+        #
+        # The invariant below -- "the foreign row survived" -- is true whenever
+        # the child does nothing whatsoever, so on its own it is satisfied by a
+        # child that never ran. Review finding H3 demonstrated exactly that:
+        # repointing TARGET at a file that does not exist left this test green
+        # at "2 passed", with the name still promising `..._refuses_and_
+        # preserves_data`. A check that cannot fail is the defect this whole PR
+        # is about, so the invariant needs a companion that dies when the
+        # subprocess did not run the intended target.
+        assert result.returncode == 0, (
+            f"the child session did not run {self.TARGET} to completion, so the "
+            "invariant asserted below would have been satisfied by a child that "
+            "did nothing.\n" + combined[-3000:]
         )
-        assert "SharedDatabaseSweepError" in combined, (
-            "session failed, but not for the reason this test names.\n"
-            + combined[-3000:]
+        assert "1 passed" in combined, (
+            f"the child session did not report running {self.TARGET}. Either the "
+            "target moved (see test_the_target_test_exists) or the child could "
+            "not start its own container.\n" + combined[-3000:]
         )
+
+        # The invariant is about the database, not about how the child failed.
+        #
+        # When this test was written the child *refused* with
+        # SharedDatabaseSweepError, and it asserted exactly that. Issue #78 then
+        # removed the environment fallback entirely, so a child session no longer
+        # consults NEO4J_URI at all -- it starts its own container and passes.
+        # Asserting on the refusal mechanism would now fail against behaviour
+        # that is strictly safer than what it was written to check.
+        #
+        # So assert the invariant the mechanism existed to protect: whatever the
+        # child did, the database named only by environment variables is
+        # untouched. That survives a change of mechanism, and still fails if any
+        # future change lets a child reach a database it was merely told about.
         assert _exists(neo4j_repository, foreign), (
             "a concurrent run's data was destroyed by a session that should "
-            "have refused to touch this database"
+            "never have addressed this database"
+        )
+
+    def test_the_target_test_exists(self):
+        """TARGET must name a real test, or every case above is vacuous.
+
+        Both behavioural cases in this class drive a child pytest session at
+        ``TARGET`` and then assert on the database. If ``TARGET`` ever stops
+        resolving -- a rename, a moved file -- the child collects nothing and
+        the database assertions are trivially satisfied. This test names that
+        failure on its own, rather than leaving it to be inferred from a
+        subprocess's exit code.
+        """
+        path, _, node_id = self.TARGET.partition("::")
+        target_file = REPO_ROOT / path
+        assert target_file.is_file(), f"{path} does not exist"
+        assert node_id, "TARGET names a file but no test within it"
+        # The node id is `Class::method`; check the method name is present in
+        # the file, so a rename inside a surviving file is caught too.
+        method = node_id.rsplit("::", 1)[-1]
+        assert f"def {method}(" in target_file.read_text(encoding="utf-8"), (
+            f"{path} no longer defines {method}"
         )
 
     def test_session_that_owns_its_database_runs_normally(self, neo4j_container):

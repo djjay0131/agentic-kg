@@ -9,6 +9,7 @@ Handles database schema setup including:
 """
 
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -296,6 +297,15 @@ VECTOR_INDEXES = [
 ]
 
 
+class DestructiveOperationRefused(RuntimeError):
+    """Raised when a whole-database destructive operation is refused.
+
+    Distinct from returning False: a destructive call that quietly does nothing
+    is as dangerous as one that quietly succeeds, because the caller cannot tell
+    which happened.
+    """
+
+
 class SchemaManager:
     """
     Manages Neo4j database schema initialization and migrations.
@@ -445,24 +455,79 @@ class SchemaManager:
             "indexes": indexes,
         }
 
-    def drop_all(self, confirm: bool = False) -> bool:
+    def drop_all(self, confirm: bool = False, *, expect_database: str) -> bool:
         """
         Drop all data and schema (DANGEROUS - use only for testing).
 
+        This ships in the wheel, so it is an importable total wipe available to
+        anything that can build a ``SchemaManager``. Issue #78 flagged it as
+        reachable from ``scripts/load_sample_problems.py --clear`` against a
+        connection derived entirely from the environment, guarded by nothing but
+        ``confirm=True``.
+
+        It is kept rather than removed -- ``--clear`` is a legitimate developer
+        workflow and deleting a public method is a wider break than the risk
+        warrants -- but it is no longer possible to invoke it *by accident*, or
+        against a deployed environment at all:
+
+        * ``expect_database`` is required and must name the database actually
+          connected. A caller has to state which database it means to destroy,
+          so a misconfigured ``NEO4J_DATABASE`` aborts instead of wiping. That
+          only holds if the value comes from *outside* the connection:
+          ``load_sample_problems.py`` originally passed ``repo._config.database``,
+          so both sides of the comparison were derived from the same artefact
+          and it could not fail (review finding M2). It now requires
+          ``--database NAME`` from the operator.
+        * ``ENVIRONMENT=production`` / ``staging`` refuses outright, raising
+          rather than returning False, because a silent no-op on a destructive
+          call is its own hazard.
+
         Args:
             confirm: Must be True to execute.
+            expect_database: Name of the database the caller intends to wipe.
+                Must equal the connected database.
 
         Returns:
             True if dropped.
+
+        Raises:
+            DestructiveOperationRefused: in a deployed environment, or when
+                ``expect_database`` does not match the connection.
         """
         if not confirm:
             logger.warning("drop_all requires confirm=True")
             return False
 
+        # Read ENVIRONMENT directly rather than through get_config(): in
+        # production get_config() validates the whole configuration and raises
+        # if, say, OPENAI_API_KEY is missing. A refusal to wipe the database
+        # must not depend on unrelated configuration being valid -- it has to
+        # hold precisely when things are misconfigured.
+        environment = os.getenv("ENVIRONMENT", "development").strip().lower()
+        if environment in {"production", "staging"}:
+            raise DestructiveOperationRefused(
+                f"Refusing to drop all data: ENVIRONMENT={environment!r}. "
+                "This deletes every node and relationship in the connected "
+                "database and there is no undo."
+            )
+
+        connected = self._repo._config.database
+        if expect_database != connected:
+            raise DestructiveOperationRefused(
+                f"Refusing to drop all data: caller expected to wipe "
+                f"{expect_database!r} but the repository is connected to "
+                f"{connected!r}. Check NEO4J_DATABASE / NEO4J_URI before retrying."
+            )
+
         def _drop(tx: ManagedTransaction) -> None:
             # Drop all nodes and relationships
             tx.run("MATCH (n) DETACH DELETE n")
 
+        logger.warning(
+            "Dropping ALL data from database %r at %s",
+            connected,
+            self._repo._config.uri,
+        )
         with self._repo.session() as session:
             session.execute_write(_drop)
 

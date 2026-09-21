@@ -57,8 +57,34 @@ class E2EConfig:
 
 @pytest.fixture(scope="session")
 def e2e_config() -> E2EConfig:
-    """Provide E2E configuration from environment."""
-    return E2EConfig.from_env()
+    """Provide E2E configuration from environment.
+
+    Declares the staging target to the ownership guard in
+    ``packages/core/tests/conftest.py``. This is the one suite whose purpose is
+    to exercise a real deployed environment, and it runs only under explicit
+    commands (``make test-e2e``, the ``E2E Tests (Staging)`` job) -- never from
+    ``make test`` or the README's "unit tests" line, both of which reach it only
+    after ``E2EConfig.from_env()`` has already skipped for want of
+    STAGING_NEO4J_PASSWORD.
+
+    The declaration is deliberate, in code, and reached only when an e2e test
+    actually asks for this config. It is not an environment switch: nothing a
+    developer exports can produce one.
+
+    NOTE (issue #78 item 5): the cleanup this suite runs is still a run-global
+    prefix sweep, so two concurrent e2e runs can still delete each other's rows
+    -- the same data race #75 removed from the integration suite. Declaring the
+    target here does not fix that; it is tracked separately.
+    """
+    config = E2EConfig.from_env()
+
+    from ..conftest import declare_session_database
+
+    declare_session_database(
+        config.neo4j_uri,
+        reason="e2e suite deliberately targets the deployed staging environment",
+    )
+    return config
 
 
 @pytest.fixture(scope="session")

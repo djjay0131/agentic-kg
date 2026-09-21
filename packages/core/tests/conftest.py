@@ -4,55 +4,205 @@ Shared pytest fixtures for agentic-kg tests.
 Provides common test data and fixtures used across test modules.
 """
 
+import uuid
 from datetime import datetime, timezone
 from typing import Generator
-import uuid
+from urllib.parse import urlparse
 
 import pytest
 
 # =============================================================================
-# Neo4j Integration Test Fixtures
+# Ownership enforced at the seam (issue #78)
 # =============================================================================
 #
-# These fixtures support two modes:
-# 1. Environment variables (CI/staging): Set NEO4J_URI, NEO4J_PASSWORD
-# 2. Testcontainers (local dev): Spins up a Neo4j container via Docker
+# The guard below sits on ``Neo4jRepository.__init__`` -- the single choke point
+# every database access *through this package's repository layer* passes
+# through. Bare ``Neo4jRepository()``, ``get_repository()`` and
+# ``initialize_schema()`` all construct one, so guarding here covers paths no
+# per-file patch could.
 #
+# It is installed at conftest *import* time, not from a fixture. pytest imports
+# conftest.py before it imports any test module, and it imports test modules
+# during collection -- which precedes session-scoped autouse fixture setup. A
+# module whose *body* calls ``initialize_schema(force=True)`` therefore ran full
+# DDL against the env-named database while pytest printed "1 passed", because
+# the fixture that was supposed to guard it had not started yet. Review finding
+# H1; ``test_collection_time_ddl_cannot_reach_an_undeclared_database`` is the
+# behavioural proof that the hole is closed.
+#
+# What the constructor seam does NOT cover: a raw ``neo4j.GraphDatabase.driver``
+# opened by a test, which never touches ``Neo4jRepository``. That is not guarded
+# here, deliberately -- ``testcontainers``' own ``Neo4jContainer.start()`` opens
+# exactly such a driver for its readiness probe, *before* this session can know
+# the container's mapped port and declare it, so a constructor-level patch on
+# ``GraphDatabase.driver`` would have to carry an "except while provisioning"
+# bypass, and a switch whose only job is to disable a safety property must not
+# exist. Raw drivers in test files are covered by the second layer instead:
+# ``TestNoBareRepositoryConstruction`` in test_database_ownership_seam.py fails
+# on any ``GraphDatabase.driver`` call in a non-allowlisted test module.
+#
+# Why it exists: two integration modules gated themselves on
+# ``skipif(not NEO4J_AVAILABLE)``, so the presence of NEO4J_* credentials
+# *enabled* them, and they then built a bare ``Neo4jRepository()`` from those
+# same credentials and ran ``initialize_schema(force=True)`` against it. Neither
+# carried ``pytest.mark.integration``, so no ``-m`` filter deselected them, and
+# they are collected by ``make test``, ``make test-core`` and the command
+# README.md documents as "unit tests". Measured on a stand-in database: running
+# that documented command with NEO4J_* set took the target from 0 to 10
+# constraints -- unauthorised DDL -- while the ownership guard added in #75
+# correctly refused everything that went through its fixture.
+#
+# That is the polarity inversion the audit named: the same environment variable
+# that makes the fixture refuse made those modules run. Fixing the two files
+# would leave the next such file free to reintroduce it, so the rule is enforced
+# structurally instead: a repository may only be constructed against a database
+# this session has declared, and the only thing that declares one is starting it.
 
 
-import os
+class UnownedDatabaseError(RuntimeError):
+    """
+    Raised when a repository is constructed against a database this pytest
+    session has not declared as its own.
+
+    Declaration is not an assertion anyone can make from the environment. A
+    target becomes declared by being *started* by this session
+    (``neo4j_container``), or -- for the e2e suite alone, whose entire purpose
+    is to exercise a deployed environment and which runs only under explicit
+    commands -- by ``tests/e2e/conftest.py`` naming its staging target
+    deliberately in code, or by ``tests/migration/neo4j/conftest.py`` declaring
+    the throwaway container *it* starts for the canonical-adapter suite.
+    """
 
 
-def _get_neo4j_from_env():
-    """Check if Neo4j connection details are in environment."""
-    uri = os.environ.get("NEO4J_URI")
-    password = os.environ.get("NEO4J_PASSWORD")
-    return uri, password
+# Targets this session is allowed to talk to, as (host, port).
+_DECLARED_TARGETS: set = set()
+
+
+def _target_key(uri: str):
+    """Normalise a bolt/neo4j URI to the (host, port) pair it addresses."""
+    parsed = urlparse(uri)
+    if parsed.hostname:
+        return (parsed.hostname, parsed.port)
+    return (uri, None)
+
+
+def declare_session_database(uri: str, *, reason: str) -> None:
+    """Declare a database as one this session may talk to.
+
+    ``reason`` is required so every declaration carries its justification at the
+    call site; there are exactly three in this repository -- ``neo4j_container``
+    below, ``tests/e2e/conftest.py``, and
+    ``tests/migration/neo4j/conftest.py`` -- and every one of them names a
+    database this session started or a deployment the suite exists to exercise.
+    """
+    _DECLARED_TARGETS.add(_target_key(uri))
+
+
+def database_is_declared(uri: str) -> bool:
+    return _target_key(uri) in _DECLARED_TARGETS
+
+
+def _forget_declared_databases() -> None:
+    """Test hook: reset the registry."""
+    _DECLARED_TARGETS.clear()
+
+
+def install_ownership_guard() -> bool:
+    """Wrap ``Neo4jRepository.__init__`` so it refuses undeclared databases.
+
+    Called at module import below -- i.e. before pytest imports a single test
+    module -- so that a module *body* that constructs a repository or calls
+    ``initialize_schema(force=True)`` is refused during collection rather than
+    running unguarded DDL. A session-scoped autouse fixture cannot do this: it
+    starts after collection has already finished importing every test module,
+    which is review finding H1.
+
+    Idempotent, and returns True when the guard is in place, so that
+    ``guard_is_installed`` can be asserted rather than assumed.
+    """
+    from agentic_kg.knowledge_graph import repository as repository_module
+
+    if getattr(
+        repository_module.Neo4jRepository.__init__, "_akg_ownership_guard", False
+    ):
+        return True
+
+    original_init = repository_module.Neo4jRepository.__init__
+
+    def guarded_init(self, config=None):
+        original_init(self, config)
+        uri = getattr(getattr(self, "_config", None), "uri", None)
+        if uri is None or database_is_declared(uri):
+            return
+        raise UnownedDatabaseError(
+            f"Refusing to build a Neo4jRepository against {uri!r}: this pytest "
+            "session has not declared that database as its own.\n\n"
+            "Tests must obtain a repository from the `neo4j_repository` fixture, "
+            "which runs against a throwaway container this session starts. Do not "
+            "construct `Neo4jRepository()` directly, and do not gate a test on "
+            "NEO4J_* being present -- credentials in the environment are not "
+            "permission to write to the database they name.\n\n"
+            "If Docker is unavailable the fixture skips, which is the correct "
+            "outcome: a test that cannot get an owned database does not run."
+        )
+
+    guarded_init._akg_ownership_guard = True
+    repository_module.Neo4jRepository.__init__ = guarded_init
+    return True
+
+
+def guard_is_installed() -> bool:
+    """True when the constructor seam is active in this interpreter."""
+    from agentic_kg.knowledge_graph import repository as repository_module
+
+    return bool(
+        getattr(
+            repository_module.Neo4jRepository.__init__, "_akg_ownership_guard", False
+        )
+    )
+
+
+# Installed here, at import time, deliberately. See the block comment above:
+# pytest imports conftest.py before it imports test modules, and test modules
+# are imported during collection, which is *before* any fixture runs.
+install_ownership_guard()
 
 
 @pytest.fixture(scope="session")
 def neo4j_container():
     """
-    Start a Neo4j container for integration tests.
+    Start a throwaway Neo4j container for integration tests.
 
-    This fixture is session-scoped to avoid starting a new container
-    for each test. Tests should clean up their own data.
+    Session-scoped, so one container serves the whole run.
 
-    If NEO4J_URI is set in environment, this fixture is skipped
-    (we use the external Neo4j instance instead).
+    NEO4J_URI is deliberately ignored (issue #78). This fixture used to hand
+    back ``None`` when NEO4J_* were set, so the suite would address an external
+    database instead; the guard added in #75 then refused it, turning every such
+    test into a setup *error* on any machine that happened to export those
+    variables. Errors are noisy enough to invite people to disable the guard,
+    and the fallback had no legitimate user: CI sets no NEO4J_URI, and the e2e
+    suite reads STAGING_* through its own config.
+
+    So there is now exactly one answer to "which database do integration tests
+    use?" -- one this session started. When it cannot start one, the tests skip,
+    which is the honest outcome.
+
+    Scope of that claim, stated precisely (review finding H2): it holds for
+    every database reached through ``Neo4jRepository`` in
+    ``packages/core/tests``, and no environment variable under
+    ``packages/core/tests`` declares a target any more --
+    ``packages/core/tests/migration/neo4j/conftest.py`` used to honour
+    ``NEO4J_CANONICAL_URI``, which enabled a raw-driver route with DDL behind
+    it (the same defect class as #78, in a directory ``make test-core``
+    collects); that route is removed in this change and the container it starts
+    is declared here. It does *not* extend to ``packages/api/tests``, which has
+    no ownership guard at all -- nothing there touches a real database today,
+    but the seam does not reach it.
     """
-    # Check if we should use environment variables instead
-    uri, password = _get_neo4j_from_env()
-    if uri and password:
-        # Return None - we'll use env vars in neo4j_config
-        yield None
-        return
-
-    # Otherwise, try to use testcontainers
     try:
         from testcontainers.neo4j import Neo4jContainer
     except ImportError:
-        pytest.skip("testcontainers not installed and NEO4J_URI not set")
+        pytest.skip("testcontainers not installed; integration tests need an owned Neo4j")
         return
 
     # Check if Docker is available
@@ -61,7 +211,7 @@ def neo4j_container():
         client = docker.from_env()
         client.ping()
     except Exception:
-        pytest.skip("Docker not available and NEO4J_URI not set")
+        pytest.skip("Docker not available; integration tests need an owned Neo4j")
         return
 
     container = Neo4jContainer("neo4j:5.26-community", password="testpassword")
@@ -69,6 +219,12 @@ def neo4j_container():
 
     try:
         container.start()
+        # Starting it is what makes it ours -- the only way a target becomes
+        # declared for the integration suite.
+        declare_session_database(
+            container.get_connection_url(),
+            reason="this session started this throwaway container",
+        )
         yield container
     finally:
         container.stop()
@@ -79,22 +235,15 @@ def neo4j_config(neo4j_container, monkeypatch):
     """
     Configure Neo4j connection for tests.
 
-    Uses environment variables if set, otherwise uses testcontainer.
-    Returns the Neo4jConfig for direct use.
+    Always the container this session started -- see ``neo4j_container`` for why
+    the environment-variable branch was removed (issue #78). The NEO4J_* values
+    are monkeypatched to point at that container, so code under test that calls
+    ``get_repository()`` or ``initialize_schema()`` resolves to the owned
+    database rather than to whatever the developer's shell exports.
     """
     from agentic_kg.config import Neo4jConfig, reset_config
 
-    # Check for environment variables first
-    env_uri, env_password = _get_neo4j_from_env()
-
-    if env_uri and env_password:
-        # Use environment variables (CI mode)
-        uri = env_uri
-        username = os.environ.get("NEO4J_USERNAME", "neo4j")
-        password = env_password
-        database = os.environ.get("NEO4J_DATABASE", "neo4j")
-    elif neo4j_container is not None:
-        # Use testcontainer (local dev mode)
+    if neo4j_container is not None:
         uri = neo4j_container.get_connection_url()
         username = "neo4j"
         password = "testpassword"  # Must match Neo4jContainer(password=...)
