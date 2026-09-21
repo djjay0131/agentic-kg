@@ -286,6 +286,49 @@ def parse_source(source: str) -> ast.Module:
     return ast.parse(source)
 
 
+def test_the_transitive_reach_fact_is_still_true() -> None:
+    """The corrected claim is pinned, so it cannot silently become false again.
+
+    `astscan`, this module and `stores.py` all now say the scan is *one-hop and
+    syntactic*: importing this package pulls `neo4j` and
+    `agentic_kg.knowledge_graph.*` into `sys.modules` transitively, through the
+    `agentic_kg.extraction` segmenter import the design deliberately allows.
+    That sentence was prose in three docstrings and asserted by nothing, which
+    is how an accurate claim rots into a stale one -- if the segmenter's
+    dependencies ever change, the docstrings would keep saying it and no test
+    would notice.
+
+    So it is measured. This is deliberately **not** a requirement that those
+    modules be present; it is a record of the fact the honest wording depends
+    on. If it ever fails, the wording gets *stronger*, not weaker -- and that
+    is a change worth making on purpose rather than discovering by accident.
+    """
+    import importlib
+    import sys
+
+    importlib.import_module("agentic_kg.migration.ingestion")
+    transitively_loaded = sorted(
+        name
+        for name in sys.modules
+        if name == "neo4j"
+        or name.startswith("neo4j.")
+        or name.startswith("agentic_kg.knowledge_graph")
+    )
+    assert transitively_loaded, (
+        "nothing from neo4j or agentic_kg.knowledge_graph is in sys.modules "
+        "after importing this package. The one-hop-scan caveat in astscan.py, "
+        "stores.py and this module's header is now understated -- re-check "
+        "what the segmenter pulls in and strengthen the wording deliberately."
+    )
+    # ...and the syntactic scan says none of it is *named* here, which is
+    # precisely the gap the caveat describes.
+    offenders: list[str] = []
+    for path in package_modules(PACKAGE_DIR):
+        package = package_of(path, PACKAGE_DIR, PACKAGE_NAME)
+        offenders.extend(_forbidden_hits(parse(path), package=package))
+    assert not offenders
+
+
 def test_in_memory_stores_persist_nothing() -> None:
     stores = ShadowStores.in_memory()
     try:

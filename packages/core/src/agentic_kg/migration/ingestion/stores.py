@@ -105,8 +105,15 @@ class ShadowStores(AbstractContextManager["ShadowStores"]):
         blocklist of "production" paths, because such a list is exactly the kind
         of check that reads as rigorous and enforces nothing — a deployment can
         mount anything anywhere, so the list would be a guess about someone
-        else's filesystem. The real guarantee is structural and is asserted
-        elsewhere: this subpackage cannot reach a canonical store at all.
+        else's filesystem.
+
+        What is enforced instead is narrower, checkable, and asserted in
+        `test_isolation.py`: nothing in this subpackage names a canonical store
+        in its own source, and no code path here constructs one. That is **not**
+        the same as the canonical store being unreachable — see this module's
+        own header. An earlier draft of this paragraph claimed it was, and left
+        the file asserting two incompatible things in the docstring a caller
+        actually reads.
         """
         directory = Path(root)
         directory.mkdir(parents=True, exist_ok=True)

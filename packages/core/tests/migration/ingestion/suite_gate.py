@@ -39,6 +39,35 @@ so a nested or conditionally-defined test is still required. And
 alone only moves the attack rather than closing it — deleting the function
 outright still shrinks both sides silently. The floor is what makes a shrinking
 suite loud.
+
+**Tests are keyed ``module::name``, not by bare name**, and that was the second
+round's finding. Keying by name collapses two different tests that share one:
+``test_the_package_has_modules_to_check`` is defined in both
+``test_config_injection.py`` and ``test_isolation.py``, so the *union* held 104
+entries while the *multiset* held 105. The gate required and printed the union
+and compared the floor against the multiset -- two numbers that were never the
+same quantity. A reviewer measured the consequences: deleting five tests still
+printed ``OK: 99 required tests ran and passed`` with rc=0 against a floor of
+100, and deleting the duplicated test outright printed ``OK: 104 required...``,
+rc=0, with **no change in output at all** -- a required test removed,
+invisibly. One qualified set now flows from :func:`expected_tests` through
+:func:`qualified_tests` to the junit ``classname`` and the printed count, and
+the floor compares that same set. A count computed one way and compared another
+is the same defect shape as a check that cannot fail: the two sides simply
+stopped referring to the same thing.
+
+**Known residual divergence, recorded rather than closed.** The qualifier is
+the junit ``classname``'s *last segment* -- a basename -- while
+:func:`expected_tests` reads one specific directory. A hypothetical
+``extra/test_isolation.py`` collected in the same run would therefore produce
+keys identical to this directory's. It is not exploitable today: on a collision
+the worse outcome wins, so a failure cannot be masked by a passing namesake,
+and a module that stops collecting still drops ~20 keys and trips the "never
+ran" check. But it is the same family as the multiset/union bug above -- two
+sides naming the same thing slightly differently -- and closing it means keying
+on a path relative to :data:`HERE`, which junit does not hand us directly. Left
+open deliberately, and written down so it is a known gap rather than a
+surprise.
 """
 
 from __future__ import annotations
@@ -200,10 +229,14 @@ def check(junit_path: Path, expected: dict[str, frozenset[str]] | None = None) -
     missing = sorted(wanted - set(outcomes))
     if missing:
         raise SuiteGateError(
-            f"{len(missing)} required test(s) never ran: {missing}. Either the "
-            f"'migration' extra did not resolve (conftest's importorskip turned "
-            f"the suite into a no-op), a module was renamed out of collection, "
-            f"or the pytest invocation did not reach this directory."
+            f"{len(missing)} required test(s) never ran: {missing}. Causes, "
+            f"commonest first: the 'migration' extra did not resolve (conftest's "
+            f"importorskip turns the whole suite into a no-op); the pytest "
+            f"invocation did not reach this directory; a module was renamed out "
+            f"of collection; or a test is still *defined* but no longer "
+            f"*collected* -- indenting one under `if False:`, or nesting it in a "
+            f"plain (non-Test-prefixed) class, keeps it in the required set, "
+            f"which is intended, and stops pytest running it."
         )
 
     bad: list[str] = []
