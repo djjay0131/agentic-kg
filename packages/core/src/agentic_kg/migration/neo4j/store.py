@@ -102,6 +102,15 @@ DEFAULT_DATABASE = "neo4j"
 #: inverting a retract.
 _RETRACTABLE_TO = frozenset({CurationStatus.SUPERSEDED, CurationStatus.REVOKED})
 
+#: Statuses an ``ATTACH_ASSERTION`` restore record may move an assertion to.
+#: Defined as the complement of :data:`_RETRACTABLE_TO` so the two operations
+#: provably partition the status space and cannot drift apart: whatever a
+#: retraction may set, a restore may not, and vice versa. Without this,
+#: ``restore_status`` accepted *any* parseable status — including ``REVOKED``,
+#: which is a retraction wearing an attach's clothing, and one that skips the
+#: ``superseded_at`` handling :meth:`_apply_retract` performs.
+_RESTORABLE_TO = frozenset(CurationStatus) - _RETRACTABLE_TO
+
 
 class CommitRefused(Exception):
     """An operation cannot be applied; the transaction must roll back.
@@ -339,14 +348,19 @@ class Neo4jCanonicalGraphStore:
           operation's payload was the whole of the original's ``reversal_data``.
           Kept as a compatibility path for hand-built and third-party plans
           (KGCS still falls back to the flat dict when ``INVERSE_PAYLOAD_KEY``
-          is absent). Nothing upstream produces it any more, so this branch is
-          no longer exercised by the evidence-evolution scenario; it appends a
-          status-history entry rather than editing the existing one.
+          is absent, so a *persisted* pre-#34 plan still applies). Nothing
+          upstream produces it any more, so it is reached only from hand-built
+          plans and is covered by tests that build one directly. It appends a
+          status-history entry rather than editing the existing one, and is
+          constrained to :data:`_RESTORABLE_TO` — an attach reinstates, it
+          never retracts.
         """
         if "predicate" in payload:
             assertion = Assertion.model_validate({**payload, "curation_epoch": epoch})
-            self._insert_assertion(tx, assertion)
-            return [assertion.subject_identity]
+            # The effective subject, which on an upsert is the stored node's
+            # rather than this payload's — so the version bump lands on the
+            # identity the assertion actually belongs to.
+            return [self._insert_assertion(tx, assertion)]
 
         assertion_id = payload.get("assertion_id")
         if not assertion_id:
@@ -361,6 +375,12 @@ class Neo4jCanonicalGraphStore:
                 f"assertion in namespace {self._namespace!r}"
             )
         status = _parse_status(payload.get("restore_status", CurationStatus.ACTIVE.value))
+        if status not in _RESTORABLE_TO:
+            raise CommitRefused(
+                f"unsupported_status: ATTACH_ASSERTION cannot restore an assertion to "
+                f"{status.value!r}; that is a retraction - use RETRACT_ASSERTION with "
+                f"'new_status'"
+            )
         self._append_status(tx, str(assertion_id), epoch, status, None)
         return [str(record["subject_identity"])]
 
@@ -646,8 +666,12 @@ class Neo4jCanonicalGraphStore:
             status_history=json.dumps(history),
         ).consume()
 
-    def _insert_assertion(self, tx: ManagedTransaction, assertion: Assertion) -> None:
+    def _insert_assertion(self, tx: ManagedTransaction, assertion: Assertion) -> str:
         """Write a new assertion, or upsert one that already exists by id.
+
+        Returns the ``subject_identity`` the write actually landed on, which is
+        not always the payload's — see *placement* below. Callers use it to
+        decide whose ``entity_version`` to bump.
 
         The upsert branch is a **store obligation**, not an optimisation. KGCS
         ADR-0018 Decision 5: *"a compensating ATTACH_ASSERTION is an UPSERT BY
@@ -655,24 +679,58 @@ class Neo4jCanonicalGraphStore:
         place"*. Since agentic-kgcs#34 the ``Compensator``'s inverse of a
         supersession ``RETRACT`` is the **full pre-retraction assertion dump**,
         so it arrives here carrying the ``assertion_id`` it is restoring, and
-        the ``MERGE`` on ``uid`` is what discharges that obligation.
+        the ``MERGE`` on ``uid`` is what discharges that obligation. A
+        non-compensating re-attach of an existing id lands here too and is
+        treated identically; assertion ids are content-derived, so the same id
+        is the same fact being re-asserted.
 
-        Replacing in place must not *rewrite history*. Three properties are the
-        record's identity rather than its content, and are therefore carried
-        over from the existing node instead of being restamped:
+        **The payload is authoritative for content, never for history or
+        placement.** It is a snapshot of the record as it stood at some earlier
+        epoch, so every column a *later committed operation* may have moved is
+        carried over from the stored node rather than restamped from the
+        payload. Restamping any of them is a write that reports ``COMMITTED``
+        while discarding a committed fact — §9 law 10, which is the whole
+        subject of this method.
+
+        *History* — three columns:
 
         * ``curation_epoch`` — the epoch the record was **minted** at. It is
-          the only epoch gate on the read path (:func:`_epoch_visible`), so
-          restamping it to the compensation's epoch retroactively deletes the
-          assertion from every earlier snapshot. That is §9 law 10 violated by
-          a write that reports ``COMMITTED``.
+          the only epoch gate on the read path (:func:`_epoch_visible`), and it
+          is evaluated *before* the status history is consulted, so restamping
+          it retroactively deletes the assertion from every earlier snapshot
+          even when the history is perfectly intact.
         * ``status_history`` — append-only by construction. The status this
           write establishes is *appended*; the ``SUPERSEDED`` entry the
           rollback is undoing stays on the record, because a compensation adds
-          a fact, it does not erase one. Overwriting the list collapses every
-          prior status to the newest, which is the same law-10 violation
-          reached by a second route.
-        * ``seq`` — the stable write-order tiebreaker the read path sorts on.
+          a fact, it does not erase one.
+        * ``seq`` — the stable write-order tiebreaker :func:`_read_assertions`
+          sorts on, so restamping it silently reorders every read.
+
+        *Placement* — four columns, owned by ``REASSIGN_ASSERTION``,
+        ``MERGE_IDENTITIES`` and ``SPLIT_IDENTITY``, never by an attach:
+
+        * ``subject_identity`` / ``object_identity`` — moved by a reassignment
+          (:meth:`_apply_reassign`) or by a merge (:meth:`_move_subject`,
+          :meth:`_redirect_objects`). Unlike status, placement is **not**
+          epoch-versioned, so restamping it from a stale payload leaves no
+          trace at any epoch: the record simply never appears under the
+          identity it was moved to, at any point in history.
+        * ``subject_lineage`` / ``object_lineage`` — the breadcrumb a merge
+          leaves so its declared inverse can find what to take back.
+          :meth:`_move_subject` matches on ``subject_lineage`` and
+          :meth:`_restore_objects` on ``object_lineage``, so clearing them
+          turns a later ``SPLIT_IDENTITY`` into a silent no-op — that breaks
+          the ``MERGE``/``SPLIT`` inverse pair, not just one record.
+
+        A compensating attach inverts a ``RETRACT``, and a ``RETRACT`` moves
+        only *status*. Undoing it must therefore move only status. Carrying
+        placement is what keeps the two concerns composable: a reassignment and
+        a supersession can be rolled back independently, in either order, and
+        ADR-0018's own liveness argument (on an adapter honouring Decision 5
+        the inverses are idempotent) depends on it. Refusing the upsert on a
+        placement mismatch was the alternative; it would reject a *safe*
+        rollback because of an unrelated committed operation, which ADR-0018
+        classes as a liveness defect rather than a safety feature.
 
         The history entry itself is stamped at ``assertion.curation_epoch``,
         which :meth:`_apply_attach` has already set to the epoch of the write
@@ -685,14 +743,28 @@ class Neo4jCanonicalGraphStore:
             history = [entry]
             minted_epoch = assertion.curation_epoch
             seq = self._next_seq(tx)
+            subject = assertion.subject_identity
+            obj = assertion.object_identity
+            subject_lineage = None
+            object_lineage = None
             stored = assertion
         else:
             history = [*json.loads(existing["status_history"]), entry]
             minted_epoch = int(existing["curation_epoch"])
             seq = int(existing["seq"])
-            # The payload is returned verbatim to readers, so it must agree
-            # with the node's minting epoch rather than the write's epoch.
-            stored = assertion.model_copy(update={"curation_epoch": minted_epoch})
+            subject = str(existing["subject_identity"])
+            obj = existing["object_identity"]
+            subject_lineage = existing["subject_lineage"]
+            object_lineage = existing["object_lineage"]
+            # The payload is handed back to readers verbatim, so it has to
+            # agree with the columns above rather than with its own stale copy.
+            stored = assertion.model_copy(
+                update={
+                    "curation_epoch": minted_epoch,
+                    "subject_identity": subject,
+                    "object_identity": obj,
+                }
+            )
         tx.run(
             f"MERGE (a:{LABEL_ASSERTION} {{uid: $uid}}) "
             f"SET a.ns = $ns, a.assertion_id = $assertion_id, "
@@ -700,25 +772,30 @@ class Neo4jCanonicalGraphStore:
             f"    a.object_identity = $object_identity, a.predicate = $predicate, "
             f"    a.curation_epoch = $curation_epoch, a.seq = $seq, "
             f"    a.payload = $payload, a.status_history = $status_history, "
-            f"    a.subject_lineage = NULL, a.object_lineage = NULL",
+            f"    a.subject_lineage = $subject_lineage, "
+            f"    a.object_lineage = $object_lineage",
             uid=uid(self._namespace, assertion.assertion_id),
             ns=self._namespace,
             assertion_id=assertion.assertion_id,
-            subject_identity=assertion.subject_identity,
-            object_identity=assertion.object_identity,
+            subject_identity=subject,
+            object_identity=obj,
+            subject_lineage=subject_lineage,
+            object_lineage=object_lineage,
             predicate=assertion.predicate,
             curation_epoch=minted_epoch,
             seq=seq,
             payload=stored.model_dump_json(),
             status_history=json.dumps(history),
         ).consume()
+        return subject
 
     def _load_assertion(self, tx: ManagedTransaction, assertion_id: str) -> dict[str, Any] | None:
         record = tx.run(
             f"MATCH (a:{LABEL_ASSERTION} {{uid: $uid}}) "
             f"RETURN a.payload AS payload, a.subject_identity AS subject_identity, "
             f"       a.status_history AS status_history, a.curation_epoch AS curation_epoch, "
-            f"       a.seq AS seq",
+            f"       a.seq AS seq, a.object_identity AS object_identity, "
+            f"       a.subject_lineage AS subject_lineage, a.object_lineage AS object_lineage",
             uid=uid(self._namespace, assertion_id),
         ).single()
         return None if record is None else dict(record)

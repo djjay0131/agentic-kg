@@ -54,7 +54,8 @@ migration = [
     # Ships THREE packages: kg_contracts (ports), kgis (ingestion),
     # kg_eval (evaluation).
     "agentic-kgis @ git+https://github.com/djjay0131/agentic-kgis@baf0b67e34bd2e7921b5da4492860f741d165464",
-    # agentic-kgcs main @ 14ffd0e8 — the merge commit of agentic-kgcs#34
+    # agentic-kgcs main @ 14ffd0e8 — the squash-merge commit of agentic-kgcs#34
+    # (a squash: single parent 4eafa83; the PR head 3b3c4b2 is NOT an ancestor)
     # ("compensation asserts post-application state and carries an applicable
     # inverse", ADR-0018). Strictly newer than 4eafa83 (#30) and than tag
     # v1.0.0 (609270e); pinned by SHA because tags are mutable.
@@ -68,7 +69,8 @@ migration = [
     #       keyword-only. The source plan's snapshot guard is rebased onto the
     #       epoch the original plan committed at, instead of being carried
     #       verbatim and therefore always STALE. `CompensationResult
-    #       .snapshot_guarded` is REMOVED (it was a constant, not a signal).
+    #       .snapshot_guarded` is REMOVED (it was a constant, not a signal);
+    #       `fully_compensable` survives as a derived property.
     #   (b) the RETRACT->ATTACH inverse is now a full `Assertion`, not a
     #       partial restore record.
     #   (c) `reversal_data` separates the inverse payload from the forward

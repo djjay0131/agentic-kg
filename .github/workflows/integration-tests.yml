@@ -110,6 +110,20 @@ jobs:
         run: |
           python -c "import kg_contracts, kgcs; print(kg_contracts.__file__); print(kgcs.__file__)"
 
+      - name: Assert it resolved to the COMMIT the pyprojects pin
+        # The step above proves the packages import. It does not prove *which
+        # commit* they are -- and that is the one thing that matters here:
+        # agentic-kgcs shipped a three-way breaking change (#34) while leaving
+        # version = "1.0.0" untouched, so two incompatible packages self-report
+        # the same version and only the SHA tells them apart. Same shape as the
+        # suite_gate lesson one layer down: proving *something* resolved is not
+        # proving *the named thing* resolved. pin_gate also rejects a mutable
+        # (branch/tag) pin and the two pyprojects drifting apart.
+        # test_pin_gate.py drives each of those paths to a real failure.
+        run: |
+          python packages/core/tests/migration/neo4j/pin_gate.py \
+            pyproject.toml packages/core/pyproject.toml
+
       - name: Type-check the adapter (mypy, WITH the extra resolved)
         # Deliberately NOT `|| true`, and deliberately in *this* job: the
         # repo's other mypy invocation (code-review.yml) both swallows its exit

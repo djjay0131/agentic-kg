@@ -41,7 +41,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from agentic_kg.migration.neo4j import SUPPORTED_OPERATIONS
 from kg_contracts.assertions import CurationStatus
-from kg_contracts.stores import GraphReadOptions
+from kg_contracts.curation import CurationOperation, CurationOperationType
+from kg_contracts.stores import GraphMutationBatch, GraphReadOptions
 from kg_contracts.testing.factories import make_assertion, make_entity
 from kg_contracts.testing.memory import MemoryGraphStore
 from kgcs.executor.executor import ExecutionOutcome, PlanExecutor
@@ -221,8 +222,14 @@ def test_transaction_time_window_closes_at_the_supersession(evolved) -> None:
     assert [a.assertion_id for a in after] == [evolved["new"].assertion_id]
 
 
-def _compensate(evolved):
+def _compensate(evolved, *, against_snapshot=None):
     """Build the compensating plan for the supersession.
+
+    ``against_snapshot`` defaults to the epoch the supersession committed at.
+    Scenarios that commit something else before rolling back pass the graph's
+    current epoch instead — the executor enforces the guard against the live
+    epoch, so a rollback applied after an unrelated write has to name that
+    epoch or be refused ``STALE`` before it reaches the store.
 
     No re-stamping workaround. Before agentic-kgcs#34,
     ``Compensator._carry_snapshot_precondition`` copied the *source plan's*
@@ -235,15 +242,20 @@ def _compensate(evolved):
     Since #34 that is the compensator's own job: ``against_snapshot`` is a
     required keyword-only argument naming the epoch the original plan
     committed at, and the guard is rebased onto it. ``snapshot_guarded`` is
-    gone from ``CompensationResult`` (it was a constant, not a signal), so
-    ``non_compensable`` is the thing to check.
+    gone from ``CompensationResult`` (it was a constant, not a signal).
+    ``fully_compensable`` is *not* gone — it survives as a derived property
+    over the one remaining field — but ``non_compensable`` is asserted here
+    directly, because naming the empty tuple says which operations were
+    uncompensable rather than only that some were.
     """
     from kgcs.executor.compensate import Compensator
 
     store = evolved["store"]
+    if against_snapshot is None:
+        against_snapshot = evolved["supersede"].new_epoch
     compensation = Compensator(snapshot_version=str(store.current_epoch())).compensate(
         evolved["supersede_plan"],
-        against_snapshot=evolved["supersede"].new_epoch,
+        against_snapshot=against_snapshot,
     )
     assert compensation.plan is not None
     assert compensation.non_compensable == ()
@@ -351,11 +363,27 @@ def test_compensating_attach_upserts_without_rewriting_history(evolved) -> None:
     snapshots would have reported.
 
     This test fails for the reason it names. Reintroduce the overwrite — drop
-    the ``existing``-branch in ``_insert_assertion`` — and every numbered
-    assertion below reds, while the seven shared contract tests stay green
-    (the upstream suite never supersedes a committed assertion at a later epoch
-    and reads back at the earlier one; that blind spot is pinned by
+    the ``existing`` branch in ``_insert_assertion`` — and assertions 1 to 4
+    all red, while the seven shared contract tests stay green (the upstream
+    suite never supersedes a committed assertion at a later epoch and reads
+    back at the earlier one; that blind spot is pinned by
     ``test_conformance_is_falsifiable.py::test_in_place_status_mutation_breaks_the_epoch_read``).
+
+    Each numbered assertion is independently sensitive to exactly one carried
+    property, verified by mutating them one at a time:
+
+    ===============================  ==========================
+    mutation of the ``existing`` branch   reddens
+    ===============================  ==========================
+    restamp ``seq``                  #1 (read order)
+    drop the history append          #2
+    restamp ``curation_epoch``       #3
+    drop the payload ``model_copy``  #3 (payload epoch)
+    ===============================  ==========================
+
+    #1 originally compared *sets* of assertion ids, which the base branch
+    already satisfied — it could not fail for the reason it named, and a
+    seq-restamping mutant survived the whole suite. It compares order now.
     """
     store, entity = evolved["store"], evolved["entity"]
     old_id = evolved["old"].assertion_id
@@ -370,13 +398,20 @@ def test_compensating_attach_upserts_without_rewriting_history(evolved) -> None:
     assert record.outcome is ExecutionOutcome.COMMITTED, record.error
     epoch_rollback = record.new_epoch
 
-    # 1. the upsert is an upsert: one node, not two.
+    # 1. the upsert is an upsert: one node, not two — and `seq` is preserved,
+    #    which is observable only as read ORDER. `_read_assertions` sorts
+    #    `ORDER BY a.seq`, so restamping seq on the upsert silently flips the
+    #    list from old-first to new-first. Asserting the order rather than the
+    #    set is what makes the `seq` carry-over able to fail at all; with a set
+    #    comparison alone this criterion is vacuous.
     everything = store.assertions_for(
         entity.identity_id, options=GraphReadOptions(include_superseded=True)
     )
     ids = [a.assertion_id for a in everything]
     assert len(ids) == len(set(ids)) == 2, ids
-    assert set(ids) == {old_id, evolved["new"].assertion_id}
+    assert ids == [old_id, evolved["new"].assertion_id], (
+        f"the compensating upsert restamped `seq` and reordered the read: {ids}"
+    )
 
     # 2. the history GREW by exactly the rollback entry; nothing was replaced.
     after = _raw_history(store, old_id)
@@ -407,3 +442,384 @@ def test_compensating_attach_upserts_without_rewriting_history(evolved) -> None:
     retired = {a.assertion_id: a for a in at_supersede}[old_id]
     assert retired.status is CurationStatus.SUPERSEDED
     assert retired.superseded_at == evolved["new"].recorded_at
+
+
+# --- placement is owned by REASSIGN / MERGE / SPLIT, never by an attach -------
+#
+# These four came out of an independent review of the fix above (R12, finding
+# H-1) plus the search it prompted for others of the same shape. The class:
+# `_insert_assertion`'s upsert writes every column from a payload captured
+# BEFORE whatever later operation moved the record, so any column a later
+# committed operation owns is silently reverted by a rollback that reports
+# COMMITTED. History (epoch/seq/status_history) was the first face; placement
+# (subject/object identity and merge lineage) is the second.
+
+
+def _identity(store, key: str):
+    """Commit one bare identity and return it."""
+    other = make_entity(key=key)
+    result = store.apply(
+        GraphMutationBatch(
+            plan_id=f"pl_identity_{key}",
+            operations=(
+                CurationOperation(
+                    type=CurationOperationType.CREATE_IDENTITY,
+                    payload=other.model_dump(mode="json"),
+                ),
+            ),
+        ),
+        preconditions=(),
+    )
+    assert result.committed is True, result.error
+    return other
+
+
+def _commit(store, plan_id: str, *operations):
+    result = store.apply(
+        GraphMutationBatch(plan_id=plan_id, operations=operations), preconditions=()
+    )
+    assert result.committed is True, result.error
+    return result
+
+
+def test_compensating_attach_preserves_a_committed_reassignment(evolved) -> None:
+    """H-1: a rollback must not silently revert a ``REASSIGN_ASSERTION``.
+
+    Newly reachable because of this pin. Before agentic-kgcs#34 the inverse of
+    a supersession ``RETRACT`` was a partial restore record, which routes to
+    ``_append_status`` and touches status only. Since #34 it is a full
+    ``Assertion``, so it routes to ``_insert_assertion``, whose ``MERGE … SET``
+    writes ``subject_identity`` from a payload captured *before* the
+    reassignment.
+
+    Why this is worse than the history rewrite it rhymes with: placement is not
+    epoch-versioned. A restamped ``curation_epoch`` at least leaves the record
+    visible at later epochs; a reverted subject leaves **no trace at any
+    epoch** — the reassignment target reads empty across the whole sweep, so
+    the committed operation is gone rather than superseded.
+
+    Fails for the reason it names: revert to writing
+    ``subject_identity=assertion.subject_identity`` in ``_insert_assertion``
+    and the record reappears under the original entity while the sweep over the
+    reassignment target is empty at every epoch.
+    """
+    store, entity = evolved["store"], evolved["entity"]
+    old_id = evolved["old"].assertion_id
+    other = _identity(store, "reassign-target")
+
+    reassigned = _commit(
+        store,
+        "pl_reassign",
+        CurationOperation(
+            type=CurationOperationType.REASSIGN_ASSERTION,
+            payload={
+                "assertion_id": old_id,
+                "from_identity": entity.identity_id,
+                "to_identity": other.identity_id,
+            },
+        ),
+    )
+
+    executor = PlanExecutor(store, supported_operations=SUPPORTED_OPERATIONS)
+    record = executor.execute(
+        _compensate(evolved, against_snapshot=store.current_epoch()), is_compensation=True
+    )
+    assert record.outcome is ExecutionOutcome.COMMITTED, record.error
+
+    # The reassignment stands: the restored assertion is on the NEW subject.
+    on_target = store.assertions_for(other.identity_id)
+    assert [a.assertion_id for a in on_target] == [old_id], (
+        f"the compensating upsert reverted a committed REASSIGN_ASSERTION: "
+        f"{[a.assertion_id for a in on_target]}"
+    )
+    assert on_target[0].status is CurationStatus.ACTIVE
+    assert on_target[0].subject_identity == other.identity_id, (
+        "the payload handed to readers must agree with the stored subject"
+    )
+
+    # ...and it is not also still on the old one.
+    on_origin = store.assertions_for(
+        entity.identity_id, options=GraphReadOptions(include_superseded=True)
+    )
+    assert old_id not in {a.assertion_id for a in on_origin}
+
+    # The target is non-empty from the reassignment epoch onward, which is the
+    # half that goes silent under the defect: with the subject reverted the
+    # record is absent from this identity at EVERY epoch, because placement is
+    # not epoch-versioned and so has no earlier state to fall back to.
+    #
+    # `include_superseded` is required here and its absence would be a bug in
+    # this test, not in the adapter: at the reassignment epoch the assertion
+    # was still SUPERSEDED — the rollback lands an epoch later — so a default
+    # read is right to hide it. The placement claim is about *which identity*
+    # holds the record, which holds independently of its status.
+    at_reassign = store.assertions_for(
+        other.identity_id,
+        options=GraphReadOptions(curation_epoch=reassigned.new_epoch, include_superseded=True),
+    )
+    assert [a.assertion_id for a in at_reassign] == [old_id], (
+        f"the reassignment left no trace at its own epoch: {[a.assertion_id for a in at_reassign]}"
+    )
+    assert at_reassign[0].status is CurationStatus.SUPERSEDED
+
+
+def test_compensating_attach_preserves_merge_lineage(evolved) -> None:
+    """The fourth carried property, found by generalising H-1 rather than by review.
+
+    ``_insert_assertion``'s ``MERGE`` used to end ``SET … a.subject_lineage =
+    NULL, a.object_lineage = NULL`` unconditionally. Those two columns are the
+    breadcrumb ``MERGE_IDENTITIES`` leaves so its declared inverse can find what
+    to take back: ``_move_subject`` matches ``a.subject_lineage = $only_lineage``
+    and ``_restore_objects`` matches ``a.object_lineage``.
+
+    So a compensation landing between a merge and its split does not corrupt
+    one record — it breaks the ``MERGE``/``SPLIT`` inverse pair. The split still
+    reports ``COMMITTED``; it just silently moves nothing, because the row it
+    would have matched no longer carries the lineage.
+
+    Fails for the reason it names: restore the unconditional ``= NULL`` and the
+    final assertion reds with the assertion still stranded on the survivor.
+    """
+    store, entity = evolved["store"], evolved["entity"]
+    old_id = evolved["old"].assertion_id
+    survivor = _identity(store, "merge-survivor")
+
+    _commit(
+        store,
+        "pl_merge",
+        CurationOperation(
+            type=CurationOperationType.MERGE_IDENTITIES,
+            payload={
+                "survivor_identity": survivor.identity_id,
+                "merged_identities": [entity.identity_id],
+            },
+        ),
+    )
+    on_survivor = store.assertions_for(
+        survivor.identity_id, options=GraphReadOptions(include_superseded=True)
+    )
+    assert old_id in {a.assertion_id for a in on_survivor}, "the merge must have moved it"
+
+    # The compensation lands while the merge is in force.
+    executor = PlanExecutor(store, supported_operations=SUPPORTED_OPERATIONS)
+    record = executor.execute(
+        _compensate(evolved, against_snapshot=store.current_epoch()), is_compensation=True
+    )
+    assert record.outcome is ExecutionOutcome.COMMITTED, record.error
+
+    # Now undo the merge. This is the step that goes silently wrong.
+    _commit(
+        store,
+        "pl_split",
+        CurationOperation(
+            type=CurationOperationType.SPLIT_IDENTITY,
+            payload={
+                "source_identity": survivor.identity_id,
+                "into_identities": [entity.identity_id],
+            },
+        ),
+    )
+
+    back_home = store.assertions_for(
+        entity.identity_id, options=GraphReadOptions(include_superseded=True)
+    )
+    assert old_id in {a.assertion_id for a in back_home}, (
+        "the compensating upsert cleared subject_lineage, so SPLIT_IDENTITY "
+        "could not find the assertion to take back - the MERGE/SPLIT inverse "
+        "pair is broken, not just one record"
+    )
+    stranded = store.assertions_for(
+        survivor.identity_id, options=GraphReadOptions(include_superseded=True)
+    )
+    assert old_id not in {a.assertion_id for a in stranded}
+
+
+def test_upsert_preserves_object_placement_and_its_merge_lineage(make_canonical_store) -> None:
+    """The object side of placement, which the supersession scenario never reaches.
+
+    ``evolved``'s assertions carry an ``object_value``, not an
+    ``object_identity``, so nothing above can tell whether ``object_identity``
+    and ``object_lineage`` are carried across an upsert or restamped from the
+    payload — a mutant that restamped ``object_identity`` survived the whole
+    suite until this test existed.
+
+    Built from a plain re-ATTACH rather than a compensation on purpose. The
+    upsert branch is reachable from any re-assertion of an existing id (ids are
+    content-derived), the stale-payload shape is identical, and it keeps the
+    scenario down to the four operations that actually matter:
+
+    1. ``X`` asserts something *about* ``subject``, pointing at ``target``;
+    2. ``target`` is merged into ``survivor`` — ``_redirect_objects`` moves
+       ``X.object_identity`` to ``survivor`` and leaves ``object_lineage =
+       target`` as the breadcrumb;
+    3. ``X`` is re-attached from its **original** payload, which still says
+       ``object_identity = target``;
+    4. ``survivor`` is split back into ``target``.
+
+    Step 3 is the write under test. Restamping ``object_identity`` reverts a
+    committed merge (step 4's assertion on ``survivor`` reds); clearing
+    ``object_lineage`` leaves ``_restore_objects`` nothing to match, so the
+    split silently does nothing and step 4's assertion on ``target`` reds.
+    """
+    store = make_canonical_store()
+    subject = make_entity(key="obj-subject")
+    target = make_entity(key="obj-target")
+    survivor = make_entity(key="obj-survivor")
+
+    linked = make_assertion(
+        subject_identity=subject.identity_id,
+        predicate="cites",
+        # `Assertion` requires exactly one of object_value/object_identity, and
+        # the factory defaults object_value to 200 — this assertion points at an
+        # identity, which is the whole point of the scenario.
+        object_value=None,
+        object_identity=target.identity_id,
+    )
+    _commit(
+        store,
+        "pl_obj_seed",
+        *(
+            CurationOperation(
+                type=CurationOperationType.CREATE_IDENTITY, payload=e.model_dump(mode="json")
+            )
+            for e in (subject, target, survivor)
+        ),
+        CurationOperation(
+            type=CurationOperationType.ATTACH_ASSERTION,
+            payload=linked.model_dump(mode="json"),
+        ),
+    )
+
+    def _object_of() -> str | None:
+        held = store.assertions_for(
+            subject.identity_id, options=GraphReadOptions(include_superseded=True)
+        )
+        return {a.assertion_id: a for a in held}[linked.assertion_id].object_identity
+
+    assert _object_of() == target.identity_id
+
+    _commit(
+        store,
+        "pl_obj_merge",
+        CurationOperation(
+            type=CurationOperationType.MERGE_IDENTITIES,
+            payload={
+                "survivor_identity": survivor.identity_id,
+                "merged_identities": [target.identity_id],
+            },
+        ),
+    )
+    assert _object_of() == survivor.identity_id, "the merge must have redirected the object"
+
+    # The upsert, from the pre-merge payload.
+    _commit(
+        store,
+        "pl_obj_reattach",
+        CurationOperation(
+            type=CurationOperationType.ATTACH_ASSERTION,
+            payload=linked.model_dump(mode="json"),
+        ),
+    )
+    assert _object_of() == survivor.identity_id, (
+        "the upsert restamped object_identity from a stale payload and reverted "
+        "a committed MERGE_IDENTITIES"
+    )
+
+    # And the merge is still undoable, which is what object_lineage is for.
+    _commit(
+        store,
+        "pl_obj_split",
+        CurationOperation(
+            type=CurationOperationType.SPLIT_IDENTITY,
+            payload={
+                "source_identity": survivor.identity_id,
+                "into_identities": [target.identity_id],
+            },
+        ),
+    )
+    assert _object_of() == target.identity_id, (
+        "the upsert cleared object_lineage, so SPLIT_IDENTITY could not find "
+        "the assertion to redirect back"
+    )
+
+
+# --- the pre-#34 restore-record payload shape --------------------------------
+
+
+def _restore_op(assertion_id: str, subject_identity: str, **extra):
+    """The partial payload KGCS emitted before #34, built by hand.
+
+    Nothing upstream produces this any more (``plan_supersession`` always sets
+    ``INVERSE_PAYLOAD_KEY``), but ``_build_inverse`` still falls back to the flat
+    ``reversal_data`` when that key is absent, so a *persisted* pre-#34 plan
+    still lands here. It is the canonical write path, so it is tested rather
+    than trusted.
+    """
+    return CurationOperation(
+        type=CurationOperationType.ATTACH_ASSERTION,
+        payload={"assertion_id": assertion_id, "subject_identity": subject_identity, **extra},
+    )
+
+
+def test_restore_record_reinstates_without_a_full_assertion(evolved) -> None:
+    """The compat branch works: a partial payload restores the retracted record.
+
+    Covers the second shape ``_apply_attach`` documents, which the
+    evidence-evolution scenario stopped exercising when #34 made the
+    compensator emit full assertions.
+    """
+    store, entity = evolved["store"], evolved["entity"]
+    old_id = evolved["old"].assertion_id
+    epoch_supersede = evolved["supersede"].new_epoch
+
+    assert old_id not in {a.assertion_id for a in store.assertions_for(entity.identity_id)}
+
+    _commit(store, "pl_restore", _restore_op(old_id, entity.identity_id))
+
+    assert old_id in {a.assertion_id for a in store.assertions_for(entity.identity_id)}
+    # It appends, like every other status write: the supersession epoch still
+    # reports what was true then.
+    at_supersede = store.assertions_for(
+        entity.identity_id,
+        options=GraphReadOptions(curation_epoch=epoch_supersede, include_superseded=True),
+    )
+    assert {a.assertion_id: a for a in at_supersede}[old_id].status is CurationStatus.SUPERSEDED
+
+
+def test_restore_record_cannot_be_used_to_retract(evolved) -> None:
+    """The restore branch is not a back door around ``_RETRACTABLE_TO``.
+
+    ``_apply_retract`` refuses to move an assertion to anything outside
+    ``{SUPERSEDED, REVOKED}`` and points callers *here* to reinstate one. The
+    converse guard was missing: ``restore_status`` accepted any parseable
+    status, so ``ATTACH_ASSERTION`` could retract — to ``REVOKED``, which the
+    read surface does not hide by default (kg_contracts issue #8), and without
+    the ``superseded_at`` stamping ``_apply_retract`` performs.
+
+    The two sets partition ``CurationStatus``, so this asserts the whole
+    complement rather than one hand-picked value.
+    """
+    store, entity = evolved["store"], evolved["entity"]
+    old_id = evolved["old"].assertion_id
+
+    refused = [s for s in CurationStatus if s is not CurationStatus.ACTIVE]
+    assert refused, "the guard is vacuous if ACTIVE is the only status"
+
+    for status in refused:
+        result = store.apply(
+            GraphMutationBatch(
+                plan_id=f"pl_bad_{status.value}",
+                operations=(_restore_op(old_id, entity.identity_id, restore_status=status.value),),
+            ),
+            preconditions=(),
+        )
+        assert result.committed is False, f"{status.value} must not be reachable via attach"
+        assert "unsupported_status" in (result.error or ""), result.error
+
+    # And the one that is allowed still is.
+    _commit(
+        store,
+        "pl_good",
+        _restore_op(old_id, entity.identity_id, restore_status=CurationStatus.ACTIVE.value),
+    )
+    assert old_id in {a.assertion_id for a in store.assertions_for(entity.identity_id)}

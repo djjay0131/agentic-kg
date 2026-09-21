@@ -39,7 +39,7 @@ migration = [
     # agentic-kgis PR #39 merge commit (fixed `import kgis` failing without
     # pytest). Ships kg_contracts, kgis, kg_eval.
     "agentic-kgis @ git+https://github.com/djjay0131/agentic-kgis@baf0b67e34bd2e7921b5da4492860f741d165464",
-    # agentic-kgcs main @ 14ffd0e8 — merge commit of agentic-kgcs#34
+    # agentic-kgcs main @ 14ffd0e8 — squash-merge commit of agentic-kgcs#34
     # (compensation asserts post-application state; ADR-0018). BREAKING, and
     # a superset of #30, whose behaviour note still applies.
     # NOTE: after #30, `orcid` is no longer a default strong namespace —
