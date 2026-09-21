@@ -68,6 +68,22 @@ against it, because at five occurrences it is a property of the work, not an acc
 Pass 2 also confirmed, by independent re-implementation over 271 fixture records, that the
 §6.4.1 join key yields **0 residual collisions**.
 
+**Correction from downstream measurement, 2026-09-21 (§5.1 consequence 2).** The
+compatibility harness built in PR #84 measured a thing this spec had asserted without
+measuring. §5.1 consequence 2 claimed *"Pagination is preserved because the properties
+still exist and are still sortable."* It is **false as written**, and the harness had to
+classify around it: four read paths its own evidence shows diverging are recorded as
+`DECLARED_CHANGE` rather than `PARITY`, which left the code honest and the spec not. The
+claim inferred a contract property (*the rows come back in the same order*) from a schema
+property (*the key still exists and still sorts*); §4.4's "all ten stay sortable" is true
+and does not imply it. Consequence 2 is rewritten to name the four affected read paths,
+the counter-recomputation mechanism and the impact on paginating consumers; §4.4 now
+carries the explicit warning that sortable is not sorted the same way; and ADR-0003 gains
+the matching tradeoff under Negative / Tradeoffs. Recorded rather than folded in for the
+reason given above, and because it is another instance of §9.0's pattern one level up: not
+a check that verified nothing, but a *claim* that had never been checked at all, sitting
+next to the measurement that disproved it.
+
 ---
 
 ## 1. Analysis A — write classification
@@ -744,6 +760,12 @@ property; it is merely derived. `rc.mention_count DESC, rc.name` · `pc.mention_
 `p.year DESC` · `p.created_at DESC` · `t.name` · `CASE t.level` then `t.id` ·
 `r.author_position` · (`r.priority ASC, r.sla_deadline ASC` — dead, §5.3).
 
+**Sortable is not sorted the same way.** The sentence above is a claim about the schema
+only: every key still exists, so every query still parses and still orders. It is *not* a
+claim that the rows come back in the same order, and it must not be read as one — four of
+these keys are recomputed counters whose values change, which reorders the page. §5.1
+consequence 2 names those four paths and states the consumer impact.
+
 `m.is_canonical` is projected from the Model's curation profile scope, not from a data
 property (§3.3).
 
@@ -794,7 +816,56 @@ edges each run, so drift is not merely reconciled, it is unrepresentable. Conseq
 
 1. **Legacy counter values are not migratable data.** They are not read during migration,
    not compared against, and not used to validate anything.
-2. Pagination is preserved because the properties still exist and are still sortable.
+2. **Row order changes on four counter-ordered read paths. This is an API-visible
+   behaviour change, not a preserved property.**
+
+   This consequence previously read *"Pagination is preserved because the properties
+   still exist and are still sortable."* **That was false as written**, and it is
+   corrected here rather than quietly deleted, because the error is instructive: it
+   inferred a contract property from a schema property. §4.4's "all ten stay sortable"
+   is true — every counter survives as a property, merely derived — but *sortable* is
+   a statement about the schema, while *ordered the same way* is a statement about the
+   contract, and only the second is what a paginating client depends on. The two are
+   not the same claim, and the first does not imply the second.
+
+   The mechanism is this hazard's own disposition. §4.4 recomputes every counter from
+   projected edge degree; legacy increments on write and — the finding at the top of
+   this section — has **no reconciler at all** for `Model.usage_count`,
+   `Method.usage_count` or any `ProblemConcept` counter, while `re_ingestion.py`
+   deletes edges without decrementing. So the stored value and the degree have
+   genuinely drifted, the projection publishes the degree, and wherever that value is
+   a sort key the page is reordered.
+
+   | Read path | Sort key | Why the order moves |
+   |---|---|---|
+   | `GET /api/concepts` | `rc.mention_count DESC, rc.name` | primary sort key, recomputed from `INVOLVES_CONCEPT` in-degree |
+   | `GET /api/models` | `m.is_canonical DESC, m.usage_count DESC, m.name` | `usage_count` recomputed from `USES_MODEL` in-degree; no legacy reconciler |
+   | `GET /api/methods` | `m.usage_count DESC, m.name` | `usage_count` recomputed from `APPLIES_METHOD` in-degree; no legacy reconciler |
+   | `GET /api/concepts/{id}/problems` | `pc.mention_count DESC` | sole sort key; `auto_linker.py:281` increments, nothing decrements |
+
+   **Measured, not predicted.** `packages/core/tests/migration/compat/test_ordering_keys_depend_on_counters.py`
+   builds the drift the way legacy creates it (edges purged with raw Cypher, counter
+   left alone), proves the page order really is a function of the stored counter by
+   moving one counter and watching the page move, then shows the stored-counter order
+   and the degree order differ for `GET /api/models` and `GET /api/concepts`. The
+   other two rows are the same key shape over the same kind of unreconciled counter.
+
+   **What it means for API consumers.** These endpoints paginate with `SKIP`/`LIMIT`
+   over the sort key, so a reordering is not cosmetic: across the cutover a client
+   holding "page 3" gets a different set of rows, and a client paging through while
+   the epoch changes can see an item twice or miss it entirely. Cached or persisted
+   page contents, and anything that treats position in these listings as stable
+   (top-N dashboards, "most used model" style callouts), change value. This belongs
+   in the release notes beside the `BELONGS_TO` change of §5.2 — a consumer must be
+   told, not left to discover it when page 2 stops meaning what it meant. Consumers
+   that need a stable cursor should key on `id`, which does not move.
+
+   Accordingly these four paths are classified `DECLARED_CHANGE`, not `PARITY`, in
+   the compatibility inventory (`migration/compat/read_paths.py`): asserting parity
+   over them would be asserting something this spec's own evidence disproves. Note
+   that `GET /api/papers` is also `DECLARED_CHANGE` but for a different reason — its
+   order (`p.year DESC`) is stable and it is the *payload* that changes meaning, per
+   §4.4's redefinition of `Paper.citation_count`.
 3. **Acceptance criterion:** for every projected counter, `property == degree(edge)` at the
    published epoch. This one is a **structural invariant, not a fixture claim** — it holds
    over whatever the projection contains, so it is asserted over the whole projected graph

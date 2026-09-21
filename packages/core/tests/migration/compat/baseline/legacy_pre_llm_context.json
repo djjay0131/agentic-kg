@@ -1,0 +1,386 @@
+{
+  "_comment": "Deterministic pre-LLM retrieval captured from the LEGACY graph before the KGIS/KGCS cutover. Regenerate with AKG_COMPAT_WRITE_BASELINE=1. '<T>' is the per-run fixture token, stripped so the rows are stable across runs.",
+  "probes": {
+    "api.concepts.linked_papers": [
+      {
+        "doi": "10.TEST_<T>/paper-two",
+        "title": "<T> Long Context Transformers",
+        "year": 2023
+      },
+      {
+        "doi": "10.TEST_<T>/paper-one",
+        "title": "<T> Attention Reconsidered",
+        "year": 2021
+      }
+    ],
+    "api.concepts.linked_problems": [
+      {
+        "canonical_statement": "<T> canonical statement bravo",
+        "id": "<T>_pconcept_bravo",
+        "mention_count": 7
+      },
+      {
+        "canonical_statement": "<T> canonical statement alpha",
+        "id": "<T>_pconcept_alpha",
+        "mention_count": 3
+      }
+    ],
+    "api.concepts.list": [
+      {
+        "id": "<T>_concept_bravo",
+        "mention_count": 9,
+        "name": "<T> bravo concept",
+        "paper_count": 1
+      },
+      {
+        "id": "<T>_concept_alpha",
+        "mention_count": 5,
+        "name": "<T> alpha concept",
+        "paper_count": 4
+      },
+      {
+        "id": "<T>_concept_charlie",
+        "mention_count": 5,
+        "name": "<T> charlie concept",
+        "paper_count": 0
+      }
+    ],
+    "api.graph.include_topics": [
+      {
+        "level": "area",
+        "name": "<T> natural language processing",
+        "problem_count": 2,
+        "problem_id": "<T>_problem_1",
+        "topic_id": "<T>_topic_area"
+      },
+      {
+        "level": "area",
+        "name": "<T> natural language processing",
+        "problem_count": 2,
+        "problem_id": "<T>_problem_2",
+        "topic_id": "<T>_topic_area"
+      }
+    ],
+    "api.graph.node_neighbourhood": [
+      {
+        "neighbour_labels": [
+          "Topic"
+        ],
+        "rel_type": "BELONGS_TO"
+      },
+      {
+        "neighbour_labels": [
+          "Problem"
+        ],
+        "rel_type": "EXTENDS"
+      },
+      {
+        "neighbour_labels": [
+          "Paper"
+        ],
+        "rel_type": "EXTRACTED_FROM"
+      }
+    ],
+    "api.graph.problem_relations": [
+      {
+        "rel_type": "EXTENDS",
+        "source": "<T>_problem_1",
+        "target": "<T>_problem_2"
+      }
+    ],
+    "api.graph.problem_relations_by_topic": [
+      {
+        "rel_type": "EXTENDS",
+        "source": "<T>_problem_1",
+        "target": "<T>_problem_2"
+      }
+    ],
+    "api.graph.problems": [
+      {
+        "id": "<T>_problem_1",
+        "statement": "<T> How can transformer efficiency be improved for problem 1?",
+        "status": "open"
+      },
+      {
+        "id": "<T>_problem_2",
+        "statement": "<T> How can transformer efficiency be improved for problem 2?",
+        "status": "open"
+      },
+      {
+        "id": "<T>_problem_3",
+        "statement": "<T> How can transformer efficiency be improved for problem 3?",
+        "status": "in_progress"
+      }
+    ],
+    "api.graph.problems_by_topic": [
+      {
+        "statement": "<T> How can transformer efficiency be improved for problem 1?",
+        "status": "open"
+      },
+      {
+        "statement": "<T> How can transformer efficiency be improved for problem 2?",
+        "status": "open"
+      }
+    ],
+    "api.graph.problems_papers": [
+      {
+        "doi": "10.TEST_<T>/paper-one",
+        "problem_id": "<T>_problem_1",
+        "title": "<T> Attention Reconsidered",
+        "year": 2021
+      },
+      {
+        "doi": "10.TEST_<T>/paper-two",
+        "problem_id": "<T>_problem_2",
+        "title": "<T> Long Context Transformers",
+        "year": 2023
+      }
+    ],
+    "api.ingest.run_status": [
+      {
+        "papers_found": 2,
+        "papers_imported": 2,
+        "status": "completed",
+        "trace_id": "<T>_trace"
+      }
+    ],
+    "api.methods.list": [
+      {
+        "id": "<T>_method_bravo",
+        "name": "<T> bravo method",
+        "usage_count": 7
+      },
+      {
+        "id": "<T>_method_alpha",
+        "name": "<T> alpha method",
+        "usage_count": 4
+      }
+    ],
+    "api.methods.papers": [
+      {
+        "doi": "10.TEST_<T>/paper-one",
+        "title": "<T> Attention Reconsidered",
+        "year": 2021
+      }
+    ],
+    "api.models.list": [
+      {
+        "id": "<T>_model_alpha",
+        "is_canonical": true,
+        "name": "<T> alpha model",
+        "usage_count": 0
+      },
+      {
+        "id": "<T>_model_charlie",
+        "is_canonical": false,
+        "name": "<T> charlie model",
+        "usage_count": 2
+      },
+      {
+        "id": "<T>_model_bravo",
+        "is_canonical": false,
+        "name": "<T> bravo model",
+        "usage_count": 1
+      }
+    ],
+    "api.models.papers": [
+      {
+        "doi": "10.TEST_<T>/paper-one",
+        "title": "<T> Attention Reconsidered",
+        "year": 2021
+      }
+    ],
+    "api.papers.citations": [
+      {
+        "doi": "10.TEST_<T>/paper-one",
+        "title": "<T> Attention Reconsidered",
+        "year": 2021
+      }
+    ],
+    "api.papers.list": [
+      {
+        "citation_count": 1,
+        "doi": "10.TEST_<T>/paper-two",
+        "is_stub": false,
+        "title": "<T> Long Context Transformers",
+        "year": 2023
+      },
+      {
+        "citation_count": 0,
+        "doi": "10.TEST_<T>/paper-one",
+        "is_stub": false,
+        "title": "<T> Attention Reconsidered",
+        "year": 2021
+      }
+    ],
+    "api.papers.references": [
+      {
+        "doi": "10.TEST_<T>/paper-two",
+        "title": "<T> Long Context Transformers",
+        "year": 2023
+      }
+    ],
+    "api.stats.by_status": [
+      {
+        "count": 1,
+        "status": "in_progress"
+      },
+      {
+        "count": 2,
+        "status": "open"
+      }
+    ],
+    "api.stats.problems_by_topic": [
+      {
+        "count": 2,
+        "name": "<T> natural language processing"
+      }
+    ],
+    "api.topics.by_level": [
+      {
+        "id": "<T>_topic_area",
+        "level": "area",
+        "name": "<T> natural language processing",
+        "paper_count": 1,
+        "problem_count": 2
+      }
+    ],
+    "api.topics.children": [
+      {
+        "id": "<T>_topic_area",
+        "level": "area",
+        "name": "<T> natural language processing",
+        "parent_id": "<T>_topic_root"
+      }
+    ],
+    "api.topics.problems": [
+      {
+        "id": "<T>_problem_1",
+        "statement": "<T> How can transformer efficiency be improved for problem 1?"
+      },
+      {
+        "id": "<T>_problem_2",
+        "statement": "<T> How can transformer efficiency be improved for problem 2?"
+      }
+    ],
+    "api.topics.problems_subtopics": [
+      {
+        "id": "<T>_problem_1",
+        "statement": "<T> How can transformer efficiency be improved for problem 1?"
+      },
+      {
+        "id": "<T>_problem_2",
+        "statement": "<T> How can transformer efficiency be improved for problem 2?"
+      }
+    ],
+    "api.topics.tree": [
+      {
+        "id": "<T>_topic_root",
+        "level": "domain",
+        "name": "<T> machine learning",
+        "paper_count": 0,
+        "problem_count": 0
+      }
+    ],
+    "continuation.problem_context": [
+      {
+        "baselines": "[]",
+        "constraints": "[{\"text\": \"<T> constraint 1\", \"type\": \"computational\", \"confidence\": 0.8}]",
+        "datasets": "[{\"name\": \"<T> dataset 1\", \"url\": null, \"available\": true, \"size\": null}]",
+        "id": "<T>_problem_1",
+        "metrics": "[{\"name\": \"<T> metric 1\", \"description\": null, \"baseline_value\": 0.5}]",
+        "statement": "<T> How can transformer efficiency be improved for problem 1?",
+        "status": "open"
+      }
+    ],
+    "continuation.topic_name": [
+      {
+        "name": "<T> natural language processing"
+      }
+    ],
+    "ranking.candidates": [
+      {
+        "id": "<T>_problem_3",
+        "statement": "<T> How can transformer efficiency be improved for problem 3?",
+        "status": "in_progress"
+      },
+      {
+        "id": "<T>_problem_2",
+        "statement": "<T> How can transformer efficiency be improved for problem 2?",
+        "status": "open"
+      },
+      {
+        "id": "<T>_problem_1",
+        "statement": "<T> How can transformer efficiency be improved for problem 1?",
+        "status": "open"
+      }
+    ],
+    "ranking.candidates_by_topic": [
+      {
+        "id": "<T>_problem_2",
+        "statement": "<T> How can transformer efficiency be improved for problem 2?",
+        "status": "open"
+      },
+      {
+        "id": "<T>_problem_1",
+        "statement": "<T> How can transformer efficiency be improved for problem 1?",
+        "status": "open"
+      }
+    ],
+    "relations.paper_authors": [
+      {
+        "id": "<T>_author_0",
+        "name": "<T> Ada Lovelace",
+        "position": 0
+      },
+      {
+        "id": "<T>_author_1",
+        "name": "<T> Alan Turing",
+        "position": 1
+      }
+    ],
+    "repo.list_problems": [
+      {
+        "id": "<T>_problem_2",
+        "statement": "<T> How can transformer efficiency be improved for problem 2?"
+      },
+      {
+        "id": "<T>_problem_1",
+        "statement": "<T> How can transformer efficiency be improved for problem 1?"
+      }
+    ],
+    "search.by_status": [
+      {
+        "id": "<T>_problem_2",
+        "statement": "<T> How can transformer efficiency be improved for problem 2?",
+        "status": "open"
+      },
+      {
+        "id": "<T>_problem_1",
+        "statement": "<T> How can transformer efficiency be improved for problem 1?",
+        "status": "open"
+      }
+    ],
+    "search.by_year": [
+      {
+        "doi": "10.TEST_<T>/paper-two",
+        "id": "<T>_problem_2",
+        "year": 2023
+      },
+      {
+        "doi": "10.TEST_<T>/paper-one",
+        "id": "<T>_problem_1",
+        "year": 2021
+      }
+    ],
+    "search.hybrid_topic_leg": [
+      {
+        "id": "<T>_problem_1"
+      },
+      {
+        "id": "<T>_problem_2"
+      }
+    ]
+  },
+  "surface": "legacy"
+}
