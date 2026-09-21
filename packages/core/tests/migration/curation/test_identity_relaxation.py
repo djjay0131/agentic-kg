@@ -274,8 +274,20 @@ def doi_keyed(entity_type: str = "Paper", *, doi: str, key: str) -> object:
         ("Topic", "banana", "attack A: a key the DOI registry could never issue"),
         ("Topic", "  not-a-doi  ", "attack B: whitespace around a non-DOI"),
         ("Topic", "10.1007/978-3-031-19433-7_39", "attack D: a real DOI on a Topic"),
+        # The type check alone refuses the three above, because all three are
+        # Topics. These two are Papers — the type the DOI registry *does*
+        # identify — so only the key-spelling check can refuse them. Without
+        # them, mutating the pattern check away left every parameter green.
+        ("Paper", "banana", "attack A on the right type: only the spelling refuses it"),
+        ("Paper", "  10.1007/x  ", "attack B on the right type"),
     ],
-    ids=["nonsense-key", "whitespace-key", "real-doi-wrong-type"],
+    ids=[
+        "nonsense-key",
+        "whitespace-key",
+        "real-doi-wrong-type",
+        "nonsense-key-right-type",
+        "whitespace-key-right-type",
+    ],
 )
 def test_a_doi_namespace_alone_no_longer_admits_a_candidate(
     entity_type: str, doi: str, why: str
@@ -387,3 +399,27 @@ def test_the_real_corpus_has_distinct_dois_which_is_why_it_missed_this() -> None
         "the corpus now repeats a DOI; the duplicate rule is no longer quantified "
         "over an empty set there, and this test's premise needs rewriting"
     )
+
+
+def test_the_gate_being_on_is_itself_the_guard() -> None:
+    """The short-circuit that keeps this whole rule off the default path.
+
+    ``_minting`` returns nothing while ``require_identity_confidence_for_auto``
+    is on, and that early exit is **not** redundant with the
+    ``create_new_identity`` filter: a candidate that carries a real
+    ``identity_confidence`` routes ``AUTO`` and mints *with the gate on*, and it
+    is entitled to — the gate is the ER-equivalent guard, so the
+    registered-identifier rule must not also apply. A surface-keyed candidate
+    minting under the contract default is exactly that case, and removing the
+    short-circuit refuses it.
+    """
+    from ._synthetic import graded_entity_candidate
+
+    candidate = graded_entity_candidate()
+    assert all(alias.namespace != "doi" for alias in candidate.aliases)
+    assert candidate.scores.identity_confidence == 0.99
+
+    result = run_curation(
+        [candidate], config=enabled(), confidence_policy=CONTRACT_DEFAULT_POLICY
+    )
+    assert result.operation_counts() == {"CREATE_IDENTITY": 1}

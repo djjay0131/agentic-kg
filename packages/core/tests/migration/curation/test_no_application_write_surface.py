@@ -104,6 +104,28 @@ def test_the_scan_derives_the_modules_it_reads() -> None:
     )
 
 
+def test_the_scan_finds_a_module_it_has_never_heard_of(tmp_path) -> None:
+    """Derivation checked by discovery, not by comparing to today's answer.
+
+    ``test_the_scan_derives_the_modules_it_reads`` asserts the set equals
+    ``{pipeline, rollback}`` — which a transcribed list satisfies just as well,
+    as a mutation proved. This points the finder at a module that does not
+    exist in the subpackage, with an **unannotated** ``store`` parameter: the
+    exact structural hole review found, where a new module handling a store was
+    scanned by nothing.
+    """
+    newcomer = tmp_path / "projection.py"
+    newcomer.write_text("def publish(store, plan):\n    return store.apply(plan, ())\n")
+    innocent = tmp_path / "helpers.py"
+    innocent.write_text("def add(a, b):\n    return a + b\n")
+
+    found = {p.name for p in _scan.store_bearing_modules([newcomer, innocent])}
+    assert found == {"projection.py"}
+    assert _offenders_in(newcomer.read_text(), newcomer.name), (
+        "the newly discovered module's store.apply was not reported"
+    )
+
+
 def test_the_store_is_only_ever_handed_to_the_plan_executor() -> None:
     """A store alias appears only in a permitted position, anywhere it reaches.
 
@@ -155,6 +177,10 @@ EVASIONS = {
     ),
     "unannotated-new-module": "def helper(store, plan):\n    return store.apply(plan, ())\n",
     "globals-lambda": "def f(store):\n    globals()['_G'] = lambda: store\n",
+    # Not an evasion anyone demonstrated — found by mutating the identity-test
+    # whitelist and discovering no parameter could kill it. A comparison
+    # against anything but None is not a null test.
+    "compare-non-none": "def f(store, other):\n    return store == other\n",
 }
 
 
