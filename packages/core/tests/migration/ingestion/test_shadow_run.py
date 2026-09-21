@@ -374,6 +374,55 @@ def test_resubmitting_the_same_candidates_is_a_duplicate_not_a_second_row(
     assert len(ledger.ledger_entries()) == before
 
 
+def test_a_result_reports_only_its_own_run(
+    corpus: tuple[CorpusPaper, ...], enabled_config: MigrationConfig, tmp_path
+) -> None:
+    """A second run against a shared ledger does not inherit the first's rows.
+
+    The defect: reading `ledger_entries()` unscoped. Against an in-memory store
+    — which every other test here uses — that is indistinguishable from the
+    correct behaviour, so this is the only place the difference shows. The
+    second run submits a *disjoint* paper, so an unscoped read would report
+    both papers' candidates and `entity_counts()` would roughly double while
+    every candidate in it remained perfectly valid.
+    """
+    root = tmp_path / "shared"
+    first_papers, second_papers = corpus[:1], corpus[1:2]
+
+    stores = ShadowStores.at(root)
+    try:
+        first = run_shadow_ingestion(
+            first_papers,
+            config=enabled_config,
+            client=importer_replay_client(first_papers),
+            stores=stores,
+            run_id="run_first",
+        )
+        assert first.candidates
+    finally:
+        stores.close()
+
+    reopened = ShadowStores.at(root)
+    try:
+        second = run_shadow_ingestion(
+            second_papers,
+            config=enabled_config,
+            client=importer_replay_client(second_papers),
+            stores=reopened,
+            run_id="run_second",
+        )
+        assert second.candidates
+        assert len(reopened.ledger.ledger_entries()) > len(second.candidates), (
+            "the shared ledger holds only the second run's rows, so this test "
+            "cannot show the result is scoped"
+        )
+        assert all(c.producer_run_id == "run_second" for c in second.candidates)
+        first_ids = {c.candidate_id for c in first.candidates}
+        assert not (first_ids & {c.candidate_id for c in second.candidates})
+    finally:
+        reopened.close()
+
+
 def test_a_replay_miss_is_raised_not_fabricated(
     corpus: tuple[CorpusPaper, ...], enabled_config: MigrationConfig
 ) -> None:

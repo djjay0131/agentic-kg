@@ -149,7 +149,6 @@ class PaperScopedKeyBuilder:
             display_name_field=display_name_field,
             property_fields=property_fields,
         )
-        self._entity = entity
         builders: list[object] = [entity]
         if attribute_fields:
             builders.append(
@@ -189,7 +188,6 @@ class PaperScopedKeyBuilder:
 def _surface_entity_builder(
     *,
     entity_type: str,
-    property_fields: Sequence[str] = (),
     attribute_fields: Sequence[str] = (),
     namespace: str = "surface",
 ) -> CompositeCandidateBuilder:
@@ -204,16 +202,15 @@ def _surface_entity_builder(
     replayable and compensable — and that substitution is the point of the whole
     adoption.
 
-    The prompts therefore ask for a `key` field holding `NORM(name)`; see
-    :func:`_normalized_key_builder` for why the normalization does not happen in
-    the prompt.
+    The alias key is `NORM(name)`, written into `_surface_key` by
+    :class:`NormalizedSurfaceBuilder` — see there for why the normalization is
+    done in Python rather than asked of the model.
     """
     entity = EntityCandidateBuilder(
         namespace=namespace,
         key_field="_surface_key",
         entity_type=entity_type,
         display_name_field="name",
-        property_fields=property_fields,
     )
     builders: list[object] = [entity]
     if attribute_fields:

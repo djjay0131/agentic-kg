@@ -258,10 +258,16 @@ def run_shadow_ingestion(
         else ()
     )
     report = pipeline.run()
+    # Scoped to *this* run, not to everything the ledger holds. Against an
+    # in-memory store the two are the same; against a persistent one reused
+    # across runs they are not, and an unscoped read would fold a previous
+    # run's candidates into this run's result — inflating every count in
+    # `entity_counts()` and every arm record, with nothing looking wrong.
     submitted = tuple(
         entry.candidate
         for entry in stores.ledger.ledger_entries()
         if entry.candidate.producer != STRUCTURED_PRODUCER
+        and entry.candidate.producer_run_id == run_id
     )
     return ShadowRunResult(
         report=report,

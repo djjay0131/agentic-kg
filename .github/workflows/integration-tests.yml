@@ -122,8 +122,17 @@ jobs:
           mypy packages/core/src/agentic_kg/migration/ --ignore-missing-imports
 
       - name: Run the canonical-adapter tests (testcontainers Neo4j)
+        # Scoped to `migration/neo4j`, not the whole `migration` tree. The gate
+        # below rejects ANY skip in this report -- correctly, because a missing
+        # Docker or a missing extra skips the seven shared contract tests and
+        # still reports success. But `packages/core/tests/migration` now holds
+        # sibling suites (kgis-shadow-ingestion here, the evaluation runner in
+        # PR #73), and a legitimate skip in one of those failed a gate that is
+        # only about this one: "1 of 204 tests skipped". Each suite owns its
+        # own report and its own gate; this one's report contains this one's
+        # tests.
         run: |
-          pytest packages/core/tests/migration \
+          pytest packages/core/tests/migration/neo4j \
             -v --tb=short \
             --junitxml=test-results/migration-adapter.xml
 

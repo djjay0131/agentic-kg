@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -245,18 +245,12 @@ def assert_no_live_provider(environ: Mapping[str, str] | None = None) -> None:
         )
 
 
-def iter_request_keys(responses: Iterable[str]) -> tuple[str, ...]:
-    """Stable, sorted view of a recording's keys — for diffing two fixtures."""
-    return tuple(sorted(responses))
-
-
 __all__ = [
     "LIVE_PROVIDER_ENV",
     "REPLAY_CONFIDENCE",
     "assert_no_live_provider",
     "importer_replay_client",
     "importer_responses",
-    "iter_request_keys",
     "recording_client",
     "replay_client_from_file",
     "save_recording",
