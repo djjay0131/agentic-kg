@@ -83,6 +83,7 @@ invisible skip, made invisible by that same skip. Nothing here imports
 
 from __future__ import annotations
 
+import fnmatch
 import importlib.util
 import os
 import re
@@ -168,36 +169,117 @@ _PYTEST_CALL = re.compile(r"(?:^|[\s;|&])pytest(?=\s)(?P<args>[^;|&]*)")
 _EXCLUDING_OPTS = ("--ignore", "--ignore-glob", "--deselect")
 
 
+#: Characters that make an ``--ignore-glob`` value a pattern rather than a path.
+_GLOB_CHARS = "*?["
+
+
+def _strip_shell_comment(line: str) -> str:
+    """Drop everything from an unquoted ``#`` to end of line.
+
+    ``_run_scripts`` gets YAML-comment-free text for free, because the parser
+    strips those. **Shell** comments inside a ``run:`` block survive it, and a
+    commented-out command is not a command. Leaving them in let a leftover
+    ``# pytest .../migration`` sitting above an active
+    ``pytest .../migration/neo4j`` satisfy this guard — review of this PR
+    measured exactly that. Comment-out-the-old-line-and-write-the-narrowed-one
+    is the single most common way an invocation gets scoped down, and the step
+    this guard reads is the most comment-heavy step in the workflow, so this is
+    the realistic form of the defect, not a contrived one. It is the same gap as
+    the ``\\b`` bug wearing a ``#``: the check and the fact had stopped
+    referring to the same thing.
+
+    A ``#`` only opens a comment at the start of a token, and never inside
+    quotes, so ``--ignore=a#b`` and ``echo "# not a comment"`` are left alone.
+    """
+    quote = ""
+    for index, char in enumerate(line):
+        if quote:
+            if char == quote:
+                quote = ""
+        elif char in "\"'":
+            quote = char
+        elif char == "#" and (index == 0 or line[index - 1].isspace()):
+            return line[:index]
+    return line
+
+
 def _logical_lines(text: str) -> list[str]:
-    """Workflow lines with shell backslash-continuations joined.
+    """Workflow lines, comments removed and backslash-continuations joined.
 
     A ``run: |`` block writes one command across several lines. Reading the file
     line-by-line would see ``pytest packages/core/tests/migration \\`` and the
     flags beneath it as unrelated lines, and would miss a target written on a
     continuation line entirely.
+
+    Comments are stripped **before** continuations are joined, which is also
+    what a shell does: a comment ends at the newline, and a trailing backslash
+    inside one continues nothing.
     """
-    return re.sub(r"\\\s*\n\s*", " ", text).splitlines()
+    without_comments = "\n".join(_strip_shell_comment(line) for line in text.splitlines())
+    return re.sub(r"\\\s*\n\s*", " ", without_comments).splitlines()
 
 
-def _pytest_invocations(text: str) -> list[tuple[list[str], list[str]]]:
-    """Every ``pytest`` call in ``text`` as ``(target_paths, excluded_paths)``.
+def _excludes_evaluation(option: str, value: str) -> bool:
+    """Would this exclusion remove the evaluation directory from the run?
+
+    ``--ignore`` and ``--deselect`` take a path, so containment answers it.
+    ``--ignore-glob`` takes a pattern: the literal prefix before the first
+    wildcard is tested for containment (which settles the common
+    ``<dir>/*`` form), and the pattern is then matched against the directory
+    and a representative file inside it. Ambiguity resolves toward *excluded* —
+    that direction makes the guard fail red, and a false red is a question,
+    while a false green is the bug this whole module exists to prevent.
+    """
+    if option == "--ignore-glob":
+        cuts = [value.find(char) for char in _GLOB_CHARS if char in value]
+        prefix = (value if not cuts else value[: min(cuts)]).rstrip("/")
+        if prefix and _covers_evaluation(prefix):
+            return True
+        return any(
+            fnmatch.fnmatch(candidate, value)
+            for candidate in (
+                str(EVALUATION_DIR_REL),
+                str(EVALUATION_DIR_REL / "test_runner.py"),
+            )
+        )
+    return _covers_evaluation(value)
+
+
+def _pytest_invocations(text: str) -> list[tuple[list[str], list[tuple[str, str]]]]:
+    """Every ``pytest`` call in ``text`` as ``(targets, [(option, value), ...])``.
 
     Path-shaped positional arguments are targets; paths given to ``--ignore``,
     ``--ignore-glob`` or ``--deselect`` are exclusions. Both are needed: a job
     that names this directory and then ignores the evaluation subdirectory is
     not running the evaluation suite, and counting it would reintroduce exactly
     the gap this guard exists to close, one option further along.
+
+    **Both spellings.** pytest accepts ``--ignore=PATH`` and ``--ignore PATH``,
+    and an earlier version of this function understood only the first. The
+    space form was not merely missed: because the value is a bare path-shaped
+    token, it was counted as a **target**, so the diagnostic positively claimed
+    the evaluation directory was being run by the very invocation excluding it.
+    The value token is therefore consumed here, which is what makes it
+    impossible for an excluded path to be read back as a target.
     """
-    invocations: list[tuple[list[str], list[str]]] = []
+    invocations: list[tuple[list[str], list[tuple[str, str]]]] = []
     for line in _logical_lines(text):
         for call in _PYTEST_CALL.finditer(line):
             targets: list[str] = []
-            excluded: list[str] = []
-            for token in call.group("args").split():
+            excluded: list[tuple[str, str]] = []
+            tokens = call.group("args").split()
+            index = 0
+            while index < len(tokens):
+                token = tokens[index]
+                index += 1
                 if token.startswith("-"):
-                    option, _, value = token.partition("=")
-                    if option in _EXCLUDING_OPTS and value:
-                        excluded.append(value.rstrip("/"))
+                    option, separator, value = token.partition("=")
+                    if option in _EXCLUDING_OPTS:
+                        if not separator and index < len(tokens):
+                            value = tokens[index]
+                            index += 1  # consume: never reachable as a target
+                        if value:
+                            excluded.append((option, value.rstrip("/")))
                     continue
                 if "/" in token:
                     targets.append(token.rstrip("/"))
@@ -226,7 +308,7 @@ def _targets_running_the_evaluation_suite(text: str) -> list[str]:
     """Targets of a ``pytest`` call that really would run ``evaluation/``."""
     running: list[str] = []
     for targets, excluded in _pytest_invocations(text):
-        if any(_covers_evaluation(path) for path in excluded):
+        if any(_excludes_evaluation(option, value) for option, value in excluded):
             continue
         running.extend(target for target in targets if _covers_evaluation(target))
     return running
@@ -426,6 +508,130 @@ jobs:
     assert _jobs_running_the_evaluation_suite(text) == {}, (
         "no single job both installs the extra and runs the evaluation "
         "directory, but the guard accepted the workflow anyway"
+    )
+
+
+def test_a_commented_out_pytest_line_does_not_count() -> None:
+    """A commented-out command is not a command.
+
+    Both shapes measured in review of this PR, both of which kept the guard
+    green through the exact narrowing it names. The first is the realistic one:
+    comment out the old invocation, write the narrowed one underneath.
+    """
+    commented_then_narrowed = _workflow(
+        "          # pytest packages/core/tests/migration -v\n"
+        "          pytest packages/core/tests/migration/neo4j -v\n"
+    )
+    assert _jobs_running_the_evaluation_suite(commented_then_narrowed) == {}, (
+        "a commented-out full-tree line satisfied the guard while the live "
+        "invocation was scoped to a subdirectory"
+    )
+
+    wholly_commented = _workflow(
+        "          echo 'temporarily disabled'\n"
+        "          # pytest packages/core/tests/migration -v --tb=short\n"
+    )
+    assert _jobs_running_the_evaluation_suite(wholly_commented) == {}, (
+        "the only pytest line was commented out, so nothing runs the suite"
+    )
+
+
+def test_a_hash_inside_quotes_or_mid_token_is_not_a_comment() -> None:
+    """The comment strip must not eat live command text.
+
+    Over-stripping would fail red on a correct workflow, which is safe but
+    wrong; this pins the boundary so the fix for the bypass does not become a
+    different defect.
+    """
+    assert _strip_shell_comment('echo "# not a comment" ') == 'echo "# not a comment" '
+    assert _strip_shell_comment("pytest a/b --opt=x#y") == "pytest a/b --opt=x#y"
+    assert _strip_shell_comment("pytest a/b  # trailing") == "pytest a/b  "
+    assert _strip_shell_comment("# whole line") == ""
+    assert _jobs_running_the_evaluation_suite(
+        _workflow("          pytest packages/core/tests/migration -v  # the whole tree\n")
+    ) == {"migration-canonical-adapter": ["packages/core/tests/migration"]}
+
+
+def test_a_backslash_inside_a_comment_does_not_swallow_the_next_command() -> None:
+    """Comments are stripped *before* continuations are joined, as a shell does.
+
+    A comment ends at the newline, so a trailing backslash inside one continues
+    nothing. Joining first would splice the live command below into the comment
+    text and then delete both, reporting "no job runs the suite" for a workflow
+    that does. That direction fails red rather than green, so it is the safe
+    kind of wrong — but ``_logical_lines`` states that the order matters, and a
+    stated design decision with no test behind it is the shape this module
+    exists to object to. Mutation testing found this exact ordering swap
+    surviving; this is the test that kills it.
+    """
+    text = _workflow(
+        "          echo 'note' # disabled for now \\\n"
+        "          pytest packages/core/tests/migration -v\n"
+    )
+    assert _jobs_running_the_evaluation_suite(text) == {
+        "migration-canonical-adapter": ["packages/core/tests/migration"]
+    }, "a backslash inside a comment swallowed the live pytest line below it"
+
+
+def test_every_exclusion_spelling_is_honoured() -> None:
+    """pytest accepts ``--ignore=PATH`` and ``--ignore PATH``. So must this.
+
+    Only the ``=`` spelling was handled before. Review of this PR measured the
+    other four as ACCEPTED — each one a job that names the migration tree and
+    then excludes the evaluation directory from it, counted as a job that runs
+    the evaluation directory.
+    """
+    evaluation = "packages/core/tests/migration/evaluation"
+    for exclusion in (
+        f"--ignore={evaluation}",
+        f"--ignore {evaluation}",
+        f"--ignore={evaluation}/",
+        f"--deselect={evaluation}",
+        f"--deselect {evaluation}",
+        f"--ignore-glob={evaluation}/*",
+        f"--ignore-glob {evaluation}/*",
+        "--ignore-glob=packages/core/tests/migration/*",
+    ):
+        text = _workflow(f"          pytest packages/core/tests/migration {exclusion} -v\n")
+        assert _jobs_running_the_evaluation_suite(text) == {}, (
+            f"{exclusion!r} removes the evaluation directory from the run, but "
+            "the guard still counted this job as running it"
+        )
+
+
+def test_an_exclusion_that_spares_the_evaluation_dir_still_counts() -> None:
+    """The counterweight: not every exclusion disqualifies the job.
+
+    Without this, making ``_excludes_evaluation`` return ``True`` unconditionally
+    would pass the test above, and the guard would reject every real workflow.
+    """
+    for exclusion in (
+        "--ignore=packages/core/tests/migration/neo4j",
+        "--ignore packages/core/tests/migration/neo4j",
+        "--ignore-glob=*/neo4j/*",
+        "--deselect packages/core/tests/migration/neo4j/test_read_surface.py::test_x",
+    ):
+        text = _workflow(f"          pytest packages/core/tests/migration {exclusion} -v\n")
+        assert _jobs_running_the_evaluation_suite(text) == {
+            "migration-canonical-adapter": ["packages/core/tests/migration"]
+        }, f"{exclusion!r} does not exclude the evaluation directory"
+
+
+def test_an_excluded_path_is_never_counted_as_a_target() -> None:
+    """The space form was worse than a miss.
+
+    Because ``--ignore PATH`` puts a bare path-shaped token in the argument
+    list, the excluded path was itself collected as a target — so the guard's
+    diagnostic would have positively reported the evaluation directory as one of
+    the paths being run by the invocation that excludes it.
+    """
+    text = _workflow(
+        "          pytest packages/core/tests/migration "
+        "--ignore packages/core/tests/migration/evaluation -v\n"
+    )
+    targets = [target for targets, _ in _pytest_invocations(text) for target in targets]
+    assert targets == ["packages/core/tests/migration"], (
+        f"the ignored path leaked into the target list: {targets}"
     )
 
 

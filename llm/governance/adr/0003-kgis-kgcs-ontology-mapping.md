@@ -231,8 +231,10 @@ during the rollout.
 
 ### Positive
 
-- Counter drift becomes unrepresentable rather than merely reconciled; three `ORDER BY`
-  keys on paginated endpoints stop lying.
+- Counter drift becomes unrepresentable rather than merely reconciled; four `ORDER BY`
+  keys on paginated endpoints stop lying (`ResearchConcept.mention_count`,
+  `Model.usage_count`, `Method.usage_count`, `ProblemConcept.mention_count`) — the same
+  four counted in the Negative bullet below, which records what that costs consumers.
 - Entity resolution becomes reproducible, replayable, audited and compensable, with
   thresholds as configuration rather than module constants.
 - Every canonical fact carries evidence coordinates and a multi-axis score, satisfying
