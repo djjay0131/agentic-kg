@@ -252,6 +252,19 @@ during the rollout.
   turns a silent false merge into an honest under-merge plus review workload.
 - **The API's mutation semantics change** from 200-with-object to 202-with-ticket, because a
   change is not visible until an epoch is published.
+- **Four paginated read paths return rows in a different order.** The positive above —
+  counter drift becomes unrepresentable, the `ORDER BY` keys stop lying — has a
+  consumer-visible cost that this ADR first recorded only as a benefit. Because the
+  counters are recomputed from edge degree and the legacy values have drifted (several
+  have no reconciler at all), any endpoint sorting on one of them is reordered:
+  `GET /api/concepts` (`rc.mention_count`), `GET /api/models` and `GET /api/methods`
+  (`usage_count`), and `GET /api/concepts/{id}/problems` (`pc.mention_count`). These
+  endpoints paginate with `SKIP`/`LIMIT` over the sort key, so "page 3" is not the same
+  set of rows across the cutover. Measured in
+  `packages/core/tests/migration/compat/test_ordering_keys_depend_on_counters.py`, and
+  detailed with the consumer guidance in mapping spec §5.1 consequence 2, which was
+  corrected from the false claim that pagination is preserved. It is a release-note item
+  alongside the `BELONGS_TO` change, not a silent improvement.
 - agentic-kg owns three things the libraries do not ship: the Neo4j `GraphMutationStore`,
   the `ErDecision → CurationPlan` bridge, and the projection adapter.
 - Structured observations (metric/dataset/value/unit) stay flattened, because
