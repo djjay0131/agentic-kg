@@ -97,8 +97,9 @@ from agentic_kg.migration.neo4j.schema import (
 DEFAULT_DATABASE = "neo4j"
 
 #: Statuses a ``RETRACT_ASSERTION`` may move an assertion to. ``ACTIVE`` is not
-#: a retraction; restoring an assertion is an ``ATTACH_ASSERTION`` with the
-#: restore payload, which is what `Compensator` emits when inverting a retract.
+#: a retraction; restoring an assertion is an ``ATTACH_ASSERTION``, which since
+#: agentic-kgcs#34 is what `Compensator` emits (as a full assertion) when
+#: inverting a retract.
 _RETRACTABLE_TO = frozenset({CurationStatus.SUPERSEDED, CurationStatus.REVOKED})
 
 
@@ -130,9 +131,10 @@ class Neo4jCanonicalGraphStore:
         database: The Neo4j database name. On Community there is only one, which
             is why ``namespace`` exists; on Enterprise/Aura pass a dedicated
             database for real physical separation (spec §4.2, U-1).
-        clock: Injected for the one case where KGCS omits a timestamp — the
-            ``Compensator``'s inverse of an ``ATTACH_ASSERTION`` produces a
-            ``RETRACT_ASSERTION`` payload with no ``superseded_at``.
+        clock: The fallback ``superseded_at`` for a ``RETRACT_ASSERTION``
+            payload that omits one. Since agentic-kgcs#34 the ``Compensator``
+            supplies it, so this is now defence for hand-built and older plans
+            rather than a workaround for upstream (see :meth:`_apply_retract`).
         owns_driver: Close the driver on :meth:`close`.
     """
 
@@ -322,19 +324,24 @@ class Neo4jCanonicalGraphStore:
     ) -> list[str]:
         """Attach a new assertion, or restore a retracted one.
 
-        Two payload shapes reach this operation, and only the first is
-        documented upstream:
+        Two payload shapes reach this operation:
 
         * a full ``Assertion`` dump — what ``EvolutionPlanner`` and the
-          conformance suite emit;
-        * ``{assertion_id, subject_identity, restore_status, ...}`` — what
+          conformance suite emit, and, **since agentic-kgcs#34**, also what
           ``kgcs.executor.compensate.Compensator`` emits when it inverts a
-          ``RETRACT_ASSERTION``, because an inverse operation's payload *is* the
-          original's ``reversal_data`` and ``plan_supersession`` puts exactly
-          those keys there. A store that only accepted full assertions would
-          reject every rollback of a supersession, so this shape is supported
-          and the restore appends a new status-history entry rather than
-          editing the old one.
+          ``RETRACT_ASSERTION``: the inverse is now the full pre-retraction
+          assertion dump, carrying the ``assertion_id`` it restores. That makes
+          the compensating attach an *upsert by id*, which ADR-0018 Decision 5
+          requires of the adapter — see :meth:`_insert_assertion` for how it is
+          honoured without rewriting the record's history.
+        * ``{assertion_id, subject_identity, restore_status, ...}`` — the
+          partial restore record KGCS emitted **before** #34, when an inverse
+          operation's payload was the whole of the original's ``reversal_data``.
+          Kept as a compatibility path for hand-built and third-party plans
+          (KGCS still falls back to the flat dict when ``INVERSE_PAYLOAD_KEY``
+          is absent). Nothing upstream produces it any more, so this branch is
+          no longer exercised by the evidence-evolution scenario; it appends a
+          status-history entry rather than editing the existing one.
         """
         if "predicate" in payload:
             assertion = Assertion.model_validate({**payload, "curation_epoch": epoch})
@@ -362,13 +369,19 @@ class Neo4jCanonicalGraphStore:
     ) -> list[str]:
         """Supersede (or revoke) an assertion. Never deletes it.
 
-        ``new_status`` and ``superseded_at`` are both optional because the
-        ``Compensator``'s inverse of an ``ATTACH_ASSERTION`` omits them (its
-        payload is the attach's ``reversal_data``, which carries only
-        ``assertion_id``/``subject_identity`` plus provenance). The defaults are
-        ``SUPERSEDED`` — the meaning ``EvolutionPlanner.plan_supersession``
-        gives a retract — and the injected clock. Both are stated here rather
-        than guessed at silently; see the PR body's upstream notes.
+        ``new_status`` and ``superseded_at`` are both optional. They used to be
+        *absent*: before agentic-kgcs#34 the ``Compensator``'s inverse of an
+        ``ATTACH_ASSERTION`` dropped them, because its payload was the whole of
+        the attach's ``reversal_data``. #34 fixed that (its defect (c)) — the
+        shared ``retract_inverse_payload`` now supplies ``assertion_id``,
+        ``subject_identity``, ``new_status=SUPERSEDED`` and
+        ``superseded_at=recorded_at``, so the compensator no longer relies on
+        either default.
+
+        The defaults are kept as defence for hand-built and older plans:
+        ``SUPERSEDED``, the meaning ``EvolutionPlanner.plan_supersession`` gives
+        a retract, and the injected clock. Both are stated here rather than
+        guessed at silently.
         """
         assertion_id = payload.get("assertion_id")
         if not assertion_id:
