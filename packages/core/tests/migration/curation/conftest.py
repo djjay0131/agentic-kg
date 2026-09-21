@@ -11,9 +11,20 @@ in-memory ``GraphMutationStore``. No Docker, no database, no network, no clock.
 The **integration tier** (``test_neo4j_curation.py``) applies the same plan to
 the real :class:`Neo4jCanonicalGraphStore`. Its container fixtures are
 duplicated from ``tests/migration/neo4j/conftest.py`` rather than imported: a
-``conftest`` is directory-scoped and not importable from a sibling package, and
-that file is owned by another open PR. The duplication is noted here so it is a
-known copy rather than an accident — the two must be changed together.
+fixture is only visible below the ``conftest`` that defines it, so sharing one
+container between two sibling directories means hoisting it to
+``tests/migration/conftest.py`` — a file this change does not own. The
+duplication is noted here so it is a known copy rather than an accident; the two
+must be changed together, and hoisting is the real fix.
+
+**The cost of the copy is a second Neo4j in the same job**, so this one is
+explicitly sized down (:data:`NEO4J_MEMORY_ENV`) rather than left on Neo4j 5's
+defaults, which reserve heap *and* page cache as if they were the only database
+on the host. Two default-sized instances contend, and the symptom is not a clean
+failure — it is a connection refused at fixture setup that reads like a bug in
+the adapter. Connectivity is also retried for a bounded window: ``start()``
+returning is not the same fact as the bolt port accepting connections, and a
+single attempt turns a slow boot into a red suite.
 
 A skipped suite and a passing suite look identical in a green check. The
 ``migration-canonical-adapter`` CI job runs the whole ``tests/migration`` tree
@@ -58,6 +69,19 @@ CHAIN_ROOT = REPO_ROOT / "packages/core/tests/extraction/fixtures/ground_truth_c
 
 NEO4J_IMAGE = "neo4j:5.26-community"
 NEO4J_TEST_PASSWORD = "testpassword"
+
+#: Heap and page cache for the *second* Neo4j in the job. Small on purpose: this
+#: suite writes a handful of identities and assertions per test, so the default
+#: sizing buys nothing and costs coexistence with the canonical-adapter suite's
+#: container.
+NEO4J_MEMORY_ENV = {
+    "NEO4J_server_memory_heap_initial__size": "256m",
+    "NEO4J_server_memory_heap_max__size": "512m",
+    "NEO4J_server_memory_pagecache_size": "128m",
+}
+
+#: How long to keep retrying the bolt handshake after ``start()`` returns.
+CONNECT_TIMEOUT_SECONDS = 90.0
 
 
 @pytest.fixture(scope="session")
@@ -172,6 +196,8 @@ def curation_neo4j() -> Iterator[tuple[str, tuple[str, str]]]:
         return
 
     container = Neo4jContainer(NEO4J_IMAGE, password=NEO4J_TEST_PASSWORD)
+    for key, value in NEO4J_MEMORY_ENV.items():
+        container = container.with_env(key, value)
     container.start()
     try:
         yield container.get_connection_url(), ("neo4j", NEO4J_TEST_PASSWORD)
@@ -181,12 +207,40 @@ def curation_neo4j() -> Iterator[tuple[str, tuple[str, str]]]:
 
 @pytest.fixture(scope="session")
 def curation_driver(curation_neo4j: tuple[str, tuple[str, str]]) -> Iterator[object]:
+    """A driver whose connectivity is retried, not assumed.
+
+    ``Neo4jContainer.start()`` returning means the container is up; it does not
+    mean bolt is accepting connections, and under contention the gap is seconds.
+    A single ``verify_connectivity()`` turns that gap into four errored tests
+    whose message points at the adapter rather than at the wait.
+    """
+    import time
+
     from neo4j import GraphDatabase
+    from neo4j.exceptions import Neo4jError, ServiceUnavailable
 
     uri, auth = curation_neo4j
     driver = GraphDatabase.driver(uri, auth=auth)
+    deadline = time.monotonic() + CONNECT_TIMEOUT_SECONDS
+    last: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            driver.verify_connectivity()
+            last = None
+            break
+        except (ServiceUnavailable, Neo4jError, OSError) as exc:  # pragma: no cover
+            last = exc
+            time.sleep(1.0)
+    if last is not None:  # pragma: no cover - environment-dependent
+        driver.close()
+        raise RuntimeError(
+            f"the curation suite's Neo4j at {uri} never accepted a connection "
+            f"within {CONNECT_TIMEOUT_SECONDS:.0f}s. This suite starts a SECOND "
+            f"container alongside the canonical-adapter suite's; if the host is "
+            f"short of memory that is the first thing to suspect. "
+            f"Last error: {last}"
+        ) from last
     try:
-        driver.verify_connectivity()
         yield driver
     finally:
         driver.close()
