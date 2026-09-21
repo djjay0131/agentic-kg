@@ -148,10 +148,18 @@ jobs:
         # own -- `tests/migration/test_evaluation_suite_runs.py` documents that
         # it relies on *this* line running the whole tree -- so scoping it
         # silently stopped those tests running in CI at all. Worse, #73's guard
-        # could not see it: its regex is `pytest\s+packages/core/tests/migration\b`
+        # could not see it: its regex was `pytest\s+packages/core/tests/migration\b`
         # and `\b` matches at the `/` in `migration/neo4j`, so the assertion
         # stayed green while the fact it asserts became false. Reported
-        # separately; not patched here.
+        # separately; not patched there.
+        #
+        # That guard is now fixed. It no longer greps: it parses this file and
+        # requires one job to BOTH install the `migration` extra AND run a
+        # pytest target that *contains* tests/migration/evaluation. Narrowing
+        # this line to any subdirectory now fails
+        # `test_a_ci_job_installs_the_extra_and_runs_this_directory`, and
+        # `test_the_guard_rejects_a_path_narrowed_to_a_subdirectory` drives that
+        # rejection so the check cannot rot back into a green no-op.
         #
         # The skip that prompted the detour is gone -- #73 merged, that test
         # now runs, and the shadow suite's PERMITTED_SKIPS is empty by policy,

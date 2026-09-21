@@ -502,7 +502,10 @@ READ_PATHS: tuple[ReadPath, ...] = (
             "(test_ordering_keys_depend_on_counters) shows the stored-counter "
             "page order and the recomputed-from-edges order differ, so holding "
             "it to parity would assert something already disproved. Spec §5.1 "
-            "consequence 2 ('Pagination is preserved') is false as written."
+            "consequence 2 used to claim 'Pagination is preserved' and was "
+            "false as written; it has since been corrected to name this path "
+            "and the three others below, so the spec and this classification "
+            "now agree."
         ),
     ),
     ReadPath(
