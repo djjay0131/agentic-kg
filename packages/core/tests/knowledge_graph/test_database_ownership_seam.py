@@ -93,6 +93,14 @@ CONSTRUCTION_ALLOWLIST = {
     # Starts its own throwaway container for the canonical-adapter suite and
     # declares it before opening a raw driver against it (issue #78 / H2).
     "migration/neo4j/conftest.py",
+    # `empty_graph_driver` (#84) starts a *second* throwaway container -- Neo4j
+    # Community has one user database, so "empty" cannot be faked inside the
+    # populated one -- and opens a raw driver against the URL that container
+    # just handed back. It reads no environment variable and its password is a
+    # literal, so no target it addresses can be named from outside the process.
+    # The scanner found this file when the base branch merged; the entry is a
+    # judgement about that fixture, not a blanket exemption for the directory.
+    "migration/compat/conftest.py",
     # This file. It reaches these entry points only inside `pytest.raises` to
     # prove the guard refuses them -- see TestOwnershipSeam. The scanner caught
     # it on first run, which is the evidence that it works.
