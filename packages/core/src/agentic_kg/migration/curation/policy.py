@@ -126,7 +126,14 @@ STRUCTURED_IDENTITY_POLICY = ConfidencePolicy(require_identity_confidence_for_au
 #: *namespace* alone admitted ``namespace="doi", key="banana"`` and
 #: ``key="  not-a-doi  "``. A namespace is a claim about which registry settles
 #: an identity; a key that registry could never issue is not that identity.
-DOI_PATTERN = re.compile(r"^10\.[0-9]{4,9}/\S+$")
+#:
+#: Anchored with ``\A``/``\Z`` rather than ``^``/``$``: Python's ``$`` also
+#: matches before a trailing newline, so ``"10.1007/x\n"`` satisfied the
+#: ``$`` form. Found by trying to mutate the whitespace handling in
+#: :meth:`RegisteredIdentifier.canonical` and discovering no test could tell the
+#: difference — which was true only because that handling was compensating for
+#: this.
+DOI_PATTERN = re.compile(r"\A10\.[0-9]{4,9}/\S+\Z")
 
 
 @dataclass(frozen=True)
@@ -173,8 +180,14 @@ class RegisteredIdentifier:
         emitted ``10.1109/ACCESS...`` where the curation table says
         ``10.1109/access...``. Two candidates whose DOIs differ only in case are
         the same paper, and the duplicate check has to see that.
+
+        Case only. An earlier version also collapsed whitespace, which no test
+        could kill — because :data:`DOI_PATTERN` admits no whitespace, so this
+        never saw any. The one exception was a trailing newline slipping past
+        ``$``; that is fixed at the pattern, where it belongs, rather than
+        papered over here.
         """
-        return " ".join(alias_key.split()).casefold()
+        return alias_key.casefold()
 
 
 #: The registries this repo accepts as settling identity without entity

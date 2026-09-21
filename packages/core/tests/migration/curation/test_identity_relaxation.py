@@ -280,6 +280,7 @@ def doi_keyed(entity_type: str = "Paper", *, doi: str, key: str) -> object:
         # them, mutating the pattern check away left every parameter green.
         ("Paper", "banana", "attack A on the right type: only the spelling refuses it"),
         ("Paper", "  10.1007/x  ", "attack B on the right type"),
+        ("Paper", "10.1007/x\n", "a trailing newline, which `$` would have admitted"),
     ],
     ids=[
         "nonsense-key",
@@ -287,6 +288,7 @@ def doi_keyed(entity_type: str = "Paper", *, doi: str, key: str) -> object:
         "real-doi-wrong-type",
         "nonsense-key-right-type",
         "whitespace-key-right-type",
+        "trailing-newline-key",
     ],
 )
 def test_a_doi_namespace_alone_no_longer_admits_a_candidate(
