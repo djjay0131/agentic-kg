@@ -362,6 +362,7 @@ def compat_graph(neo4j_repository: Any, compat_token: str) -> Iterator[FixtureGr
             model_id=f"{tok}_model_bravo",
             method_id=f"{tok}_method_alpha",
             level=TopicLevel.AREA.value,
+            token=tok,
             status=ProblemStatus.OPEN.value,
             limit=20,
             offset=0,

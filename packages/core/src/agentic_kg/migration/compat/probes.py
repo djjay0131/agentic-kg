@@ -94,6 +94,7 @@ class ProbeInputs:
     model_id: str
     method_id: str
     level: str
+    token: str
     status: str = "open"
     limit: int = 20
     offset: int = 0
@@ -111,6 +112,7 @@ class ProbeInputs:
             "model_id": self.model_id,
             "method_id": self.method_id,
             "level": self.level,
+            "token": self.token,
             "status": self.status,
             "limit": self.limit,
             "offset": self.offset,
@@ -155,7 +157,25 @@ class ProbeResult:
     rows: tuple[dict[str, Any], ...]
     #: Carried through from :class:`CypherProbe` so the guard can apply it
     #: without needing the probe definition back.
-    informative: tuple[str, ...] = ()
+    #:
+    #: **Required, with no default — V-1.** It briefly defaulted to ``()``,
+    #: which silently degraded the guard back to a row count for any
+    #: ``ProbeResult`` built by hand. That was not theoretical: the baseline
+    #: side of the central parity assertion is built by hand, from JSON, in
+    #: ``test_pre_llm_context_baseline._as_result``, and it omitted the field.
+    #: So the guard was armed on the observed side and disarmed on the baseline
+    #: side of the one comparison the whole harness exists to make. "Nothing to
+    #: omit" has to hold for both types or it holds for neither.
+    informative: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not self.informative:
+            raise ValueError(
+                f"ProbeResult({self.probe_id!r}) declares no informative columns. "
+                f"Emptiness would degrade to a row count and an all-NULL row "
+                f"would pass the anti-vacuity guard (H-1). Pass the probe's "
+                f"`informative` tuple."
+            )
 
     def __len__(self) -> int:
         return len(self.rows)
@@ -165,11 +185,15 @@ class ProbeResult:
         """Rows that actually carry information.
 
         A row counts only if **every** declared informative column is non-NULL.
-        With no declared columns the property degrades to ``rows``, which is why
-        :class:`CypherProbe` makes the field mandatory rather than defaulted.
+
+        ``is not None`` rather than truthiness, deliberately (V-2): ``0`` is a
+        real count, ``False`` is a real ``is_canonical``, and ``""`` is a real
+        (if odd) title. NULL is the failure mode this guards — it is what
+        ``OPTIONAL MATCH`` produces and what a dropped column produces — and
+        treating falsy-but-present values as missing would reject correct
+        results. ``test_zero_and_empty_string_count_as_informative`` pins that
+        choice so it cannot be "tidied" into truthiness later.
         """
-        if not self.informative:
-            return self.rows
         return tuple(
             row
             for row in self.rows
@@ -494,6 +518,29 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
             "ORDER BY t.name"
         ),
         needs=("level",),
+    ),
+    CypherProbe(
+        id="api.topics.children",
+        read_path_ids=("api.topics.children",),
+        informative=("id", "name", "level"),
+        cypher=(
+            "MATCH (c:Topic)-[:SUBTOPIC_OF]->(p:Topic {id: $root_topic_id}) "
+            "RETURN c.id AS id, c.name AS name, c.level AS level, "
+            "c.parent_id AS parent_id ORDER BY c.name"
+        ),
+        needs=("root_topic_id",),
+    ),
+    CypherProbe(
+        id="api.topics.tree",
+        read_path_ids=("api.topics.tree",),
+        informative=("id", "name", "level"),
+        cypher=(
+            "MATCH (t:Topic {level: 'domain'}) WHERE t.id STARTS WITH $token "
+            "RETURN t.id AS id, t.name AS name, t.level AS level, "
+            "t.problem_count AS problem_count, t.paper_count AS paper_count "
+            "ORDER BY t.name"
+        ),
+        needs=("token",),
     ),
     CypherProbe(
         id="api.papers.references",

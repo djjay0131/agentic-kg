@@ -406,23 +406,90 @@ def _router_repo_calls() -> set[str]:
     return names
 
 
-def _repository_methods_containing_a_read() -> dict[str, bool]:
-    """Method name -> whether its body issues a graph read."""
-    tree = ast.parse(REPOSITORY.read_text(encoding="utf-8"), filename=str(REPOSITORY))
+#: A repository read carries a compatibility contract when it traverses a
+#: relationship, orders a page, or names a vector index. Anything else is a
+#: ``MATCH (n:Label {key})`` fetch by primary key, which the projection cannot
+#: reorder or re-shape and which the probes could not express anything about.
+#:
+#: This *is* the exemption rule. An earlier version stated the same criterion in
+#: a docstring and then hand-maintained a 30-name allow-list beside it, and the
+#: list did not obey its own criterion: review found ``get_topic_children``
+#: (traverses ``SUBTOPIC_OF``, orders on ``c.name``) and ``get_topic_tree``
+#: (orders on ``t.name``) inside it, and auditing the rest turned up three more
+#: (``get_topic_by_name``'s ``CASE t.level`` tie-break, ``get_model_by_name``,
+#: ``get_method_by_name``), one redundant entry (``list_problems``, already
+#: inventoried), and two names that are not repository methods at all
+#: (``get_citation_counts``, ``list_topics``) and so exempted nothing.
+#:
+#: The scan was sound; the hand-maintained list was the leak. Computing the
+#: exemption from the criterion removes the leak and every future variant of
+#: it: there is no longer a place to write an exemption that the criterion does
+#: not justify.
+_RELATIONSHIP_PATTERN = re.compile(r"-\[:[A-Z_]+|<-\[:[A-Z_]+|\[:[A-Z_]+\*")
+
+
+def _carries_a_compatibility_contract(body: str) -> bool:
+    return bool(
+        _RELATIONSHIP_PATTERN.search(body)
+        or "ORDER BY" in body
+        or "db.index.vector.queryNodes" in body
+    )
+
+
+def _repository_reads() -> dict[str, bool]:
+    """Method name -> whether its body issues a graph read at all."""
+    source = REPOSITORY.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(REPOSITORY))
     out: dict[str, bool] = {}
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        body = ast.get_source_segment(REPOSITORY.read_text(encoding="utf-8"), node) or ""
+        body = ast.get_source_segment(source, node) or ""
         out[node.name] = "MATCH (" in body or "db.index.vector.queryNodes" in body
+    return out
+
+
+def _repository_reads_carrying_a_contract() -> set[str]:
+    """The subset that must be inventoried, computed from the criterion."""
+    source = REPOSITORY.read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(REPOSITORY))
+    out: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        body = ast.get_source_segment(source, node) or ""
+        if ("MATCH (" in body or "db.index.vector.queryNodes" in body) and (
+            _carries_a_compatibility_contract(body)
+        ):
+            out.add(node.name)
     return out
 
 
 def test_the_router_call_scan_found_calls() -> None:
     calls = _router_repo_calls()
     assert len(calls) >= 15, f"only {len(calls)} repository calls found in routers"
-    methods = _repository_methods_containing_a_read()
-    assert any(methods.values()), "no repository method appears to read the graph"
+    assert any(_repository_reads().values()), "no repository method reads the graph"
+    contract = _repository_reads_carrying_a_contract()
+    assert contract, "the criterion matched nothing - the classifier is broken"
+
+
+def test_the_exemption_criterion_discriminates() -> None:
+    """The criterion must separate the two classes, not wave everything through.
+
+    Obligation 5 for the rule that replaced the allow-list: a predicate that
+    returned True for everything would make leg B demand the world, and one
+    returning False for everything would make it demand nothing. Both are
+    checked against real repository bodies.
+    """
+    reads = {name for name, is_read in _repository_reads().items() if is_read}
+    contract = _repository_reads_carrying_a_contract()
+    assert contract < reads, "every read allegedly carries a contract - rule too broad"
+    assert len(contract) >= 10, f"only {len(contract)} reads carry a contract - too narrow"
+    # A key fetch is exempt; a traversal and an ordered page are not.
+    assert not _carries_a_compatibility_contract("MATCH (p:Problem {id: $id}) RETURN p")
+    assert _carries_a_compatibility_contract("MATCH (c:Topic)-[:SUBTOPIC_OF]->(p) RETURN c")
+    assert _carries_a_compatibility_contract("MATCH (t:Topic) RETURN t ORDER BY t.name")
+    assert _carries_a_compatibility_contract("CALL db.index.vector.queryNodes('x', 1, $e)")
 
 
 def test_every_repository_read_reached_from_a_router_is_inventoried() -> None:
@@ -432,38 +499,14 @@ def test_every_repository_read_reached_from_a_router_is_inventoried() -> None:
     no Cypher anywhere in the router, so leg A cannot see it. ``ReadPath.via``
     is where such a read is claimed.
     """
-    reads = _repository_methods_containing_a_read()
     claimed = {name for entry in READ_PATHS for name in entry.via}
-    reached = {name for name in _router_repo_calls() if reads.get(name)}
+    reached = _router_repo_calls() & _repository_reads_carrying_a_contract()
     assert reached, "no router-reached repository read found - the scan is broken"
-    missing = sorted(reached - claimed - _implicitly_claimed())
+    missing = sorted(reached - claimed)
     assert missing == [], (
-        "these repository methods issue a graph read, are called from an API "
-        f"router, and no READ_PATHS entry names them in `via`: {missing}"
-    )
-
-
-def _implicitly_claimed() -> frozenset[str]:
-    """Single-node fetches and writes that carry no traversal worth pinning.
-
-    Named explicitly rather than filtered by a pattern, so adding one is a
-    visible decision. Each is a ``MATCH (n:Label {key})`` by primary key, or a
-    mutation; none traverses a relationship, orders a page, or names an index,
-    so none carries a compatibility contract the probes could express.
-    """
-    return frozenset(
-        {
-            "get_problem", "get_paper", "get_topic", "get_author",
-            "get_research_concept", "get_model", "get_method",
-            "get_topic_by_name", "get_model_by_name", "get_method_by_name",
-            "create_problem", "update_problem", "delete_problem",
-            "create_topic", "create_research_concept", "create_model",
-            "create_method", "delete_model", "delete_method",
-            "assign_entity_to_topic", "link_problem_to_concept",
-            "link_paper_to_concept", "link_paper_to_model", "link_paper_to_method",
-            "list_problems", "get_citation_counts", "count_citations",
-            "list_topics", "get_topic_children", "get_topic_tree",
-        }
+        "these repository methods traverse a relationship, order a page or name "
+        "a vector index, are called from an API router, and no READ_PATHS entry "
+        f"names them in `via`: {missing}"
     )
 
 

@@ -25,6 +25,18 @@ Four things make this registry more than a transcription:
    vector-index names anywhere in the source), and the scans themselves found
    three further gaps that reading had missed.
 
+   A second review pass found the next layer of the same problem: the scan was
+   sound, but leg B consulted a **hand-maintained allow-list** of repository
+   methods held to carry no contract, and that list did not obey its own
+   stated criterion. It exempted ``get_topic_children`` (traverses
+   ``SUBTOPIC_OF``, orders on ``c.name``) and ``get_topic_tree`` (orders on
+   ``t.name``); auditing the rest mechanically turned up three more
+   (``get_topic_by_name``'s ``CASE t.level`` tie-break, ``get_model_by_name``,
+   ``get_method_by_name``), one redundant entry, and two names that are not
+   repository methods at all and so exempted nothing. The list is gone: the
+   exemption is now *computed* from the criterion, so there is no longer a
+   place to record an exemption the criterion does not justify.
+
 2. **Each entry is classified** (:class:`CompatClass`). Not every read path can
    be held to behaviour preservation. Eight of them traverse
    ``(:Problem)-[:BELONGS_TO]->(:Topic)``, which **no automated writer
@@ -314,6 +326,7 @@ READ_PATHS: tuple[ReadPath, ...] = (
     ),
     ReadPath(
         id="repo.list_problems",
+        via=("list_problems",),
         surface="Neo4jRepository.list_problems (GET /api/problems)",
         source_file=f"{CORE}/knowledge_graph/repository.py",
         snippet='query += " RETURN p ORDER BY p.created_at DESC SKIP $offset LIMIT $limit"',
@@ -531,7 +544,15 @@ READ_PATHS: tuple[ReadPath, ...] = (
         relationships=(),
         properties=("doi", "title", "authors", "year", "venue", "is_stub", "citation_count"),
         ordering=("p.year DESC",),
-        compat=CompatClass.PARITY,
+        compat=CompatClass.DECLARED_CHANGE,
+        note=(
+            "Order is stable (p.year DESC, no counter in the sort key) but the "
+            "payload is not: §4.4 redefines Paper.citation_count as the "
+            "source-asserted global count and moves today's in-graph CITES "
+            "degree to a new in_graph_citation_count. Same class of change as "
+            "api.topics.by_level — a value a client reads changes meaning — so "
+            "it gets the same classification rather than PARITY."
+        ),
     ),
     ReadPath(
         id="api.concepts.linked_problems",
@@ -607,9 +628,16 @@ READ_PATHS: tuple[ReadPath, ...] = (
         relationships=(),
         properties=("id", "name", "level", "problem_count", "paper_count"),
         ordering=("t.name",),
-        compat=CompatClass.PARITY,
+        compat=CompatClass.DECLARED_CHANGE,
         via=("get_topics_by_level",),
-        note="Also surfaces Topic.problem_count / paper_count, both recomputed by §4.4.",
+        note=(
+            "Surfaces Topic.problem_count / paper_count, both recomputed by "
+            "§4.4. Reclassified PARITY -> DECLARED_CHANGE: its own note said the "
+            "counters are recomputed while the class said the response is "
+            "preserved, and its sibling api.graph.include_topics — reading the "
+            "same property — was already DECLARED_CHANGE. The row ORDER is "
+            "stable here (t.name); it is the payload that changes."
+        ),
     ),
     ReadPath(
         id="api.graph.problem_relations_by_topic",
@@ -746,6 +774,43 @@ READ_PATHS: tuple[ReadPath, ...] = (
             "Not an API surface, but it names the sixth projected vector index "
             "as a string literal, so the projection owes it the same DDL. "
             "Included because the index-name contract is what matters here."
+        ),
+    ),
+    ReadPath(
+        id="api.topics.children",
+        surface="GET /api/topics/{id} (children leg)",
+        source_file=f"{CORE}/knowledge_graph/repository.py",
+        snippet="MATCH (c:Topic)-[:SUBTOPIC_OF]->(p:Topic {id: $id})",
+        labels=("Topic",),
+        relationships=("SUBTOPIC_OF",),
+        properties=("id", "name", "level", "parent_id"),
+        ordering=("c.name",),
+        compat=CompatClass.PARITY,
+        via=("get_topic_children",),
+        note=(
+            "Found by re-auditing the exemption list against its own stated "
+            "criterion: it sat in `_implicitly_claimed()`, whose docstring "
+            "asserted its members never traverse a relationship or order a "
+            "page. This does both. The allow-list is gone; the criterion is now "
+            "computed."
+        ),
+    ),
+    ReadPath(
+        id="api.topics.tree",
+        surface="GET /api/topics/tree",
+        source_file=f"{CORE}/knowledge_graph/repository.py",
+        snippet="MATCH (t:Topic {level: 'domain'})",
+        labels=("Topic",),
+        relationships=("SUBTOPIC_OF",),
+        properties=("id", "name", "level", "problem_count", "paper_count"),
+        ordering=("t.name",),
+        compat=CompatClass.DECLARED_CHANGE,
+        via=("get_topic_tree",),
+        note=(
+            "Recurses into get_topic_children, so it inherits the SUBTOPIC_OF "
+            "traversal, and it renders Topic.problem_count / paper_count — both "
+            "recomputed by §4.4, so the payload changes even where the tree "
+            "shape does not. Same reasoning as api.graph.include_topics."
         ),
     ),
     ReadPath(

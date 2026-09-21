@@ -245,6 +245,14 @@
         "problem_count": 2
       }
     ],
+    "api.topics.children": [
+      {
+        "id": "<T>_topic_area",
+        "level": "area",
+        "name": "<T> natural language processing",
+        "parent_id": "<T>_topic_root"
+      }
+    ],
     "api.topics.problems": [
       {
         "id": "<T>_problem_1",
@@ -263,6 +271,15 @@
       {
         "id": "<T>_problem_2",
         "statement": "<T> How can transformer efficiency be improved for problem 2?"
+      }
+    ],
+    "api.topics.tree": [
+      {
+        "id": "<T>_topic_root",
+        "level": "domain",
+        "name": "<T> machine learning",
+        "paper_count": 0,
+        "problem_count": 0
       }
     ],
     "continuation.problem_context": [

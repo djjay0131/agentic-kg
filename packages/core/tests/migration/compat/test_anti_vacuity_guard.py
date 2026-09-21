@@ -56,11 +56,17 @@ from agentic_kg.migration.compat import (
 
 from .conftest import FixtureGraph
 
-EMPTY = ProbeResult(probe_id="example", surface="left", rows=())
-OTHER_EMPTY = ProbeResult(probe_id="example", surface="right", rows=())
-POPULATED = ProbeResult(probe_id="example", surface="left", rows=({"id": "x"},))
-POPULATED_COPY = ProbeResult(probe_id="example", surface="right", rows=({"id": "x"},))
-DIFFERENT = ProbeResult(probe_id="example", surface="right", rows=({"id": "y"},))
+EMPTY = ProbeResult(probe_id="example", surface="left", rows=(), informative=("id",))
+OTHER_EMPTY = ProbeResult(probe_id="example", surface="right", rows=(), informative=("id",))
+POPULATED = ProbeResult(
+    probe_id="example", surface="left", rows=({"id": "x"},), informative=("id",)
+)
+POPULATED_COPY = ProbeResult(
+    probe_id="example", surface="right", rows=({"id": "x"},), informative=("id",)
+)
+DIFFERENT = ProbeResult(
+    probe_id="example", surface="right", rows=({"id": "y"},), informative=("id",)
+)
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +236,60 @@ def test_a_genuinely_populated_row_still_passes() -> None:
     assert require_non_vacuous(real) is real
 
 
+def test_a_probe_result_cannot_be_built_without_informative_columns() -> None:
+    """V-1: the structural half has to hold for ProbeResult too, not just CypherProbe.
+
+    ``informative`` defaulted to ``()`` on this type, which silently degraded
+    the guard to a row count for any hand-built result -- and the baseline side
+    of the central parity assertion *is* hand-built, from JSON. The guard was
+    therefore armed on the observed side and disarmed on the baseline side of
+    the one comparison this harness exists to make.
+    """
+    with pytest.raises(ValueError, match="no informative columns"):
+        ProbeResult(probe_id="x", surface="baseline", rows=({"id": "a"},), informative=())
+
+
+def test_the_baseline_side_of_a_parity_check_is_armed() -> None:
+    """The V-1 scenario end to end: two all-NULL sides must not report parity.
+
+    Before the fix this returned normally -- the observed side raised nothing
+    because the baseline side had no columns to check and the rows compared
+    equal.
+    """
+    observed = ProbeResult(
+        probe_id="api.graph.node_neighbourhood",
+        surface="legacy",
+        rows=({"rel_type": None, "neighbour_labels": None},),
+        informative=("rel_type", "neighbour_labels"),
+    )
+    baseline = ProbeResult(
+        probe_id="api.graph.node_neighbourhood",
+        surface="baseline",
+        rows=({"rel_type": None, "neighbour_labels": None},),
+        informative=("rel_type", "neighbour_labels"),
+    )
+    with pytest.raises(VacuousProbe):
+        assert_parity(baseline, observed)
+
+
+def test_zero_and_empty_string_count_as_informative() -> None:
+    """V-2, decided deliberately: NULL is the failure mode, not falsiness.
+
+    ``0`` is a real count, ``False`` is a real ``is_canonical``, ``""`` is a
+    real (if odd) title, and ``[]`` is a real empty list. ``OPTIONAL MATCH``
+    produces NULL, and so does a dropped column; truthiness would reject
+    correct results instead. Pinned so it is not "tidied" into ``if not
+    row.get(c)`` later.
+    """
+    falsy = ProbeResult(
+        probe_id="x",
+        surface="legacy",
+        rows=({"count": 0, "is_canonical": False, "title": "", "labels": []},),
+        informative=("count", "is_canonical", "title", "labels"),
+    )
+    assert require_non_vacuous(falsy) is falsy
+
+
 def test_every_probe_declares_what_makes_its_rows_informative() -> None:
     """The structural half of the H-1 fix, asserted.
 
@@ -271,6 +331,7 @@ EMPTY_GRAPH_INPUTS = ProbeInputs(
     model_id="no-such-model",
     method_id="no-such-method",
     level="no-such-level",
+    token="no-such-token",
 )
 
 
@@ -366,6 +427,7 @@ def test_the_guard_fires_on_a_graph_holding_only_a_bare_anchor_node(
             model_id="no-such-model",
             method_id="no-such-method",
             level="no-such-level",
+            token="no-such-token",
         )
         results = run_all_probes(empty_surface, inputs, token="unused")
         neighbourhood = results["api.graph.node_neighbourhood"]

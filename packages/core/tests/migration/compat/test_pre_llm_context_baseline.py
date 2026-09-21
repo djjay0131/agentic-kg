@@ -68,8 +68,19 @@ def _load_baseline() -> dict[str, list[dict[str, Any]]]:
     return data["probes"]
 
 
+#: probe id -> its declared informative columns. Derived from the probe set, so
+#: the baseline side of a parity assertion is armed with exactly what the
+#: observed side is armed with. V-1: this was the half that was disarmed.
+_INFORMATIVE = {probe.id: probe.informative for probe in CYPHER_PROBES}
+
+
 def _as_result(probe_id: str, rows: list[dict[str, Any]]) -> ProbeResult:
-    return ProbeResult(probe_id=probe_id, surface="baseline", rows=tuple(rows))
+    return ProbeResult(
+        probe_id=probe_id,
+        surface="baseline",
+        rows=tuple(rows),
+        informative=_INFORMATIVE[probe_id],
+    )
 
 
 # ---------------------------------------------------------------------------
