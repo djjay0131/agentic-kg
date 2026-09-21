@@ -90,6 +90,10 @@ class ProbeInputs:
     paper_doi: str
     concept_id: str
     trace_id: str
+    cited_doi: str
+    model_id: str
+    method_id: str
+    level: str
     status: str = "open"
     limit: int = 20
     offset: int = 0
@@ -103,6 +107,10 @@ class ProbeInputs:
             "paper_doi": self.paper_doi,
             "concept_id": self.concept_id,
             "trace_id": self.trace_id,
+            "cited_doi": self.cited_doi,
+            "model_id": self.model_id,
+            "method_id": self.method_id,
+            "level": self.level,
             "status": self.status,
             "limit": self.limit,
             "offset": self.offset,
@@ -127,6 +135,14 @@ class CypherProbe:
     id: str
     read_path_ids: tuple[str, ...]
     cypher: str
+    #: Columns whose non-NULL-ness is what makes a returned row *evidence*.
+    #: Required, with no default, and that is the H-1 fix: emptiness measured
+    #: by row count is not emptiness. ``OPTIONAL MATCH`` manufactures one
+    #: all-NULL row whenever the anchor node exists, so a row-count guard sees
+    #: ``len(rows) == 1`` and reports parity over a row carrying no information
+    #: at all. Making this field mandatory means a future probe cannot
+    #: reintroduce the hole by omitting it -- there is nothing to omit.
+    informative: tuple[str, ...]
     needs: tuple[str, ...] = ()
 
 
@@ -137,9 +153,28 @@ class ProbeResult:
     probe_id: str
     surface: str
     rows: tuple[dict[str, Any], ...]
+    #: Carried through from :class:`CypherProbe` so the guard can apply it
+    #: without needing the probe definition back.
+    informative: tuple[str, ...] = ()
 
     def __len__(self) -> int:
         return len(self.rows)
+
+    @property
+    def informative_rows(self) -> tuple[dict[str, Any], ...]:
+        """Rows that actually carry information.
+
+        A row counts only if **every** declared informative column is non-NULL.
+        With no declared columns the property degrades to ``rows``, which is why
+        :class:`CypherProbe` makes the field mandatory rather than defaulted.
+        """
+        if not self.informative:
+            return self.rows
+        return tuple(
+            row
+            for row in self.rows
+            if all(row.get(column) is not None for column in self.informative)
+        )
 
 
 #: The probe set. Each Cypher body is the query the cited application code
@@ -150,6 +185,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     # --- agents -------------------------------------------------------
     CypherProbe(
         id="ranking.candidates",
+        informative=("id", "statement", "status"),
         read_path_ids=("agent.ranking.candidates",),
         # No status predicate, and that is not a simplification. `ResearchState`
         # carries `status_filter=None` by default, so `state.get(...)` returns
@@ -166,6 +202,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     ),
     CypherProbe(
         id="search.by_status",
+        informative=("id", "statement", "status"),
         read_path_ids=("search.structured.by_status",),
         cypher=(
             "MATCH (p:Problem) WHERE p.status = $status "
@@ -176,6 +213,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     ),
     CypherProbe(
         id="ranking.candidates_by_topic",
+        informative=("id", "statement", "status"),
         read_path_ids=("agent.ranking.candidates_by_topic", "search.structured.by_topic"),
         cypher=(
             "MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic {id: $topic_id}) "
@@ -186,6 +224,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     ),
     CypherProbe(
         id="continuation.topic_name",
+        informative=("name",),
         read_path_ids=("agent.continuation.topic_name",),
         cypher=(
             "MATCH (p:Problem {id: $problem_id})-[:BELONGS_TO]->(t:Topic) "
@@ -195,6 +234,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     ),
     CypherProbe(
         id="continuation.problem_context",
+        informative=("id", "statement", "status", "datasets", "metrics"),
         read_path_ids=(
             "agent.continuation.problem_context",
             "agent.evaluation.problem_context",
@@ -211,6 +251,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     # --- retrieval ----------------------------------------------------
     CypherProbe(
         id="search.hybrid_topic_leg",
+        informative=("id",),
         read_path_ids=("search.hybrid.topic_leg",),
         cypher=(
             "MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic {id: $topic_id}) "
@@ -220,6 +261,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     ),
     CypherProbe(
         id="search.by_year",
+        informative=("id", "doi", "year"),
         read_path_ids=("search.structured.by_year",),
         cypher=(
             "MATCH (p:Problem) MATCH (p)-[:EXTRACTED_FROM]->(paper:Paper) "
@@ -231,6 +273,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     ),
     CypherProbe(
         id="repo.list_problems",
+        informative=("id", "statement"),
         read_path_ids=("repo.list_problems",),
         cypher=(
             "MATCH (p:Problem) WHERE p.status = $status "
@@ -241,6 +284,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     ),
     CypherProbe(
         id="relations.paper_authors",
+        informative=("id", "name", "position"),
         read_path_ids=("relations.paper_authors",),
         cypher=(
             "MATCH (paper:Paper {doi: $paper_doi})-[r:AUTHORED_BY]->(a:Author) "
@@ -252,6 +296,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     # --- API routers --------------------------------------------------
     CypherProbe(
         id="api.stats.problems_by_topic",
+        informative=("name", "count"),
         read_path_ids=("api.stats.problems_by_topic",),
         cypher=(
             "MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic) "
@@ -260,6 +305,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     ),
     CypherProbe(
         id="api.stats.by_status",
+        informative=("status", "count"),
         read_path_ids=("api.stats.counts",),
         cypher=(
             "MATCH (p:Problem) RETURN p.status AS status, count(p) AS count "
@@ -268,6 +314,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     ),
     CypherProbe(
         id="api.graph.problems_by_topic",
+        informative=("statement", "status"),
         read_path_ids=("api.graph.problems_by_topic",),
         cypher=(
             "MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic {id: $topic_id}) "
@@ -278,6 +325,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     ),
     CypherProbe(
         id="api.graph.problem_relations",
+        informative=("source", "rel_type", "target"),
         read_path_ids=("api.graph.problem_relations",),
         cypher=(
             "MATCH (p1:Problem)-[r]->(p2:Problem) "
@@ -288,6 +336,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     ),
     CypherProbe(
         id="api.graph.problems_papers",
+        informative=("problem_id", "doi", "title", "year"),
         read_path_ids=("api.graph.problems_papers",),
         cypher=(
             "MATCH (p:Problem)-[r:EXTRACTED_FROM]->(paper:Paper) "
@@ -298,6 +347,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     ),
     CypherProbe(
         id="api.graph.include_topics",
+        informative=("problem_id", "topic_id", "name", "level", "problem_count"),
         read_path_ids=("api.graph.include_topics",),
         cypher=(
             "MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic) "
@@ -308,6 +358,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     ),
     CypherProbe(
         id="api.topics.problems",
+        informative=("id", "statement"),
         read_path_ids=("api.topics.problems",),
         cypher=(
             "MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic {id: $topic_id}) "
@@ -317,6 +368,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     ),
     CypherProbe(
         id="api.topics.problems_subtopics",
+        informative=("id", "statement"),
         read_path_ids=("api.topics.problems_subtopics",),
         cypher=(
             "MATCH (descendant:Topic)-[:SUBTOPIC_OF*0..]->(root:Topic {id: $root_topic_id}) "
@@ -329,6 +381,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     ),
     CypherProbe(
         id="api.concepts.list",
+        informative=("id", "name", "mention_count", "paper_count"),
         read_path_ids=("api.concepts.list",),
         cypher=(
             "MATCH (rc:ResearchConcept) "
@@ -340,6 +393,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     ),
     CypherProbe(
         id="api.models.list",
+        informative=("id", "name", "is_canonical", "usage_count"),
         read_path_ids=("api.models.list",),
         cypher=(
             "MATCH (m:Model) "
@@ -352,6 +406,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     ),
     CypherProbe(
         id="api.methods.list",
+        informative=("id", "name", "usage_count"),
         read_path_ids=("api.methods.list",),
         cypher=(
             "MATCH (m:Method) "
@@ -362,6 +417,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     ),
     CypherProbe(
         id="api.papers.list",
+        informative=("doi", "title", "year", "is_stub", "citation_count"),
         read_path_ids=("api.papers.list",),
         cypher=(
             "MATCH (p:Paper) "
@@ -373,6 +429,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     ),
     CypherProbe(
         id="api.concepts.linked_problems",
+        informative=("id", "canonical_statement", "mention_count"),
         read_path_ids=("api.concepts.linked_problems",),
         cypher=(
             "MATCH (pc:ProblemConcept)-[:INVOLVES_CONCEPT]->(rc:ResearchConcept {id: $concept_id}) "
@@ -383,6 +440,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     ),
     CypherProbe(
         id="api.concepts.linked_papers",
+        informative=("doi", "title", "year"),
         read_path_ids=("api.concepts.linked_papers",),
         cypher=(
             "MATCH (p:Paper)-[:DISCUSSES]->(rc:ResearchConcept {id: $concept_id}) "
@@ -393,6 +451,7 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
     ),
     CypherProbe(
         id="api.ingest.run_status",
+        informative=("trace_id", "status", "papers_found", "papers_imported"),
         read_path_ids=("api.ingest.run_status",),
         cypher=(
             "MATCH (r:IngestionRun {trace_id: $trace_id}) "
@@ -402,7 +461,87 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
         needs=("trace_id",),
     ),
     CypherProbe(
+        id="api.graph.problem_relations_by_topic",
+        read_path_ids=("api.graph.problem_relations_by_topic",),
+        informative=("source", "rel_type", "target"),
+        cypher=(
+            "MATCH (p1:Problem)-[:BELONGS_TO]->(:Topic {id: $topic_id}) "
+            "MATCH (p1)-[r]->(p2:Problem) "
+            "RETURN p1.id AS source, type(r) AS rel_type, p2.id AS target "
+            "ORDER BY source, rel_type, target LIMIT $limit"
+        ),
+        needs=("topic_id", "limit"),
+    ),
+    CypherProbe(
+        id="api.graph.problems",
+        read_path_ids=("api.graph.problems",),
+        informative=("id", "statement", "status"),
+        cypher=(
+            "MATCH (p:Problem) "
+            "RETURN p.id AS id, p.statement AS statement, p.status AS status "
+            "ORDER BY p.id LIMIT $limit"
+        ),
+        needs=("limit",),
+    ),
+    CypherProbe(
+        id="api.topics.by_level",
+        read_path_ids=("api.topics.by_level",),
+        informative=("id", "name", "level"),
+        cypher=(
+            "MATCH (t:Topic {level: $level}) "
+            "RETURN t.id AS id, t.name AS name, t.level AS level, "
+            "t.problem_count AS problem_count, t.paper_count AS paper_count "
+            "ORDER BY t.name"
+        ),
+        needs=("level",),
+    ),
+    CypherProbe(
+        id="api.papers.references",
+        read_path_ids=("api.papers.references",),
+        informative=("doi", "title"),
+        cypher=(
+            "MATCH (p:Paper {doi: $paper_doi})-[:CITES]->(r:Paper) "
+            "RETURN r.doi AS doi, r.title AS title, r.year AS year "
+            "ORDER BY r.title LIMIT $limit"
+        ),
+        needs=("paper_doi", "limit"),
+    ),
+    CypherProbe(
+        id="api.papers.citations",
+        read_path_ids=("api.papers.citations",),
+        informative=("doi", "title"),
+        cypher=(
+            "MATCH (c:Paper)-[:CITES]->(p:Paper {doi: $cited_doi}) "
+            "RETURN c.doi AS doi, c.title AS title, c.year AS year "
+            "ORDER BY c.title LIMIT $limit"
+        ),
+        needs=("cited_doi", "limit"),
+    ),
+    CypherProbe(
+        id="api.models.papers",
+        read_path_ids=("api.models.papers",),
+        informative=("doi", "title"),
+        cypher=(
+            "MATCH (p:Paper)-[:USES_MODEL]->(m:Model {id: $model_id}) "
+            "RETURN p.doi AS doi, p.title AS title, p.year AS year "
+            "ORDER BY p.title LIMIT $limit"
+        ),
+        needs=("model_id", "limit"),
+    ),
+    CypherProbe(
+        id="api.methods.papers",
+        read_path_ids=("api.methods.papers",),
+        informative=("doi", "title"),
+        cypher=(
+            "MATCH (p:Paper)-[:APPLIES_METHOD]->(m:Method {id: $method_id}) "
+            "RETURN p.doi AS doi, p.title AS title, p.year AS year "
+            "ORDER BY p.title LIMIT $limit"
+        ),
+        needs=("method_id", "limit"),
+    ),
+    CypherProbe(
         id="api.graph.node_neighbourhood",
+        informative=("rel_type", "neighbour_labels"),
         read_path_ids=("api.graph.node_neighbourhood",),
         cypher=(
             "MATCH (p:Problem {id: $problem_id}) "
@@ -443,6 +582,7 @@ def run_probe(
         probe_id=probe.id,
         surface=surface.name,
         rows=canonicalise(rows, token),
+        informative=probe.informative,
     )
 
 
@@ -469,6 +609,16 @@ def require_non_vacuous(result: ProbeResult) -> ProbeResult:
             f"for the reason it names (mapping spec §9.0 obligation 5). Either "
             f"the fixture does not populate this read path, or the read path is "
             f"one of the DECLARED_CHANGE set that legacy cannot satisfy at all."
+        )
+    if not result.informative_rows:
+        raise VacuousProbe(
+            f"probe {result.probe_id!r} returned {len(result.rows)} row(s) on "
+            f"surface {result.surface!r}, none of them informative: every row "
+            f"has NULL in at least one of {list(result.informative)}. This is "
+            f"the OPTIONAL MATCH hole -- Neo4j manufactures one all-NULL row "
+            f"when the anchor node exists but the optional pattern matches "
+            f"nothing, so a row-count guard passes over a row that says "
+            f"nothing about the read path. Rows were: {result.rows!r}"
         )
     return result
 

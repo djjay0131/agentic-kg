@@ -88,6 +88,30 @@
         "target": "<T>_problem_2"
       }
     ],
+    "api.graph.problem_relations_by_topic": [
+      {
+        "rel_type": "EXTENDS",
+        "source": "<T>_problem_1",
+        "target": "<T>_problem_2"
+      }
+    ],
+    "api.graph.problems": [
+      {
+        "id": "<T>_problem_1",
+        "statement": "<T> How can transformer efficiency be improved for problem 1?",
+        "status": "open"
+      },
+      {
+        "id": "<T>_problem_2",
+        "statement": "<T> How can transformer efficiency be improved for problem 2?",
+        "status": "open"
+      },
+      {
+        "id": "<T>_problem_3",
+        "statement": "<T> How can transformer efficiency be improved for problem 3?",
+        "status": "in_progress"
+      }
+    ],
     "api.graph.problems_by_topic": [
       {
         "statement": "<T> How can transformer efficiency be improved for problem 1?",
@@ -129,7 +153,14 @@
       {
         "id": "<T>_method_alpha",
         "name": "<T> alpha method",
-        "usage_count": 3
+        "usage_count": 4
+      }
+    ],
+    "api.methods.papers": [
+      {
+        "doi": "10.TEST_<T>/paper-one",
+        "title": "<T> Attention Reconsidered",
+        "year": 2021
       }
     ],
     "api.models.list": [
@@ -152,9 +183,23 @@
         "usage_count": 1
       }
     ],
+    "api.models.papers": [
+      {
+        "doi": "10.TEST_<T>/paper-one",
+        "title": "<T> Attention Reconsidered",
+        "year": 2021
+      }
+    ],
+    "api.papers.citations": [
+      {
+        "doi": "10.TEST_<T>/paper-one",
+        "title": "<T> Attention Reconsidered",
+        "year": 2021
+      }
+    ],
     "api.papers.list": [
       {
-        "citation_count": 0,
+        "citation_count": 1,
         "doi": "10.TEST_<T>/paper-two",
         "is_stub": false,
         "title": "<T> Long Context Transformers",
@@ -166,6 +211,13 @@
         "is_stub": false,
         "title": "<T> Attention Reconsidered",
         "year": 2021
+      }
+    ],
+    "api.papers.references": [
+      {
+        "doi": "10.TEST_<T>/paper-two",
+        "title": "<T> Long Context Transformers",
+        "year": 2023
       }
     ],
     "api.stats.by_status": [
@@ -182,6 +234,15 @@
       {
         "count": 2,
         "name": "<T> natural language processing"
+      }
+    ],
+    "api.topics.by_level": [
+      {
+        "id": "<T>_topic_area",
+        "level": "area",
+        "name": "<T> natural language processing",
+        "paper_count": 1,
+        "problem_count": 2
       }
     ],
     "api.topics.problems": [

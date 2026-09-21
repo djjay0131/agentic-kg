@@ -190,6 +190,12 @@ def compat_graph(neo4j_repository: Any, compat_token: str) -> Iterator[FixtureGr
                 pos=position,
             )
 
+    # --- citations ----------------------------------------------------
+    # paper1 CITES paper2, so GET /api/papers/{doi}/references is non-empty
+    # for paper1 and .../citations is non-empty for paper2. Written through the
+    # legacy writer, which also maintains both denormalized counters.
+    repo.link_paper_cites_paper(paper1.doi, paper2.doi)
+
     # --- problems -----------------------------------------------------
     # Evidence and extraction metadata are supplied because they are NOT
     # optional in practice: Problem declares both Optional with default None,
@@ -303,6 +309,8 @@ def compat_graph(neo4j_repository: Any, compat_token: str) -> Iterator[FixtureGr
             usage_count=usage,
         )
         repo.create_method(method, generate_embedding=False)
+    # APPLIES_METHOD so GET /api/methods/{id}/papers is non-empty.
+    repo.link_paper_to_method(paper1.doi, f"{tok}_method_alpha")
 
     # --- ProblemConcept ------------------------------------------------
     # No repository creator exists for this label (only AutoLinker writes it,
@@ -348,6 +356,12 @@ def compat_graph(neo4j_repository: Any, compat_token: str) -> Iterator[FixtureGr
             paper_doi=paper1.doi,
             concept_id=concepts[0].id,
             trace_id=trace_id,
+            cited_doi=paper2.doi,
+            # bravo keeps a live USES_MODEL edge (charlie's were purged to
+            # create the counter drift), so the models-papers probe is non-empty.
+            model_id=f"{tok}_model_bravo",
+            method_id=f"{tok}_method_alpha",
+            level=TopicLevel.AREA.value,
             status=ProblemStatus.OPEN.value,
             limit=20,
             offset=0,

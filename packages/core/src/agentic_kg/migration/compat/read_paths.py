@@ -7,12 +7,23 @@ named vector indexes. Phase 7's job is to prove those dependencies keep holding
 against the canonical projection, so the inventory has to be machine-readable —
 a markdown table cannot be asserted against.
 
-Three things make this registry more than a transcription:
+Four things make this registry more than a transcription:
 
 1. **Each entry carries a ``snippet``** that must occur verbatim in the file it
    cites. ``test_read_path_inventory.py`` checks every one. An inventory that
    drifts from the code it describes is worse than no inventory, and this is the
    cheapest way to make drift a test failure instead of a discovery.
+
+1b. **The reverse direction is checked too, and it is where the gaps were.**
+   The snippet anchor proves every *entry* describes real code; for a while
+   nothing proved that real code had an *entry*. Review found the consequence:
+   the eighth ``BELONGS_TO`` site the merged spec itself names, the ``CITES`` /
+   ``USES_MODEL`` / ``APPLIES_METHOD`` traversals, and four of the six vector
+   indexes all had no entry at all — so the index assertion was quantifying
+   over a one-element set. Three scans now close it (inline Cypher in the
+   application trees, repository reads reached from a router via ``via``, and
+   vector-index names anywhere in the source), and the scans themselves found
+   three further gaps that reading had missed.
 
 2. **Each entry is classified** (:class:`CompatClass`). Not every read path can
    be held to behaviour preservation. Eight of them traverse
@@ -80,10 +91,27 @@ class ReadPath:
     labels: tuple[str, ...]
     relationships: tuple[str, ...]
     properties: tuple[str, ...]
+    #: Additional literal anchors, for a surface that issues more than one
+    #: query (``GET /api/stats`` runs four) or whose query is assembled from
+    #: several f-string fragments (``GET /api/models``). Checked exactly like
+    #: ``snippet``, so they carry the same anti-drift guarantee; they exist so
+    #: the completeness scan can see every literal an entry accounts for.
+    also: tuple[str, ...] = ()
     ordering: tuple[str, ...] = ()
     vector_indexes: tuple[str, ...] = ()
     compat: CompatClass = CompatClass.PARITY
     note: str = ""
+    #: ``Neo4jRepository`` / service method names this entry covers.
+    #:
+    #: The snippet anchor proves an entry describes real code. It does **not**
+    #: prove the inventory is *complete* — nothing stopped a graph read from
+    #: having no entry at all, and four `CITES` / `USES_MODEL` /
+    #: `APPLIES_METHOD` reads and four of the six vector indexes were missing
+    #: for exactly that reason. ``via`` closes the other direction: a router
+    #: calling ``repo.X`` where ``X``'s body contains a ``MATCH`` must find
+    #: ``X`` named here, or ``test_read_path_inventory`` fails. See
+    #: ``test_every_repository_read_reached_from_a_router_is_inventoried``.
+    via: tuple[str, ...] = ()
 
 
 API = "packages/api/src/agentic_kg_api"
@@ -233,6 +261,7 @@ READ_PATHS: tuple[ReadPath, ...] = (
         surface="SearchService.structured_search(status=...)",
         source_file=f"{CORE}/knowledge_graph/search.py",
         snippet='query += " RETURN p ORDER BY p.created_at DESC LIMIT $limit"',
+        also=('query = "MATCH (p:Problem)"',),
         labels=("Problem",),
         relationships=(),
         properties=("id", "statement", "status", "created_at"),
@@ -332,6 +361,11 @@ READ_PATHS: tuple[ReadPath, ...] = (
         surface="GET /api/stats (totals + by status)",
         source_file=f"{API}/main.py",
         snippet='"MATCH (p:Problem) RETURN p.status as status, count(p) as count"',
+        also=(
+            '"MATCH (p:Problem) RETURN count(p) as count"',
+            '"MATCH (p:Paper) RETURN count(p) as count"',
+            '"MATCH (t:Topic) RETURN count(t) as count"',
+        ),
         labels=("Problem", "Paper", "Topic"),
         relationships=(),
         properties=("status",),
@@ -444,32 +478,49 @@ READ_PATHS: tuple[ReadPath, ...] = (
         relationships=(),
         properties=("id", "name", "description", "aliases", "mention_count", "paper_count"),
         ordering=("rc.mention_count DESC", "rc.name"),
-        compat=CompatClass.PARITY,
-        note="Denormalized counter used as the primary pagination sort key.",
+        compat=CompatClass.DECLARED_CHANGE,
+        note=(
+            "Denormalized counter used as the primary pagination sort key. "
+            "Reclassified PARITY -> DECLARED_CHANGE: this harness's own evidence "
+            "(test_ordering_keys_depend_on_counters) shows the stored-counter "
+            "page order and the recomputed-from-edges order differ, so holding "
+            "it to parity would assert something already disproved. Spec §5.1 "
+            "consequence 2 ('Pagination is preserved') is false as written."
+        ),
     ),
     ReadPath(
         id="api.models.list",
         surface="GET /api/models",
         source_file=f"{API}/routers/models.py",
         snippet="ORDER BY m.is_canonical DESC, m.usage_count DESC, m.name",
+        also=("MATCH (m:Model)",),
         labels=("Model",),
         relationships=(),
         properties=("id", "name", "architecture", "is_canonical", "usage_count"),
         ordering=("m.is_canonical DESC", "m.usage_count DESC", "m.name"),
-        compat=CompatClass.PARITY,
-        note="usage_count has NO reconciler in legacy (spec §5.1).",
+        compat=CompatClass.DECLARED_CHANGE,
+        note=(
+            "usage_count has NO reconciler in legacy (spec §5.1). Reclassified "
+            "PARITY -> DECLARED_CHANGE: the page order is proved to move when "
+            "the counter is recomputed from USES_MODEL degree."
+        ),
     ),
     ReadPath(
         id="api.methods.list",
         surface="GET /api/methods",
         source_file=f"{API}/routers/methods.py",
         snippet="ORDER BY m.usage_count DESC, m.name",
+        also=("MATCH (m:Method)",),
         labels=("Method",),
         relationships=(),
         properties=("id", "name", "method_type", "usage_count"),
         ordering=("m.usage_count DESC", "m.name"),
-        compat=CompatClass.PARITY,
-        note="usage_count has NO reconciler in legacy (spec §5.1).",
+        compat=CompatClass.DECLARED_CHANGE,
+        note=(
+            "usage_count has NO reconciler in legacy (spec §5.1). Reclassified "
+            "PARITY -> DECLARED_CHANGE for the same reason as GET /api/models: "
+            "recomputing the counter from APPLIES_METHOD degree reorders the page."
+        ),
     ),
     ReadPath(
         id="api.papers.list",
@@ -484,6 +535,7 @@ READ_PATHS: tuple[ReadPath, ...] = (
     ),
     ReadPath(
         id="api.concepts.linked_problems",
+        via=("get_problems_for_concept",),
         surface="GET /api/concepts/{id}/problems",
         source_file=f"{CORE}/knowledge_graph/repository.py",
         snippet="ORDER BY pc.mention_count DESC",
@@ -491,10 +543,17 @@ READ_PATHS: tuple[ReadPath, ...] = (
         relationships=("INVOLVES_CONCEPT",),
         properties=("id", "canonical_statement", "mention_count"),
         ordering=("pc.mention_count DESC",),
-        compat=CompatClass.PARITY,
+        compat=CompatClass.DECLARED_CHANGE,
+        note=(
+            "Reclassified PARITY -> DECLARED_CHANGE. `pc.mention_count` is the "
+            "sole sort key and legacy never decrements it (auto_linker.py:281 "
+            "increments; nothing reconciles), so recomputing it from "
+            "INSTANCE_OF degree reorders this page too."
+        ),
     ),
     ReadPath(
         id="api.concepts.linked_papers",
+        via=("get_papers_for_concept",),
         surface="GET /api/concepts/{id}/papers",
         source_file=f"{CORE}/knowledge_graph/repository.py",
         snippet="ORDER BY coalesce(p.year, 0) DESC",
@@ -517,6 +576,176 @@ READ_PATHS: tuple[ReadPath, ...] = (
             "job_runner.py:91 uses a bare CREATE with no uniqueness constraint, so "
             "a re-run duplicates the row and this read takes whichever comes back. "
             "The projection keys on trace_id (spec §4.4), which is a fix."
+        ),
+    ),
+    # ------------------------------------------------------------------
+    # Found by the completeness check, not by reading. Every entry below was
+    # missing from the first cut of this inventory: the snippet anchor proves
+    # an entry matches code, but nothing proved code had an entry.
+    # ------------------------------------------------------------------
+    ReadPath(
+        id="api.graph.problems",
+        surface="GET /api/graph (no topic filter)",
+        source_file=f"{API}/routers/graph.py",
+        snippet="                MATCH (p:Problem)\n                RETURN p\n",
+        labels=("Problem",),
+        relationships=(),
+        properties=("statement", "status", "confidence"),
+        compat=CompatClass.PARITY,
+        note=(
+            "The unfiltered branch of the same endpoint whose topic branch was "
+            "inventoried. Missing from the first cut — found by the "
+            "completeness scan, not by reading. LIMIT with no ORDER BY."
+        ),
+    ),
+    ReadPath(
+        id="api.topics.by_level",
+        surface="GET /api/topics?level=",
+        source_file=f"{CORE}/knowledge_graph/repository.py",
+        snippet="MATCH (t:Topic {level: $level})",
+        labels=("Topic",),
+        relationships=(),
+        properties=("id", "name", "level", "problem_count", "paper_count"),
+        ordering=("t.name",),
+        compat=CompatClass.PARITY,
+        via=("get_topics_by_level",),
+        note="Also surfaces Topic.problem_count / paper_count, both recomputed by §4.4.",
+    ),
+    ReadPath(
+        id="api.graph.problem_relations_by_topic",
+        surface="GET /api/graph?topic_id= (problem-problem link leg)",
+        source_file=f"{API}/routers/graph.py",
+        snippet="MATCH (p1:Problem)-[:BELONGS_TO]->(:Topic {id: $topic_id})",
+        labels=("Problem", "Topic"),
+        relationships=("BELONGS_TO", "EXTENDS", "CONTRADICTS", "DEPENDS_ON", "REFRAMES"),
+        properties=("statement", "status"),
+        compat=CompatClass.DECLARED_CHANGE,
+        note=(
+            "The eighth BELONGS_TO site, named by spec §5.2 ('graph.py:39,77,173') "
+            "and missing from the first cut of this inventory — so the original "
+            "31 entries covered 7 of the 8 sites the spec itself lists. Untyped "
+            "second hop, like its unfiltered sibling."
+        ),
+    ),
+    ReadPath(
+        id="api.papers.references",
+        surface="GET /api/papers/{doi}/references",
+        source_file=f"{CORE}/knowledge_graph/repository.py",
+        snippet="MATCH (p:Paper {doi: $doi})-[:CITES]->(r:Paper)",
+        labels=("Paper",),
+        relationships=("CITES",),
+        properties=("doi", "title", "year", "is_stub"),
+        ordering=("r.title",),
+        compat=CompatClass.PARITY,
+        via=("get_references",),
+        note="Outbound CITES. Sorted on title, not on either citation counter.",
+    ),
+    ReadPath(
+        id="api.papers.citations",
+        surface="GET /api/papers/{doi}/citations",
+        source_file=f"{CORE}/knowledge_graph/repository.py",
+        snippet="MATCH (c:Paper)-[:CITES]->(p:Paper {doi: $doi})",
+        labels=("Paper",),
+        relationships=("CITES",),
+        properties=("doi", "title", "year", "is_stub"),
+        ordering=("c.title",),
+        compat=CompatClass.PARITY,
+        via=("get_citing_papers",),
+        note=(
+            "Inbound CITES, scoped to the corpus — so it counts in-graph "
+            "citations, not the global count. §4.4 splits these into "
+            "`citation_count` (source-asserted) and `in_graph_citation_count`, "
+            "which does not change this traversal but does change what "
+            "`Paper.citation_count` means beside it."
+        ),
+    ),
+    ReadPath(
+        id="api.models.papers",
+        surface="GET /api/models/{id}/papers",
+        source_file=f"{CORE}/knowledge_graph/repository.py",
+        snippet="MATCH (p:Paper)-[:USES_MODEL]->(m:Model {id: $mid})",
+        labels=("Paper", "Model"),
+        relationships=("USES_MODEL",),
+        properties=("doi", "title", "year"),
+        ordering=("p.title",),
+        compat=CompatClass.PARITY,
+        via=("get_papers_for_model",),
+    ),
+    ReadPath(
+        id="api.methods.papers",
+        surface="GET /api/methods/{id}/papers",
+        source_file=f"{CORE}/knowledge_graph/repository.py",
+        snippet="MATCH (p:Paper)-[:APPLIES_METHOD]->(m:Method {id: $mid})",
+        labels=("Paper", "Method"),
+        relationships=("APPLIES_METHOD",),
+        properties=("doi", "title", "year"),
+        ordering=("p.title",),
+        compat=CompatClass.PARITY,
+        via=("get_papers_for_method",),
+    ),
+    ReadPath(
+        id="api.topics.search",
+        surface="GET /api/topics/search",
+        source_file=f"{CORE}/knowledge_graph/repository.py",
+        snippet="CALL db.index.vector.queryNodes('topic_embedding_idx', $limit, $embedding)",
+        labels=("Topic",),
+        relationships=(),
+        properties=("id", "name", "level", "embedding"),
+        vector_indexes=("topic_embedding_idx",),
+        compat=CompatClass.PARITY,
+        via=("search_topics_by_embedding",),
+        note="Index named as a string literal; the projection DDL must recreate it.",
+    ),
+    ReadPath(
+        id="api.concepts.search",
+        surface="GET /api/concepts/search",
+        source_file=f"{CORE}/knowledge_graph/repository.py",
+        snippet="'research_concept_embedding_idx', $top_k, $embedding",
+        labels=("ResearchConcept",),
+        relationships=(),
+        properties=("id", "name", "embedding"),
+        vector_indexes=("research_concept_embedding_idx",),
+        compat=CompatClass.PARITY,
+        via=("search_research_concepts_by_embedding",),
+    ),
+    ReadPath(
+        id="api.models.search",
+        surface="GET /api/models/search",
+        source_file=f"{CORE}/knowledge_graph/repository.py",
+        snippet="'model_embedding_idx', $top_k, $embedding",
+        labels=("Model",),
+        relationships=(),
+        properties=("id", "name", "embedding"),
+        vector_indexes=("model_embedding_idx",),
+        compat=CompatClass.PARITY,
+        via=("search_models_by_embedding",),
+    ),
+    ReadPath(
+        id="api.methods.search",
+        surface="GET /api/methods/search",
+        source_file=f"{CORE}/knowledge_graph/repository.py",
+        snippet="'method_embedding_idx', $top_k, $embedding",
+        labels=("Method",),
+        relationships=(),
+        properties=("id", "name", "embedding"),
+        vector_indexes=("method_embedding_idx",),
+        compat=CompatClass.PARITY,
+        via=("search_methods_by_embedding",),
+    ),
+    ReadPath(
+        id="er.concept_matcher",
+        surface="ConceptMatcher — ER matching (pipeline-internal, no HTTP route)",
+        source_file=f"{CORE}/knowledge_graph/concept_matcher.py",
+        snippet="'concept_embedding_idx',",
+        labels=("ProblemConcept",),
+        relationships=(),
+        properties=("id", "canonical_statement", "embedding"),
+        vector_indexes=("concept_embedding_idx",),
+        compat=CompatClass.PARITY,
+        note=(
+            "Not an API surface, but it names the sixth projected vector index "
+            "as a string literal, so the projection owes it the same DDL. "
+            "Included because the index-name contract is what matters here."
         ),
     ),
     ReadPath(
@@ -625,12 +854,21 @@ SCOPED_OUT_SURFACES: tuple[ScopedOutSurface, ...] = (
         ),
         failure="TypeError: unexpected keyword argument 'limit', swallowed by logger.warning",
         reason=(
-            "NEW DEFECT found by this phase (D-1). The related-problem leg of the "
-            "continuation prompt is unconditionally empty in production, and a "
-            "second defect (D-2) waits behind it: the method returns "
+            "NEW DEFECT found by this phase (D-1). The related-problem leg of "
+            "the continuation prompt is unconditionally empty in production, "
+            "and a second defect (D-2) waits behind it: the method returns "
             "list[tuple[Problem, ProblemRelation]] while the caller does "
-            "rel.get('type'). Both are masked by a MagicMock in "
-            "packages/core/tests/agents/conftest.py:100."
+            "rel.get('type') / rel.get('statement'). Correction to the first "
+            "report of D-2 — a naive 'return the dicts instead' fix does NOT "
+            "repair it either: the internal dicts (relations.py:306-311) are "
+            "keyed 'problem' / 'relation' / 'rel_type' / 'direction', so "
+            "rel.get('type') still misses (the key is 'rel_type') and "
+            "rel.get('statement') still misses (the statement is nested inside "
+            "'problem'). A D-1 + naive-D-2 fix therefore still renders every "
+            "entry as '[RELATED] Unknown'. Both are masked by a MagicMock in "
+            "packages/core/tests/agents/conftest.py:100 that returns "
+            "{'type': ..., 'statement': ...} — a shape the real service has "
+            "never produced."
         ),
     ),
 )

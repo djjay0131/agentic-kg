@@ -8,20 +8,32 @@ Run those against legacy and against a projection and you get ``[] == []``: a
 green test that has exercised nothing.
 
 The guard makes that unrepresentable rather than discouraged. It is proved here
-three ways, in increasing strength:
+four ways, in increasing strength:
 
 1. **Pure** — :func:`require_non_vacuous` raises on an empty result, and
    :func:`assert_parity` raises on two empty results *instead of* reporting
    parity. A naive ``left.rows == right.rows`` is shown to pass the same input,
    so the guard is demonstrably stronger than the check it replaces rather than
    equivalent to it.
+1b. **Against a row of NULLs** — the hole review found, and the more
+   interesting one. ``OPTIONAL MATCH (p)-[r]-(neighbor)`` fabricates exactly
+   one all-NULL row whenever the anchor exists, so emptiness measured by *row
+   count* passes it and parity is then reported over a row carrying no
+   information at all. Emptiness is now measured by informative rows, and
+   ``CypherProbe.informative`` is a required field so the next ``OPTIONAL
+   MATCH`` cannot reintroduce the hole by omission.
 2. **Against a real empty graph** — the whole probe set, unmodified, is pointed
    at a genuinely empty Neo4j. Every probe comes back empty and every one is
    shown to raise. This is the leg that catches a guard which only works on
-   hand-built ``ProbeResult`` objects.
+   hand-built ``ProbeResult`` objects. A second variant puts a single edge-less
+   ``:Problem`` in that graph, which is what makes the fabricated row appear.
 3. **Against the populated graph** — the same probes, same guard, and the guard
    must *not* fire. Without this, a guard hard-wired to ``raise`` would pass
-   legs 1 and 2 perfectly.
+   every leg above perfectly.
+
+Note what legs 2 and 3 cannot do: both are whole-suite **row-count** checks, so
+neither noticed H-1. The all-NULL case is asserted against the single probe
+that exhibits it, deliberately.
 
 Legs 2 and 3 need Docker; they skip cleanly without it, and the
 ``migration-canonical-adapter`` CI job provides it.
@@ -103,17 +115,145 @@ def test_the_naive_check_the_guard_replaces_would_have_passed() -> None:
     assert EMPTY.rows == OTHER_EMPTY.rows  # the vacuous pass, demonstrated
 
 
-def test_the_guard_checks_emptiness_before_equality() -> None:
-    """Order matters, and it is asserted rather than assumed.
+def _compare_first(baseline: ProbeResult, observed: ProbeResult) -> None:
+    """The anti-pattern, written out, so it can be run rather than described.
 
-    A guard written as "compare, then complain if empty" reports parity first
-    and the complaint never reaches the caller. Two *different* empty-ish
-    results -- same emptiness, different surfaces -- must raise VacuousProbe,
-    not an equality error, which is only true if the emptiness check runs first.
+    This is ``assert_parity`` with the two steps transposed: compare, then
+    complain about emptiness. On two empty sides it reports parity; on one
+    empty side it reports a *divergence*, which is the wrong diagnosis and the
+    wrong exception type.
+    """
+    if baseline.rows != observed.rows:
+        raise AssertionError("diverged")
+    require_non_vacuous(baseline)
+    require_non_vacuous(observed)
+
+
+def test_the_guard_checks_emptiness_before_equality() -> None:
+    """Order matters, and the assertion actually discriminates on it.
+
+    An earlier version of this test used two empty sides and asserted
+    VacuousProbe. That passes against ``_compare_first`` too: ``() == ()`` so
+    the comparison falls through and the emptiness check raises anyway. It
+    described the right property and tested nothing.
+
+    A *single* empty side separates them. Guard-first raises VacuousProbe;
+    compare-first raises a plain AssertionError reporting a divergence that is
+    not the real problem. Both halves are asserted here, so the test fails if
+    the ordering is ever transposed.
     """
     with pytest.raises(VacuousProbe) as excinfo:
-        assert_parity(EMPTY, OTHER_EMPTY)
+        assert_parity(POPULATED, OTHER_EMPTY)
+    assert type(excinfo.value) is VacuousProbe
     assert "returned no rows" in str(excinfo.value)
+
+    with pytest.raises(AssertionError) as wrong:
+        _compare_first(POPULATED, OTHER_EMPTY)
+    assert not isinstance(wrong.value, VacuousProbe), (
+        "the compare-first anti-pattern no longer behaves differently from the "
+        "guard, so this test has stopped discriminating between them"
+    )
+    assert "diverged" in str(wrong.value)
+
+
+# ---------------------------------------------------------------------------
+# 1b. H-1: a row of NULLs is non-empty and information-free
+# ---------------------------------------------------------------------------
+#
+# `OPTIONAL MATCH (p)-[r]-(neighbor)` manufactures exactly one all-NULL row
+# whenever the anchor node exists and the optional pattern matches nothing.
+# A guard that measures emptiness by row count passes it, and `assert_parity`
+# then reports parity over a row that says nothing about the read path -- on
+# `api.graph.node_neighbourhood`, the widest leak surface in the application.
+#
+# The fix is structural, not per-probe: `CypherProbe.informative` is a required
+# field, so a future OPTIONAL MATCH probe cannot reintroduce the hole by
+# omitting it. There is nothing to omit.
+
+ALL_NULL = ProbeResult(
+    probe_id="api.graph.node_neighbourhood",
+    surface="legacy",
+    rows=({"rel_type": None, "neighbour_labels": None},),
+    informative=("rel_type", "neighbour_labels"),
+)
+ALL_NULL_OTHER = ProbeResult(
+    probe_id="api.graph.node_neighbourhood",
+    surface="projection",
+    rows=({"rel_type": None, "neighbour_labels": None},),
+    informative=("rel_type", "neighbour_labels"),
+)
+
+
+def test_a_row_of_nulls_is_not_empty_by_row_count() -> None:
+    """The precondition: this really is the shape a row-count guard misses."""
+    assert len(ALL_NULL.rows) == 1
+    assert ALL_NULL.rows != ()
+
+
+def test_the_guard_rejects_an_all_null_row() -> None:
+    with pytest.raises(VacuousProbe) as excinfo:
+        require_non_vacuous(ALL_NULL)
+    assert "none of them informative" in str(excinfo.value)
+
+
+def test_parity_over_two_all_null_rows_is_refused() -> None:
+    """The end-to-end H-1 scenario: identical all-NULL rows on both surfaces."""
+    with pytest.raises(VacuousProbe):
+        assert_parity(ALL_NULL, ALL_NULL_OTHER)
+
+
+def test_a_partially_null_row_does_not_rescue_the_result() -> None:
+    """Every declared column must be non-NULL, not merely one of them.
+
+    `OPTIONAL MATCH` nulls the whole optional half at once, but a future probe
+    could null one column and not another, and a row missing half its declared
+    evidence is still not evidence.
+    """
+    half = ProbeResult(
+        probe_id="x",
+        surface="legacy",
+        rows=({"rel_type": "EXTENDS", "neighbour_labels": None},),
+        informative=("rel_type", "neighbour_labels"),
+    )
+    with pytest.raises(VacuousProbe):
+        require_non_vacuous(half)
+
+
+def test_a_genuinely_populated_row_still_passes() -> None:
+    """The guard must not have become a blanket refusal of this probe."""
+    real = ProbeResult(
+        probe_id="api.graph.node_neighbourhood",
+        surface="legacy",
+        rows=({"rel_type": "EXTENDS", "neighbour_labels": ["Problem"]},),
+        informative=("rel_type", "neighbour_labels"),
+    )
+    assert require_non_vacuous(real) is real
+
+
+def test_every_probe_declares_what_makes_its_rows_informative() -> None:
+    """The structural half of the H-1 fix, asserted.
+
+    `informative` has no default, so this cannot currently fail -- which is the
+    point. The test pins the property so that adding a default (the obvious
+    future convenience) is caught here rather than by the next reviewer.
+    """
+    assert CYPHER_PROBES
+    undeclared = sorted(p.id for p in CYPHER_PROBES if not p.informative)
+    assert undeclared == [], f"probes with no informative columns: {undeclared}"
+
+
+def test_declared_informative_columns_are_actually_returned() -> None:
+    """A typo'd column name would be NULL on every row and fail everything.
+
+    The opposite failure to H-1 and just as damaging: `informative=("rel_typo",)`
+    makes the guard reject perfectly good results forever.
+    """
+    offenders = []
+    for probe in CYPHER_PROBES:
+        for column in probe.informative:
+            if f" AS {column}" not in probe.cypher:
+                offenders.append(f"{probe.id}: {column}")
+    assert offenders == [], f"informative columns not returned by the query: {offenders}"
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +267,10 @@ EMPTY_GRAPH_INPUTS = ProbeInputs(
     paper_doi="10.0/no-such-paper",
     concept_id="no-such-concept",
     trace_id="no-such-trace",
+    cited_doi="10.0/no-such-paper",
+    model_id="no-such-model",
+    method_id="no-such-method",
+    level="no-such-level",
 )
 
 
@@ -185,6 +329,88 @@ def test_parity_between_two_empty_graph_runs_is_refused(empty_surface: Any) -> N
 # ---------------------------------------------------------------------------
 # 3. Against the populated graph — the guard must not fire
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+def test_the_guard_fires_on_a_graph_holding_only_a_bare_anchor_node(
+    empty_surface: Any, empty_graph_driver: Any
+) -> None:
+    """H-1's live reproduction, on unmodified probes.
+
+    A graph containing one edge-less ``:Problem`` and nothing else. Six probes
+    return rows — the label counts, and ``api.graph.node_neighbourhood``'s
+    fabricated all-NULL row — so a row-count guard passes them and a two-run
+    diff reports parity over all six. Every one must now be refused except the
+    ones that legitimately carry information (the bare label counts do: a count
+    of 1 is a real fact about the graph).
+
+    Cleans up after itself so the empty-graph fixture stays empty for the other
+    tests in this module, which assert exactly that.
+    """
+    anchor = "GUARD_PROBE_bare_anchor"
+    with empty_graph_driver.session() as session:
+        session.run(
+            "CREATE (p:Problem {id: $id, statement: $s, status: 'open'})",
+            id=anchor,
+            s="a bare anchor with no edges at all",
+        )
+    try:
+        inputs = ProbeInputs(
+            topic_id="no-such-topic",
+            root_topic_id="no-such-topic",
+            problem_id=anchor,
+            paper_doi="10.0/no-such-paper",
+            concept_id="no-such-concept",
+            trace_id="no-such-trace",
+            cited_doi="10.0/no-such-paper",
+            model_id="no-such-model",
+            method_id="no-such-method",
+            level="no-such-level",
+        )
+        results = run_all_probes(empty_surface, inputs, token="unused")
+        neighbourhood = results["api.graph.node_neighbourhood"]
+
+        # The precondition: Neo4j really did fabricate a row.
+        assert len(neighbourhood.rows) == 1, neighbourhood.rows
+        assert all(value is None for value in neighbourhood.rows[0].values()), (
+            f"expected the OPTIONAL MATCH all-NULL row, got {neighbourhood.rows!r}"
+        )
+
+        # ...and the guard refuses it, on both the single-sided and the
+        # two-run-diff forms.
+        with pytest.raises(VacuousProbe):
+            require_non_vacuous(neighbourhood)
+        again = run_all_probes(empty_surface, inputs, token="unused")
+        with pytest.raises(VacuousProbe):
+            assert_parity(neighbourhood, again["api.graph.node_neighbourhood"])
+    finally:
+        with empty_graph_driver.session() as session:
+            session.run("MATCH (p:Problem {id: $id}) DETACH DELETE p", id=anchor)
+
+
+@pytest.mark.integration
+def test_the_guard_fires_when_the_fixture_anchor_loses_its_edges(
+    legacy_surface: Any, neo4j_repository: Any, compat_graph: FixtureGraph
+) -> None:
+    """The second live reproduction: H-1 inside a fully populated graph.
+
+    Strip the anchor Problem's edges and the neighbourhood probe degrades to
+    the all-NULL row while every other probe stays healthy — so the failure is
+    invisible to any whole-suite row-count check. Both standing coverage
+    assertions in this module are row-count checks, which is why this one is
+    written against the single probe.
+    """
+    anchor = compat_graph.problem_ids[0]
+    with neo4j_repository.session() as session:
+        session.run("MATCH (p:Problem {id: $id})-[r]-() DELETE r", id=anchor)
+
+    results = run_all_probes(
+        legacy_surface, compat_graph.inputs, token=compat_graph.token
+    )
+    neighbourhood = results["api.graph.node_neighbourhood"]
+    assert neighbourhood.rows == ({"rel_type": None, "neighbour_labels": None},)
+    with pytest.raises(VacuousProbe):
+        require_non_vacuous(neighbourhood)
 
 
 @pytest.mark.integration
