@@ -213,12 +213,18 @@ def store_aliases(tree: ast.AST, roots: set[str] | None = None) -> set[str]:
 
     Only a binding whose target is a plain local ``Name`` and whose value is
     already an alias extends the set. Everything else that *contains* an alias —
-    a comprehension, a lambda, a subscript target, a ``global`` rebind — is not
-    an alias to keep following; it is an escape, and :func:`store_offenders`
-    reports it as one.
+    a comprehension, a lambda, a subscript target — is not an alias to keep
+    following; it is an escape, and :func:`store_offenders` reports it as one.
+
+    A ``global``/``nonlocal`` target is deliberately **not** excluded here, and
+    this is the second time that line has been deleted. :func:`store_offenders`
+    consults :func:`rebound_names` independently, so the escaping binding is
+    reported either way and no mutation of the exclusion can change an outcome.
+    What excluding it *did* change was the report: it stopped the alias
+    propagating, so every downstream use of the escaped name went unmentioned.
+    Following the alias costs nothing and reports strictly more.
     """
     aliases = set(roots if roots is not None else store_roots(tree))
-    escaping = rebound_names(tree)
     changed = True
     while changed:
         changed = False
@@ -226,8 +232,6 @@ def store_aliases(tree: ast.AST, roots: set[str] | None = None) -> set[str]:
             if not _is_alias(value, aliases):
                 continue
             if isinstance(target, ast.Name) and target.id not in aliases:
-                if target.id in escaping:
-                    continue
                 aliases.add(target.id)
                 changed = True
     return aliases

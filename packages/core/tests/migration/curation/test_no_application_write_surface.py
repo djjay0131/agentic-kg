@@ -35,7 +35,7 @@ reports every other occurrence, instead of enumerating the shapes it may not.
 A shape-enumerating check protects against the shapes someone thought of, and
 cannot be finished by thinking harder — the language keeps offering new
 positions. A position whitelist fails the other way round: an unanticipated
-construct is unrecognised, and unrecognised is reported. The twenty-five
+construct is unrecognised, and unrecognised is reported. The twenty-six
 parameters of ``test_the_detector_catches_every_known_evasion`` are regression
 evidence for that change, not the mechanism of it.
 
@@ -54,6 +54,8 @@ two application trees AC-1 names. Nothing here widens it.
 
 from __future__ import annotations
 
+import ast
+
 import pytest
 from agentic_kg.migration.config import MigrationConfig
 from agentic_kg.migration.curation import curated_arm, roll_back, run_curation
@@ -67,7 +69,21 @@ from ._synthetic import graded_entity_candidate
 #: * ``PlanExecutor`` — the only write path in the architecture.
 #: * ``isinstance`` — a type test. Retains no reference.
 #: * ``_current_snapshot`` — module-local and read-only.
+#:
+#: The first two are safe by what they *are*: one is the architecture's write
+#: path, the other a builtin. The third is safe only by what this subpackage's
+#: own source happens to say, so it is the only one whose claim needs checking —
+#: see :data:`LOCAL_READ_ONLY_CALLEES` and
+#: ``test_the_snapshot_helper_is_local_and_read_only``, which checks both halves
+#: of that sentence rather than taking the name for it.
 PERMITTED_STORE_CALLEES = frozenset({"PlanExecutor", "isinstance", "_current_snapshot"})
+
+#: The subset of :data:`PERMITTED_STORE_CALLEES` whose entry on that list rests
+#: on a claim about local source rather than on what the callee is. Matching on
+#: a *name* means the whitelist would otherwise admit any function that happened
+#: to be spelled this way — including one imported from a module that does hold
+#: a write surface.
+LOCAL_READ_ONLY_CALLEES = frozenset({"_current_snapshot"})
 
 #: What a store alias may legally be *dereferenced* for. Exactly one read.
 #: ``apply`` is deliberately absent: the executor calls it, this subpackage
@@ -177,16 +193,23 @@ EVASIONS = {
     ),
     "unannotated-new-module": "def helper(store, plan):\n    return store.apply(plan, ())\n",
     "globals-lambda": "def f(store):\n    globals()['_G'] = lambda: store\n",
-    # Not an evasion anyone demonstrated — found by mutating the identity-test
-    # whitelist and discovering no parameter could kill it. A comparison
-    # against anything but None is not a null test.
-    "compare-non-none": "def f(store, other):\n    return store == other\n",
+    # Not evasions anyone demonstrated — found by mutating the comparison
+    # whitelist and discovering no parameter could kill it. That whitelist is a
+    # *conjunction* (``is``/``is not`` **and** against ``None``), so one probe
+    # violating both conjuncts at once cannot tell them apart: either conjunct
+    # surviving alone still satisfies it, and review measured both mutants
+    # passing 113 green. One parameter per conjunct, so each dies separately.
+    #
+    #   compare-identity-non-none: identity, but not against None
+    #   compare-equality-none    : against None, but not identity
+    "compare-identity-non-none": "def f(store, other):\n    return store is other\n",
+    "compare-equality-none": "def f(store):\n    return store == None\n",
 }
 
 
 @pytest.mark.parametrize("name", sorted(EVASIONS))
 def test_the_detector_catches_every_known_evasion(name: str) -> None:
-    """Twenty-five shapes, from four rounds of review. Each must be reported.
+    """Twenty-six shapes, from five rounds of review. Each must be reported.
 
     Eleven of these defeated an earlier version of this scan. They are kept as
     parameters rather than fixed one at a time, because the lesson of those
@@ -217,6 +240,116 @@ def test_the_detector_passes_the_legal_shapes() -> None:
         "    return '0'\n"
     )
     assert _offenders_in(legal) == []
+
+
+def _functions_named(tree: ast.AST, name: str) -> list[ast.AST]:
+    return [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name
+    ]
+
+
+def _names_bound_by_import(tree: ast.AST) -> set[str]:
+    """Every local name an ``import`` statement binds in this module."""
+    bound: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                bound.add(alias.asname or alias.name.split(".")[0])
+    return bound
+
+
+def test_the_snapshot_helper_is_local_and_read_only() -> None:
+    """A name-matched callee is defined where it is used, and cannot write.
+
+    This is the guard that keeps ``_current_snapshot``'s place on
+    ``PERMITTED_STORE_CALLEES`` honest, and it is restored here after a rewrite
+    dropped it. With it gone, review demonstrated the consequence live: a
+    sibling module in this subpackage defining ``_current_snapshot`` with a
+    parameter named neither ``store`` nor annotated (so the scan derives no root
+    from it, and the module is not store-bearing), imported by ``pipeline.py``
+    in place of the local definition, appended the canonical store to a
+    module-global list — and the whole suite stayed green at ``113 passed``.
+
+    Two halves, because the comment on the whitelist makes two claims:
+
+    * **local** — the name is defined by a ``def`` in the module that hands it a
+      store, and is not bound by any import there. An imported
+      ``_current_snapshot`` satisfies the whitelist by spelling alone.
+    * **read-only** — the only attribute it calls is one of
+      ``PERMITTED_STORE_ATTRS``. ``LEAKS.append(store)`` is an attribute call
+      and fails this half even if the function is local.
+
+    Scope is derived, not transcribed: every store-bearing module that actually
+    hands a store to one of these names is checked, so a second caller appearing
+    tomorrow is covered on the day it appears.
+    """
+    checked: list[str] = []
+    for path in _scan.store_bearing_modules(_scan.modules()):
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+        for name in sorted(LOCAL_READ_ONLY_CALLEES):
+            if not _scan.calls_named(source, name):
+                continue
+            checked.append(f"{path.name}:{name}")
+
+            assert name not in _names_bound_by_import(tree), (
+                f"{path.name} imports {name} rather than defining it, so its "
+                f"place on PERMITTED_STORE_CALLEES rests on the spelling of a "
+                f"name and nothing else"
+            )
+            definitions = _functions_named(tree, name)
+            assert definitions, (
+                f"{path.name} hands a store to {name} but does not define it; "
+                f"the whitelist admits it by name, so the body it admits is "
+                f"not the body this test can see"
+            )
+
+            for helper in definitions:
+                called = {
+                    node.func.attr
+                    for node in ast.walk(helper)
+                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                }
+                assert called <= PERMITTED_STORE_ATTRS, (
+                    f"{path.name}:{name} calls "
+                    f"{sorted(called - PERMITTED_STORE_ATTRS)}; only a read from "
+                    f"{sorted(PERMITTED_STORE_ATTRS)} is permitted"
+                )
+
+    assert checked, (
+        "no store-bearing module calls any of LOCAL_READ_ONLY_CALLEES, so this "
+        "test asserted nothing. Either the helper was renamed and the whitelist "
+        "entry is now dead, or the scan stopped finding the module."
+    )
+
+
+def test_a_global_escape_still_reports_what_it_leaks_into() -> None:
+    """Escaping via ``global`` is reported, and so is every use after it.
+
+    A ``global``/``nonlocal`` exclusion in ``store_aliases`` has now been
+    deleted twice. It is unkillable by mutation — ``store_offenders`` consults
+    ``rebound_names`` itself, so the escaping binding is reported either way —
+    which is exactly why it came back looking harmless. It is not harmless: it
+    stops the alias propagating, so the leak *downstream* of the escape vanishes
+    from the report. This pins the reporting, which is the only thing the line
+    ever changed.
+    """
+    escape_then_leak = (
+        "REG = None\n"
+        "def f(store):\n"
+        "    global REG\n"
+        "    REG = store\n"
+        "    return Sink(REG)\n"
+    )
+    reasons = " | ".join(_offenders_in(escape_then_leak))
+    assert "bound into global binding" in reasons, reasons
+    assert "passed to Sink" in reasons, (
+        f"the escape was reported but the leak it enables was not: {reasons}. "
+        f"An alias published into an enclosing scope is still an alias; "
+        f"dropping it from the alias set only shortens the report."
+    )
 
 
 def test_no_returned_object_is_or_holds_a_write_surface(memory_store: object) -> None:
