@@ -18,13 +18,24 @@ is the difference between an honest report and a flattering one.
     evaluation harness with no self-check is a number generator.
 
 ``new``
-    The KGIS/KGCS path. **It has no producer yet.** It is represented as
-    :class:`ArmUnavailable`, not as an ``ArmOutput`` with no candidates — the
-    distinction is the honest-null policy applied one level up from
-    ``MetricValue``. An empty ``ArmOutput`` grades to a measured recall of 0.0,
-    which reads as "the new pipeline found nothing"; the truth is "the new
-    pipeline has not been built". Those are opposite facts and a reader acting
-    on the first would draw exactly the wrong conclusion.
+    The KGIS/KGCS path. **It has no admissible producer yet.** It is
+    represented as :class:`ArmUnavailable`, not as an ``ArmOutput`` with no
+    candidates — the distinction is the honest-null policy applied one level up
+    from ``MetricValue``. An empty ``ArmOutput`` grades to a measured recall of
+    0.0, which reads as "the new pipeline found nothing"; the truth is "the new
+    pipeline produced output the harness declines to grade". Those are opposite
+    facts and a reader acting on the first would draw exactly the wrong
+    conclusion.
+
+    The reason changed, and the change matters. When this module was written
+    the shadow path did not exist. It does now: one run emits 252 candidates,
+    29 of which are gradeable surfaces on the two reconciled papers
+    (``migration/ingestion/arm_export.py``). Every one of them comes from the
+    replay client in ``migration/ingestion/replay.py``, whose responses are
+    **derived from the legacy importer's own committed output**. Grading them
+    as ``new`` would compare the legacy arm against a copy of itself and report
+    a flattering, meaningless score. The missing input is a *model recording*,
+    not a pipeline.
 
 A note on ``ArmOutput.failed``, because it is easy to misread: it is an ``int``
 count of *inputs the arm failed on*, bounded by ``attempted`` — not a flag
@@ -63,6 +74,23 @@ from agentic_kg.migration.evaluation.metrics import (
 LEGACY_ARM = "legacy"
 NEW_ARM = "new"
 GOLD_ARM = "gold"
+
+#: Why the ``new`` arm is unavailable, stated as the reason that is *currently*
+#: true rather than the one that was true when this module was written.
+#:
+#: Kept byte-identical to ``migration.ingestion.arm_export.UNAVAILABLE_REASON``,
+#: which is where the producing side says the same thing. It is restated here
+#: rather than imported because ``evaluation`` must stay importable without the
+#: whole ``kgis`` ingestion stack; the two are asserted to agree by
+#: ``tests/migration/ingestion/test_new_arm_availability.py``.
+UNAVAILABLE_REASON = (
+    "the KGIS shadow path runs, but only against a replay client whose responses "
+    "are derived from the legacy importer's own committed output — not from a "
+    "model. Grading it as the `new` arm would compare the legacy arm against a "
+    "copy of itself and report a meaningless 1.0. A real provider recording "
+    "(kgis RecordingCompletionClient, see migration/ingestion/replay.py) is the "
+    "one remaining step; until it exists this arm is unavailable, not empty."
+)
 
 
 @dataclass(frozen=True)
@@ -253,12 +281,7 @@ def build_new_arm(
     if arm_papers is None:
         return ArmUnavailable(
             arm_id=arm_id,
-            reason=(
-                "the KGIS/KGCS extraction path has no producer yet, so no output exists "
-                "to grade. Reported as unavailable rather than as an empty arm: an empty "
-                "arm grades to a measured recall of 0.0, which asserts that the new "
-                "pipeline found nothing when the fact is that it has not been built."
-            ),
+            reason=UNAVAILABLE_REASON,
         )
     outcomes = filter_candidates(
         tuple(p for p in arm_papers if p.slug in graded_slugs),
@@ -338,6 +361,7 @@ def restrict_to_entity_type(output: ArmOutput, entity_type: str) -> ArmOutput:
 
 __all__ = [
     "GOLD_ARM",
+    "UNAVAILABLE_REASON",
     "LEGACY_ARM",
     "NEW_ARM",
     "ArmResult",

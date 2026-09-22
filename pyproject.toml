@@ -27,30 +27,73 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Kept byte-identical to the `migration` extra in packages/core/pyproject.toml.
-# This distribution ships the same agentic_kg package (see
-# [tool.hatch.build.targets.wheel] below), so both install paths must be able
-# to opt in to the same pins. Re-pin both together.
+# The PINS here must match the `migration` extra in packages/core/pyproject.toml
+# exactly. This distribution ships the same agentic_kg package (see
+# [tool.hatch.build.targets.wheel] below), so both install paths must opt in to
+# the same commits. Re-pin both together; `pin_gate.check()` rejects the two
+# files naming different revisions for the same package, and CI runs it.
+#
+# The surrounding *commentary* is a summary here and the long form in
+# packages/core/pyproject.toml, which is where an adopter of the library reads
+# it. Only the requirement lines are duplicated.
 #
 # OPT-IN: not installed by default, so today's install and CI are unaffected.
 # Exact commit SHAs, not version specifiers — neither repo is on PyPI,
-# agentic-kgis has zero tags, and its version sat at 0.2.0 for 122 commits.
+# agentic-kgis has zero tags, and its version sat at 0.2.0 for 122 commits
+# (it is 0.3.0 at the pin below, but still untagged).
 migration = [
-    # agentic-kgis PR #39 merge commit (fixed `import kgis` failing without
-    # pytest). Ships kg_contracts, kgis, kg_eval.
-    "agentic-kgis @ git+https://github.com/djjay0131/agentic-kgis@baf0b67e34bd2e7921b5da4492860f741d165464",
-    # agentic-kgcs main @ 14ffd0e8 — squash-merge commit of agentic-kgcs#34
-    # (compensation asserts post-application state; ADR-0018). BREAKING, and
-    # a superset of #30, whose behaviour note still applies.
-    # NOTE: after #30, `orcid` is no longer a default strong namespace —
-    # Author entity resolution must pass it explicitly.
-    # NOTE: after #34, `Compensator.compensate()` takes a required
-    # keyword-only `against_snapshot`, `snapshot_guarded` is gone, and
-    # `reversal_data` nests the inverse payload under INVERSE_PAYLOAD_KEY.
-    # ADR-0018 also imposes a STORE OBLIGATION this adapter must honour: a
-    # compensating ATTACH_ASSERTION is an upsert by `assertion_id`, replacing
-    # in place. See packages/core/src/agentic_kg/migration/neo4j/store.py.
-    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@14ffd0e8fde28f265abd41996ede0291b7bfa931",
+    # agentic-kgis @ de48639 = version 0.3.0 (up from 0.2.1 at baf0b67e).
+    # kg_contracts CONTRACT_VERSION is now "2.0.0". Ships kg_contracts, kgis,
+    # kg_eval. Three changes this repo had to act on:
+    #  (a) ADR-0024 - `ConfidencePolicy.route()` takes an `IdentityDisposition`.
+    #      The default is RESOLVED_EXISTING, which reproduces prior routing
+    #      exactly. NOTE: nothing outside kg_contracts passes one at this pin,
+    #      so the AUTO deadlock is fixed in the contract and NOT wired into the
+    #      KGCS producer. Measured in tests/migration/ingestion/
+    #      test_adjudication_routing.py: still 0 of 252 through ResolutionPolicy.
+    #  (b) ADR-0025 - `REVOKE_IDENTITY` is the eighth CurationOperationType and
+    #      the CREATE_IDENTITY inverse. This adapter must apply it or identity
+    #      rollback is impossible; see migration/neo4j/operations.py.
+    #  (c) BEHAVIOUR BREAK - `GraphReadOptions.include_revoked` exists and
+    #      REVOKED records are hidden from every default read, at any epoch.
+    #      This reverses what the adapter previously did (upstream pinned
+    #      revoked-visible-by-default). Safe here: nothing in this repository
+    #      wrote CurationStatus.REVOKED before this pin.
+    "agentic-kgis @ git+https://github.com/djjay0131/agentic-kgis@de48639a7a008debbdb2712e20ca26b7b593b22b",
+    # agentic-kgcs main @ f68d1d7 (up from 14ffd0e8, the squash-merge of #34).
+    # Version still self-reports 1.0.0 - the SHA is the only identity, which is
+    # why packages/core/tests/migration/neo4j/pin_gate.py checks the resolved
+    # commit rather than the version.
+    #
+    # Carried forward from earlier pins and still true:
+    #   - after #30, `orcid` is no longer a default strong namespace, so Author
+    #     entity resolution must pass it explicitly;
+    #   - after #34, `Compensator.compensate()` takes a required keyword-only
+    #     `against_snapshot`, `snapshot_guarded` is gone, and `reversal_data`
+    #     nests the inverse payload under INVERSE_PAYLOAD_KEY. ADR-0018 imposes
+    #     a STORE OBLIGATION this adapter honours: a compensating
+    #     ATTACH_ASSERTION is an upsert by `assertion_id`, replacing in place.
+    #     See packages/core/src/agentic_kg/migration/neo4j/store.py.
+    #
+    # New at f68d1d7:
+    #   - `assertion_id` is minted from `record_seed(fact_id, object,
+    #     valid_period, evidence_refs, provenance)` - CLOCK-FREE. A true replay
+    #     collides onto the record it already minted; the same fact carrying new
+    #     evidence mints a new one. This is the evidence-evolution fix.
+    #   - DEPLOYMENT PREREQUISITE, from that: KGIS's structured reader stamps
+    #     `@snapshot=<version>` into the locator by default, and the locator is
+    #     part of the record seed. Any source read on a SCHEDULE must set
+    #     `include_snapshot_in_locator=False` or it mints a fresh ACTIVE record
+    #     per run for unchanged data (measured: 30 re-syncs -> 30 records
+    #     vs 1). Enforced by migration/ingestion/structured.py; operator
+    #     runbook at docs/operations/structured-resync-runbook.md.
+    #   - `CREATE_IDENTITY` now carries a working inverse (REVOKE_IDENTITY), and
+    #     `ATTACH_ASSERTION` carries a per-subject `assertion_absent` guard, so a
+    #     re-planned replay comes back STALE instead of appending a duplicate.
+    #   - `Compensator._invert`'s legacy reversal_data fallback now RAISES by
+    #     default (opt in with `allow_legacy_reversal_data=True`); a malformed
+    #     INVERSE_PAYLOAD_KEY raises unconditionally.
+    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@f68d1d7186578c2c80989e75b4d3d0e2c81ec911",
 ]
 dev = [
     "pytest>=7.0.0",

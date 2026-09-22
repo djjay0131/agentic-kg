@@ -83,16 +83,26 @@ HERE = Path(__file__).resolve().parent
 #: inside them are discovered. `test_shadow_is_falsifiable` is on the list
 #: because a suite that loses its own falsifiability proof is exactly the state
 #: this gate exists to make visible.
+#:
+#: The three added on the agentic-kgis 0.3.0 / agentic-kgcs f68d1d7 re-pin are
+#: on it for the same reason. They are not ordinary feature tests: they are the
+#: measurements that re-pin reports — the route distribution over the corpus,
+#: the scheduled-re-sync prerequisite, and the honest null behind the `new`
+#: arm. A measurement that can be deleted without the gate noticing is a
+#: measurement whose conclusion outlives its evidence.
 REQUIRED_MODULES: tuple[str, ...] = (
+    "test_adjudication_routing.py",
     "test_arm_export.py",
     "test_config_injection.py",
     "test_corpus.py",
     "test_documents.py",
     "test_identity.py",
     "test_isolation.py",
+    "test_new_arm_availability.py",
     "test_ontology.py",
     "test_shadow_is_falsifiable.py",
     "test_shadow_run.py",
+    "test_structured_locator.py",
 )
 
 #: Floor on the number of required tests.
@@ -102,7 +112,7 @@ REQUIRED_MODULES: tuple[str, ...] = (
 #: with it and reports OK. This is the one value that does not move on its own.
 #: Raise it when the suite grows; a *drop* has to be an explicit edit with a
 #: reason, which is exactly the conversation that was missing.
-MINIMUM_REQUIRED_TESTS = 105
+MINIMUM_REQUIRED_TESTS = 135
 
 #: Tests allowed to skip, with the reason each is allowed to. **Empty.**
 #:

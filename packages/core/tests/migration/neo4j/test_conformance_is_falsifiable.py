@@ -8,8 +8,8 @@ A green conformance run says nothing on its own. A suite wired to a store that
 silently no-ops, or fixtures that make every assertion vacuous, passes exactly
 as convincingly as a correct one. So each defect the shared suite is supposed to
 catch is injected here, one at a time, and the specific test that should notice
-is asserted to fail. The control case — the unmutated adapter passing all seven
-— runs in the same module against the same helper, so "all seven" is measured
+is asserted to fail. The control case — the unmutated adapter passing all ten
+— runs in the same module against the same helper, so "all ten" is measured
 the same way in both directions.
 
 The mutations are applied with ``monkeypatch`` against the real implementation
@@ -36,7 +36,7 @@ from kg_contracts.testing.factories import make_assertion, make_entity
 
 # Imported as a *module*, never `from ... import TestNeo4j...`: binding a
 # `Test`-prefixed class into this namespace would make pytest collect and run
-# the seven contract tests a second time here.
+# the shared contract tests a second time here.
 from . import test_contract_conformance as conformance_module
 from .scenarios import assert_entity_version_guard, assert_valid_time_window_honoured
 
@@ -80,6 +80,9 @@ def test_the_suite_has_the_tests_this_module_assumes() -> None:
         "test_create_and_attach_commits_and_returns_new_epoch",
         "test_entity_readable_after_commit_not_before",
         "test_failed_entity_version_precondition_blocks_commit_atomically",
+        "test_include_superseded_and_include_revoked_are_independent",
+        "test_revoke_identity_hides_entity_and_preserves_creation_epoch",
+        "test_revoked_assertions_hidden_by_default_visible_with_flag",
         "test_snapshot_read_at_old_epoch_hides_later_records",
         "test_superseded_assertions_hidden_by_default_visible_with_flag",
         "test_transaction_at_filters_by_half_open_recorded_superseded_window",
@@ -89,7 +92,7 @@ def test_the_suite_has_the_tests_this_module_assumes() -> None:
 def test_unmutated_adapter_passes_every_contract_test(make_canonical_store) -> None:
     """The control case, measured by the same harness as the mutants."""
     results = run_contract(make_canonical_store)
-    assert len(results) == 7
+    assert len(results) == len(CONTRACT_TESTS)
     failed = [name for name, ok in results.items() if not ok]
     assert failed == []
 
@@ -108,7 +111,87 @@ def _mutate_epoch_never_advances(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _mutate_superseded_always_visible(monkeypatch: pytest.MonkeyPatch) -> None:
     """Serve SUPERSEDED records on a default read."""
-    monkeypatch.setattr(store_module, "_status_visible", lambda status, options: True)
+
+    def always(history, options):  # noqa: ANN001, ANN202
+        return store_module._effective(history, options.curation_epoch)
+
+    monkeypatch.setattr(store_module, "_reported_status", always)
+
+
+def _mutate_revoked_always_visible(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Serve REVOKED records on a default read - this adapter's pre-0.3.0 rule.
+
+    Not a hypothetical defect: it is literally what ``_status_visible`` did
+    before the re-pin, when ``GraphReadOptions`` had no ``include_revoked`` and
+    upstream pinned "revoked is visible by default". Injecting the *old*
+    behaviour and asserting the *new* test reddens is the direct evidence that
+    the new conformance test is testing this adapter for something it was not
+    tested for before.
+    """
+
+    def revoked_visible(history, options):  # noqa: ANN001, ANN202
+        status, at = store_module._effective(history, options.curation_epoch)
+        if status is CurationStatus.SUPERSEDED and not options.include_superseded:
+            return None
+        return status, at
+
+    monkeypatch.setattr(store_module, "_reported_status", revoked_visible)
+
+
+def _mutate_visibility_flags_collapsed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One "show me everything" switch instead of two independent ones.
+
+    The mutant the independence cross-term exists for. It passes *both*
+    single-flag tests - each of those sets up only one non-ACTIVE status - and
+    fails only when both statuses are present and one flag is asked for alone.
+    """
+
+    def collapsed(history, options):  # noqa: ANN001, ANN202
+        show_all = options.include_superseded or options.include_revoked
+        latest, _ = store_module._effective(history, None)
+        status, at = store_module._effective(history, options.curation_epoch)
+        if latest is CurationStatus.REVOKED:
+            return (CurationStatus.REVOKED, at) if show_all else None
+        if status is CurationStatus.SUPERSEDED and not show_all:
+            return None
+        return status, at
+
+    monkeypatch.setattr(store_module, "_reported_status", collapsed)
+
+
+def _mutate_revoke_restamps_creation_epoch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """REVOKE_IDENTITY advances the identity's ``curation_epoch`` to the revoke.
+
+    The defect ADR-0025 argues hardest against: a rollback that erases the
+    record of what it rolled back. The identity is still retained and still
+    reachable with ``include_revoked=True`` - only the epoch stamp moves - so
+    nothing but the epoch assertions can notice.
+    """
+    import json as _json
+
+    from agentic_kg.migration.neo4j.schema import LABEL_IDENTITY, uid
+
+    real = Neo4jCanonicalGraphStore._apply_revoke_identity
+
+    def restamp(self, tx, payload, epoch):  # noqa: ANN001, ANN202
+        touched = real(self, tx, payload, epoch)
+        for identity_id in touched:
+            key = uid(self._namespace, identity_id)
+            row = tx.run(
+                f"MATCH (i:{LABEL_IDENTITY} {{uid: $uid}}) RETURN i.payload AS p", uid=key
+            ).single()
+            doc = _json.loads(row["p"])
+            doc["curation_epoch"] = epoch
+            tx.run(
+                f"MATCH (i:{LABEL_IDENTITY} {{uid: $uid}}) "
+                f"SET i.payload = $p, i.curation_epoch = $e",
+                uid=key,
+                p=_json.dumps(doc),
+                e=epoch,
+            ).consume()
+        return touched
+
+    monkeypatch.setattr(Neo4jCanonicalGraphStore, "_apply_revoke_identity", restamp)
 
 
 def _mutate_snapshot_reads_ignore_epoch(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -151,6 +234,21 @@ MUTANTS: tuple[tuple[str, Callable[[pytest.MonkeyPatch], None], str], ...] = (
         "SUPERSEDED served by default",
         _mutate_superseded_always_visible,
         "test_superseded_assertions_hidden_by_default_visible_with_flag",
+    ),
+    (
+        "REVOKED served by default",
+        _mutate_revoked_always_visible,
+        "test_revoked_assertions_hidden_by_default_visible_with_flag",
+    ),
+    (
+        "visibility flags collapsed into one",
+        _mutate_visibility_flags_collapsed,
+        "test_include_superseded_and_include_revoked_are_independent",
+    ),
+    (
+        "REVOKE_IDENTITY restamps curation_epoch",
+        _mutate_revoke_restamps_creation_epoch,
+        "test_revoke_identity_hides_entity_and_preserves_creation_epoch",
     ),
     (
         "snapshot reads ignore curation_epoch",
@@ -206,10 +304,10 @@ def test_in_place_status_mutation_breaks_the_epoch_read(
     *already-committed* assertion at a later epoch and then reads back at the
     earlier one. So the mutation below (replace the status history instead of
     appending to it, i.e. backdate the new status to the original epoch) leaves
-    all seven contract tests green while destroying the property the
+    all ten contract tests green while destroying the property the
     evidence-evolution scenario depends on.
 
-    This asserts both halves: the seven stay green, and the epoch read goes
+    This asserts both halves: the ten stay green, and the epoch read goes
     wrong. That is why ``test_old_assertion_is_still_active_at_its_own_epoch``
     exists as a separate criterion rather than being folded into "it conforms".
     """
@@ -307,14 +405,14 @@ def test_frozen_version_counter_survives_the_whole_shared_suite(
     ``GraphMutationStoreContract`` only ever asks for ``entity_version="99"``
     against a fresh identity. ``0 != 99`` and ``0 != 99`` — the guard fails
     either way, so freezing the counter changes nothing the suite can see. This
-    asserts that directly: 7/7 green with the counter disabled.
+    asserts that directly: all of them green with the counter disabled.
 
     Run before the next test so the pair reads as "the suite does not catch
     this, and here is what does".
     """
     _mutate_version_counter_frozen(monkeypatch)
     results = run_contract(make_canonical_store)
-    assert len(results) == 7
+    assert len(results) == len(CONTRACT_TESTS)
     assert [name for name, ok in results.items() if not ok] == [], (
         "if the shared suite now catches a frozen version counter, this test "
         "has become obsolete - delete it and the one below"
@@ -361,9 +459,9 @@ def shadowed_contract_methods(cls: type) -> set[str]:
 def test_the_conforming_class_shadows_no_contract_method() -> None:
     """Closes the last hole in ``suite_gate.py``, which junit alone cannot see.
 
-    A subclass that overrides all seven contract methods with ``pass`` (and a
-    ``make_store`` that raises) still emits seven passing testcases under one
-    classname, so the gate reports ``7/7 shared contract tests passed`` and
+    A subclass that overrides all ten contract methods with ``pass`` (and a
+    ``make_store`` that raises) still emits ten passing testcases under one
+    classname, so the gate reports ``10/10 shared contract tests passed`` and
     exits 0. The junit report records *that* the names ran, never *what* ran —
     an XML-level gate cannot distinguish the real body from a stub, and no
     amount of counting or naming fixes that.
@@ -446,13 +544,13 @@ def test_half_dropped_valid_window_survives_the_shared_suite(
 
     ``test_capability_conformance_for_temporal_options`` probes ``valid_at``
     only *inside* the window and *after* it, so an implementation that dropped
-    the ``valid_from`` comparison passes all seven. So did this repo's own
+    the ``valid_from`` comparison passes all ten. So did this repo's own
     façade probe, until a reviewer pointed the mutation at it — 84 passed with
     the lower bound deleted.
     """
     _mutate_valid_from_ignored(monkeypatch)
     results = run_contract(make_canonical_store)
-    assert len(results) == 7
+    assert len(results) == len(CONTRACT_TESTS)
     assert [name for name, ok in results.items() if not ok] == [], (
         "if the shared suite now probes below valid_from, this test and the "
         "one below are obsolete - delete them"
