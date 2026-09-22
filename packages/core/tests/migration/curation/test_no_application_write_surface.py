@@ -35,9 +35,9 @@ reports every other occurrence, instead of enumerating the shapes it may not.
 A shape-enumerating check protects against the shapes someone thought of, and
 cannot be finished by thinking harder — the language keeps offering new
 positions. A position whitelist fails the other way round: an unanticipated
-construct is unrecognised, and unrecognised is reported. The twenty-six
-parameters of ``test_the_detector_catches_every_known_evasion`` are regression
-evidence for that change, not the mechanism of it.
+construct is unrecognised, and unrecognised is reported. The parameters of
+``test_the_detector_catches_every_known_evasion`` are regression evidence for
+that change, not the mechanism of it.
 
 The honest statement of strength is therefore: **no use of a store alias in this
 subpackage occupies a position outside a whitelist of four**, and the module set
@@ -209,13 +209,20 @@ EVASIONS = {
 
 @pytest.mark.parametrize("name", sorted(EVASIONS))
 def test_the_detector_catches_every_known_evasion(name: str) -> None:
-    """Twenty-six shapes, from five rounds of review. Each must be reported.
+    """Every shape five rounds of review have produced. Each must be reported.
 
     Eleven of these defeated an earlier version of this scan. They are kept as
     parameters rather than fixed one at a time, because the lesson of those
     rounds is that the list is never finished — which is why the rule is now a
     position whitelist and these are regression evidence rather than the
     mechanism.
+
+    The count is deliberately not written down. It used to say "twenty-five",
+    and by the time anyone checked, ``EVASIONS`` held twenty-six and then
+    twenty-seven — a number nothing asserts, describing a list designed to grow.
+    That is the same "asserting on a description of behaviour rather than the
+    behaviour" shape this file exists to keep out of the subpackage, so the
+    number is gone rather than corrected.
     """
     offenders = _offenders_in(EVASIONS[name])
     assert offenders, f"the detector missed {name}: {EVASIONS[name]!r}"
