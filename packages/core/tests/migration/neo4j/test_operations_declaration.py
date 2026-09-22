@@ -824,3 +824,98 @@ def test_a_refused_batch_bumps_nothing(make_canonical_store) -> None:
     )
     assert result.committed is False
     assert probe_version(store, entity.identity_id) == before
+
+
+def test_a_revoked_assertion_that_is_later_restored(make_canonical_store) -> None:
+    """The branch the shared suite never reaches: REVOKED, then restored.
+
+    Found by probe, not by review: an unconditional ``raise`` placed in this
+    branch of ``store._reported_status`` left all 585 migration tests green, so
+    it was live code with no coverage and a semantic decision nobody had
+    written down. It is reachable through the public ``apply()`` surface -
+    ``_apply_retract`` accepts ``new_status=REVOKED`` and ``_apply_attach``'s
+    restore path accepts ``restore_status=ACTIVE`` - so "the contract suite
+    does not exercise it" is not the same as "it cannot happen".
+
+    The decision this pins, stated plainly because it is a judgement and not a
+    quotation: ``REVOKED`` is terminal-and-global only while it is the record's
+    *latest* status. Once a record has been restored it is live again, so the
+    global rule stops applying and the ordinary epoch-versioned rule resumes -
+    the record is hidden by default **at the epochs where it was revoked** and
+    visible at the epochs where it was not. The alternative (a record that was
+    ever revoked stays hidden at every epoch forever) would make a restore
+    unobservable on any default read, which is not a restore.
+
+    ``include_superseded`` is asserted not to reveal it, because the
+    independence cross-term has to hold on this path too, not only on the one
+    upstream tests.
+    """
+    store = make_canonical_store()
+    entity, assertion = _seed(store, key="revoke-then-restore")
+    before_revoke = store.current_epoch()
+
+    revoked = store.apply(
+        _batch(
+            "pl_revoke",
+            _op(
+                CurationOperationType.RETRACT_ASSERTION,
+                {
+                    "assertion_id": assertion.assertion_id,
+                    "new_status": CurationStatus.REVOKED.value,
+                    "superseded_at": "2026-08-01T00:00:00+00:00",
+                },
+            ),
+        ),
+        preconditions=(),
+    )
+    assert revoked.committed is True, revoked.error
+    revoked_epoch = revoked.new_epoch
+    assert revoked_epoch is not None and revoked_epoch > before_revoke
+
+    restored = store.apply(
+        _batch(
+            "pl_restore",
+            _op(
+                CurationOperationType.ATTACH_ASSERTION,
+                {
+                    "assertion_id": assertion.assertion_id,
+                    "subject_identity": entity.identity_id,
+                    "restore_status": CurationStatus.ACTIVE.value,
+                },
+            ),
+        ),
+        preconditions=(),
+    )
+    assert restored.committed is True, restored.error
+
+    def ids(**options_kwargs) -> list[str]:
+        return [
+            a.assertion_id
+            for a in store.assertions_for(
+                entity.identity_id, options=GraphReadOptions(**options_kwargs)
+            )
+        ]
+
+    # Latest status is ACTIVE again: an ordinary read sees it, no flags.
+    assert ids() == [assertion.assertion_id]
+
+    # At the epoch where it WAS revoked, a default read must not serve it ...
+    assert ids(curation_epoch=revoked_epoch) == []
+    # ... and the other status's flag must not reveal it either.
+    assert ids(curation_epoch=revoked_epoch, include_superseded=True) == [], (
+        "include_superseded must not reveal a record that was REVOKED at this epoch"
+    )
+    # ... but include_revoked must, at its own epoch, with its own status.
+    at_revoked = store.assertions_for(
+        entity.identity_id,
+        options=GraphReadOptions(curation_epoch=revoked_epoch, include_revoked=True),
+    )
+    assert [a.assertion_id for a in at_revoked] == [assertion.assertion_id]
+    assert at_revoked[0].status is CurationStatus.REVOKED
+
+    # And before the revoke it was simply live: visible, ACTIVE, no flags.
+    at_start = store.assertions_for(
+        entity.identity_id, options=GraphReadOptions(curation_epoch=before_revoke)
+    )
+    assert [a.assertion_id for a in at_start] == [assertion.assertion_id]
+    assert at_start[0].status is CurationStatus.ACTIVE
