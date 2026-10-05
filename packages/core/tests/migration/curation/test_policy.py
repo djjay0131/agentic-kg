@@ -37,6 +37,13 @@ CORPUS_ENTITY_TYPES = {
     "ResearchConcept": 24,
 }
 
+#: Candidates the **unmodified contract default** routes ``AUTO``, re-measured
+#: after the 727df56 (agentic-kgcs #44) re-pin wired ADR-0022's disposition
+#: derivation into ``kgcs.policy.ResolutionPolicy``. At the previous pin this
+#: was 0; it is now the eight DOI-keyed structured ``Paper`` identities. No
+#: graded research entity is among them (see the per-type guard below).
+CONTRACT_DEFAULT_AUTO = 8
+
 
 def test_the_corpus_census_is_what_the_findings_quote(shadow_run) -> None:
     """The denominator and the type census, pinned against the real run.
@@ -61,14 +68,17 @@ def test_the_corpus_census_is_what_the_findings_quote(shadow_run) -> None:
     )
 
 
-def test_the_contract_default_policy_auto_routes_nothing_kgis_produces(
+def test_the_contract_default_policy_now_auto_routes_the_structured_arm(
     shadow_candidates: tuple[object, ...], enabled_config: MigrationConfig
 ) -> None:
-    """The measured deadlock: zero AUTO over the whole committed corpus.
+    """The re-pin closed the deadlock: 8 of 252 AUTO, and they are the Papers.
 
-    Not "few" and not "some" — zero, out of every candidate the eight-paper
-    shadow run emits. The cause is in `policy.py`: ``AUTO`` requires
-    ``identity_confidence``, and nothing in the KGIS/KGCS chain produces one.
+    At the previous pins this measured **0 of 252**. Agentic-kgcs #44 (727df56)
+    wired ADR-0022 into the producer, so ``ResolutionPolicy`` derives each
+    entity candidate's disposition *before* routing and ``NEW_IDENTITY`` no
+    longer demands an absent ``identity_confidence``. The eight that clear the
+    unmoved extraction thresholds are precisely the DOI-keyed structured
+    ``Paper`` entities; the other 244 are deferred, not rejected.
     """
     result = run_curation(
         shadow_candidates,
@@ -77,17 +87,22 @@ def test_the_contract_default_policy_auto_routes_nothing_kgis_produces(
     )
     counts = result.route_counts()
     assert counts, "no candidate was routed at all; the corpus fixture is empty"
-    # The denominator, pinned next to the zero. "0 of 252" is the sentence that
-    # leaves this repo; a bare "no candidate routed AUTO" would stay true over a
-    # corpus of one.
     assert sum(counts.values()) == CORPUS_CANDIDATE_COUNT
-    assert AdjudicationRoute.AUTO.value not in counts, (
-        f"a candidate routed AUTO under the unmodified contract policy: {counts}. "
-        f"If the platform gained an identity_confidence producer this is good "
-        f"news and the PR's findings need rewriting."
+    assert counts.get(AdjudicationRoute.AUTO.value, 0) == CONTRACT_DEFAULT_AUTO
+    assert counts.get(AdjudicationRoute.LLM_ASSESS.value, 0) == (
+        CORPUS_CANDIDATE_COUNT - CONTRACT_DEFAULT_AUTO
     )
-    assert result.plan is None
-    assert result.planned_candidate_ids == ()
+    assert counts.get(AdjudicationRoute.HUMAN.value, 0) == 0
+
+    assert result.plan is not None
+    assert result.operation_counts() == {"CREATE_IDENTITY": CONTRACT_DEFAULT_AUTO}
+    assert len(result.planned_candidate_ids) == CONTRACT_DEFAULT_AUTO
+    # The auto-routed arm is the structured Paper identities, keyed by a
+    # registry — which is why the registered-identifier guard stays inert.
+    auto_ids = set(result.planned_candidate_ids)
+    by_id = {c.candidate_id: c for c in shadow_candidates}
+    assert {by_id[cid].entity_type for cid in auto_ids} == {"Paper"}
+    assert {by_id[cid].producer for cid in auto_ids} == {"kgis.structured"}
 
 
 def test_the_structured_policy_changes_exactly_one_contract_field() -> None:

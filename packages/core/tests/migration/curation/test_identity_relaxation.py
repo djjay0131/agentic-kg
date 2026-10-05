@@ -166,19 +166,25 @@ def test_doi_keyed_paper_identities_are_still_admitted(
     assert result.operation_counts() == {"CREATE_IDENTITY": 8}
 
 
-def test_the_contract_default_policy_is_unaffected() -> None:
-    """With the gate on, the guard is inert — the gate is already the guard.
+def test_the_contract_default_policy_now_mints_so_the_guard_applies() -> None:
+    """ADR-0022 made the guard fire under the default policy too.
 
-    The same two candidates curate without a refusal, because nothing routes
-    ``AUTO`` and no identity is minted. Scoping matters: a guard that fired
-    under the default policy would break every run in this repo.
+    At the previous pins this asserted ``plan is None`` and two deferrals: the
+    identity gate blocked the ``AUTO`` route, so the guard had nothing to do
+    and the contract default was safe by inaction. The 727df56 re-pin derives
+    ``NEW_IDENTITY`` *before* routing, so an entity candidate with an absent
+    ``identity_confidence`` routes ``AUTO`` under the contract default as well.
+    An unkeyed candidate would therefore mint without entity resolution — the
+    exact case this whole rule exists to refuse — so the guard must fire here,
+    not only under the relaxed policy.
     """
-    candidates = one_concept_two_candidates()
-    result = run_curation(
-        candidates, config=enabled(), confidence_policy=CONTRACT_DEFAULT_POLICY
-    )
-    assert result.plan is None
-    assert len(result.deferred) == 2
+    with pytest.raises(UnsafeIdentityRelaxation) as excinfo:
+        run_curation(
+            one_concept_two_candidates(),
+            config=enabled(),
+            confidence_policy=CONTRACT_DEFAULT_POLICY,
+        )
+    assert "Topic" in str(excinfo.value)
 
 
 def test_the_detector_reports_nothing_for_a_registry_keyed_candidate(
@@ -375,14 +381,19 @@ def test_two_papers_with_different_dois_are_not_refused() -> None:
     assert result.operation_counts() == {"CREATE_IDENTITY": 2}
 
 
-def test_the_duplicate_rule_is_inert_under_the_contract_default() -> None:
-    """With the gate on nothing mints, so there is nothing to duplicate."""
+def test_the_duplicate_rule_now_fires_under_the_contract_default() -> None:
+    """Two candidates under one DOI are refused under the default policy too.
+
+    The same shift the sibling above records: the contract default now mints,
+    so a duplicated registered identifier is caught there rather than only
+    under the relaxed policy. The candidate carries a DOI, so it is *keyed* —
+    the duplicate rule is the one that fires, not the unkeyed rule.
+    """
     doi = "10.1007/978-3-031-19433-7_39"
     batch = [doi_keyed("Paper", doi=doi, key="p1"), doi_keyed("Paper", doi=doi, key="p2")]
-    result = run_curation(
-        batch, config=enabled(), confidence_policy=CONTRACT_DEFAULT_POLICY
-    )
-    assert result.plan is None
+    with pytest.raises(UnsafeIdentityRelaxation) as excinfo:
+        run_curation(batch, config=enabled(), confidence_policy=CONTRACT_DEFAULT_POLICY)
+    assert "claimed by 2 candidates" in str(excinfo.value)
 
 
 def test_the_real_corpus_has_distinct_dois_which_is_why_it_missed_this() -> None:
@@ -402,17 +413,17 @@ def test_the_real_corpus_has_distinct_dois_which_is_why_it_missed_this() -> None
     )
 
 
-def test_the_gate_being_on_is_itself_the_guard() -> None:
-    """The short-circuit that keeps this whole rule off the default path.
+def test_a_stated_sufficient_identity_confidence_exempts_the_registry_rule() -> None:
+    """A real score is the ER evidence the gate wants; an absent one is not.
 
-    ``_minting`` returns nothing while ``require_identity_confidence_for_auto``
-    is on, and that early exit is **not** redundant with the
-    ``create_new_identity`` filter: a candidate that carries a real
-    ``identity_confidence`` routes ``AUTO`` and mints *with the gate on*, and it
-    is entitled to — the gate is the ER-equivalent guard, so the
-    registered-identifier rule must not also apply. A surface-keyed candidate
-    minting under the contract default is exactly that case, and removing the
-    short-circuit refuses it.
+    ``_gate_evidenced`` exempts a candidate that mints *because* it carried a
+    stated ``identity_confidence`` clearing the AUTO threshold, so a
+    surface-keyed candidate with genuine ER evidence still commits under the
+    contract default. The control that matters is the sibling with an **absent**
+    score: it mints (ADR-0022) but is *not* exempt, so it is refused. The
+    exemption keys on the score, not on the
+    ``require_identity_confidence_for_auto`` field, because that field no longer
+    decides whether anything mints.
     """
     from ._synthetic import graded_entity_candidate
 

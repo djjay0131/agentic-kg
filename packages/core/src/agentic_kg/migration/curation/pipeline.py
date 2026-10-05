@@ -366,14 +366,22 @@ def unkeyed_new_identities(
 ) -> tuple[EntityCandidate, ...]:
     """Entity candidates this run would mint an identity for without a registry.
 
-    Empty — always — while the identity gate is on, because the gate is itself
-    the guard and nothing routes ``AUTO`` under it. With the gate off, every
-    candidate whose ``ResolutionDecision`` says ``create_new_identity`` must
-    carry an alias that a registry could actually have issued **for a candidate
-    of that type** — namespace, entity type and key spelling all checked
-    together by ``registered_identifier_for``. Checking the namespace alone was
-    the first version, and review defeated it with ``namespace="doi",
-    key="banana"`` on a ``Topic``.
+    Every candidate whose ``ResolutionDecision`` says ``create_new_identity``
+    must carry an alias that a registry could actually have issued **for a
+    candidate of that type** — namespace, entity type and key spelling all
+    checked together by ``registered_identifier_for``. Checking the namespace
+    alone was the first version, and review defeated it with
+    ``namespace="doi", key="banana"`` on a ``Topic``.
+
+    The one exemption is a candidate that carried its own resolution evidence:
+    a *stated* ``identity_confidence`` that clears the active policy's AUTO
+    threshold. That is the gate doing its job with a real score (see
+    :func:`_gate_evidenced`). A candidate that minted on an **absent** score is
+    not exempt — since kg_contracts ADR-0022, an entity candidate routes
+    ``AUTO`` as ``NEW_IDENTITY`` with no ``identity_confidence`` at all, so the
+    old "nothing mints while the gate is on" short-circuit would have left
+    exactly the unkeyed candidate this rule exists to refuse. The block below
+    is therefore keyed on the candidate's evidence, not on the policy field.
 
     Read off the decisions the policy actually made, not re-derived from scores:
     a second implementation of the routing rules here would drift from the one
@@ -395,9 +403,11 @@ def _minting(
 
     One walk, used by both the "nothing unkeyed" rule and the "no two the same"
     rule, so the two cannot disagree about which candidates are in scope.
+
+    Candidates that carried their own resolution evidence are skipped by
+    :func:`_gate_evidenced`; every other minting candidate is returned with the
+    registered identifier that keys it (or ``None`` when nothing does).
     """
-    if confidence_policy.require_identity_confidence_for_auto:
-        return []
     by_id = {candidate.candidate_id: candidate for candidate in candidates}
     minting: list[tuple[EntityCandidate, tuple[str, str] | None]] = []
     for outcome in engine_result.outcomes:
@@ -407,6 +417,8 @@ def _minting(
         candidate = by_id[outcome.candidate_id]
         if not isinstance(candidate, EntityCandidate):
             continue
+        if _gate_evidenced(candidate, confidence_policy):
+            continue
         keyed: tuple[str, str] | None = None
         for alias in candidate.aliases:
             keyed = registered_identifier_for(candidate.entity_type, alias)
@@ -414,6 +426,30 @@ def _minting(
                 break
         minting.append((candidate, keyed))
     return minting
+
+
+def _gate_evidenced(
+    candidate: EntityCandidate, confidence_policy: ConfidencePolicy
+) -> bool:
+    """Whether this candidate's own scores are the ER evidence the gate wants.
+
+    Under ``require_identity_confidence_for_auto`` a candidate that mints with
+    a *stated* ``identity_confidence`` clearing the AUTO threshold supplied
+    resolution evidence, so the registered-identifier rule does not also apply
+    (kg_contracts ``_identity_gate_ok``). The threshold test is the contract's
+    own method rather than a copy of the number, so the two cannot drift.
+
+    The case this exists to *not* exempt is the one kg_contracts ADR-0022
+    introduced: an entity candidate routes ``AUTO`` with an **absent**
+    ``identity_confidence`` (``NEW_IDENTITY``), which the gate treats as
+    not-applicable. That candidate has evidence of nothing, so it still needs a
+    registered identifier. The previous implementation's
+    ``if require_identity_confidence_for_auto: return []`` assumed no entity
+    could mint that way, and stopped being true at the 727df56 re-pin.
+    """
+    if not confidence_policy.require_identity_confidence_for_auto:
+        return False
+    return confidence_policy._identity_confidence_meets_threshold(candidate.scores)
 
 
 def duplicate_registered_identities(
