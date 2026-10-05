@@ -105,7 +105,7 @@ class IngestionResult(BaseModel):
     concepts_linked: int = Field(0, description="Mentions linked to existing concepts")
 
     # Phase 3 counts (V2 entity path — entity-pipeline-orchestration)
-    topics_linked: int = Field(0, description="Paper-BELONGS_TO-Topic edges drawn")
+    topics_linked: int = Field(0, description="Paper-RESEARCHES-Topic edges drawn")
     concepts_v2_linked: int = Field(
         0, description="Paper-DISCUSSES-ResearchConcept edges drawn (V2)"
     )
@@ -566,6 +566,25 @@ async def ingest_papers(
         for paper in search.papers:
             doi = paper.doi
             try:
+                # --- AC-21 skip check: re-ingest cost guard. Runs BEFORE the
+                # AC-13 purge. A paper already extracted under the current
+                # taxonomy is skipped end-to-end, so its stored edges (incl.
+                # Paper→Topic RESEARCHES) are never purged in the first place.
+                # With the purge first, a skippable paper had its topic edges
+                # deleted and the skip check then swallowed the rewrite —
+                # topics identified, then not stored.
+                if (
+                    extract_entities
+                    and not force_reextract
+                    and _can_skip_entity_extraction(repo, doi, taxonomy_hash)
+                ):
+                    result.papers_skipped_complete += 1
+                    _notify(
+                        on_progress, "skipped_complete", doi,
+                        {"reason": "taxonomy_hash matches; extraction complete"},
+                    )
+                    continue
+
                 # --- AC-13 purge guardrail (unchanged from V1). ---
                 if doi and _paper_has_footprint(repo, doi):
                     try:
@@ -588,19 +607,6 @@ async def ingest_papers(
                         result.extraction_errors[doi] = str(e)
                         logger.warning(f"[{trace_id}] {e}")
                         continue
-
-                # --- AC-21 skip check: re-ingest cost guard. ---
-                if (
-                    extract_entities
-                    and not force_reextract
-                    and _can_skip_entity_extraction(repo, doi, taxonomy_hash)
-                ):
-                    result.papers_skipped_complete += 1
-                    _notify(
-                        on_progress, "skipped_complete", doi,
-                        {"reason": "taxonomy_hash matches; extraction complete"},
-                    )
-                    continue
 
                 # --- SM-1: full-text acquisition (published source first,
                 # arXiv fallback). NO abstract fallback: a paper with no
