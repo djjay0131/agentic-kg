@@ -54,13 +54,25 @@ resource "google_compute_instance" "neo4j" {
     }
   }
 
+  # The firewall, not the absence of a NAT IP, is the ingress control.
+  # `neo4j_assign_public_ip` defaults to true so that applying ADR-0003
+  # cannot replace the instance; with the firewall closed the address is
+  # unreachable. Detaching it is a documented follow-up.
   network_interface {
-    network = "default"
-    access_config {} # Ephemeral public IP
+    network = var.network
+
+    dynamic "access_config" {
+      for_each = var.neo4j_assign_public_ip ? [1] : []
+      content {} # Ephemeral public IP
+    }
   }
 
   shielded_instance_config {
     enable_secure_boot = true
+  }
+
+  lifecycle {
+    prevent_destroy = true
   }
 
   metadata = {
@@ -103,18 +115,55 @@ resource "google_compute_instance" "neo4j" {
 }
 
 # =============================================================================
-# Firewall — allow Neo4j ports
+# Network — the subnetwork Neo4j and Cloud Run egress share
+# =============================================================================
+data "google_compute_subnetwork" "neo4j" {
+  name    = var.subnetwork
+  region  = var.region
+  project = var.project_id
+}
+
+locals {
+  # Default to the subnetwork CIDR so Neo4j is reachable only from inside the
+  # VPC (Cloud Run Direct VPC egress sources from this range). ADR-0003.
+  neo4j_source_ranges = length(var.neo4j_allowed_source_ranges) > 0 ? (
+    var.neo4j_allowed_source_ranges
+  ) : [data.google_compute_subnetwork.neo4j.ip_cidr_range]
+}
+
+# =============================================================================
+# Firewall — allow Neo4j ports from inside the VPC only
 # =============================================================================
 resource "google_compute_firewall" "neo4j" {
-  name    = "allow-neo4j-${var.env}"
-  network = "default"
+  name        = "allow-neo4j-${var.env}"
+  network     = var.network
+  description = "Neo4j bolt/http from the VPC subnetwork only. Never 0.0.0.0/0. See ADR-0003."
 
   allow {
     protocol = "tcp"
     ports    = ["7474", "7687"]
   }
 
-  source_ranges = ["0.0.0.0/0"]
+  source_ranges = local.neo4j_source_ranges
+  target_tags   = ["neo4j-server"]
+
+  depends_on = [google_project_service.apis]
+}
+
+# Optional break-glass SSH via Identity-Aware Proxy. IAP is allowed on 22
+# ONLY — never on 7474/7687. See ADR-0003.
+resource "google_compute_firewall" "neo4j_iap_ssh" {
+  count       = var.enable_iap_ssh ? 1 : 0
+  name        = "allow-iap-ssh-neo4j-${var.env}"
+  network     = var.network
+  description = "SSH to the Neo4j VM through IAP only (tcp/22, IAP range). See ADR-0003."
+
+  allow {
+    protocol = "tcp"
+    ports    = ["22"]
+  }
+
+  source_ranges = ["35.235.240.0/20"]
   target_tags   = ["neo4j-server"]
 
   depends_on = [google_project_service.apis]
@@ -134,8 +183,10 @@ resource "google_secret_manager_secret" "neo4j_uri" {
 }
 
 resource "google_secret_manager_secret_version" "neo4j_uri" {
-  secret      = google_secret_manager_secret.neo4j_uri.id
-  secret_data = "bolt://${google_compute_instance.neo4j.network_interface[0].access_config[0].nat_ip}:7687"
+  secret = google_secret_manager_secret.neo4j_uri.id
+  # Internal VPC address: Cloud Run reaches it through Direct VPC egress.
+  # See ADR-0003.
+  secret_data = "bolt://${google_compute_instance.neo4j.network_interface[0].network_ip}:7687"
 }
 
 resource "google_secret_manager_secret" "neo4j_password" {
@@ -166,6 +217,16 @@ resource "google_project_iam_member" "secret_accessor" {
   depends_on = [google_project_service.apis]
 }
 
+# Cloud Run Direct VPC egress runs as this service account; it needs
+# networkUser to attach to the subnetwork. ADR-0003.
+resource "google_project_iam_member" "network_user" {
+  project = var.project_id
+  role    = "roles/compute.networkUser"
+  member  = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+
+  depends_on = [google_project_service.apis]
+}
+
 # =============================================================================
 # Cloud Run — API service
 # =============================================================================
@@ -177,6 +238,16 @@ resource "google_cloud_run_v2_service" "api" {
     scaling {
       min_instance_count = var.api_min_instances
       max_instance_count = var.api_max_instances
+    }
+
+    # Direct VPC egress: Neo4j is private, public APIs still use managed
+    # egress. ADR-0003.
+    vpc_access {
+      network_interfaces {
+        network    = var.network
+        subnetwork = data.google_compute_subnetwork.neo4j.id
+      }
+      egress = var.neo4j_vpc_egress
     }
 
     containers {
@@ -259,6 +330,7 @@ resource "google_cloud_run_v2_service" "api" {
   depends_on = [
     google_project_service.apis,
     google_project_iam_member.secret_accessor,
+    google_project_iam_member.network_user,
     google_secret_manager_secret_version.neo4j_uri,
     google_secret_manager_secret_version.neo4j_password,
   ]
@@ -333,6 +405,15 @@ resource "google_cloud_run_v2_job" "ingest" {
         }
       }
 
+      # Direct VPC egress: same private path to Neo4j as the API. ADR-0003.
+      vpc_access {
+        network_interfaces {
+          network    = var.network
+          subnetwork = data.google_compute_subnetwork.neo4j.id
+        }
+        egress = var.neo4j_vpc_egress
+      }
+
       timeout     = "${var.ingest_job_timeout}s"
       max_retries = 0
     }
@@ -341,6 +422,7 @@ resource "google_cloud_run_v2_job" "ingest" {
   depends_on = [
     google_project_service.apis,
     google_project_iam_member.secret_accessor,
+    google_project_iam_member.network_user,
     google_secret_manager_secret_version.neo4j_uri,
     google_secret_manager_secret_version.neo4j_password,
   ]
@@ -413,25 +495,105 @@ resource "google_cloud_run_v2_service_iam_member" "ui_public" {
 # These secrets are automatically synced to GitHub Actions so CI can run
 # integration tests against the staging environment without manual setup.
 
-resource "github_actions_secret" "staging_neo4j_uri" {
-  count           = var.sync_github_secrets && var.env == "staging" ? 1 : 0
-  repository      = var.github_repo
-  secret_name     = "STAGING_NEO4J_URI"
-  plaintext_value = "bolt://${google_compute_instance.neo4j.network_interface[0].access_config[0].nat_ip}:7687"
-}
-
-resource "github_actions_secret" "staging_neo4j_password" {
-  count           = var.sync_github_secrets && var.env == "staging" ? 1 : 0
-  repository      = var.github_repo
-  secret_name     = "STAGING_NEO4J_PASSWORD"
-  plaintext_value = random_password.neo4j.result
-}
+# Removed by ADR-0003: STAGING_NEO4J_URI / STAGING_NEO4J_PASSWORD. GitHub
+# runners no longer reach Neo4j directly (it is VPC-private), and the
+# credential now has a single source of truth in Secret Manager. Any stale
+# values should be deleted from the repository settings by the owner.
 
 resource "github_actions_secret" "staging_api_url" {
   count           = var.sync_github_secrets && var.env == "staging" ? 1 : 0
   repository      = var.github_repo
   secret_name     = "STAGING_API_URL"
   plaintext_value = google_cloud_run_v2_service.api.uri
+}
+
+# =============================================================================
+# Password rotation (ADR-0003)
+# =============================================================================
+# The rotation job runs INSIDE the VPC (Neo4j is private). The workflow
+# stages the new password in NEO4J_PASSWORD_NEXT so it never has to be
+# passed to the job through logs or execution metadata; the job reads
+# both the current and the next value from Secret Manager.
+
+resource "google_secret_manager_secret" "neo4j_password_next" {
+  secret_id = "NEO4J_PASSWORD_NEXT${var.env == "prod" ? "_PROD" : ""}"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_cloud_run_v2_job" "rotate_password" {
+  name     = "agentic-kg-rotate-neo4j-${var.env}"
+  location = var.region
+
+  template {
+    template {
+      containers {
+        image   = "${var.region}-docker.pkg.dev/${var.project_id}/agentic-kg/job:latest"
+        command = ["python", "-m", "agentic_kg.rotate_password"]
+
+        resources {
+          limits = {
+            memory = "512Mi"
+            cpu    = "1"
+          }
+        }
+
+        env {
+          name = "NEO4J_URI"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.neo4j_uri.secret_id
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "NEO4J_PASSWORD"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.neo4j_password.secret_id
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "NEO4J_PASSWORD_NEXT"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.neo4j_password_next.secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+
+      # Same private path to Neo4j as the other workloads.
+      vpc_access {
+        network_interfaces {
+          network    = var.network
+          subnetwork = data.google_compute_subnetwork.neo4j.id
+        }
+        egress = var.neo4j_vpc_egress
+      }
+
+      timeout     = "300s"
+      max_retries = 0
+    }
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_project_iam_member.secret_accessor,
+    google_project_iam_member.network_user,
+    google_secret_manager_secret_version.neo4j_uri,
+    google_secret_manager_secret_version.neo4j_password,
+  ]
 }
 
 # =============================================================================

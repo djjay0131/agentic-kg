@@ -20,6 +20,56 @@ variable "env" {
   type        = string
 }
 
+# Networking — Neo4j is private (ADR-0003); Cloud Run reaches it via Direct
+# VPC egress.
+variable "network" {
+  description = "VPC network the Neo4j VM and Cloud Run egress attach to"
+  type        = string
+  default     = "default"
+}
+
+variable "subnetwork" {
+  description = "Subnetwork (in var.region) whose CIDR is allowed to reach Neo4j"
+  type        = string
+  default     = "default"
+}
+
+variable "neo4j_allowed_source_ranges" {
+  description = <<-EOT
+    Explicit CIDRs allowed to reach Neo4j on 7474/7687. Empty (the default)
+    means the var.subnetwork CIDR only — never 0.0.0.0/0.
+  EOT
+  type        = list(string)
+  default     = []
+}
+
+variable "neo4j_vpc_egress" {
+  description = "Cloud Run Direct VPC egress mode (PRIVATE_RANGES_ONLY or ALL_TRAFFIC)"
+  type        = string
+  default     = "PRIVATE_RANGES_ONLY"
+
+  validation {
+    condition     = contains(["PRIVATE_RANGES_ONLY", "ALL_TRAFFIC"], var.neo4j_vpc_egress)
+    error_message = "neo4j_vpc_egress must be PRIVATE_RANGES_ONLY or ALL_TRAFFIC."
+  }
+}
+
+variable "neo4j_assign_public_ip" {
+  description = <<-EOT
+    Attach the VM's ephemeral public IP. Defaults to true so applying ADR-0003
+    cannot replace the instance; the firewall is the ingress control. Set false
+    in a maintenance window to detach it (may replace the instance).
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "enable_iap_ssh" {
+  description = "Allow tcp/22 to the Neo4j VM from the IAP range (35.235.240.0/20)"
+  type        = bool
+  default     = true
+}
+
 # Neo4j
 variable "neo4j_machine_type" {
   description = "Machine type for Neo4j VM"
