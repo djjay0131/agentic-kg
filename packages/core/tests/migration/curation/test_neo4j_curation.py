@@ -148,17 +148,19 @@ def test_an_attachment_rolls_back_through_the_real_adapter(
     )
 
 
-def test_a_create_identity_run_is_still_not_reversible_here(
+def test_a_create_identity_run_rolls_back_through_the_real_adapter(
     shadow_candidates: tuple[object, ...],
     enabled_config: MigrationConfig,
     make_canonical_store,
 ) -> None:
-    """The adapter's wider operation support does not create a missing inverse.
+    """The identity rollback the reference store cannot disprove, executed.
 
-    ``CREATE_IDENTITY`` has no inverse in the contract's operation vocabulary,
-    which is a fact about ``kg_contracts``, not about any store. A reader might
-    reasonably expect the richer adapter to fix it; it does not, and the
-    partial rollback is reported the same way here as against the reference.
+    ``CREATE_IDENTITY``'s ``REVOKE_IDENTITY`` inverse arrived at the 0.3.0
+    re-pin, and this adapter applies it. The identities are revoked as
+    tombstones: hidden from ordinary reads, readable under ``include_revoked``,
+    their minting epoch untouched. The test used to assert the *opposite*
+    (``plan is None``, eight non-compensable operations); it was the signal to
+    convert, and it goes red if the inverse disappears again.
     """
     store = make_canonical_store()
     result = run_curation(
@@ -168,39 +170,65 @@ def test_a_create_identity_run_is_still_not_reversible_here(
         confidence_policy=STRUCTURED_IDENTITY_POLICY,
         supported_operations=SUPPORTED_OPERATIONS,
     )
+    minted = [
+        op.payload["identity_id"]
+        for op in result.plan.operations
+        if op.type.value == "CREATE_IDENTITY"
+    ]
     rollback = roll_back(result, store=store, supported_operations=SUPPORTED_OPERATIONS)
-    assert rollback.compensation.plan is None
-    assert len(rollback.non_compensable) == 8
-    assert rollback.fully_reversed is False
-    assert store.current_epoch() == 1
+    assert rollback.compensation.plan is not None
+    assert rollback.non_compensable == ()
+    assert {op.type.value for op in rollback.compensation.plan.operations} == {
+        "REVOKE_IDENTITY"
+    }
+    assert rollback.execution is not None
+    assert rollback.execution.outcome is ExecutionOutcome.COMMITTED
+    assert rollback.fully_reversed is True
+    assert store.current_epoch() == 2
+
+    reader = store.read_only()
+    for identity_id in minted:
+        assert reader.get_entity(identity_id) is None, (
+            f"{identity_id} is still visible to an ordinary read after revoke"
+        )
+        revoked = reader.get_entity(
+            identity_id, GraphReadOptions(include_revoked=True)
+        )
+        assert revoked is not None, f"{identity_id} was deleted rather than revoked"
+        assert revoked.status.value == "REVOKED"
+        assert revoked.curation_epoch == 1, (
+            "revoking must not restamp the identity's minting epoch"
+        )
 
 
-def test_adding_evidence_to_a_fact_deletes_it_from_the_live_graph(
+def test_adding_evidence_to_a_fact_keeps_both_records(
     enabled_config: MigrationConfig, make_canonical_store
 ) -> None:
-    """The release-critical criterion, executed, and it FAILS on the real adapter.
+    """The release-critical criterion, executed, and it now PASSES.
 
-    This is the end of the chain ``test_evidence_evolution.py`` pins statically,
-    run against the database this migration actually targets. It asserts the
-    **broken** behaviour on purpose and goes red the day upstream fixes it.
+    This is the end of the chain ``test_evidence_evolution.py`` asserts, run
+    against the database this migration actually targets. Sequence: attach a
+    fact cited by ``ev_A``; then run the platform's own designed
+    evidence-evolution path (``plan_supersession``) to re-assert it cited by
+    ``ev_A`` and ``ev_B``. Because ``assertion_id`` is now minted from the
+    record seed including evidence, the new record is distinct from the old one,
+    so the plan attaches a new record and retires the old one in its favour.
 
-    Sequence: attach a fact cited by ``ev_A``; then run the platform's own
-    designed evidence-evolution path (``plan_supersession``) to re-assert it
-    cited by ``ev_A`` and ``ev_B``. Because ``assertion_id`` is derived from
-    ``candidate_id`` and ``candidate_id`` excludes evidence, the "new" record is
-    the old record, so the plan marks it superseded by itself.
-
-    The apply reports ``COMMITTED`` — a green result — and the fact is then
-    invisible to an ordinary read. Adding evidence to a fact deleted it. That is
-    strictly worse than the ``STALE`` refusal the pinned-snapshot route gives,
-    because this path is the correct API and it fails silently.
+    The prior test asserted the broken behaviour (one row, superseded by
+    itself, invisible to a live read). This one asserts the fix by identity:
+    two records, the old ``SUPERSEDED`` and still citing ``ev_A``, the new
+    ``ACTIVE`` and citing both, and the old one still readable at its own epoch.
     """
     from datetime import UTC, datetime
 
     from kgcs.clock import FixedClock
     from kgcs.executor import PlanExecutor
 
-    from .test_evidence_evolution import SUBJECT, evidence_candidate, superseding_plan
+    from .test_evidence_evolution import (
+        SUBJECT,
+        evidence_candidate,
+        superseding_plan,
+    )
 
     store = make_canonical_store()
     first = run_curation(
@@ -211,32 +239,48 @@ def test_adding_evidence_to_a_fact_deletes_it_from_the_live_graph(
         supported_operations=SUPPORTED_OPERATIONS,
     )
     assert first.execution.outcome is ExecutionOutcome.COMMITTED
+    attach_epoch = first.execution.new_epoch
 
     reader = store.read_only()
     before = reader.assertions_for(SUBJECT)
+    assert len(before) == 1
+    old_id = before[0].assertion_id
     assert [e.evidence_id for e in before[0].evidence_refs] == ["ev_A"]
 
-    _old, _new, compensable = superseding_plan(store_epoch=store.current_epoch())
+    old, new, designed = superseding_plan(store_epoch=store.current_epoch())
+    assert old_id == old.assertion_id
     executor = PlanExecutor(
         store,
         clock=FixedClock(datetime(2026, 9, 19, tzinfo=UTC)),
         supported_operations=SUPPORTED_OPERATIONS,
     )
-    applied = executor.execute(compensable.plan)
-    assert applied.outcome is ExecutionOutcome.COMMITTED, (
-        "the supersession was refused; this test pins the silent-success failure "
-        "mode and a refusal is a different (and better) one"
-    )
+    applied = executor.execute(designed.plan)
+    assert applied.outcome is ExecutionOutcome.COMMITTED, applied.error
 
-    everything = reader.assertions_for(SUBJECT, GraphReadOptions(include_superseded=True))
+    everything = {
+        a.assertion_id: a
+        for a in reader.assertions_for(SUBJECT, GraphReadOptions(include_superseded=True))
+    }
+    assert set(everything) == {old.assertion_id, new.assertion_id}, (
+        "adding evidence did not produce exactly two records"
+    )
+    retired = everything[old.assertion_id]
+    assert retired.status.value == "SUPERSEDED"
+    assert [e.evidence_id for e in retired.evidence_refs] == ["ev_A"], (
+        "the prior record must still cite its own evidence, not the successor's"
+    )
+    successor = everything[new.assertion_id]
+    assert successor.status.value == "ACTIVE"
+    assert [e.evidence_id for e in successor.evidence_refs] == ["ev_A", "ev_B"]
+
     live = reader.assertions_for(SUBJECT)
-
-    assert len(everything) == 1, "one record id, so one row — not a new record"
-    assert everything[0].status.value == "SUPERSEDED"
-    assert [e.evidence_id for e in everything[0].evidence_refs] == ["ev_A", "ev_B"], (
-        "the new evidence did land on the row — it is the *visibility* that was lost"
+    assert [a.assertion_id for a in live] == [new.assertion_id], (
+        "the fact must stay in the live graph, with the new record current"
     )
-    assert live == [], (
-        "the fact is visible to an ordinary read, so the evidence-evolution "
-        "defect this test pins may be fixed upstream — re-verify and delete this test"
+
+    at_epoch = reader.assertions_for(
+        SUBJECT, GraphReadOptions(curation_epoch=attach_epoch)
+    )
+    assert [a.assertion_id for a in at_epoch] == [old.assertion_id], (
+        "the prior record must still be current at the epoch it held"
     )

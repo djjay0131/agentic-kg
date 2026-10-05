@@ -72,6 +72,11 @@ from kgis.ledger.store import SqliteCandidateLedger  # noqa: E402
 from kgis.ontology import CoverageCounter, Ontology  # noqa: E402
 from kgis.records import NormalizedRecord  # noqa: E402
 from kgis.report import IngestionReport  # noqa: E402
+from kgis.structured import (  # noqa: E402
+    RowProvider,
+    StructuredRecordReader,
+    StructuredSyncConfig,
+)
 from kgis.validate import OntologyCandidateValidator  # noqa: E402
 
 __all__ = [
@@ -106,12 +111,15 @@ __all__ = [
     "Provenance",
     "RecordingCompletionClient",
     "RelationCandidate",
+    "RowProvider",
     "ReplayCompletionClient",
     "ReplayMiss",
     "SourceCoordinates",
     "SourceScoring",
     "SqliteCandidateLedger",
     "SqliteEvidenceRegistry",
+    "StructuredRecordReader",
+    "StructuredSyncConfig",
     "SubmissionStatus",
     "chunk_evidence_id",
     "entity_semantic_key",

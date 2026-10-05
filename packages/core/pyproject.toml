@@ -48,44 +48,93 @@ dependencies = [
 # tags, and its version string sat at 0.2.0 across 122 commits — so a
 # specifier like ">=0.2.1" would pin nothing reproducible at all.
 migration = [
-    # Merge commit on main from agentic-kgis PR #39, which fixed `import kgis`
-    # failing when pytest was absent (an unguarded optional import). This is
-    # the merge commit, not the branch head and not the PR head.
-    # Ships THREE packages: kg_contracts (ports), kgis (ingestion),
-    # kg_eval (evaluation).
-    "agentic-kgis @ git+https://github.com/djjay0131/agentic-kgis@baf0b67e34bd2e7921b5da4492860f741d165464",
-    # agentic-kgcs main @ 14ffd0e8 — the squash-merge commit of agentic-kgcs#34
-    # (a squash: single parent 4eafa83; the PR head 3b3c4b2 is NOT an ancestor)
-    # ("compensation asserts post-application state and carries an applicable
-    # inverse", ADR-0018). Strictly newer than 4eafa83 (#30) and than tag
-    # v1.0.0 (609270e); pinned by SHA because tags are mutable.
+    # agentic-kgis @ de48639 - version 0.3.0, kg_contracts CONTRACT_VERSION
+    # "2.0.0". Up from baf0b67e (0.2.1). Ships THREE packages: kg_contracts
+    # (ports), kgis (ingestion), kg_eval (evaluation). Pinned by SHA, not by
+    # version: agentic-kgis carries zero git tags and its version string sat at
+    # 0.2.0 across 122 commits, so ">=0.2.1" would pin nothing reproducible.
     #
-    # BEHAVIOUR NOTE for callers: after #30, `orcid` is no longer a default
-    # strong namespace, so Author entity resolution must pass it explicitly.
+    # What this re-pin changed, and what this package had to do about it:
     #
-    # BREAKING at #34, all three faces of one defect in the compensation path
-    # (which had never been executable against a readable store):
-    #   (a) `Compensator.compensate(plan, *, against_snapshot)` — required
-    #       keyword-only. The source plan's snapshot guard is rebased onto the
-    #       epoch the original plan committed at, instead of being carried
-    #       verbatim and therefore always STALE. `CompensationResult
-    #       .snapshot_guarded` is REMOVED (it was a constant, not a signal);
-    #       `fully_compensable` survives as a derived property.
-    #   (b) the RETRACT->ATTACH inverse is now a full `Assertion`, not a
-    #       partial restore record.
-    #   (c) `reversal_data` separates the inverse payload from the forward
-    #       lineage under `INVERSE_PAYLOAD_KEY` ("inverse_payload").
+    # (a) ADR-0024, the `identity_confidence` AUTO deadlock.
+    #     `ConfidencePolicy.route()` now takes an `IdentityDisposition`
+    #     (RESOLVED_EXISTING default / NEW_IDENTITY / UNRESOLVED). The default
+    #     reproduces prior routing exactly, so no existing caller changes.
+    #     MEASURED HERE, and it is not the whole story: `kgcs.policy
+    #     .ResolutionPolicy.resolve()` still calls `route(candidate.scores)`
+    #     with one argument, so the fix is not wired into the producer and the
+    #     shadow corpus still routes 0 of 252 to AUTO. Told the disposition each
+    #     candidate warrants, the same policy routes 8. See
+    #     tests/migration/ingestion/test_adjudication_routing.py.
     #
-    # STORE OBLIGATION created by (b), which THIS PACKAGE must satisfy:
-    # ADR-0018 Decision 5 — "a compensating ATTACH_ASSERTION is an UPSERT BY
-    # assertion_id, never an append ... an adapter MUST replace in place".
-    # Replacing in place must not destroy the record's history; see
-    # `Neo4jGraphMutationStore._insert_assertion` and the test named
-    # test_compensating_attach_upserts_without_rewriting_history.
+    # (b) ADR-0025, `REVOKE_IDENTITY`. An eighth `CurationOperationType`, a
+    #     TOMBSTONE, and the `CREATE_IDENTITY` inverse in
+    #     `INVERSE_OPERATION_TYPES`. This adapter APPLIES it: declining it would
+    #     leave every plan that mints an identity un-rollbackable through this
+    #     store. The exhaustiveness assert in migration/neo4j/operations.py is
+    #     what forced that file open on this re-pin.
+    #
+    # (c) BEHAVIOUR BREAK, also ADR-0025. `GraphReadOptions.include_revoked`
+    #     exists, and REVOKED records are returned by no default read, at any
+    #     epoch. This adapter previously did the OPPOSITE - deliberately, and
+    #     correctly for 0.2.1, whose own test pinned revoked-visible-by-default.
+    #     Reviewed and ruled safe here because nothing in this repository ever
+    #     wrote `CurationStatus.REVOKED`: no planner, no compensator and no
+    #     fixture in the shadow path emits `new_status=REVOKED`. The published
+    #     conformance suite now covers `include_revoked` including an
+    #     independence cross-term, and this adapter passes all 10 of its tests.
+    "agentic-kgis @ git+https://github.com/djjay0131/agentic-kgis@de48639a7a008debbdb2712e20ca26b7b593b22b",
+    # agentic-kgcs main @ f68d1d7, up from 14ffd0e8 (the squash-merge of #34).
+    # The version string still self-reports 1.0.0 across both, which is exactly
+    # why the SHA is the pin and why tests/migration/neo4j/pin_gate.py verifies
+    # the RESOLVED commit from direct_url.json rather than the version.
+    #
+    # BEHAVIOUR NOTES carried forward and still in force:
+    #   - after #30, `orcid` is no longer a default strong namespace, so Author
+    #     entity resolution must pass it explicitly;
+    #   - after #34, `Compensator.compensate(plan, *, against_snapshot)` is
+    #     required keyword-only, `CompensationResult.snapshot_guarded` is gone
+    #     (`fully_compensable` survives as a derived property), the
+    #     RETRACT->ATTACH inverse is a full `Assertion`, and `reversal_data`
+    #     nests the inverse payload under INVERSE_PAYLOAD_KEY.
+    #     STORE OBLIGATION from that (ADR-0018 Decision 5): a compensating
+    #     ATTACH_ASSERTION is an UPSERT BY assertion_id, replacing in place
+    #     without destroying history. See `Neo4jGraphMutationStore
+    #     ._insert_assertion` and test_compensating_attach_upserts_without
+    #     _rewriting_history.
+    #
+    # NEW at f68d1d7:
+    #   - `assertion_id` is minted from `record_seed(fact_id, object,
+    #     valid_period, evidence_refs, provenance)`, which is CLOCK-FREE:
+    #     `recorded_at` is deliberately excluded. A true replay therefore
+    #     collides onto the record it already minted, while the same fact
+    #     citing NEW evidence mints a NEW record. This is the evidence-evolution
+    #     fix, asserted BY IDENTITY in tests/migration/neo4j/
+    #     test_evidence_evolution.py.
+    #   - DEPLOYMENT PREREQUISITE that follows from it. The locator is
+    #     `provenance.source_ref`, one of the seed's components, and KGIS's
+    #     `StructuredRecordReader` stamps `@snapshot=<version>` into the locator
+    #     BY DEFAULT. A source read on a schedule whose provider carries an
+    #     explicit snapshot_version (txn id / LSN / watermark) therefore mints a
+    #     fresh ACTIVE record every run for unchanged data - measured, 30
+    #     re-syncs of one unchanged row produce 30 records instead of 1.
+    #     Adopters MUST set `include_snapshot_in_locator=False`. Enforced by
+    #     migration/ingestion/structured.py (which refuses the unsafe value) and
+    #     by an AST check; operator runbook at
+    #     docs/operations/structured-resync-runbook.md.
+    #   - `CREATE_IDENTITY` has a working inverse and identity rollback is
+    #     demonstrated rather than asserted; `REVOKE_IDENTITY` joins
+    #     `DEFAULT_SUPPORTED_OPERATIONS`.
+    #   - `ATTACH_ASSERTION` carries a per-subject `assertion_absent`
+    #     precondition, so a re-planned replay comes back
+    #     `ExecutionOutcome.STALE` before the store is touched.
+    #   - `Compensator._invert`'s legacy `reversal_data` fallback now RAISES by
+    #     default (opt in with `allow_legacy_reversal_data=True`), and a
+    #     malformed INVERSE_PAYLOAD_KEY raises unconditionally.
     #
     # agentic-kgcs depends on agentic-kgis>=0.2.0, satisfied by the git pin
     # above rather than from PyPI.
-    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@14ffd0e8fde28f265abd41996ede0291b7bfa931",
+    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@f68d1d7186578c2c80989e75b4d3d0e2c81ec911",
 ]
 
 [project.scripts]

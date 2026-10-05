@@ -1,64 +1,49 @@
-"""Evidence evolution: a release-critical criterion this pipeline CANNOT meet.
+"""Evidence evolution: the release-critical scenario, now representable.
 
-Read the name of every test here before reading the code. None of them asserts
-that evidence evolution works. Each one **pins a defect** so that it is a
-checked, executable fact rather than a paragraph, and each will go **red the day
-the platform is fixed** — which is the signal to delete it, not to adjust it.
+This module used to pin a defect. It asserted that the pipeline **could not**
+add new evidence to a fact already in the canonical graph, and every test in it
+said so on purpose. agentic-kgcs ``f68d1d7`` fixed that, and this module was the
+signal to replace — not to adjust — so it now asserts the *correct* behaviour.
 
-The chain, verified by execution rather than inferred
------------------------------------------------------
-``agentic_kg.migration.ingestion.papers`` mints ``candidate_id`` from
-``(graph_id, candidate_kind, semantic_key)``. Evidence is **not** an input — and
-that is *correct*: the identity of a fact must not depend on how many sources
-cite it, or corroboration from a second paper becomes a different fact and
-deduplication collapses.
+The fix, in one sentence
+------------------------
+``assertion_id`` used to be a pure function of ``candidate_id`` (which excludes
+evidence), so one fact could hold only one record and supersession — two records
+of one fact, one current — was unrepresentable. At ``f68d1d7`` the planner mints
+the id from ``record_seed(fact, object, valid_period, provenance, evidence)``
+(``kgcs.records``), which keeps **fact identity** and **record identity** apart:
 
-``kgcs.planner.CurationPlanner._assertion`` then derives the record id from the
-fact id::
+* ``candidate_id`` is still derived from ``(graph_id, candidate_kind,
+  semantic_key)`` with evidence **excluded** — still correct, because the same
+  fact cited by a second paper is corroboration, not a second fact;
+* ``assertion_id`` now folds in the evidence (and the origin), so re-asserting
+  the same fact with new evidence mints a **new record**, and the designed
+  supersession path marks the prior record ``SUPERSEDED`` instead of the record
+  superseding itself.
 
-    assertion_id = ids.assertion_id(f"{candidate.candidate_id}:assertion")
+Where each claim is asserted
+----------------------------
+This module is the **fast, producer-level** half: it drives real KGIS
+``Candidate`` objects through ``run_curation`` against the reference
+``MemoryGraphStore`` and asserts the identity claims at that seam. The
+**real-store** half — a supersession actually *applied* against
+``Neo4jCanonicalGraphStore``, so the prior record is observably ``SUPERSEDED``
+and both evidence sets are readable — lives in ``test_neo4j_curation.py`` and
+``tests/migration/neo4j/test_evidence_evolution.py``. The two files used to
+overlap; the store-outcome assertions now live only where a store that supports
+``RETRACT_ASSERTION`` can produce them, and the identity/`record_seed` unit
+tests live here where they need no database at all.
 
-``candidate_id`` identifies a **fact**. ``assertion_id`` identifies a **record of
-that fact at a point in time**. Deriving the second from the first means the
-model cannot hold two records of one fact — which is exactly what bitemporal
-supersession is. That is the defect, and it is upstream in ``kgcs``, not here.
-
-Three routes to "add evidence to a fact already in the graph". All three fail
---------------------------------------------------------------------------------
-1. **Re-attach with ``snapshot_version="0"``** (the ``kgcs`` default) —
-   ``STALE``. The new evidence never lands. Pinned by
-   ``test_re_attaching_with_the_pinned_empty_snapshot_is_refused_as_a_replay``.
-2. **Re-attach with the snapshot read from the store** (this subpackage's
-   default) — ``COMMITTED``, and the evidence does land, by **overwriting the
-   record in place**. The prior record is gone: no ``SUPERSEDED`` row, no
-   ``superseded_at``, nothing retained under ``include_superseded``. History was
-   rewritten, which §9 law 10 forbids. Against the reference
-   ``MemoryGraphStore`` it is worse still — two rows share one ``assertion_id``,
-   the corruption ``kgcs.executor.compensate``'s own docstring warns about.
-   Pinned by ``test_re_attaching_overwrites_the_record_and_loses_the_old_one``.
-3. **The platform's designed path**, ``kgcs.recuration.evolution.plan_supersession``
-   — the new and old assertions are the same record, so the plan attaches a
-   record and then marks *that same record* ``SUPERSEDED``, with
-   ``superseded_by`` pointing at itself. Applied against the real Neo4j adapter
-   it reports ``COMMITTED`` and the fact **disappears from the live graph**.
-   Pinned by ``test_the_designed_supersession_path_supersedes_the_record_by_itself``
-   and its integration companion in ``test_neo4j_curation.py``.
-
-Route 3 is the dangerous one: it is the *correct* API, it returns a green
-result, and it deletes a fact from the readable graph as the direct consequence
-of adding evidence to it.
-
-**No fix is attempted here.** The repair is upstream — let a re-assertion mint a
-new record id for the same fact (derive ``assertion_id`` from the candidate *and*
-its content/evidence, or let the caller supply it) — and it is an
-ontology-semantics decision for the repository owner, not something to settle
-inside a migration PR.
+Not one assertion here is a row count. Counting rows would pass against an
+adapter that appended a duplicate of the prior record, which is the exact
+failure the clock-free seed exists to prevent.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
 from agentic_kg.migration.config import MigrationConfig
 from agentic_kg.migration.curation import CONTRACT_DEFAULT_POLICY, run_curation
 from kg_contracts.assertions import Assertion
@@ -123,7 +108,7 @@ def _enabled() -> MigrationConfig:
 
 
 # --------------------------------------------------------------------------
-# The root cause
+# Fact identity is stable; record identity is not
 # --------------------------------------------------------------------------
 
 
@@ -133,7 +118,8 @@ def test_new_evidence_does_not_change_the_candidate_id() -> None:
     Pinned as the premise of everything below, and pinned as *desirable*: if
     this ever changes, a second paper citing the same fact starts producing a
     second candidate, deduplication collapses, and the graph fills with
-    near-duplicate assertions. The defect is not here.
+    near-duplicate assertions. The fix at ``f68d1d7`` deliberately left this
+    alone — it separated the *record* id, not the *fact* id.
     """
     one = evidence_candidate(("ev_A",))
     two = evidence_candidate(("ev_A", "ev_B"))
@@ -144,16 +130,12 @@ def test_new_evidence_does_not_change_the_candidate_id() -> None:
     )
 
 
-def test_new_evidence_does_not_change_the_assertion_id_either() -> None:
-    """**The defect.** A record id that cannot distinguish two records.
+def test_new_evidence_mints_a_new_assertion_id() -> None:
+    """**The fix.** New evidence now produces a record of its own.
 
-    ``assertion_id`` names a record of a fact at a point in time; deriving it
-    from ``candidate_id`` alone means the model cannot represent the fact as it
-    stood before the new evidence and as it stands after. Supersession is
-    exactly that representation, so supersession cannot be expressed.
-
-    This test goes RED when upstream fixes the derivation. That is the intended
-    signal: delete this module, not this assertion.
+    Same fact (``candidate_id`` equal), different evidence, different
+    ``assertion_id``: exactly the pair of records a supersession needs. Before
+    ``f68d1d7`` these ids were equal and this assertion was its inverse.
     """
     plans = [
         run_curation(
@@ -169,11 +151,77 @@ def test_new_evidence_does_not_change_the_assertion_id_either() -> None:
         for p in plans
     ]
     assert evidence_sets[0] != evidence_sets[1], "the payloads must differ in evidence"
-    assert ids[0] == ids[1], (
-        "assertion_id now distinguishes two evidence states of one fact — the "
-        "upstream defect this module exists to pin has been FIXED. Delete this "
-        "module and write the real evidence-evolution acceptance test."
+    assert ids[0] != ids[1], (
+        "assertion_id is still derived from candidate_id alone, so one fact can "
+        "hold only one record and supersession is unrepresentable — the defect "
+        "this module used to pin has regressed"
     )
+
+
+# --------------------------------------------------------------------------
+# Record id properties, at the planner seam (no database required)
+# --------------------------------------------------------------------------
+
+
+def _seeded_prior():
+    """The prior record, its id backfilled from its own ``record_seed``.
+
+    Built without a store on purpose — the properties below are about the id
+    derivation, not about any adapter.
+    """
+    from kg_contracts.testing.factories import make_assertion
+    from kgcs.records import backfill_record_id
+
+    evidence = (
+        EvidenceRef(evidence_id="ev_A", relationship=EvidenceRelationship.DERIVED_FROM),
+    )
+    draft = make_assertion(
+        subject_identity=SUBJECT,
+        predicate="title",
+        object_value=VALUE,
+        recorded_at=datetime(2026, 9, 18, tzinfo=UTC),
+        evidence_refs=evidence,
+    )
+    return draft.model_copy(update={"assertion_id": backfill_record_id(draft)}), evidence
+
+
+def test_the_minted_id_is_clock_free() -> None:
+    """Re-minting the same successor at a different wall time yields the same id.
+
+    This is the property that makes a true replay collide instead of appending.
+    ``recorded_at`` is the only clock-bearing input moved here; if it reached
+    the seed, these two ids would differ.
+    """
+    from datetime import timedelta
+
+    from kgcs.records import assertion_record_seed
+
+    prior, _ = _seeded_prior()
+    new_evidence = (
+        EvidenceRef(evidence_id="ev_B", relationship=EvidenceRelationship.DERIVED_FROM),
+    )
+    planner = ConceptEvolutionPlanner(snapshot_version="0")
+    once = planner.next_record(prior, evidence_refs=new_evidence, recorded_at=prior.recorded_at)
+    twice = planner.next_record(
+        prior,
+        evidence_refs=new_evidence,
+        recorded_at=prior.recorded_at + timedelta(days=365),
+    )
+    assert once.assertion_id == twice.assertion_id
+    # ... and the difference from the prior is the evidence, nothing else.
+    assert assertion_record_seed(once) != assertion_record_seed(prior)
+
+
+def test_a_true_replay_is_refused_rather_than_duplicated() -> None:
+    """Same fact, same object, *same* evidence: nothing record-distinguishing.
+
+    ``next_record`` refuses to mint it — the successor would collide with the
+    record it is supposedly superseding, which is a replay, not an evolution.
+    """
+    prior, evidence = _seeded_prior()
+    planner = ConceptEvolutionPlanner(snapshot_version="0")
+    with pytest.raises(ValueError, match="nothing record-distinguishing"):
+        planner.next_record(prior, evidence_refs=evidence, recorded_at=prior.recorded_at)
 
 
 # --------------------------------------------------------------------------
@@ -186,8 +234,10 @@ def test_re_attaching_with_the_pinned_empty_snapshot_is_refused_as_a_replay(
 ) -> None:
     """Route 1: ``STALE``. The new evidence never reaches the graph.
 
-    This is the outcome an independent reviewer reported. It reproduces exactly,
-    and it is the *least* harmful of the three: it refuses loudly.
+    Still true after the fix, and for the same reason: the refusal is the
+    *plan-level snapshot guard*, not the record id. A pipeline that pins
+    ``snapshot_version="0"`` commits once in the life of a graph and is inert
+    thereafter; this test is the control that says so.
     """
     kwargs = dict(
         config=_enabled(),
@@ -208,17 +258,17 @@ def test_re_attaching_with_the_pinned_empty_snapshot_is_refused_as_a_replay(
     )
 
 
-def test_re_attaching_leaves_two_rows_sharing_one_assertion_id(
+def test_re_attaching_new_evidence_lands_a_second_distinct_record(
     memory_store: object,
 ) -> None:
-    """Route 2 on the reference store: one record id, two rows, both ACTIVE.
+    """Route 2: no shared id, no overwrite. Two records, each with its own evidence.
 
-    ``kgcs.executor.compensate``'s docstring states the requirement this breaks
-    in as many words: "An ``assertion_id`` identifies a record; attaching it
-    twice is the same record, and an adapter MUST replace in place." The
-    reference ``MemoryGraphStore`` appends instead, so the graph now holds two
-    contradicting rows for one id and the next status change picks one of them
-    arbitrarily.
+    The corruption the pin used to demonstrate — two rows sharing one
+    ``assertion_id``, which ``kgcs.executor.compensate``'s own docstring warns
+    about — cannot happen any more, because the two attaches mint different ids.
+    The full version of this scenario, with the prior record observably
+    ``SUPERSEDED`` rather than merely superseded-by-intent, is applied against
+    the real adapter in ``test_neo4j_curation.py``.
     """
     kwargs = dict(
         config=_enabled(),
@@ -230,8 +280,8 @@ def test_re_attaching_leaves_two_rows_sharing_one_assertion_id(
     assert second.execution.outcome is ExecutionOutcome.COMMITTED
 
     rows = memory_store.assertions_for(SUBJECT)
-    assert len(rows) == 2, "the reference store no longer appends a duplicate row"
-    assert len({a.assertion_id for a in rows}) == 1, "the two rows must share one id"
+    assert len(rows) == 2
+    assert len({a.assertion_id for a in rows}) == 2, "the two records must not share an id"
     assert [[e.evidence_id for e in a.evidence_refs] for a in rows] == [
         ["ev_A"],
         ["ev_A", "ev_B"],
@@ -270,22 +320,31 @@ def superseding_plan(store_epoch: int):
     return old, new, result
 
 
-def test_the_designed_supersession_path_supersedes_the_record_by_itself() -> None:
-    """Route 3: ``plan_supersession`` emits a record that supersedes itself.
+def test_the_designed_supersession_path_targets_a_distinct_successor() -> None:
+    """Route 3: ``plan_supersession`` now retires the old record in favour of a new one.
 
-    ATTACH(x) followed by RETRACT(x, superseded_by=x). Nothing in ``kgcs``
-    rejects it, because from the planner's point of view it was handed two
-    distinct assertions; they are only the same record because of the id
-    derivation two layers up.
+    ``ATTACH(new)`` followed by ``RETRACT(old, superseded_by=new)``. The record
+    being retired and the record that replaces it are different records, which
+    is what makes this a supersession rather than the self-deletion it used to
+    be. Applied against the real adapter, that leaves the old record
+    ``SUPERSEDED`` and the new one current — asserted in ``test_neo4j_curation.py``.
     """
     old, new, result = superseding_plan(store_epoch=1)
-    assert old.assertion_id == new.assertion_id
+    assert old.assertion_id != new.assertion_id, (
+        "the old and new assertions are the same record again — the upstream "
+        "fix this module exists to assert has regressed"
+    )
 
     types = [op.type.value for op in result.plan.operations]
     assert types == ["ATTACH_ASSERTION", "RETRACT_ASSERTION"]
 
+    attached = result.plan.operations[0].payload
     retract = result.plan.operations[1].payload
-    assert retract["assertion_id"] == retract["superseded_by"], (
-        "the retraction no longer names the attached record as its own "
-        "successor — the upstream defect may be fixed; re-check this module"
+    assert attached["assertion_id"] == new.assertion_id
+    assert retract["assertion_id"] == old.assertion_id
+    assert retract["superseded_by"] == new.assertion_id, (
+        "the retraction no longer names the new record as its successor"
+    )
+    assert retract["assertion_id"] != retract["superseded_by"], (
+        "the record supersedes itself again — supersession has regressed"
     )

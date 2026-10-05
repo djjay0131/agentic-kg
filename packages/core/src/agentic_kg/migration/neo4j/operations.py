@@ -8,9 +8,14 @@ executor would hand the store an operation it cannot apply, and the only thing
 standing between that and a crash is the executor's defensive
 ``NotImplementedError`` catch.
 
-So the enumeration below is exhaustive over `CurationOperationType` — all seven
+So the enumeration below is exhaustive over `CurationOperationType` — all eight
 values, each either supported with its semantics stated or excluded with its
 reason stated. There is no "everything else" bucket.
+
+The assert at the foot of this module is what forced this file open on the
+0.3.0 re-pin: `REVOKE_IDENTITY` arrived as an eighth member and the import
+failed naming it, rather than the new type falling silently into an unstated
+bucket. That is the assert working, not a regression.
 
 Why the executor default is not enough
 --------------------------------------
@@ -34,7 +39,7 @@ from __future__ import annotations
 from agentic_kg.migration.neo4j._contracts import CurationOperationType
 
 #: Operation types :class:`~agentic_kg.migration.neo4j.store.Neo4jCanonicalGraphStore`
-#: applies. Six of the seven.
+#: applies. Seven of the eight.
 #:
 #: * ``CREATE_IDENTITY`` — upserts a ``Canon__Identity`` node stamped with the
 #:   committing epoch. Matches the reference store: re-creating an existing
@@ -54,6 +59,15 @@ from agentic_kg.migration.neo4j._contracts import CurationOperationType
 #: * ``SPLIT_IDENTITY`` — the inverse: restores identities previously merged
 #:   into the source, using the lineage ``MERGE_IDENTITIES`` recorded.
 #: * ``REASSIGN_ASSERTION`` — moves one assertion from one subject to another.
+#: * ``REVOKE_IDENTITY`` — the ``CREATE_IDENTITY`` inverse (kg_contracts 2.0.0,
+#:   ADR-0025). A **tombstone**: it appends a ``REVOKED`` status entry and
+#:   leaves the identity's original ``curation_epoch`` alone, so the record of
+#:   what a rolled-back run created survives an epoch-scoped read. Supporting
+#:   it is not optional for this adapter: ``INVERSE_OPERATION_TYPES`` maps
+#:   ``CREATE_IDENTITY -> REVOKE_IDENTITY``, so declining it would make every
+#:   plan that mints an identity un-rollbackable through this store —
+#:   ``PlanExecutor`` would return ``UNSUPPORTED_OPERATION`` for the
+#:   compensating plan with the identity already committed.
 SUPPORTED_OPERATIONS: frozenset[CurationOperationType] = frozenset(
     {
         CurationOperationType.CREATE_IDENTITY,
@@ -62,6 +76,7 @@ SUPPORTED_OPERATIONS: frozenset[CurationOperationType] = frozenset(
         CurationOperationType.MERGE_IDENTITIES,
         CurationOperationType.SPLIT_IDENTITY,
         CurationOperationType.REASSIGN_ASSERTION,
+        CurationOperationType.REVOKE_IDENTITY,
     }
 )
 
@@ -85,7 +100,7 @@ UNSUPPORTED_REASONS: dict[CurationOperationType, str] = {
     ),
 }
 
-# The enumeration must stay exhaustive: adding an eighth CurationOperationType
+# The enumeration must stay exhaustive: adding a ninth CurationOperationType
 # upstream should break this import, not silently fall into an unstated bucket.
 assert SUPPORTED_OPERATIONS | UNSUPPORTED_OPERATIONS == frozenset(CurationOperationType), (
     "SUPPORTED_OPERATIONS + UNSUPPORTED_OPERATIONS must cover every "

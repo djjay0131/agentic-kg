@@ -62,12 +62,22 @@ from agentic_kg.migration.ingestion.replay import (
     save_recording,
 )
 from agentic_kg.migration.ingestion.stores import ShadowStores
+from agentic_kg.migration.ingestion.structured import (
+    INCLUDE_SNAPSHOT_IN_LOCATOR,
+    SNAPSHOT_LOCATOR_MARKER,
+    SnapshotLocatorRefused,
+    locator_is_resync_safe,
+    structured_config,
+    structured_reader,
+)
 
 __all__ = [
     "GRADED_SLUGS",
     "GRAPH_ID",
+    "INCLUDE_SNAPSHOT_IN_LOCATOR",
     "ONTOLOGY_VERSION",
     "RESEARCH_ONTOLOGY",
+    "SNAPSHOT_LOCATOR_MARKER",
     "UNAVAILABLE_REASON",
     "CorpusError",
     "CorpusPaper",
@@ -81,6 +91,7 @@ __all__ = [
     "ShadowIngestionDisabled",
     "ShadowRunResult",
     "ShadowStores",
+    "SnapshotLocatorRefused",
     "as_arm_payload",
     "assert_no_live_provider",
     "build_shadow_pipeline",
@@ -88,6 +99,7 @@ __all__ = [
     "join_key",
     "load_corpus",
     "load_paper",
+    "locator_is_resync_safe",
     "norm",
     "normalize_doi",
     "parse_fragment",
@@ -98,5 +110,7 @@ __all__ = [
     "run_shadow_ingestion",
     "save_recording",
     "span_digest",
+    "structured_config",
+    "structured_reader",
     "to_arm_papers",
 ]

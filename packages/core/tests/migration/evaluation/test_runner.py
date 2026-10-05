@@ -17,6 +17,7 @@ from agentic_kg.migration.evaluation.arms import (
     GOLD_ARM,
     LEGACY_ARM,
     NEW_ARM,
+    UNAVAILABLE_REASON,
     ArmUnavailable,
     build_new_arm,
 )
@@ -426,10 +427,20 @@ def test_the_gate_never_hides_a_decision_independent_value(report) -> None:
 
 
 def test_the_new_arm_is_unavailable_not_empty(report) -> None:
-    """The distinction is the whole point: 'not built' != 'found nothing'."""
+    """The distinction is the whole point: 'declined' != 'found nothing'.
+
+    The reason was updated when the shadow path landed. It used to say the
+    pipeline "has not been built", which is no longer true — it runs, and emits
+    29 gradeable surfaces on this corpus. What it lacks is a *model recording*,
+    so its output is derived from the legacy arm and grading it would be a
+    self-comparison. ``UNAVAILABLE_REASON`` is that sentence; the counts behind
+    it are measured in
+    ``tests/migration/ingestion/test_new_arm_availability.py``.
+    """
     new = report.arm(NEW_ARM)
     assert not new.available
-    assert "no producer yet" in new.unavailable_reason
+    assert new.unavailable_reason == UNAVAILABLE_REASON
+    assert "replay client" in new.unavailable_reason
     assert new.typed == ()
     assert new.overall is None
     # And it is absent from the kg_eval result rather than present with zeros.

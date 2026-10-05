@@ -132,9 +132,11 @@ class UnsafeIdentityRelaxation(RuntimeError):
 
     The policy, however, is batch-wide while that argument is candidate-level.
     Review of this subpackage demonstrated the gap: two ``Topic`` candidates for
-    one concept minting two identities, irreversibly, because
-    ``CREATE_IDENTITY`` has no inverse. Nothing held the line except the LLM
-    extractor's scores happening to keep graded entities away from ``AUTO``.
+    one concept each minting its own identity, with nothing downstream merging
+    them. That stays true now that ``CREATE_IDENTITY`` has a ``REVOKE_IDENTITY``
+    inverse (ADR-0025) — rolling the duplicates back is a plan a caller has to
+    remember to run, not deduplication — and nothing held the line except the
+    LLM extractor's scores happening to keep graded entities away from ``AUTO``.
 
     So the argument is enforced here rather than documented: with the gate off,
     a candidate that would mint an identity must carry an alias in
@@ -252,11 +254,11 @@ def _current_snapshot(store: GraphMutationStore | None) -> str:
 
     The trade it makes is real and is not hidden. ``CREATE_IDENTITY`` keeps its
     own ``entity_version=0`` guard, so replaying a create is still refused by
-    the store. ``ATTACH_ASSERTION`` emits no per-subject guard (knowing a
-    subject's version needs a graph read the deterministic core does not do —
-    KGCS ADR candidate 0003), so with the snapshot guard satisfied, replaying an
-    attach is **not** refused by either layer. Per-subject preconditions are the
-    fix and they are upstream work.
+    the store. Since ``f68d1d7`` an ``ATTACH_ASSERTION`` carries an
+    ``assertion_absent`` guard naming ``(subject_identity, assertion_id)``
+    (KGCS ADR-0019), so replaying an attach is refused too — by the executor's
+    precondition check against the store's reader, before the payload is
+    touched.
     """
     if isinstance(store, GraphReader):
         return str(store.current_epoch())
@@ -527,8 +529,9 @@ def run_curation(
             f"canonical identity in this batch: {shown}. The relaxed identity gate "
             "rests on the claim that two candidates carrying the same registered "
             "identifier are the same thing — but nothing in this chain dedupes "
-            "them, so each would mint its own identity and CREATE_IDENTITY has no "
-            "inverse. Refused rather than duplicated. Resolving them into one "
+            "them, so each would mint its own identity and the duplicates would "
+            "persist as separate identities. Refused rather than duplicated. "
+            "Resolving them into one "
             "identity is entity resolution and belongs upstream; until it exists, "
             "submit one candidate per identifier."
         )
@@ -543,9 +546,9 @@ def run_curation(
             f"identifier that could have issued it for that entity type: {offenders}"
             + (" ..." if len(unkeyed) > 5 else "")
             + ". Minting an identity without entity resolution is how two "
-            "candidates for one concept become two identities, and "
-            "CREATE_IDENTITY has no inverse, so it cannot be rolled back. "
-            "Relaxing the identity gate is defensible only for entities keyed "
+            "candidates for one concept become two identities, and nothing "
+            "downstream merges them. Relaxing the identity gate is defensible "
+            "only for entities keyed "
             "by a registry (namespaces: "
             f"{sorted(REGISTERED_IDENTIFIER_NAMESPACES)}). Either wire entity "
             "resolution, or curate these candidates under the contract-default "

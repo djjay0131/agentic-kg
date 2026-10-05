@@ -1,11 +1,13 @@
 """Rollback: a compensating plan through the same executor, and what it cannot undo.
 
-The headline finding lives here. The plan this repo's curation path actually
-emits today is ``CREATE_IDENTITY`` operations, and ``CREATE_IDENTITY`` has **no
-inverse** in the v1 ``CurationOperationType`` vocabulary. So a committed
-curation run on this pipeline is, right now, not reversible — and the tests
-below assert that rather than papering over it with an ``execution=None`` that
-a reader would take for "there was nothing to undo".
+The plan this repo's curation path emits today is ``CREATE_IDENTITY``
+operations. Before the 0.3.0 re-pin ``CREATE_IDENTITY`` had **no inverse**, so a
+committed curation run was not reversible and the tests here asserted that
+rather than papering over it with an ``execution=None`` a reader would take for
+"there was nothing to undo". At ``f68d1d7`` the contract gained
+``REVOKE_IDENTITY`` as its inverse (KGIS ADR-0025), so the tests now assert the
+rollback that *is* available — and that it is a tombstone: the identity is
+revoked and hidden from ordinary reads, not deleted.
 """
 
 from __future__ import annotations
@@ -20,21 +22,25 @@ from agentic_kg.migration.curation import (
     roll_back,
     run_curation,
 )
+from kg_contracts.assertions import CurationStatus
+from kg_contracts.stores import GraphReadOptions
 from kgcs.executor.executor import ExecutionOutcome
 
 from ._synthetic import attachable_attribute_candidate, graded_entity_candidate
 
 
-def test_a_create_identity_plan_is_not_reversible_and_says_so(
+def test_a_create_identity_plan_is_reversible_and_says_so(
     shadow_candidates: tuple[object, ...],
     enabled_config: MigrationConfig,
     memory_store: object,
 ) -> None:
-    """Every operation lands in ``non_compensable``; no compensating plan exists.
+    """Every operation compensates to ``REVOKE_IDENTITY``; the rollback commits.
 
-    ``fully_reversed`` must be False. The failure mode this guards is a caller
-    reading ``execution is None`` as "nothing needed undoing" and reporting a
-    clean rollback of eight identities that are still in the graph.
+    ``fully_reversed`` must be True, but only because the plan was complete
+    *and* the store accepted it — the two halves are separately necessary (see
+    ``test_fully_reversed_needs_both_a_complete_plan_and_a_committed_apply``).
+    This test is the counterpart of the one that pinned the missing inverse; it
+    goes red if ``CREATE_IDENTITY`` loses its ``REVOKE_IDENTITY`` inverse.
     """
     result = run_curation(
         shadow_candidates,
@@ -45,23 +51,28 @@ def test_a_create_identity_plan_is_not_reversible_and_says_so(
     assert result.committed
 
     rollback = roll_back(result, store=memory_store)
-    assert rollback.compensation.plan is None
-    assert len(rollback.non_compensable) == 8
-    assert {op.type.value for op in rollback.non_compensable} == {"CREATE_IDENTITY"}
-    assert rollback.execution is None
-    assert rollback.fully_reversed is False
-    assert memory_store.current_epoch() == 1
+    plan = rollback.compensation.plan
+    assert plan is not None
+    assert rollback.non_compensable == ()
+    assert {op.type.value for op in plan.operations} == {"REVOKE_IDENTITY"}
+    assert rollback.execution is not None
+    assert rollback.execution.outcome is ExecutionOutcome.COMMITTED
+    assert rollback.execution.is_compensation is True
+    assert rollback.fully_reversed is True
+    assert memory_store.current_epoch() == 2
 
 
-def test_the_identities_are_still_in_the_graph_after_a_failed_rollback(
+def test_the_identities_are_revoked_not_deleted_after_a_rollback(
     shadow_candidates: tuple[object, ...],
     enabled_config: MigrationConfig,
     memory_store: object,
 ) -> None:
-    """"Not reversible" is a fact about the graph, not only about the result.
+    """"Reversed" is a tombstone, not a deletion: revoked, hidden, still there.
 
-    Read back through the store. A rollback reported as partial while the data
-    had in fact disappeared would be just as wrong as the reverse.
+    Read back through the store. The identity must be gone from an ordinary
+    read and visible under ``include_revoked``, with its minting epoch
+    preserved — the same tombstone semantics ``REVOKE_IDENTITY`` has on the
+    canonical adapter, asserted here on the reference store rather than assumed.
     """
     result = run_curation(
         shadow_candidates,
@@ -74,8 +85,21 @@ def test_the_identities_are_still_in_the_graph_after_a_failed_rollback(
         for op in result.plan.operations
         if op.type.value == "CREATE_IDENTITY"
     ]
-    roll_back(result, store=memory_store)
-    assert all(memory_store.get_entity(i) is not None for i in minted)
+    rolling = roll_back(result, store=memory_store)
+    assert rolling.fully_reversed is True
+
+    for identity_id in minted:
+        assert memory_store.get_entity(identity_id) is None, (
+            f"{identity_id} is still visible to an ordinary read after revoke"
+        )
+        revoked = memory_store.get_entity(
+            identity_id, options=GraphReadOptions(include_revoked=True)
+        )
+        assert revoked is not None, f"{identity_id} was deleted rather than revoked"
+        assert revoked.status is CurationStatus.REVOKED
+        assert revoked.curation_epoch == 1, (
+            "revoking must not restamp the identity's minting epoch"
+        )
 
 
 def test_an_attach_assertion_compensates_to_a_retraction(

@@ -823,3 +823,164 @@ def test_restore_record_cannot_be_used_to_retract(evolved) -> None:
         _restore_op(old_id, entity.identity_id, restore_status=CurationStatus.ACTIVE.value),
     )
     assert old_id in {a.assertion_id for a in store.assertions_for(entity.identity_id)}
+
+
+# --- evidence evolution proper: same fact, new evidence -> a NEW record -------
+#
+# Everything above supersedes one *hand-built* assertion with another. That
+# exercises the store, not the identity rule: the two ids were independent
+# inputs, so "a new record appeared" was true by construction.
+#
+# agentic-kgcs f68d1d7 changes where an `assertion_id` comes from. It is now
+# minted from `record_seed(fact_id, object, valid_period, evidence_refs,
+# provenance)` -- **clock-free**, so a true replay (same fact, same object, same
+# evidence) collides onto the record it already minted, while the same fact
+# carrying NEW evidence hashes to a DIFFERENT id and is a new record.
+#
+# The **identity and seed properties** are asserted without a database in
+# `tests/migration/curation/test_evidence_evolution.py`, which drives the real
+# producer (`run_curation`) against the reference store and covers a distinct
+# record id, clock-freeness, and true-replay refusal. That module and this one
+# used to overlap; the unit-level claims now live there and this module keeps
+# only what needs the real adapter: the store-applied guarantees below, asserted
+# **by identity** rather than by row count, because counting rows would pass
+# against an adapter that appended a duplicate of the prior record.
+
+
+@pytest.fixture
+def evidence_evolution(make_canonical_store):
+    """One fact, promoted and asserted, then re-asserted citing new evidence.
+
+    The prior assertion's id is **backfilled from its own record seed**
+    (`kgcs.records.backfill_record_id`) rather than left as the model default,
+    because the property under test is a relation between two seeded ids. A
+    prior whose id came from somewhere else would make "the ids differ" true for
+    an uninteresting reason.
+    """
+    from kg_contracts.evidence import EvidenceRef, EvidenceRelationship
+    from kgcs.records import assertion_record_seed, backfill_record_id
+
+    store = make_canonical_store()
+    executor = PlanExecutor(store, supported_operations=SUPPORTED_OPERATIONS)
+
+    entity = make_entity(key="evidence-evolution")
+    first_evidence = (
+        EvidenceRef(evidence_id="ev_original", relationship=EvidenceRelationship.SUPPORTS),
+    )
+    draft = make_assertion(
+        subject_identity=entity.identity_id,
+        predicate="interpretation",
+        object_value="the original reading",
+        recorded_at=T0,
+        evidence_refs=first_evidence,
+    )
+    prior = draft.model_copy(update={"assertion_id": backfill_record_id(draft)})
+
+    create = executor.execute(
+        _planner("0")
+        .plan_promotion(
+            candidate=_entity_candidate_for(entity),
+            trigger=_trigger("promote"),
+            identity_id=entity.identity_id,
+        )
+        .plan
+    )
+    assert create.outcome is ExecutionOutcome.COMMITTED, create.error
+
+    attach = executor.execute(
+        _planner(str(create.new_epoch))
+        .plan_relabel(label_assertion=prior, trigger=_trigger("original evidence"))
+        .plan
+    )
+    assert attach.outcome is ExecutionOutcome.COMMITTED, attach.error
+
+    new_evidence = (
+        EvidenceRef(evidence_id="ev_corroborating", relationship=EvidenceRelationship.SUPPORTS),
+    )
+    planner = _planner(str(attach.new_epoch))
+    successor = planner.next_record(prior, evidence_refs=new_evidence, recorded_at=T1)
+
+    supersede_plan = planner.plan_supersession(
+        old_assertion=prior, new_assertion=successor, trigger=_trigger("new evidence")
+    ).plan
+    supersede = executor.execute(supersede_plan)
+    assert supersede.outcome is ExecutionOutcome.COMMITTED, supersede.error
+
+    return {
+        "store": store,
+        "executor": executor,
+        "entity": entity,
+        "prior": prior,
+        "successor": successor,
+        "first_evidence": first_evidence,
+        "new_evidence": new_evidence,
+        "attach_epoch": attach.new_epoch,
+        "supersede_plan": supersede_plan,
+        "seed": assertion_record_seed,
+    }
+
+
+def test_replaying_the_committed_plan_is_refused_by_the_assertion_absent_guard(
+    evidence_evolution,
+) -> None:
+    """The executor's half of the same rule, against our store's reader.
+
+    A re-planned replay of an already-committed ATTACH must not append a second
+    copy. ``PlanExecutor`` reads the store back through the
+    ``assertion_absent`` precondition and returns ``STALE`` *before touching
+    it*, naming the guard that failed.
+    """
+    store = evidence_evolution["store"]
+    before = store.current_epoch()
+
+    replay = evidence_evolution["executor"].execute(evidence_evolution["supersede_plan"])
+
+    assert replay.outcome is ExecutionOutcome.STALE
+    assert replay.batch_id is None
+    assert store.current_epoch() == before, "a refused replay must not advance the epoch"
+    assert replay.failed_preconditions, "STALE must name what failed"
+
+
+def test_the_successor_is_the_only_current_record_by_identity(evidence_evolution) -> None:
+    store, entity = evidence_evolution["store"], evidence_evolution["entity"]
+    current = store.assertions_for(entity.identity_id)
+    assert [a.assertion_id for a in current] == [
+        evidence_evolution["successor"].assertion_id
+    ]
+    assert current[0].evidence_refs == evidence_evolution["new_evidence"]
+
+
+def test_the_prior_record_still_cites_its_original_evidence(evidence_evolution) -> None:
+    """The half a row count cannot see.
+
+    The prior record must still be reachable *and* still carry the evidence it
+    was asserted on - not the successor's. An adapter that upserted the new
+    evidence onto the old row would keep two rows and pass any count.
+    """
+    store, entity = evidence_evolution["store"], evidence_evolution["entity"]
+    by_id = {
+        a.assertion_id: a
+        for a in store.assertions_for(
+            entity.identity_id, options=GraphReadOptions(include_superseded=True)
+        )
+    }
+    assert set(by_id) == {
+        evidence_evolution["prior"].assertion_id,
+        evidence_evolution["successor"].assertion_id,
+    }
+    retired = by_id[evidence_evolution["prior"].assertion_id]
+    assert retired.status is CurationStatus.SUPERSEDED
+    assert retired.evidence_refs == evidence_evolution["first_evidence"]
+    assert retired.object_value == "the original reading"
+
+
+def test_the_prior_record_is_still_current_at_its_own_epoch(evidence_evolution) -> None:
+    """And reachable with no flags at all, by identity, at the epoch it held."""
+    store, entity = evidence_evolution["store"], evidence_evolution["entity"]
+    at_epoch = store.assertions_for(
+        entity.identity_id,
+        options=GraphReadOptions(curation_epoch=evidence_evolution["attach_epoch"]),
+    )
+    assert [a.assertion_id for a in at_epoch] == [evidence_evolution["prior"].assertion_id]
+    assert at_epoch[0].status is CurationStatus.ACTIVE
+    assert at_epoch[0].evidence_refs == evidence_evolution["first_evidence"]

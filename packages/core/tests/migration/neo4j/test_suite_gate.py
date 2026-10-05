@@ -60,17 +60,45 @@ def _filler(count: int, outcome: str = "passed"):
     return [(OTHER_CLASS, f"test_other_{i}", outcome) for i in range(count)]
 
 
+#: The three tests kg_contracts 2.0.0 (ADR-0025) added to the shared suite.
+#: Named, not counted: this module's own thesis is that counting is not
+#: identification, and a bare ``len(names) == 10`` would pass just as well if
+#: upstream had added three unrelated tests and dropped these.
+ADR_0025_TESTS = frozenset(
+    {
+        "test_revoked_assertions_hidden_by_default_visible_with_flag",
+        "test_include_superseded_and_include_revoked_are_independent",
+        "test_revoke_identity_hides_entity_and_preserves_creation_epoch",
+    }
+)
+
+
 def test_expected_names_come_from_upstream_and_are_non_empty() -> None:
     """Obligation 1 and 3: derived from upstream, and the set is not empty."""
     names = expected_contract_tests()
-    assert len(names) == 7
     assert "test_snapshot_read_at_old_epoch_hides_later_records" in names
+    assert len(names) == 10
+
+
+def test_the_revocation_tests_the_new_pin_added_are_now_required() -> None:
+    """The gate's stated payoff, collected on the 0.3.0 re-pin.
+
+    ``suite_gate`` derives its expectations from upstream precisely so that "an
+    added upstream test becomes a *requirement* here the moment the pin moves".
+    kg_contracts 2.0.0 added three. This asserts the derivation actually picked
+    them up — if a future pin drops ``include_revoked`` from the suite, this
+    goes red and says which name vanished, rather than the adapter quietly
+    ceasing to be tested for it.
+    """
+    missing = ADR_0025_TESTS - expected_contract_tests()
+    assert not missing, f"upstream no longer publishes: {sorted(missing)}"
 
 
 def test_positive_control_passes(tmp_path) -> None:
+    expected = expected_contract_tests()
     summary = check(_write(tmp_path, _contract_cases() + _filler(53)))
-    assert "7/7 shared contract tests passed" in summary
-    assert "60 tests" in summary
+    assert f"{len(expected)}/{len(expected)} shared contract tests passed" in summary
+    assert f"{len(expected) + 53} tests" in summary
 
 
 def test_deleting_the_conformance_module_is_rejected(tmp_path) -> None:
@@ -119,10 +147,28 @@ def test_a_failing_contract_test_is_rejected(tmp_path) -> None:
 
 
 def test_a_partial_suite_is_rejected(tmp_path) -> None:
-    """Six of seven is not the suite."""
+    """All-but-one is not the suite."""
     cases = _contract_cases()[:-1]
-    with pytest.raises(SuiteGateError, match="closest class ran 6"):
+    with pytest.raises(SuiteGateError, match=f"closest class ran {len(cases)}"):
         check(_write(tmp_path, cases + _filler(53)))
+
+
+def test_dropping_only_the_new_revocation_tests_is_rejected(tmp_path) -> None:
+    """The specific regression the re-pin makes possible.
+
+    An adapter that never learned ``include_revoked`` would run the seven tests
+    it used to run and skip the three it does not implement. That is the shape
+    the old gate passed; here it must be rejected, and the rejection must name
+    the tests that are missing rather than only a count.
+    """
+    kept = [c for c in _contract_cases() if c[1] not in ADR_0025_TESTS]
+    assert len(kept) == len(_contract_cases()) - len(ADR_0025_TESTS)
+    with pytest.raises(SuiteGateError) as excinfo:
+        check(_write(tmp_path, kept + _filler(53)))
+    message = str(excinfo.value)
+    assert f"closest class ran {len(kept)}" in message
+    for name in ADR_0025_TESTS:
+        assert name in message
 
 
 def test_an_empty_report_is_rejected(tmp_path) -> None:
@@ -137,7 +183,10 @@ def test_the_contract_tests_split_across_two_classes_is_rejected(tmp_path) -> No
     passing all of it.
     """
     names = sorted(expected_contract_tests())
-    split = [(CONTRACT_CLASS, n, "passed") for n in names[:4]]
-    split += [("other.TestSomethingElse", n, "passed") for n in names[4:]]
-    with pytest.raises(SuiteGateError, match="closest class ran 4"):
+    # Split unevenly so the "closest class" the gate reports is unambiguous;
+    # an even split would make the reported number a tie-break artefact.
+    head, tail = names[:-2], names[-2:]
+    split = [(CONTRACT_CLASS, n, "passed") for n in head]
+    split += [("other.TestSomethingElse", n, "passed") for n in tail]
+    with pytest.raises(SuiteGateError, match=f"closest class ran {len(head)}"):
         check(_write(tmp_path, split))

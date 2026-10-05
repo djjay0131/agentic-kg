@@ -78,6 +78,30 @@ def test_declaration_is_strictly_wider_than_the_kgcs_default() -> None:
     assert CurationOperationType.RETRACT_ASSERTION in SUPPORTED_OPERATIONS
 
 
+def test_every_inverse_of_a_supported_operation_is_itself_supported() -> None:
+    """Rollback is only real if the inverse can be applied by the same store.
+
+    ``INVERSE_OPERATION_TYPES`` says what type reverses what; it says nothing
+    about whether *this* store can apply the result. The gap is not
+    hypothetical: before the 0.3.0 re-pin ``CREATE_IDENTITY`` had no inverse at
+    all, and the moment it got one (``REVOKE_IDENTITY``) a store that had not
+    also learned it would hand ``PlanExecutor`` a compensating plan it reports
+    ``UNSUPPORTED_OPERATION`` for — with the identity already committed.
+
+    ``PROMOTE_ONTOLOGY_TERM`` is excluded because it has no inverse upstream
+    (it is absent from the map), which this adapter does not get to fix.
+    """
+    from kg_contracts.curation import INVERSE_OPERATION_TYPES
+
+    for op_type in sorted(SUPPORTED_OPERATIONS, key=lambda o: o.value):
+        inverse = INVERSE_OPERATION_TYPES.get(op_type)
+        assert inverse is not None, f"{op_type.value} has no declared inverse upstream"
+        assert inverse in SUPPORTED_OPERATIONS, (
+            f"{op_type.value} is supported but its inverse {inverse.value} is not; "
+            f"a plan containing it could be applied and then not rolled back"
+        )
+
+
 def test_ac2_minimum_set_is_covered() -> None:
     """Mapping-spec AC-2, second clause."""
     required = {
@@ -170,11 +194,25 @@ def test_retract_assertion_applies(make_canonical_store) -> None:
 
 
 def test_retract_can_revoke_as_well_as_supersede(make_canonical_store) -> None:
-    """REVOKED stays visible by default — the asymmetry is upstream's, not ours.
+    """REVOKED is hidden by default and reachable only via ``include_revoked``.
 
-    ``GraphReadOptions`` has ``include_superseded`` and no ``include_revoked``,
-    and the reference store pins REVOKED-visible-by-default. Filtering revoked
-    records is the *projector's* job (spec §4.3, AC-8), a different layer.
+    **This assertion is the reverse of what it was**, and the reversal is the
+    behaviour break in kg_contracts 2.0.0. Before ADR-0025 ``GraphReadOptions``
+    had ``include_superseded`` and no ``include_revoked``, upstream's own
+    ``test_revoked_record_visible_by_default`` pinned REVOKED-visible, and
+    filtering revoked records was held to be the projector's job. The read rule
+    now lives in the contract: "a revoked record is returned by no default
+    read, at any epoch".
+
+    Nothing in this repository wrote ``CurationStatus.REVOKED`` before this
+    change — ``_apply_retract`` accepts it, but no planner, no compensator and
+    no test fixture in the shadow path emits ``new_status=REVOKED`` — so no
+    stored record changes visibility as a result. This test is the one place
+    that produced one, and it did so only to observe it.
+
+    The ``include_superseded`` leg is the independence cross-term applied to
+    *this adapter's own* retract path: the flag for the other status must not
+    reveal this record.
     """
     store = make_canonical_store()
     entity, assertion = _seed(store)
@@ -193,8 +231,94 @@ def test_retract_can_revoke_as_well_as_supersede(make_canonical_store) -> None:
         preconditions=(),
     )
     assert result.committed is True, result.error
-    [revoked] = store.assertions_for(entity.identity_id)
+
+    assert store.assertions_for(entity.identity_id) == []
+    assert (
+        store.assertions_for(
+            entity.identity_id, options=GraphReadOptions(include_superseded=True)
+        )
+        == []
+    ), "include_superseded must not reveal a REVOKED record"
+    [revoked] = store.assertions_for(
+        entity.identity_id, options=GraphReadOptions(include_revoked=True)
+    )
+    assert revoked.assertion_id == assertion.assertion_id
     assert revoked.status is CurationStatus.REVOKED
+
+
+def test_revoke_identity_is_a_tombstone_not_a_delete(make_canonical_store) -> None:
+    """``REVOKE_IDENTITY`` applied for real, with its three stated properties.
+
+    The conformance suite asserts the same contract; this asserts it through
+    *this adapter's* operation dispatch and against a namespace that also holds
+    the identity's assertions, which the suite's fixture does not.
+    """
+    store = make_canonical_store()
+    entity, assertion = _seed(store, key="tombstone")
+    creation_epoch = store.get_entity(entity.identity_id).curation_epoch
+
+    result = store.apply(
+        _batch(
+            "pl_revoke_identity",
+            _op(
+                CurationOperationType.REVOKE_IDENTITY,
+                {"identity_id": entity.identity_id, "reason": "rollback"},
+            ),
+        ),
+        preconditions=(),
+    )
+    assert result.committed is True, result.error
+    assert result.new_epoch > creation_epoch
+
+    # 1. gone from ordinary reads ...
+    assert store.get_entity(entity.identity_id) is None
+    # ... at every epoch, including the one that created it.
+    assert (
+        store.get_entity(
+            entity.identity_id, options=GraphReadOptions(curation_epoch=creation_epoch)
+        )
+        is None
+    )
+    # 2. retained, and reachable by identity with the flag.
+    stored = store.get_entity(entity.identity_id, options=GraphReadOptions(include_revoked=True))
+    assert stored is not None
+    assert stored.identity_id == entity.identity_id
+    assert stored.status is CurationStatus.REVOKED
+    # 3. the creation epoch is NOT advanced by the revoke.
+    assert stored.curation_epoch == creation_epoch
+    assert (
+        store.get_entity(
+            entity.identity_id,
+            options=GraphReadOptions(curation_epoch=creation_epoch, include_revoked=True),
+        )
+        is not None
+    )
+    # The assertions about it are untouched - a tombstone is not a cascade.
+    assert [a.assertion_id for a in store.assertions_for(entity.identity_id)] == [
+        assertion.assertion_id
+    ]
+
+
+def test_revoke_identity_names_a_reason_when_it_cannot_apply(make_canonical_store) -> None:
+    """ADR-0021 for the new operation: both refusal paths carry an ``error``."""
+    store = make_canonical_store()
+
+    unknown = store.apply(
+        _batch(
+            "pl_unknown",
+            _op(CurationOperationType.REVOKE_IDENTITY, {"identity_id": "kg://g1/identity/nope"}),
+        ),
+        preconditions=(),
+    )
+    assert unknown.committed is False
+    assert unknown.error is not None and unknown.error.startswith("unknown_identity:")
+
+    malformed = store.apply(
+        _batch("pl_malformed", _op(CurationOperationType.REVOKE_IDENTITY, {"identity_id": 7})),
+        preconditions=(),
+    )
+    assert malformed.committed is False
+    assert malformed.error is not None and malformed.error.startswith("invalid_payload:")
 
 
 def test_merge_identities_applies_and_moves_assertions(make_canonical_store) -> None:
@@ -700,3 +824,98 @@ def test_a_refused_batch_bumps_nothing(make_canonical_store) -> None:
     )
     assert result.committed is False
     assert probe_version(store, entity.identity_id) == before
+
+
+def test_a_revoked_assertion_that_is_later_restored(make_canonical_store) -> None:
+    """The branch the shared suite never reaches: REVOKED, then restored.
+
+    Found by probe, not by review: an unconditional ``raise`` placed in this
+    branch of ``store._reported_status`` left all 585 migration tests green, so
+    it was live code with no coverage and a semantic decision nobody had
+    written down. It is reachable through the public ``apply()`` surface -
+    ``_apply_retract`` accepts ``new_status=REVOKED`` and ``_apply_attach``'s
+    restore path accepts ``restore_status=ACTIVE`` - so "the contract suite
+    does not exercise it" is not the same as "it cannot happen".
+
+    The decision this pins, stated plainly because it is a judgement and not a
+    quotation: ``REVOKED`` is terminal-and-global only while it is the record's
+    *latest* status. Once a record has been restored it is live again, so the
+    global rule stops applying and the ordinary epoch-versioned rule resumes -
+    the record is hidden by default **at the epochs where it was revoked** and
+    visible at the epochs where it was not. The alternative (a record that was
+    ever revoked stays hidden at every epoch forever) would make a restore
+    unobservable on any default read, which is not a restore.
+
+    ``include_superseded`` is asserted not to reveal it, because the
+    independence cross-term has to hold on this path too, not only on the one
+    upstream tests.
+    """
+    store = make_canonical_store()
+    entity, assertion = _seed(store, key="revoke-then-restore")
+    before_revoke = store.current_epoch()
+
+    revoked = store.apply(
+        _batch(
+            "pl_revoke",
+            _op(
+                CurationOperationType.RETRACT_ASSERTION,
+                {
+                    "assertion_id": assertion.assertion_id,
+                    "new_status": CurationStatus.REVOKED.value,
+                    "superseded_at": "2026-08-01T00:00:00+00:00",
+                },
+            ),
+        ),
+        preconditions=(),
+    )
+    assert revoked.committed is True, revoked.error
+    revoked_epoch = revoked.new_epoch
+    assert revoked_epoch is not None and revoked_epoch > before_revoke
+
+    restored = store.apply(
+        _batch(
+            "pl_restore",
+            _op(
+                CurationOperationType.ATTACH_ASSERTION,
+                {
+                    "assertion_id": assertion.assertion_id,
+                    "subject_identity": entity.identity_id,
+                    "restore_status": CurationStatus.ACTIVE.value,
+                },
+            ),
+        ),
+        preconditions=(),
+    )
+    assert restored.committed is True, restored.error
+
+    def ids(**options_kwargs) -> list[str]:
+        return [
+            a.assertion_id
+            for a in store.assertions_for(
+                entity.identity_id, options=GraphReadOptions(**options_kwargs)
+            )
+        ]
+
+    # Latest status is ACTIVE again: an ordinary read sees it, no flags.
+    assert ids() == [assertion.assertion_id]
+
+    # At the epoch where it WAS revoked, a default read must not serve it ...
+    assert ids(curation_epoch=revoked_epoch) == []
+    # ... and the other status's flag must not reveal it either.
+    assert ids(curation_epoch=revoked_epoch, include_superseded=True) == [], (
+        "include_superseded must not reveal a record that was REVOKED at this epoch"
+    )
+    # ... but include_revoked must, at its own epoch, with its own status.
+    at_revoked = store.assertions_for(
+        entity.identity_id,
+        options=GraphReadOptions(curation_epoch=revoked_epoch, include_revoked=True),
+    )
+    assert [a.assertion_id for a in at_revoked] == [assertion.assertion_id]
+    assert at_revoked[0].status is CurationStatus.REVOKED
+
+    # And before the revoke it was simply live: visible, ACTIVE, no flags.
+    at_start = store.assertions_for(
+        entity.identity_id, options=GraphReadOptions(curation_epoch=before_revoke)
+    )
+    assert [a.assertion_id for a in at_start] == [assertion.assertion_id]
+    assert at_start[0].status is CurationStatus.ACTIVE
