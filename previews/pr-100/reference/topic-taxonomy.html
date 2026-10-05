@@ -1,0 +1,204 @@
+<h1 id="topic-taxonomy">Topic Taxonomy</h1>
+
+<p>The <strong>Topic taxonomy</strong> is agentic-kg’s controlled vocabulary for classifying
+research work. It is a hand-curated, three-level hierarchy that behaves as a
+<em>closed set</em>: extraction can only classify a paper into topics that already
+exist in the taxonomy — it cannot invent new ones.</p>
+
+<ul>
+  <li><strong>Data (source of truth):</strong> <code class="language-plaintext highlighter-rouge">packages/core/src/agentic_kg/knowledge_graph/data/seed_taxonomy.yml</code></li>
+  <li><strong>Loader / validator / exporter:</strong> <code class="language-plaintext highlighter-rouge">knowledge_graph/taxonomy.py</code></li>
+  <li><strong>Node model:</strong> <code class="language-plaintext highlighter-rouge">Topic</code> in <code class="language-plaintext highlighter-rouge">models/entities.py</code> (see <a href="entity-catalog">Entity Catalog</a>)</li>
+  <li><strong>Level enum:</strong> <code class="language-plaintext highlighter-rouge">TopicLevel</code> in <code class="language-plaintext highlighter-rouge">models/enums.py</code></li>
+  <li><strong>CLI:</strong> <code class="language-plaintext highlighter-rouge">agentic-kg load-taxonomy</code></li>
+</ul>
+
+<h2 id="the-three-levels">The three levels</h2>
+
+<p><code class="language-plaintext highlighter-rouge">TopicLevel</code> defines exactly three levels; nesting is strict.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Level</th>
+      <th>Meaning</th>
+      <th>Example</th>
+      <th>Parent</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">domain</code></td>
+      <td>Broad field</td>
+      <td>Computer Science</td>
+      <td><em>(none — root)</em></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">area</code></td>
+      <td>Sub-field within a domain</td>
+      <td>Natural Language Processing</td>
+      <td>a <code class="language-plaintext highlighter-rouge">domain</code></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">subtopic</code></td>
+      <td>Specific topic within an area</td>
+      <td>Information Extraction</td>
+      <td>an <code class="language-plaintext highlighter-rouge">area</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<pre><code class="language-mermaid">graph TD
+    CS["Computer Science&lt;br/&gt;&lt;i&gt;(domain)&lt;/i&gt;"] --&gt; NLP["Natural Language Processing&lt;br/&gt;&lt;i&gt;(area)&lt;/i&gt;"]
+    NLP --&gt; IE["Information Extraction&lt;br/&gt;&lt;i&gt;(subtopic)&lt;/i&gt;"]
+    NLP --&gt; QA["Question Answering&lt;br/&gt;&lt;i&gt;(subtopic)&lt;/i&gt;"]
+    NLP --&gt; LLM["Large Language Models&lt;br/&gt;&lt;i&gt;(subtopic)&lt;/i&gt;"]
+    CS --&gt; IR["Information Retrieval&lt;br/&gt;&lt;i&gt;(area)&lt;/i&gt;"]
+    IR --&gt; RAG["Retrieval-Augmented Generation&lt;br/&gt;&lt;i&gt;(subtopic)&lt;/i&gt;"]
+    classDef domain fill:#e8f0fe,stroke:#4285f4,color:#111;
+    classDef area fill:#fef7e0,stroke:#f9ab00,color:#111;
+    classDef sub fill:#e6f4ea,stroke:#34a853,color:#111;
+    class CS domain;
+    class NLP,IR area;
+    class IE,QA,LLM,RAG sub;
+</code></pre>
+
+<p>Edges above are <code class="language-plaintext highlighter-rouge">SUBTOPIC_OF</code> in the graph (child → parent). The diagram shows a
+slice; the full seed set is below.</p>
+
+<p><strong>Structural rules</strong> (enforced by <code class="language-plaintext highlighter-rouge">parse_taxonomy</code> and the <code class="language-plaintext highlighter-rouge">Topic</code> model):</p>
+
+<ul>
+  <li>Allowed parent → child transitions: <code class="language-plaintext highlighter-rouge">∅ → domain → area → subtopic</code>. A
+<code class="language-plaintext highlighter-rouge">subtopic</code> cannot nest further; a <code class="language-plaintext highlighter-rouge">domain</code> cannot appear as a child.</li>
+  <li>A <code class="language-plaintext highlighter-rouge">domain</code> topic must <strong>not</strong> have a parent (<code class="language-plaintext highlighter-rouge">parent_id is None</code>).</li>
+  <li>Names must be unique within the same <code class="language-plaintext highlighter-rouge">(parent, level)</code>.</li>
+  <li>In the graph, hierarchy is materialized as <code class="language-plaintext highlighter-rouge">(child)-[:SUBTOPIC_OF]-&gt;(parent)</code>.</li>
+</ul>
+
+<h2 id="current-seed-taxonomy">Current seed taxonomy</h2>
+
+<p>Six areas under a single <code class="language-plaintext highlighter-rouge">Computer Science</code> domain, focused on the project’s
+corpus (graph retrieval, knowledge graphs, NLP, ML, IR). This mirrors
+<code class="language-plaintext highlighter-rouge">seed_taxonomy.yml</code> — edit that file, not this table, to change the taxonomy.</p>
+
+<h3 id="computer-science-domain">Computer Science <em>(domain)</em></h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Area</th>
+      <th>Subtopics</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Natural Language Processing</strong></td>
+      <td>Information Extraction · Question Answering · Machine Translation · Text Summarization · Large Language Models</td>
+    </tr>
+    <tr>
+      <td><strong>Information Retrieval</strong></td>
+      <td>Graph-Based Retrieval · Dense Retrieval · Retrieval-Augmented Generation · Hybrid Retrieval</td>
+    </tr>
+    <tr>
+      <td><strong>Knowledge Representation</strong></td>
+      <td>Knowledge Graphs · Ontology Engineering · Entity Linking</td>
+    </tr>
+    <tr>
+      <td><strong>Machine Learning</strong></td>
+      <td>Deep Learning · Transfer Learning · Graph Neural Networks · Self-Supervised Learning · Reinforcement Learning</td>
+    </tr>
+    <tr>
+      <td><strong>Data Management</strong></td>
+      <td>Graph Databases · Vector Databases</td>
+    </tr>
+    <tr>
+      <td><strong>AI Agents and Reasoning</strong></td>
+      <td>Multi-Agent Systems · Tool Use · Chain-of-Thought Reasoning</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Each node also carries a one-line <code class="language-plaintext highlighter-rouge">description</code> (see the YAML) that feeds a
+richer embedding for semantic matching.</p>
+
+<h2 id="yaml-schema">YAML schema</h2>
+
+<p>The taxonomy file is a recursive list of nodes:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">str</span>             <span class="c1"># required, length &gt;= 2</span>
+  <span class="na">level</span><span class="pi">:</span> <span class="s">str</span>            <span class="c1"># required, one of domain/area/subtopic</span>
+  <span class="na">description</span><span class="pi">:</span> <span class="s">str</span>      <span class="c1"># optional — used for richer embeddings</span>
+  <span class="na">source</span><span class="pi">:</span> <span class="s">str</span>           <span class="c1"># optional, default "manual"</span>
+  <span class="na">openalex_id</span><span class="pi">:</span> <span class="s">str</span>      <span class="c1"># optional</span>
+  <span class="na">children</span><span class="pi">:</span> <span class="s">list</span>        <span class="c1"># optional, same schema, one level deeper</span>
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">flatten_taxonomy</code> walks this recursively (no fixed depth assumption), so a
+future taxonomy deeper than three levels would work without code changes —
+though the level <em>enum</em> would need extending first.</p>
+
+<h2 id="how-the-taxonomy-is-used">How the taxonomy is used</h2>
+
+<ul>
+  <li><strong>Loading (idempotent).</strong> <code class="language-plaintext highlighter-rouge">load_taxonomy</code> merges each node via
+<code class="language-plaintext highlighter-rouge">repository.merge_topic</code> keyed on <code class="language-plaintext highlighter-rouge">(name, level, parent_id)</code>, creating
+<code class="language-plaintext highlighter-rouge">SUBTOPIC_OF</code> edges automatically. Re-running is a no-op for unchanged nodes
+and reports <code class="language-plaintext highlighter-rouge">{created, matched}</code> counts.</li>
+  <li><strong>Closed-set extraction.</strong> <code class="language-plaintext highlighter-rouge">TopicExtractor</code> snapshots the taxonomy at startup
+and builds a closed-set <code class="language-plaintext highlighter-rouge">Literal</code> schema over its names, so the LLM can only
+return topics that exist in the taxonomy — off-taxonomy classifications are
+impossible by construction.</li>
+  <li><strong>Staleness auditing.</strong> <code class="language-plaintext highlighter-rouge">extraction/taxonomy_hash.py</code> computes a canonical
+hash (<code class="language-plaintext highlighter-rouge">canonical_taxonomy_hash</code>) over the taxonomy. Papers are stamped with
+the hash they were ingested under, so when the taxonomy changes, previously
+ingested papers can be detected as stale and re-classified.</li>
+  <li><strong>Export / round-trip.</strong> <code class="language-plaintext highlighter-rouge">export_taxonomy</code> reads the live graph back into the
+YAML shape (embeddings excluded, regenerated on import), keeping the file
+human-editable.</li>
+</ul>
+
+<h2 id="vocabulary-style-vs-other-entities">Vocabulary style vs. other entities</h2>
+
+<p>The Topic taxonomy is the graph’s only <strong>closed-set</strong> vocabulary. The other
+concept-like nodes are open:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Node</th>
+      <th>Vocabulary</th>
+      <th>New values enter by</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Topic</code></td>
+      <td><strong>closed-set</strong></td>
+      <td>editing the seed taxonomy + reload</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Model</code></td>
+      <td>hybrid (open + canonical seeds)</td>
+      <td>extraction; seeds write-protected</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">ResearchConcept</code></td>
+      <td>open-set</td>
+      <td>extraction; deduped at 0.90 cosine</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Method</code></td>
+      <td>open-set</td>
+      <td>extraction; deduped at 0.90 cosine</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="known-limitations--roadmap">Known limitations / roadmap</h2>
+
+<p>Scaling the taxonomy is a tracked, open backlog item — <strong>T-1</strong> in
+<code class="language-plaintext highlighter-rouge">llm/features/BACKLOG.md</code>: <em>“Taxonomy management at scale — versioned taxonomy
+with branching + merge + conflict resolution.”</em> Today the taxonomy is a single
+hand-curated file with no versioning or branching; growing it or reconciling
+concurrent edits is a manual, re-extract operation.</p>
