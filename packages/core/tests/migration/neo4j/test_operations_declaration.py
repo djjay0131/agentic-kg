@@ -293,10 +293,17 @@ def test_revoke_identity_is_a_tombstone_not_a_delete(make_canonical_store) -> No
         )
         is not None
     )
-    # The assertions about it are untouched - a tombstone is not a cascade.
-    assert [a.assertion_id for a in store.assertions_for(entity.identity_id)] == [
-        assertion.assertion_id
-    ]
+    # The assertions about it are RETAINED, not deleted, and now shielded with
+    # the identity (kg_contracts ADR-0026, issue #49): a default read returns
+    # nothing, and include_revoked is the surface that reveals them. Each
+    # assertion's own status is untouched, so a tombstone is a read rule rather
+    # than a cascade.
+    assert store.assertions_for(entity.identity_id) == []
+    surfaced = store.assertions_for(
+        entity.identity_id, options=GraphReadOptions(include_revoked=True)
+    )
+    assert [a.assertion_id for a in surfaced] == [assertion.assertion_id]
+    assert surfaced[0].status is CurationStatus.ACTIVE
 
 
 def test_revoke_identity_names_a_reason_when_it_cannot_apply(make_canonical_store) -> None:

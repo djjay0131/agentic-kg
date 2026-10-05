@@ -21,8 +21,8 @@ import pytest
 
 from .pin_gate import PinGateError, check, read_pins
 
-KGIS = "de48639a7a008debbdb2712e20ca26b7b593b22b"
-KGCS = "f68d1d7186578c2c80989e75b4d3d0e2c81ec911"
+KGIS = "d5bab8f6d6207ce554ee5f687d37938f747eaa79"
+KGCS = "727df564e1c4a9b11c0f8a4e6be7867fbf5a63ac"
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
 PYPROJECTS = [REPO_ROOT / "pyproject.toml", REPO_ROOT / "packages" / "core" / "pyproject.toml"]

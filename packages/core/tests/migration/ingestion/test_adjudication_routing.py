@@ -1,26 +1,32 @@
-"""Does anything route ``AUTO`` now? Measured over the real corpus.
+"""Does anything route ``AUTO`` now? Re-measured over the real corpus.
 
-The headline claim of ``agentic-kgis`` 0.3.0 (ADR-0024) is that the
+The headline claim of ``agentic-kgis`` 0.3.0 (ADR-0024) was that the
 ``identity_confidence`` AUTO deadlock is fixed: before it, *nothing* could ever
 route ``AUTO``, because ``ConfidencePolicy.route()`` applied an existing-identity
 confidence gate to every candidate and nothing in KGIS, KGCS or kg_eval ever
-produces an ``identity_confidence``. 0.3.0 adds ``IdentityDisposition``, so a
+produces an ``identity_confidence``. 0.3.0 added ``IdentityDisposition``, so a
 candidate that mints a *new* identity is no longer asked for confidence in a
 link it does not have.
 
-This module measures what that is worth **here**, at contract defaults, over
-all 252 candidates one shadow run produces. It reports three distributions, and
-they are not the same number:
+At the **previous** pins that fix was inert here:
+``kgcs.policy.ResolutionPolicy.resolve`` still called ``route(scores)`` with one
+argument, so
+every candidate took the default ``RESOLVED_EXISTING`` disposition and the
+corpus measured **0 of 252 AUTO**. Agentic-kgcs #44 (727df56) derives the
+disposition *before* routing, and this module re-measures the corpus under the
+unmodified contract defaults. It reports three distributions:
 
 ``A``  through ``kgcs.policy.ResolutionPolicy`` — the producer that actually
        runs in the pipeline;
 ``B``  through ``ConfidencePolicy.route()`` called directly with each
        disposition — the contract, in isolation;
 ``C``  through ``ConfidencePolicy.route()`` with the disposition each candidate
-       *kind* warrants — the best an adopter could do today.
+       *kind* warrants, derived here independently of the producer.
 
-The finding is the gap between A and C, and it is why this file exists rather
-than a one-line assertion that AUTO now works.
+**A and C now agree at 8 of 252.** The eight are the DOI-keyed structured
+``Paper`` identities; the gap this file used to report is closed, and the
+remaining work is not routing — the extracted graded entities are blocked on
+their *extraction* scores, not on identity.
 
 **No threshold is lowered anywhere in this module.** Every policy is
 ``ConfidencePolicy()`` at its published defaults, and
@@ -67,18 +73,27 @@ def _all(shadow_run):
 
 
 def _warranted(candidate) -> IdentityDisposition:
-    """The disposition this candidate's kind actually warrants today.
+    """The disposition this candidate's kind warrants, derived here by kind.
 
-    An ``entity`` candidate proposes a brand-new identity: ``NEW_IDENTITY``.
+    This is the adopter's independent reading of ADR-0022, **not** a call to
+    the producer — deriving it separately is what lets the module assert that
+    the producer now agrees, rather than restating it.
 
-    Everything else attaches to a subject that is carried as an ``EntityRef``
-    alias, not a minted identity id — no entity resolution has run in the
-    shadow path, and KGIS structurally cannot run one (it holds no graph read
-    surface). That is ``UNRESOLVED``, and it is the honest label:
-    ``RESOLVED_EXISTING`` would claim a resolution nobody performed.
+    * An ``entity`` candidate proposes a brand-new identity: ``NEW_IDENTITY``.
+    * An ``artifact`` names no identity and no fact, so it keeps the
+      pre-ADR-0024 default ``RESOLVED_EXISTING`` — the gate is applied to it as
+      it always was.
+    * A ``relation`` / ``attribute_assertion`` attaches to a subject carried as
+      an ``EntityRef`` alias, not a minted identity id — no entity resolution
+      has run in the shadow path, and KGIS structurally cannot run one (it
+      holds no graph read surface). That is ``UNRESOLVED``, and it is the
+      honest label: ``RESOLVED_EXISTING`` would claim a resolution nobody
+      performed.
     """
     if candidate.candidate_kind == "entity":
         return IdentityDisposition.NEW_IDENTITY
+    if candidate.candidate_kind == "artifact":
+        return IdentityDisposition.RESOLVED_EXISTING
     return IdentityDisposition.UNRESOLVED
 
 
@@ -129,44 +144,88 @@ def test_every_policy_here_is_the_published_default() -> None:
 # --- A: the producer that actually runs ---------------------------------------
 
 
-def test_the_kgcs_producer_still_routes_nothing_to_auto(shadow_run) -> None:
-    """**The finding.** 0 of 252, unchanged by the re-pin.
+def test_the_kgcs_producer_now_routes_the_structured_arm_auto(shadow_run) -> None:
+    """**The finding.** 8 of 252 through the producer, up from 0.
 
-    ``kgcs.policy.ResolutionPolicy.resolve()`` calls
-    ``self._confidence_policy.route(candidate.scores)`` with **one argument**.
-    ADR-0024's ``identity_disposition`` parameter therefore takes its default,
-    ``RESOLVED_EXISTING`` — the disposition that still requires a stated
-    ``identity_confidence`` — for every candidate, including the entity
-    candidates that mint a new identity and by construction have none.
-
-    So the deadlock is fixed in ``kg_contracts`` and **not wired into the
-    producer**. Nothing outside ``kg_contracts`` references
-    ``IdentityDisposition`` at all at these pins; see
-    ``test_no_upstream_producer_passes_a_disposition``.
+    ``ResolutionPolicy.resolve`` now derives the candidate's
+    ``IdentityDisposition`` *before* routing (agentic-kgcs #44, ADR-0022), so
+    the entity candidates that clear the unmoved extraction thresholds and mint
+    on an absent ``identity_confidence`` are no longer blocked. The eight are
+    precisely the DOI-keyed structured ``Paper`` identities.
     """
     decisions = [ResolutionPolicy().resolve(c) for c in _all(shadow_run)]
     routes = Counter(d.route.value for d in decisions)
 
-    assert routes[AdjudicationRoute.AUTO.value] == 0
-    assert routes == {AdjudicationRoute.LLM_ASSESS.value: CORPUS_SIZE}
+    assert routes[AdjudicationRoute.AUTO.value] == AUTO_AT_WARRANTED_DISPOSITION
+    assert routes[AdjudicationRoute.LLM_ASSESS.value] == (
+        CORPUS_SIZE - AUTO_AT_WARRANTED_DISPOSITION
+    )
+    assert routes[AdjudicationRoute.HUMAN.value] == 0
+
+    by_id = {c.candidate_id: c for c in _all(shadow_run)}
+    auto = [by_id[d.candidate_id] for d in decisions if d.route is AdjudicationRoute.AUTO]
+    assert {c.entity_type for c in auto} == {"Paper"}
+    assert {c.producer for c in auto} == {"kgis.structured"}
+    assert all(d.create_new_identity for d in decisions if d.route is AdjudicationRoute.AUTO)
 
 
-def test_the_decisions_the_producer_emits_are_unresolved(shadow_run) -> None:
-    """And the block is now *stronger* than before, not weaker.
+def test_the_producer_derives_the_disposition_this_module_derives(shadow_run) -> None:
+    """A and C agree because the producer computes the disposition by kind.
+
+    ``_warranted`` derives the input disposition independently, from the
+    candidate's kind; the producer derives it in
+    ``ResolutionPolicy.identity_disposition``. Asserting the two agree is the
+    evidence that the 8-of-252 above is the *warranted* routing, not an
+    artefact of how one function happens to be written.
+    """
+    policy = ResolutionPolicy()
+    candidates = _all(shadow_run)
+    for candidate in candidates:
+        assert policy.identity_disposition(candidate) is _warranted(candidate), (
+            f"{candidate.candidate_kind} candidate disagrees between the "
+            f"adopter's derivation and the producer"
+        )
+
+
+def test_the_producer_derives_a_disposition_before_routing() -> None:
+    """The diagnosis, as a check rather than a claim in a docstring.
+
+    ``ResolutionPolicy.resolve`` is the only place in the installed stack that
+    calls ``ConfidencePolicy.route``, and agentic-kgcs #44 made it compute the
+    disposition first and pass it in. If a future pin changes that shape, this
+    goes red and the measurement above needs re-taking — which is the point.
+    """
+    import inspect
+
+    source = inspect.getsource(ResolutionPolicy.resolve)
+    assert "identity_disposition(candidate)" in source, (
+        "ResolutionPolicy.resolve no longer derives a disposition - re-measure "
+        "test_the_kgcs_producer_now_routes_the_structured_arm_auto"
+    )
+    assert ".route(candidate.scores, disposition)" in source, (
+        "ResolutionPolicy.resolve no longer passes the disposition into "
+        "route() - the AUTO deadlock may be back"
+    )
+
+
+def test_the_non_auto_decisions_are_unresolved(shadow_run) -> None:
+    """The 244 that do not mint come back ``UNRESOLVED``, and correctly.
 
     ``ResolutionPolicy._dispose`` mints an identity only when the route is
-    already ``AUTO``, so a non-AUTO entity candidate comes back with
+    already ``AUTO``, so a non-AUTO candidate comes back with
     ``create_new_identity=False`` and ``resolved_identity=None`` — which
-    ``ResolutionDecision.identity_disposition()`` reads as ``UNRESOLVED``. Under
-    0.3.0 ``UNRESOLVED`` is blocked outright, so feeding the decision's own
-    disposition back into ``route()`` cannot break the cycle either: the
-    disposition depends on the route, and the route depends on the disposition.
-
-    This is a *tightening*, correctly: nothing resolved these candidates.
+    ``ResolutionDecision.identity_disposition()`` reads as ``UNRESOLVED``.
+    Feeding that back into ``route()`` reproduces the same block, so the cycle
+    is closed rather than merely opened: the eight that minted are exactly the
+    eight that re-route ``AUTO``, and no unkeyed candidate slips through by
+    re-deriving its disposition from the route it produced.
     """
     decisions = [ResolutionPolicy().resolve(c) for c in _all(shadow_run)]
     dispositions = Counter(d.identity_disposition().value for d in decisions)
-    assert dispositions == {IdentityDisposition.UNRESOLVED.value: CORPUS_SIZE}
+    assert dispositions == {
+        IdentityDisposition.NEW_IDENTITY.value: AUTO_AT_WARRANTED_DISPOSITION,
+        IdentityDisposition.UNRESOLVED.value: CORPUS_SIZE - AUTO_AT_WARRANTED_DISPOSITION,
+    }
 
     # Re-routing with the decision's own disposition changes nothing.
     policy = ConfidencePolicy()
@@ -174,24 +233,7 @@ def test_the_decisions_the_producer_emits_are_unresolved(shadow_run) -> None:
         policy.route(c.scores, d.identity_disposition()).value
         for c, d in zip(_all(shadow_run), decisions, strict=True)
     )
-    assert rerouted[AdjudicationRoute.AUTO.value] == 0
-
-
-def test_no_upstream_producer_passes_a_disposition() -> None:
-    """The diagnosis, as a check rather than a claim in a docstring.
-
-    ``ResolutionPolicy.resolve`` is the only place in the installed stack that
-    calls ``ConfidencePolicy.route``, and it passes one argument. If a future
-    pin wires the disposition through, this goes red and the measurement above
-    needs re-taking — which is the point.
-    """
-    import inspect
-
-    source = inspect.getsource(ResolutionPolicy.resolve)
-    assert "_confidence_policy.route(candidate.scores)" in source, (
-        "ResolutionPolicy.resolve no longer routes without a disposition - "
-        "re-measure test_the_kgcs_producer_still_routes_nothing_to_auto"
-    )
+    assert rerouted[AdjudicationRoute.AUTO.value] == AUTO_AT_WARRANTED_DISPOSITION
 
 
 # --- B: the contract in isolation ---------------------------------------------
@@ -202,8 +244,10 @@ def test_the_contract_itself_can_now_route_auto(shadow_run) -> None:
 
     Told that these candidates mint new identities, the published policy routes
     every candidate whose extraction and source scores clear the defaults. That
-    is the ADR-0024 fix doing exactly what it claims — and it is unreachable
-    from the pipeline, because the pipeline never says ``NEW_IDENTITY``.
+    is the ADR-0024 fix doing exactly what it claims, at the contract layer. It
+    is now the disposition the *producer* derives too, so the 32-of-252 upper
+    bound is what the pipeline would route if every candidate could truthfully
+    claim ``NEW_IDENTITY`` — and only the 8 entities actually do.
     """
     candidates = _all(shadow_run)
     new_identity = _routes(candidates, IdentityDisposition.NEW_IDENTITY)
@@ -234,21 +278,27 @@ def test_the_other_two_dispositions_still_route_nothing(shadow_run, disposition)
 def test_at_the_warranted_disposition_eight_candidates_route_auto(shadow_run) -> None:
     """**The other finding.** 8 of 252, and they are the structured arm.
 
-    With each candidate given the disposition its kind actually warrants, the
-    eight that route ``AUTO`` are precisely the structured ``Paper`` entities:
-    a direct read of a source record, ``source_reliability=1.0`` and
-    ``extraction_confidence=1.0`` by construction (``STRUCTURED_SCORING``).
+    With each candidate given the disposition its kind warrants, derived here
+    independently of the producer, the eight that route ``AUTO`` are precisely
+    the structured ``Paper`` entities: a direct read of a source record,
+    ``source_reliability=1.0`` and ``extraction_confidence=1.0`` by
+    construction (``STRUCTURED_SCORING``). This now equals the producer's own
+    route count, which is the closure this file reports.
 
-    The other 244 do not, for two distinct reasons, and the distinction matters:
+    The other 244 do not, for three distinct reasons, and the distinction
+    matters:
 
     * the 106 *extracted* entity candidates carry ``extraction_confidence=0.8``
       and fail ``auto_min_extraction=0.95`` on extraction alone — and 0.8 is
       ``replay.REPLAY_CONFIDENCE``, a declared constant standing in for a model
       that has not run. This number is a property of the replay fixture, **not**
       of the new platform, and would change with a real recording;
-    * the 130 attribute assertions and 8 artifacts name no resolved subject, so
-      ``UNRESOLVED`` blocks them regardless of score. KGCS would independently
-      floor them at ``LLM_ASSESS`` for the same reason.
+    * the 130 attribute assertions name a subject carried as an ``EntityRef``
+      alias, so ``UNRESOLVED`` blocks them regardless of score. KGCS would
+      independently floor them at ``LLM_ASSESS`` for the same reason;
+    * the 8 artifacts take the pre-ADR-0024 default ``RESOLVED_EXISTING``, and
+      the identity gate blocks them because they carry no ``identity_confidence``
+      either.
     """
     candidates = _all(shadow_run)
     routes = _routes(candidates)

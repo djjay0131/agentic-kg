@@ -9,31 +9,25 @@ a pipeline.
 Two policies are declared here, and which one a caller passes is a real
 decision, not a default to drift into.
 
-The measured deadlock
----------------------
-:data:`CONTRACT_DEFAULT_POLICY` is ``ConfidencePolicy()`` unchanged. Under it,
-**no candidate the KGIS shadow path produces can ever route ``AUTO``**, so the
-deterministic core plans nothing and the executor commits nothing — on any
-corpus, forever. The cause is not a threshold this repo could tune:
+The measured routing (re-taken at the 727df56 / d5bab8f6 re-pin)
+---------------------------------------------------------------
+:data:`CONTRACT_DEFAULT_POLICY` is ``ConfidencePolicy()`` unchanged, and at the
+previous pins it planned nothing: ``kgcs.policy.ResolutionPolicy.resolve`` called
+``ConfidencePolicy.route(scores)`` with one argument, so every entity candidate
+took the default ``RESOLVED_EXISTING`` disposition and was gated on an
+``identity_confidence`` no producer writes. **Agentic-kgcs #44 (727df56) wires
+the ADR-0022 fix into that producer**: the disposition is derived from
+resolution facts *before* routing, so an entity candidate is ``NEW_IDENTITY``
+and a *missing* ``identity_confidence`` no longer blocks ``AUTO``.
 
-* ``ConfidencePolicy.require_identity_confidence_for_auto`` defaults to
-  ``True``, and ``AUTO`` then additionally requires
-  ``identity_confidence >= auto_min_identity_confidence`` (0.95). A **missing**
-  ``identity_confidence`` deliberately does not pass — honest null blocks
-  ``AUTO`` rather than defaulting to good enough.
-* Nothing in the chain ever sets it. ``kgis.builders`` starts the three
-  optional scores at ``None`` and no KGIS extractor, no KGCS stage, and no
-  ``kg_eval`` component writes one; ``kgcs.er`` computes *link* probabilities
-  for identity pairs and produces an ``ErDecision``, never a
-  ``CandidateScores.identity_confidence``.
-
-So the field the default policy gates on has **no producer anywhere in the
-KGIS/KGCS chain**. ``test_policy.py`` pins that as a measurement rather than a
-claim, in ``test_the_contract_default_policy_auto_routes_nothing_kgis_produces``.
-It is reported upstream, not worked around here: a fix belongs in the platform
-(either a producer for ``identity_confidence``, or a contract decision that a
-*new-identity* candidate is not gated on a *resolution* confidence), and the
-corrected commit re-pinned.
+Measured over the committed 8-paper corpus, the unmodified default now routes
+**8 of 252** to ``AUTO`` — the eight DOI-keyed structured ``Paper`` identities —
+and defers the other 244 to ``LLM_ASSESS``. It reaches **no graded research
+entity**: the LLM extractor's ``Method`` / ``Model`` / ``ResearchConcept``
+candidates carry ``extraction_confidence=0.8`` / ``source_reliability=0.75``,
+below both unmoved AUTO thresholds, so none mints. The old "the default plans
+nothing" finding is no longer true and is re-pinned, as a measurement, in
+``test_policy.py`` and ``test_adjudication_routing.py``.
 
 The opt-in alternative
 ----------------------
@@ -45,32 +39,43 @@ LLM extractor's 0.8/0.75 candidates cleared the bar would be tuning the policy
 until the arm looked good, which is the one thing a comparison harness must
 never do.
 
-What it costs, stated plainly: the identity gate is the fail-closed guard that
-says "do not auto-mint an identity when no entity resolution has told you this
-is a new one". With it off, two candidates naming the same real-world entity
-mint two identities (``DerivedIdFactory.identity_id`` keys on the candidate id),
-and nothing dedupes them, so the two records persist as separate identities.
-(At the 0.3.0 re-pin ``CREATE_IDENTITY`` gained a ``REVOKE_IDENTITY`` inverse, so
-``roll_back`` now returns a compensating plan rather than ``plan=None``; that
-makes a duplicate *removable* by a caller who remembers to compensate it, not
-*merged*.) An independent reviewer demonstrated exactly the duplication: two
-``Topic`` candidates for one concept, ``identity_confidence=None``, two
-identities minted.
+With the gate off, a candidate that mints on an **absent** ``identity_confidence``
+is admitted (and, as above, ADR-0022 admits it under the default too). Two
+candidates naming the same real-world entity then mint two identities
+(``DerivedIdFactory.identity_id`` keys on the candidate id) and nothing dedupes
+them, so the two records persist as separate identities. (``CREATE_IDENTITY``
+gained a ``REVOKE_IDENTITY`` inverse at the 0.3.0 re-pin, so ``roll_back`` now
+returns a compensating plan rather than ``plan=None``; that makes a duplicate
+*removable* by a caller who remembers to compensate it, not *merged*.) An
+independent reviewer demonstrated exactly the duplication: two ``Topic``
+candidates for one concept, ``identity_confidence=None``, two identities
+minted — and, at the 727df56 re-pin, that batch mints under the *contract
+default* too, because ``NEW_IDENTITY`` bypasses the gate.
 
 That is acceptable only where identity is carried by a **registered
 identifier** rather than inferred — which is what the *structured* arm's
 `Paper` candidates have, keyed by DOI.
 
-**And that justification is now enforced, not merely written down.** A
+**And that justification is enforced, not merely written down.** A
 ``ConfidencePolicy`` is batch-wide; the argument for relaxing it was
 candidate-level, and the same reviewer pointed out that nothing held the line
 except the LLM extractor's 0.8/0.75 scores happening to keep graded entities
 away from ``AUTO``. So :func:`~agentic_kg.migration.curation.pipeline.run_curation`
-refuses — before anything is executed — any run in which the identity gate is
-off *and* a new identity would be minted for an entity that no registered
-identifier keys (see :data:`REGISTERED_IDENTIFIER_NAMESPACES`). The refusal
-keys on the ``require_identity_confidence_for_auto`` **field**, not on this
-constant, so an ad-hoc policy with the gate off is guarded identically.
+refuses — before anything is executed — any run in which a new identity would
+be minted for an entity that no registered identifier keys (see
+:data:`REGISTERED_IDENTIFIER_NAMESPACES`), *unless* that candidate carried a
+stated ``identity_confidence`` clearing the active policy's AUTO threshold (a
+real score is the evidence the gate wants; see
+:func:`~agentic_kg.migration.curation.pipeline._gate_evidenced`).
+
+**This guard no longer keys on the ``require_identity_confidence_for_auto``
+field.** It used to: while the gate was on nothing could mint, so the field was
+itself the guard. ADR-0022 falsified that premise by letting an entity mint on
+an absent score, and the short-circuit would have left exactly the unkeyed
+candidate the rule exists to refuse. The guard is now keyed on the candidate's
+own evidence: a candidate that minted on an **absent** score is refused whether
+the gate field is on or off, and only a stated, sufficient
+``identity_confidence`` exempts it.
 
 The guard's seam is ``run_curation``. A caller that drives
 :func:`curation_engine` directly, builds its own ``PlanExecutor`` and applies
@@ -115,11 +120,11 @@ CURATION_GRAPH_ID = GRAPH_ID
 #: is arbitrary and only has to be stable.
 RUN_INSTANT = datetime(2026, 9, 18, tzinfo=UTC)
 
-#: ``ConfidencePolicy()`` unchanged. Fail-closed, and — see the module
-#: docstring — currently a hard deadlock against every KGIS-produced candidate,
-#: because the ``identity_confidence`` it gates on has no producer in the chain.
+#: ``ConfidencePolicy()`` unchanged. Since the 727df56 re-pin it auto-applies
+#: the eight DOI-keyed structured ``Paper`` identities and defers everything
+#: else — see the module docstring. It still reaches no graded research entity.
 #: This is the default everywhere in this subpackage: an adopter that wants
-#: auto-application must say so.
+#: more must say so.
 CONTRACT_DEFAULT_POLICY = ConfidencePolicy()
 
 #: The one-field opt-in described in the module docstring. Not a default.
@@ -263,9 +268,9 @@ def curation_engine(
       property that makes a replayed run comparable to the one before it.
 
     ``confidence_policy`` defaults to :data:`CONTRACT_DEFAULT_POLICY`, which
-    auto-applies nothing. Passing :data:`STRUCTURED_IDENTITY_POLICY` is a
-    deliberate, single-field loosening whose cost is stated in the module
-    docstring.
+    auto-applies the eight structured ``Paper`` identities and no graded entity.
+    Passing :data:`STRUCTURED_IDENTITY_POLICY` is a deliberate, single-field
+    loosening whose cost is stated in the module docstring.
     """
     return CurationEngine.create(
         graph_id=graph_id,

@@ -30,6 +30,8 @@ against, so "did an application write canonically?" is answerable by an
 
 from __future__ import annotations
 
+import json
+
 from neo4j import Driver
 
 from agentic_kg.migration.neo4j._contracts import (
@@ -44,6 +46,7 @@ from agentic_kg.migration.neo4j.store import (
     _read_epoch,
     _read_identities,
     _read_identity,
+    _subject_revoked,
     _visible_assertion,
     _visible_entity,
 )
@@ -99,7 +102,17 @@ class Neo4jCanonicalGraphReader:
     def assertions_for(
         self, identity_id: str, options: GraphReadOptions = GraphReadOptions()
     ) -> list[Assertion]:
+        """Mirrors the store, including the revoked-subject shield (ADR-0026).
+
+        Both surfaces share the module-level helpers in ``store.py``, so a read
+        here can never disagree with a read through the store.
+        """
         with self._driver.session(database=self._database) as session:
+            identity = session.execute_read(_read_identity, self._namespace, identity_id)
+            if identity is not None and _subject_revoked(
+                json.loads(identity["status_history"]), options
+            ):
+                return []
             rows = session.execute_read(_read_assertions, self._namespace, identity_id)
         found = [_visible_assertion(row, options) for row in rows]
         return [a for a in found if a is not None]

@@ -52,6 +52,17 @@ un-revoke it - while the record itself is retained at its original
 ``curation_epoch`` and served by ``include_revoked=True``. See
 :func:`_reported_status`.
 
+``REVOKE_IDENTITY`` also shields the identity's **assertions** at read time
+(kg_contracts ADR-0026, issue #49): a default read of a revoked identity's
+assertions returns nothing, as a read rule that leaves each assertion's own
+status untouched. That shield is :func:`_subject_revoked`, and it is
+independent of the assertion's own status gate - a ``SUPERSEDED`` assertion on
+a revoked identity needs both ``include_revoked`` and ``include_superseded``.
+A batch is applied **in order** (ADR-0026, issue #50), so a revoke naming an
+identity created earlier in the same batch commits a tombstone; a second revoke
+of an already-revoked identity commits nothing, names the identity, and
+consumes no epoch.
+
 **Stated limitation:** *subject* reassignment (``MERGE_IDENTITIES`` /
 ``SPLIT_IDENTITY`` / ``REASSIGN_ASSERTION``) is applied in place and is **not**
 epoch-versioned — a read at an older epoch shows the post-merge subject. Only
@@ -349,7 +360,14 @@ class Neo4jCanonicalGraphStore:
         pre-revoke entity travels in the operation's ``reversal_data``, which
         is what lets the revoke itself be compensated by a ``CREATE_IDENTITY``.
 
-        Two things this does **not** do, both load-bearing:
+        **Operations apply in order** (kg_contracts ADR-0026, issue #50). This
+        method resolves its target from the transaction's live view, so a
+        ``CREATE_IDENTITY`` earlier in the *same* batch is already written and
+        a ``REVOKE_IDENTITY`` naming it commits a tombstone at this batch's
+        epoch — rather than failing with a misleading "unknown identity". A
+        revoke that appears *before* its target's create is still refused.
+
+        Three things this does **not** do, all load-bearing:
 
         * it does not delete, and it does not advance ``curation_epoch``. The
           epoch stamp records the epoch the identity was *created* in; moving
@@ -359,6 +377,15 @@ class Neo4jCanonicalGraphStore:
         * it does not reuse ``_RETRACTABLE_TO``. That frozenset governs
           *assertion* status transitions; an identity revocation is a distinct
           operation with a distinct payload and its own status entry.
+        * it does not accept a second revoke of an already-revoked identity.
+          ADR-0026 issue #50b: a revoke with nothing left to revoke fails
+          loudly, naming the cause and consuming no epoch, rather than
+          committing a no-op epoch that looks like it did something. The
+          check reads the *effective* status from the live history, so a batch
+          that revokes the same identity twice is refused on the second
+          operation too. The :class:`CommitRefused` rolls the transaction back
+          in full, so the epoch :meth:`_advance_epoch` already incremented is
+          not consumed.
         """
         identity_id = payload.get("identity_id")
         if not isinstance(identity_id, str) or not identity_id:
@@ -366,10 +393,19 @@ class Neo4jCanonicalGraphStore:
                 "invalid_payload: REVOKE_IDENTITY requires a non-empty string "
                 f"'identity_id' (got {identity_id!r})"
             )
-        if self._load_identity(tx, identity_id) is None:
+        record = self._load_identity(tx, identity_id)
+        if record is None:
             raise CommitRefused(
                 f"unknown_identity: REVOKE_IDENTITY names an unknown identity "
                 f"{identity_id!r} in namespace {self._namespace!r}"
+            )
+        # The live view: a create earlier in this same batch is already here,
+        # and so is a REVOKED entry appended by an earlier operation.
+        current, _ = _effective(json.loads(record["status_history"]), None)
+        if current is CurationStatus.REVOKED:
+            raise CommitRefused(
+                f"already_revoked: REVOKE_IDENTITY targets an already-revoked "
+                f"identity {identity_id!r} in namespace {self._namespace!r}"
             )
         self._append_identity_status(tx, identity_id, epoch, CurationStatus.REVOKED)
         return [identity_id]
@@ -609,8 +645,24 @@ class Neo4jCanonicalGraphStore:
     def assertions_for(
         self, identity_id: str, options: GraphReadOptions = GraphReadOptions()
     ) -> list[Assertion]:
+        """Assertions about ``identity_id``, with the revoked-subject shield.
+
+        A revoked identity takes its assertions with it (kg_contracts ADR-0026,
+        issue #49): a default canonical read returns nothing, so a rolled-back
+        run cannot leave live assertions hanging off an identity no reader can
+        see. This is a **read-layer** rule, not an assertion mutation — each
+        assertion keeps its own status, so a ``SUPERSEDED`` assertion on a
+        revoked identity still needs ``include_revoked`` *and*
+        ``include_superseded``; :func:`_subject_revoked` owns the first switch
+        and :func:`_reported_status` the second, keeping them independent.
+        """
         self._check_temporal_options(options)
         with self._driver.session(database=self._database) as session:
+            identity = session.execute_read(_read_identity, self._namespace, identity_id)
+            if identity is not None and _subject_revoked(
+                json.loads(identity["status_history"]), options
+            ):
+                return []
             rows = session.execute_read(_read_assertions, self._namespace, identity_id)
         found = [_visible_assertion(row, options) for row in rows]
         return [a for a in found if a is not None]
@@ -1119,6 +1171,28 @@ def _epoch_visible(record_epoch: int, options: GraphReadOptions) -> bool:
     is deliberately not also enforced in Cypher.
     """
     return options.curation_epoch is None or record_epoch <= options.curation_epoch
+
+
+def _subject_revoked(history: list[dict[str, Any]], options: GraphReadOptions) -> bool:
+    """Whether a *subject identity* shields its assertions from a default read.
+
+    The read-layer half of ``REVOKE_IDENTITY`` (kg_contracts ADR-0026, issue
+    #49), the counterpart of ``MemoryGraphStore._subject_visible``. Only
+    ``REVOKED`` shields: an unknown subject is left alone (an orphan assertion
+    is a separate concern), and ``SUPERSEDED`` identities are out of scope
+    because ADR-0026 extends only the revoke tombstone.
+
+    ``REVOKED`` is terminal and global, so the *latest* effective status is the
+    one that counts, at any requested epoch — a snapshot read of an earlier
+    epoch does not un-shield it. ``include_revoked`` is the single switch that
+    reveals a withdrawn identity and, with it, its assertions.
+
+    One rule, one implementation: :meth:`Neo4jCanonicalGraphStore.assertions_for`
+    calls this and :func:`_reported_status` applies the assertion's own status
+    gate underneath, so the two switches cannot collapse into one.
+    """
+    latest, _ = _effective(history, None)
+    return latest is CurationStatus.REVOKED and not options.include_revoked
 
 
 def _reported_status(

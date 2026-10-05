@@ -62,8 +62,8 @@ def _filler(count: int, outcome: str = "passed"):
 
 #: The three tests kg_contracts 2.0.0 (ADR-0025) added to the shared suite.
 #: Named, not counted: this module's own thesis is that counting is not
-#: identification, and a bare ``len(names) == 10`` would pass just as well if
-#: upstream had added three unrelated tests and dropped these.
+#: identification, and a bare ``len(names) == N`` would pass just as well if
+#: upstream had added unrelated tests and dropped these.
 ADR_0025_TESTS = frozenset(
     {
         "test_revoked_assertions_hidden_by_default_visible_with_flag",
@@ -72,25 +72,43 @@ ADR_0025_TESTS = frozenset(
     }
 )
 
+#: The four tests kg_contracts added at the d5bab8f6 re-pin (ADR-0026, issues
+#: #49/#50): the revoked-identity assertion shield and the batch/revoke
+#: semantics. Named for the same reason as the ADR-0025 set.
+ADR_0026_TESTS = frozenset(
+    {
+        "test_revoke_identity_hides_its_assertions_by_default_and_flag_reveals",
+        "test_revoked_identity_assertion_visibility_flag_cross_terms",
+        "test_create_and_revoke_identity_in_one_batch_commits_a_tombstone",
+        "test_second_revoke_of_already_revoked_identity_does_not_commit",
+    }
+)
+
 
 def test_expected_names_come_from_upstream_and_are_non_empty() -> None:
     """Obligation 1 and 3: derived from upstream, and the set is not empty."""
     names = expected_contract_tests()
     assert "test_snapshot_read_at_old_epoch_hides_later_records" in names
-    assert len(names) == 10
+    assert len(names) == 14
 
 
-def test_the_revocation_tests_the_new_pin_added_are_now_required() -> None:
-    """The gate's stated payoff, collected on the 0.3.0 re-pin.
+def test_the_revocation_tests_the_new_pins_added_are_now_required() -> None:
+    """The gate's stated payoff, collected on each re-pin.
 
     ``suite_gate`` derives its expectations from upstream precisely so that "an
     added upstream test becomes a *requirement* here the moment the pin moves".
-    kg_contracts 2.0.0 added three. This asserts the derivation actually picked
-    them up — if a future pin drops ``include_revoked`` from the suite, this
-    goes red and says which name vanished, rather than the adapter quietly
-    ceasing to be tested for it.
+    kg_contracts 2.0.0 added three (ADR-0025); the d5bab8f6 re-pin added four
+    more (ADR-0026). This asserts the derivation picked them up — if a future
+    pin drops one from the suite, this goes red and says which name vanished,
+    rather than the adapter quietly ceasing to be tested for it.
     """
-    missing = ADR_0025_TESTS - expected_contract_tests()
+    missing = (ADR_0025_TESTS | ADR_0026_TESTS) - expected_contract_tests()
+    assert not missing, f"upstream no longer publishes: {sorted(missing)}"
+
+
+def test_the_assertion_shield_tests_are_required_by_name() -> None:
+    """The four ADR-0026 tests, required individually rather than by count."""
+    missing = ADR_0026_TESTS - expected_contract_tests()
     assert not missing, f"upstream no longer publishes: {sorted(missing)}"
 
 
@@ -168,6 +186,22 @@ def test_dropping_only_the_new_revocation_tests_is_rejected(tmp_path) -> None:
     message = str(excinfo.value)
     assert f"closest class ran {len(kept)}" in message
     for name in ADR_0025_TESTS:
+        assert name in message
+
+
+def test_dropping_only_the_assertion_shield_tests_is_rejected(tmp_path) -> None:
+    """An adapter that never learned the revoked-subject shield is caught.
+
+    Runs the ten tests it used to run and skips the four ADR-0026 ones. The
+    rejection must name the missing tests rather than only a count.
+    """
+    kept = [c for c in _contract_cases() if c[1] not in ADR_0026_TESTS]
+    assert len(kept) == len(_contract_cases()) - len(ADR_0026_TESTS)
+    with pytest.raises(SuiteGateError) as excinfo:
+        check(_write(tmp_path, kept + _filler(53)))
+    message = str(excinfo.value)
+    assert f"closest class ran {len(kept)}" in message
+    for name in ADR_0026_TESTS:
         assert name in message
 
 

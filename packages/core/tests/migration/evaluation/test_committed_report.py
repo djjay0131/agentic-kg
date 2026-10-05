@@ -1,0 +1,51 @@
+"""The committed Phase-5 report is what the runner renders, or CI says so.
+
+The rendered report is a data-plane artifact under ``docs/ground-truth/``. A
+committed measurement that no check holds is a measurement that drifts: the
+runner's tests pin the *numbers*, but nothing until now tied the committed
+Markdown to the code that produced it. This loads the generator script by path
+and asserts the file is byte-identical to a fresh render, so a change to the
+runner or the corpus that moves a number fails here until the artifact is
+regenerated with ``scripts/migration_three_way_eval.py``.
+
+The generator imports the ingestion/curation stack (the curated-arm
+availability measurement), so this test lives in the extra-installed suite and
+skips with the rest of it on a default install.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+
+import pytest
+
+pytest.importorskip("kg_eval", reason="the opt-in 'migration' extra is not installed")
+
+REPO_ROOT = Path(__file__).resolve().parents[5]
+SCRIPT = REPO_ROOT / "scripts" / "migration_three_way_eval.py"
+COMMITTED = REPO_ROOT / "docs" / "ground-truth" / "adoption-phase5-three-way-eval.md"
+
+
+def _load_generator():
+    spec = importlib.util.spec_from_file_location("migration_three_way_eval", SCRIPT)
+    assert spec is not None and spec.loader is not None, f"cannot load {SCRIPT}"
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_generator_and_the_committed_report_both_exist() -> None:
+    assert SCRIPT.is_file(), f"generator missing at {SCRIPT}"
+    assert COMMITTED.is_file(), (
+        f"committed report missing at {COMMITTED}; run scripts/migration_three_way_eval.py"
+    )
+
+
+def test_the_committed_report_is_what_the_runner_renders() -> None:
+    rendered = _load_generator().render_committed_report()
+    committed = COMMITTED.read_text(encoding="utf-8")
+    assert committed == rendered, (
+        "the committed report is stale; regenerate it with "
+        "scripts/migration_three_way_eval.py and review the diff"
+    )

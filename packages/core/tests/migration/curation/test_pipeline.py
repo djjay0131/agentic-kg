@@ -245,13 +245,28 @@ def test_a_plan_only_run_executes_nothing(
     assert result.published_epoch is None
 
 
-def test_an_empty_plan_never_touches_the_store(
-    shadow_candidates: tuple[object, ...], enabled_config: MigrationConfig
+def test_a_genuinely_empty_plan_never_touches_the_store(
+    enabled_config: MigrationConfig,
 ) -> None:
-    """Under the contract default nothing auto-applies, so nothing is applied."""
+    """A run whose candidates all defer plans nothing, so nothing is applied.
+
+    The contract default used to make *every* corpus run look like this. Since
+    the 727df56 re-pin it auto-applies the structured arm (see
+    ``test_policy.py``), so the empty-plan path is driven here by a candidate
+    that genuinely defers: a ``Topic`` whose extraction score misses the AUTO
+    threshold and so routes ``LLM_ASSESS``.
+    """
+    candidate = graded_entity_candidate()
+    deferring = candidate.model_copy(
+        update={
+            "scores": candidate.scores.model_copy(
+                update={"extraction_confidence": 0.8}
+            )
+        }
+    )
     store = ExplodingStore()
     result = run_curation(
-        shadow_candidates,
+        [deferring],
         config=enabled_config,
         store=store,
         confidence_policy=CONTRACT_DEFAULT_POLICY,
