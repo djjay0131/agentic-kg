@@ -15,35 +15,31 @@ import pytest
 
 @dataclass
 class APITestConfig:
-    """Configuration for API E2E tests."""
+    """Configuration for API E2E tests.
+
+    ADR-0003: these tests run against the deployed, public API only. Neo4j
+    is VPC-private, so the runner no longer has (and must not need) direct
+    database credentials. The API's ``/health`` response is what proves the
+    private Neo4j path works.
+    """
 
     api_url: str
-    neo4j_uri: str
-    neo4j_password: str
+    neo4j_uri: str = ""
+    neo4j_password: str = ""
     neo4j_user: str = "neo4j"
 
     @classmethod
     def from_env(cls) -> "APITestConfig":
         """Load config from environment variables."""
         api_url = os.environ.get("STAGING_API_URL")
-        neo4j_uri = os.environ.get("STAGING_NEO4J_URI")
-        neo4j_password = os.environ.get("STAGING_NEO4J_PASSWORD", "")
 
         # No baked-in defaults: an unset/rotated staging endpoint must skip,
-        # not silently point the suite at a stale address. Get the real values
-        # from the Terraform outputs (`neo4j_bolt_uri`, `api_url`) or CI secrets.
-        if not neo4j_password:
-            pytest.skip("STAGING_NEO4J_PASSWORD not set")
-        if not neo4j_uri:
-            pytest.skip("STAGING_NEO4J_URI not set")
+        # not silently point the suite at a stale address. Get the real value
+        # from the Terraform `api_url` output or the STAGING_API_URL secret.
         if not api_url:
             pytest.skip("STAGING_API_URL not set")
 
-        return cls(
-            api_url=api_url,
-            neo4j_uri=neo4j_uri,
-            neo4j_password=neo4j_password,
-        )
+        return cls(api_url=api_url)
 
 
 @pytest.fixture(scope="session")
