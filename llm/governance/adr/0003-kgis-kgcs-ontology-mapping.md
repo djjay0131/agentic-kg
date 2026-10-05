@@ -4,7 +4,7 @@ title: "ADR-0003: KGIS/KGCS ontology mapping and the canonical/projection split"
 
 # ADR-0003: KGIS/KGCS ontology mapping and the canonical/projection split
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-18
 
 ## Context
