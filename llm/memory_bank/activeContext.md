@@ -7,6 +7,34 @@ Last updated: 2026-09-17
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
 
+## Bounded-adviser adjudication + KGCS v2.0.0 re-pin (2026-10-05)
+
+Phase-5 A3: the `new` arm is now **gradable**. The deterministic policy defers
+the LLM extractor's `Method`/`Model`/`ResearchConcept` candidates to
+`LLM_ASSESS` (`extraction_confidence=0.8 < auto_min_extraction=0.95`), so the
+arm was an honest null. A new, OFF-by-default stage
+(`MigrationConfig.use_kgcs_adjudication`, env `KGCS_ADJUDICATION_ENABLED`)
+consults a bounded KGCS adviser over those candidates and folds the advice
+through a declared deterministic gate; admitted candidates are planned by KGCS's
+own `CurationPlanner` into one plan with the deterministic `Paper` identities.
+
+- **Upstream gap, stated not worked around (adoption rule 7).** The brief
+  proposed the `CurationOrchestrator`, but that adjudicates an ER *pair*, not a
+  candidate admission, and KGCS v2.0.0 ships no adviser→promotion router. The
+  gate is adopter-side and contributes a decision; the operation is KGCS's.
+- **Laws held by test.** law 1 (failing/timeout/malformed adviser → plan
+  byte-identical to flag-off), law 13 (a rejected candidate is never consulted,
+  however loudly advice admits), law 16 (advisers return only
+  `AdviserAssessment`; AST guard), replay determinism, flag-off identity.
+- **SYNTHETIC recordings.** CI replays committed fixtures built by a scripted
+  deterministic oracle (`scripts/record_admission_fixtures.py`), clearly labelled
+  SYNTHETIC. They validate wiring, not model quality; the second report
+  `docs/ground-truth/adoption-phase5-three-way-eval-adviser-synthetic.md` grades
+  the arm and says so in its header. Live-model numbers await a staging run
+  (`OpenAICompletionClient`). The deterministic-only report is unchanged.
+- **Pins:** KGCS re-pinned to `e2c24fca` (tag v2.0.0), a metadata-only release
+  over `727df56` (diff touches only CHANGELOG/memory-bank/pyproject version).
+
 ## Current State (2026-09-17)
 
 **The CI smoke gate passes end to end for the first time.** `Smoke Test — Ingest`

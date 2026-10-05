@@ -14,11 +14,19 @@ Environment variables
     Route ingestion through ``kgis`` instead of ``agentic_kg.ingestion``.
 ``KGCS_RESOLUTION_ENABLED``
     Route entity resolution / canonicalisation through ``kgcs``.
+``KGCS_ADJUDICATION_ENABLED``
+    Run the bounded-adviser adjudication stage over the candidates the
+    deterministic policy deferred to ``LLM_ASSESS``. Off by default, and
+    requires an injected adviser (see
+    :mod:`agentic_kg.migration.curation.adjudication`); enabling it without one
+    raises rather than silently doing nothing.
 
-The two are deliberately independent switches rather than one master flag:
-KGIS (ingestion) and KGCS (canonicalisation) are separate systems that will be
-adopted in separate PRs, and an operator needs to be able to roll one back
-without reverting the other.
+The three are deliberately independent switches rather than one master flag:
+KGIS (ingestion), KGCS (canonicalisation) and the adviser stage are separate
+systems adopted in separate PRs, and an operator needs to be able to roll one
+back without reverting the others. ``use_kgcs_adjudication`` additionally has a
+hard dependency on ``use_kgcs_resolution``: adjudication consumes the
+deterministic routing decisions, so it is inert (and refused) without it.
 
 Truthiness follows the usual container/CI conventions — ``1``, ``true``,
 ``yes`` and ``on`` (case-insensitive, surrounding whitespace ignored) all mean
@@ -40,6 +48,7 @@ _TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 ENV_KGIS_ENABLED = "KGIS_INGESTION_ENABLED"
 ENV_KGCS_ENABLED = "KGCS_RESOLUTION_ENABLED"
+ENV_KGCS_ADJUDICATION = "KGCS_ADJUDICATION_ENABLED"
 
 
 def _env_flag(name: str) -> bool:
@@ -59,11 +68,18 @@ class MigrationConfig:
 
     use_kgis_ingestion: bool = field(default_factory=lambda: _env_flag(ENV_KGIS_ENABLED))
     use_kgcs_resolution: bool = field(default_factory=lambda: _env_flag(ENV_KGCS_ENABLED))
+    use_kgcs_adjudication: bool = field(
+        default_factory=lambda: _env_flag(ENV_KGCS_ADJUDICATION)
+    )
 
     @property
     def any_enabled(self) -> bool:
         """True if any part of the migration path is turned on."""
-        return self.use_kgis_ingestion or self.use_kgcs_resolution
+        return (
+            self.use_kgis_ingestion
+            or self.use_kgcs_resolution
+            or self.use_kgcs_adjudication
+        )
 
     @property
     def is_default(self) -> bool:
@@ -90,6 +106,7 @@ def reset_migration_config() -> None:
 
 
 __all__ = [
+    "ENV_KGCS_ADJUDICATION",
     "ENV_KGCS_ENABLED",
     "ENV_KGIS_ENABLED",
     "MigrationConfig",

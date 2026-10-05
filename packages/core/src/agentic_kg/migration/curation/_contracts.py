@@ -45,6 +45,19 @@ from kg_contracts.curation import (  # noqa: E402
 from kg_contracts.identity import is_identity_id  # noqa: E402
 from kg_contracts.policy import AdjudicationRoute, ConfidencePolicy  # noqa: E402
 from kg_contracts.stores import GraphMutationStore, GraphReader  # noqa: E402
+from kgcs.advisers import (  # noqa: E402
+    Adviser,
+    AdviserAssessment,
+    AdviserQuestion,
+    CompletionError,
+    CompletionMiss,
+    CompletionPort,
+    CompletionRequest,
+    CompletionResponse,
+    FailingCompletionClient,
+    RecordedCompletionClient,
+    StructuredAdviser,
+)
 from kgcs.audit import AuditSink  # noqa: E402
 from kgcs.clock import Clock, FixedClock  # noqa: E402
 from kgcs.engine import CandidateOutcome, CurationEngine, EngineResult  # noqa: E402
@@ -62,9 +75,19 @@ from kgcs.memory.execution import (  # noqa: E402
     InMemoryEpochPublisher,
     InMemoryExecutionAuditSink,
 )
+from kgcs.planner import (  # noqa: E402
+    DEFAULT_POLICY_VERSION,
+    CurationPlanner,
+    PlanResult,
+    ResolvedCandidate,
+)
+from kgcs.scores import score_vector  # noqa: E402
 
 __all__ = [
     "AdjudicationRoute",
+    "Adviser",
+    "AdviserAssessment",
+    "AdviserQuestion",
     "ArtifactCandidate",
     "AttributeAssertionCandidate",
     "AuditRecord",
@@ -74,11 +97,18 @@ __all__ = [
     "Clock",
     "CompensationResult",
     "Compensator",
+    "CompletionError",
+    "CompletionMiss",
+    "CompletionPort",
+    "CompletionRequest",
+    "CompletionResponse",
     "ConfidencePolicy",
     "CurationEngine",
     "CurationOperation",
     "CurationOperationType",
     "CurationPlan",
+    "CurationPlanner",
+    "DEFAULT_POLICY_VERSION",
     "DerivedIdFactory",
     "EngineResult",
     "EntityCandidate",
@@ -86,6 +116,7 @@ __all__ = [
     "ExecutionAuditSink",
     "ExecutionOutcome",
     "ExecutionRecord",
+    "FailingCompletionClient",
     "FixedClock",
     "GraphMutationStore",
     "GraphReader",
@@ -94,8 +125,13 @@ __all__ = [
     "InMemoryEpochPublisher",
     "InMemoryExecutionAuditSink",
     "PlanExecutor",
+    "PlanResult",
+    "RecordedCompletionClient",
     "RelationCandidate",
     "ResolutionDecision",
+    "ResolvedCandidate",
+    "StructuredAdviser",
     "ValidationDecision",
     "is_identity_id",
+    "score_vector",
 ]

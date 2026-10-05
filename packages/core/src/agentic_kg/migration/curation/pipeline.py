@@ -62,9 +62,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
-from agentic_kg.migration.config import ENV_KGCS_ENABLED, MigrationConfig
+from agentic_kg.migration.config import (
+    ENV_KGCS_ADJUDICATION,
+    ENV_KGCS_ENABLED,
+    MigrationConfig,
+)
 from agentic_kg.migration.curation._contracts import (
     AdjudicationRoute,
+    Adviser,
     ArtifactCandidate,
     AttributeAssertionCandidate,
     AuditSink,
@@ -72,6 +77,8 @@ from agentic_kg.migration.curation._contracts import (
     ConfidencePolicy,
     CurationOperationType,
     CurationPlan,
+    CurationPlanner,
+    DerivedIdFactory,
     EngineResult,
     EntityCandidate,
     EpochPublisher,
@@ -86,7 +93,14 @@ from agentic_kg.migration.curation._contracts import (
     PlanExecutor,
     RelationCandidate,
     ResolutionDecision,
+    ResolvedCandidate,
     is_identity_id,
+)
+from agentic_kg.migration.curation.adjudication import (
+    DEFAULT_ADMISSION_POLICY,
+    AdjudicationResult,
+    AdmissionPolicy,
+    adjudicate_llm_assess_candidates,
 )
 from agentic_kg.migration.curation.policy import (
     CONTRACT_DEFAULT_POLICY,
@@ -154,6 +168,17 @@ class CurationDisabled(RuntimeError):
     """
 
 
+class AdjudicationRequiresAdviser(RuntimeError):
+    """The adjudication flag is on and no adviser was injected.
+
+    Raised rather than silently skipping the stage: an operator who enabled
+    ``use_kgcs_adjudication`` and supplied no adviser has a misconfiguration,
+    and returning the deterministic result unchanged would be indistinguishable
+    from a stage that ran and held everything. The failure mode this refuses is
+    "the experiment looked identical because the model was never consulted".
+    """
+
+
 @dataclass(frozen=True)
 class Deferral:
     """One candidate that did not become a canonical operation, and why.
@@ -188,10 +213,19 @@ class CurationRunResult:
     planned_candidate_ids: tuple[str, ...]
     published_epoch: int | None
     candidates_seen: int
+    #: The plan actually handed to the executor. It equals ``engine.plan``
+    #: whenever the adviser stage is off or admitted nothing; when a candidate is
+    #: admitted it is the deterministic plan plus that candidate's promoted
+    #: ``CREATE_IDENTITY``, compiled by KGCS's own ``CurationPlanner``. Carried
+    #: explicitly rather than re-derived so the plan that was executed is the
+    #: plan a caller/auditor reads, never a reconstruction.
+    plan_override: CurationPlan | None = None
+    #: What the bounded-adviser stage decided. ``None`` iff the stage was off.
+    adjudication: AdjudicationResult | None = None
 
     @property
     def plan(self) -> CurationPlan | None:
-        return self.engine.plan
+        return self.plan_override if self.plan_override is not None else self.engine.plan
 
     @property
     def committed(self) -> bool:
@@ -224,7 +258,7 @@ class CurationRunResult:
 
     def operation_counts(self) -> dict[str, int]:
         """Planned operations per :class:`CurationOperationType`, sorted."""
-        plan = self.engine.plan
+        plan = self.plan
         if plan is None:
             return {}
         counts: dict[str, int] = {}
@@ -313,7 +347,10 @@ def _deferral_reason(candidate: Candidate, resolution: ResolutionDecision) -> st
 
 
 def classify(
-    candidates: Sequence[Candidate], engine_result: EngineResult
+    candidates: Sequence[Candidate],
+    engine_result: EngineResult,
+    *,
+    planned_ids: tuple[str, ...] | None = None,
 ) -> tuple[tuple[Deferral, ...], tuple[Deferral, ...], tuple[str, ...]]:
     """Partition the input into ``(rejected, deferred, planned_candidate_ids)``.
 
@@ -322,8 +359,14 @@ def classify(
     it would be a second implementation of the planner's dispatch rules, and the
     two would drift — at which point the deferral report would describe a
     pipeline that does not exist.
+
+    ``planned_ids`` overrides the ids read off ``engine_result.plan``. The
+    adviser stage needs that: the plan it executes is the deterministic plan
+    *plus* the promoted candidates, so a partition read off the engine's own
+    plan would report an admitted candidate as deferred and committed at once.
     """
-    planned_ids = tuple(engine_result.plan.candidate_ids) if engine_result.plan else ()
+    if planned_ids is None:
+        planned_ids = tuple(engine_result.plan.candidate_ids) if engine_result.plan else ()
     planned = set(planned_ids)
     by_id = {candidate.candidate_id: candidate for candidate in candidates}
 
@@ -500,6 +543,8 @@ def run_curation(
     audit_sink: AuditSink | None = None,
     execution_audit_sink: ExecutionAuditSink | None = None,
     executed_by: str = "agentic-kg.migration.curation",
+    adviser: Adviser | None = None,
+    admission_policy: AdmissionPolicy | None = None,
 ) -> CurationRunResult:
     """Curate ``candidates`` and, when a store is supplied, apply the plan.
 
@@ -519,9 +564,17 @@ def run_curation(
             ``agentic_kg.migration.neo4j.SUPPORTED_OPERATIONS``, which is wider:
             an under-declared set turns a supported operation into
             ``UNSUPPORTED_OPERATION`` with the store untouched.
+        adviser: The bounded admission adviser, consulted only when
+            ``config.use_kgcs_adjudication`` is on. ``None`` with the flag on is
+            a misconfiguration and raises (see
+            :class:`AdjudicationRequiresAdviser`).
+        admission_policy: The deterministic gate that folds adviser advice into
+            an admission decision. Defaults to ``DEFAULT_ADMISSION_POLICY``.
 
     Raises:
         CurationDisabled: ``config.use_kgcs_resolution`` is ``False``.
+        AdjudicationRequiresAdviser: ``config.use_kgcs_adjudication`` is
+            ``True`` and no ``adviser`` was injected.
         UnsafeIdentityRelaxation: the identity gate is off and a candidate with
             no registered-identifier alias would mint an identity. Raised before
             any execution.
@@ -533,12 +586,13 @@ def run_curation(
             "explicitly enabled MigrationConfig). No run was attempted."
         )
 
+    ids = id_factory or DerivedIdFactory()
     snapshot = (
         snapshot_version if snapshot_version is not None else _current_snapshot(store)
     )
     engine = curation_engine(
         confidence_policy=confidence_policy,
-        id_factory=id_factory,
+        id_factory=ids,
         instant=instant,
         graph_id=graph_id,
         snapshot_version=snapshot,
@@ -591,22 +645,59 @@ def run_curation(
             "policy, which defers them."
         )
 
-    rejected, deferred, planned_ids = classify(candidates, engine_result)
+    # The bounded-adviser adjudication stage (OFF by default). It consumes the
+    # deterministic decisions above and returns *additional* resolving decisions
+    # for the candidates the policy deferred; the plan is still compiled by
+    # KGCS's own CurationPlanner, so the adopter contributes a decision and
+    # never an operation (adoption rule 7).
+    adjudication: AdjudicationResult | None = None
+    plan_override: CurationPlan | None = None
+    if config.use_kgcs_adjudication:
+        if adviser is None:
+            raise AdjudicationRequiresAdviser(
+                "adjudication is enabled (use_kgcs_adjudication=True) but no "
+                f"adviser was injected. Set {ENV_KGCS_ADJUDICATION}=0 or pass one; "
+                "silently skipping the stage would make a run with no model "
+                "indistinguishable from one the model held everything on."
+            )
+        adjudication = adjudicate_llm_assess_candidates(
+            candidates,
+            engine_result,
+            adviser=adviser,
+            policy=admission_policy or DEFAULT_ADMISSION_POLICY,
+            id_factory=ids,
+            snapshot_version=snapshot,
+        )
+        if adjudication.promoted:
+            plan_override = _plan_with_promotions(
+                candidates,
+                engine_result,
+                adjudication,
+                id_factory=ids,
+                snapshot_version=snapshot,
+                policy_version=(confidence_policy or CONTRACT_DEFAULT_POLICY).policy_version,
+            )
+
+    effective_plan = plan_override if plan_override is not None else engine_result.plan
+    planned_ids = tuple(effective_plan.candidate_ids) if effective_plan else ()
+    rejected, deferred, planned_ids = classify(
+        candidates, engine_result, planned_ids=planned_ids
+    )
 
     execution: ExecutionRecord | None = None
     published: int | None = None
-    if store is not None and engine_result.plan is not None:
+    if store is not None and effective_plan is not None:
         publisher = epoch_publisher or InMemoryEpochPublisher()
         executor = PlanExecutor(
             store,
-            id_factory=id_factory,
+            id_factory=ids,
             clock=FixedClock(instant or RUN_INSTANT),
             supported_operations=supported_operations,
             epoch_publisher=publisher,
             audit_sink=execution_audit_sink,
             executed_by=executed_by,
         )
-        execution = executor.execute(engine_result.plan)
+        execution = executor.execute(effective_plan)
         published = publisher.published_epoch()
 
     return CurationRunResult(
@@ -617,12 +708,57 @@ def run_curation(
         planned_candidate_ids=planned_ids,
         published_epoch=published,
         candidates_seen=len(candidates),
+        plan_override=plan_override,
+        adjudication=adjudication,
     )
+
+
+def _plan_with_promotions(
+    candidates: Sequence[Candidate],
+    engine_result: EngineResult,
+    adjudication: AdjudicationResult,
+    *,
+    id_factory: IdFactory,
+    snapshot_version: str,
+    policy_version: str,
+) -> CurationPlan | None:
+    """The deterministic plan plus the adjudication's promoted candidates.
+
+    One plan, compiled by KGCS's own ``CurationPlanner`` — the same class
+    ``CurationEngine`` uses — so the promoted ``CREATE_IDENTITY`` operations
+    carry the planner's own per-identity ``entity_version=0`` guards and
+    deterministic ids. The deterministic candidates are re-supplied in the
+    engine plan's own order, and the promoted ones follow, so the combined
+    plan's ids are a pure function of the input order (replay is byte-identical).
+
+    Returns ``None`` only if the combined input somehow plans nothing, which
+    cannot happen here: ``adjudication.promoted`` is non-empty by construction.
+    """
+    by_id = {candidate.candidate_id: candidate for candidate in candidates}
+    resolutions = {
+        outcome.candidate_id: outcome.resolution
+        for outcome in engine_result.outcomes
+        if outcome.resolution is not None
+    }
+    deterministic_ids = engine_result.plan.candidate_ids if engine_result.plan else ()
+    combined = tuple(
+        ResolvedCandidate(
+            candidate=by_id[candidate_id], resolution=resolutions[candidate_id]
+        )
+        for candidate_id in deterministic_ids
+    ) + adjudication.promoted
+    planner = CurationPlanner(
+        id_factory=id_factory,
+        snapshot_version=snapshot_version,
+        policy_version=policy_version,
+    )
+    return planner.plan(combined).plan
 
 
 __all__ = [
     "ARTIFACT_REASON",
     "UNRESOLVED_SUBJECT_REASON",
+    "AdjudicationRequiresAdviser",
     "CurationDisabled",
     "CurationRunResult",
     "Deferral",
