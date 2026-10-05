@@ -763,6 +763,52 @@ def build_parser() -> argparse.ArgumentParser:
         "-v", "--verbose", action="store_true", help="Enable verbose logging",
     )
 
+    # migrate command (Phase 8 first slice)
+    migrate_cmd = subparsers.add_parser(
+        "migrate",
+        help="Run the opt-in KGIS/KGCS migration path (requires the migration extra)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    migrate_sub = migrate_cmd.add_subparsers(
+        dest="migrate_command", help="Migration action",
+    )
+    migrate_run = migrate_sub.add_parser(
+        "run",
+        help=(
+            "acquisition -> KGIS shadow ingestion -> KGCS curation -> isolated "
+            "canonical store -> publish epoch; prints a JSON summary"
+        ),
+    )
+    migrate_run.add_argument(
+        "--dois", nargs="+", metavar="DOI",
+        help="Run only these corpus papers, selected by DOI (case-insensitive).",
+    )
+    migrate_run.add_argument(
+        "--dois-file",
+        help="Path to a file of DOIs (one per line; '#' comments ignored).",
+    )
+    migrate_run.add_argument(
+        "--slugs", nargs="+", metavar="SLUG",
+        help="Run only these corpus papers, by slug (see migration/ingestion/corpus.py).",
+    )
+    migrate_run.add_argument(
+        "--namespace", default=None,
+        help=(
+            "Canonical namespace to read/write (default: KGCS_CANONICAL_NAMESPACE "
+            "or 'canon'). Isolation lives here; use a distinct value per graph."
+        ),
+    )
+    migrate_run.add_argument(
+        "--ledger-dir", default=None,
+        help=(
+            "Directory for the KGIS ledger/evidence SQLite files (default: "
+            "KGIS_LEDGER_DIR, else in-memory). Ephemeral on Cloud Run."
+        ),
+    )
+    migrate_run.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
     return parser
 
 
@@ -1345,6 +1391,93 @@ def run_citation_graph(args) -> None:
                 frontier.append((child_doi, depth + 1))
 
 
+def run_migrate(args) -> None:
+    """Run the opt-in KGIS/KGCS migration path (Phase 8 first slice).
+
+    Refuses loudly — before importing the optional pipeline — when either opt-in
+    flag is off, and names the install command when the ``migration`` extra is
+    absent. On success prints a JSON summary to stdout (the Cloud Run Job's
+    observability surface) and exits 0 even on an idempotent re-run that commits
+    nothing.
+    """
+    from agentic_kg.migration.config import get_migration_config
+
+    if getattr(args, "migrate_command", None) != "run":
+        print(
+            "Error: `agentic-kg migrate` needs a subcommand; the only one is "
+            "`run`.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    config = get_migration_config()
+    missing = [
+        name
+        for name, enabled in (
+            ("KGIS_INGESTION_ENABLED", config.use_kgis_ingestion),
+            ("KGCS_RESOLUTION_ENABLED", config.use_kgcs_resolution),
+        )
+        if not enabled
+    ]
+    if missing:
+        print(
+            "Error: the KGIS/KGCS migration path is off. Set "
+            + " and ".join(f"{name}=1" for name in missing)
+            + " and install the extra: "
+            "uv pip install -e './packages/core[migration]'",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    dois: Optional[list[str]] = None
+    if getattr(args, "dois", None):
+        dois = list(args.dois)
+    elif getattr(args, "dois_file", None):
+        try:
+            with open(args.dois_file, encoding="utf-8") as f:
+                dois = [
+                    ln.strip()
+                    for ln in f
+                    if ln.strip() and not ln.lstrip().startswith("#")
+                ]
+        except OSError as e:
+            print(
+                f"Error: cannot read --dois-file {args.dois_file!r}: {e}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if not dois:
+            print(
+                f"Error: --dois-file {args.dois_file!r} contained no DOIs",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    try:
+        from agentic_kg.migration.run import execute_migration
+    except Exception as e:  # noqa: BLE001 - the failure is the actionable message
+        print(
+            f"Error: could not import the migration pipeline ({e}). Install the "
+            "opt-in extra: uv pip install -e './packages/core[migration]'",
+            file=sys.stderr,
+        )
+        sys.exit(3)
+
+    try:
+        summary = execute_migration(
+            config=config,
+            slugs=getattr(args, "slugs", None) or None,
+            dois=dois,
+            namespace=getattr(args, "namespace", None),
+            ledger_dir=getattr(args, "ledger_dir", None),
+        )
+    except Exception as e:  # noqa: BLE001 - surfaced as a non-zero exit
+        print(f"Error: migration run failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(json.dumps(summary.to_dict(), indent=2, default=str))
+
+
 def main(argv: Optional[list[str]] = None) -> None:
     """CLI entry point."""
     parser = build_parser()
@@ -1383,6 +1516,8 @@ def main(argv: Optional[list[str]] = None) -> None:
         run_link_method(args)
     elif args.command == "citation-graph":
         run_citation_graph(args)
+    elif args.command == "migrate":
+        run_migrate(args)
     elif args.command == "extract":
         # Build pipeline config
         config = PipelineConfig(

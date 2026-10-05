@@ -15,8 +15,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Install build dependencies
+# git + ca-certificates are needed to resolve the commit-pinned KGIS/KGCS
+# direct references in the opt-in `migration` extra (ADR-0004).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    git \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy source code for installation
@@ -27,9 +31,12 @@ COPY packages/core/ packages/core/
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install only the core package (no API dependencies)
+# Install the core package WITH the opt-in `migration` extra. The migration
+# path is opt-in at the *code* level (both flags default off), but the Cloud Run
+# Job image must carry the extra so INGEST_MODE=kgis_kgcs can run; the default
+# INGEST_MODE=legacy path is unchanged.
 RUN pip install --upgrade pip \
-    && pip install ./packages/core
+    && pip install "./packages/core[migration]"
 
 # Runtime stage
 FROM python:3.12-slim AS runtime
