@@ -7,8 +7,7 @@ Tests Semantic Scholar and arXiv clients with real paper IDs.
 from __future__ import annotations
 
 import pytest
-
-from agentic_kg.data_acquisition.arxiv import ArxivClient, construct_pdf_url
+from agentic_kg.data_acquisition.arxiv import ArxivClient
 from agentic_kg.data_acquisition.semantic_scholar import SemanticScholarClient
 
 # Known paper IDs for testing
@@ -24,8 +23,19 @@ class TestSemanticScholarE2E:
 
     @pytest.fixture
     async def client(self):
-        """Create client for tests."""
+        """Create client for tests.
+
+        These tests hit the live Semantic Scholar API. Unauthenticated
+        callers share one global anonymous pool and flake on 429s, so a
+        missing key is a hard failure here, not a silent degradation (#80).
+        Pacing is already shared via the process-wide registry limiter
+        (1 RPS, burst_multiplier 1.0), so sequential calls do not burst.
+        """
         client = SemanticScholarClient()
+        assert client.config.is_authenticated, (
+            "SEMANTIC_SCHOLAR_API_KEY is not set; refusing to run against the "
+            "shared anonymous rate pool where these tests flake on 429s."
+        )
         yield client
         await client.close()
 
@@ -170,6 +180,10 @@ class TestCrossSourceCorrelation:
     async def test_same_paper_both_sources(self):
         """Test that the same paper can be found in both sources."""
         async with SemanticScholarClient() as ss_client:
+            assert ss_client.config.is_authenticated, (
+                "SEMANTIC_SCHOLAR_API_KEY is not set; see "
+                "TestSemanticScholarE2E.client."
+            )
             async with ArxivClient() as arxiv_client:
                 ss_paper = await ss_client.get_paper_by_arxiv(TRANSFORMER_ARXIV_ID)
                 arxiv_paper = await arxiv_client.get_paper(TRANSFORMER_ARXIV_ID)
