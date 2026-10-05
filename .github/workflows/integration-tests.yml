@@ -59,7 +59,7 @@ jobs:
           path: test-results/
 
   integration-tests:
-    # ADR-0003: staging Neo4j is VPC-private; GitHub runners cannot reach it.
+    # ADR-0006: staging Neo4j is VPC-private; GitHub runners cannot reach it.
     # Run the integration-marked suite against an ephemeral testcontainers
     # Neo4j instead (the conftest already supports this when NEO4J_URI is
     # unset). No STAGING_NEO4J_* secret is consulted.
@@ -107,7 +107,7 @@ jobs:
           path: test-results/
 
   e2e-tests:
-    # ADR-0003: the core e2e suite needs direct DB access, which is now
+    # ADR-0006: the core e2e suite needs direct DB access, which is now
     # VPC-private, so it no longer runs in CI. This job exercises the
     # deployed public API instead; its /health assertion (`neo4j_connected`)
     # is the end-to-end proof that the private Neo4j path works from inside

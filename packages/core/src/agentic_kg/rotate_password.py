@@ -1,6 +1,6 @@
-"""Cloud Run Job entrypoint: rotate the Neo4j credential (ADR-0003).
+"""Cloud Run Job entrypoint: rotate the Neo4j credential (ADR-0006).
 
-Neo4j is VPC-private after ADR-0003, so this runs *inside* the VPC as the
+Neo4j is VPC-private after ADR-0006, so this runs *inside* the VPC as the
 ``agentic-kg-rotate-neo4j-<env>`` Cloud Run Job. It reads:
 
 - ``NEO4J_URI``          — the internal bolt URI (Secret Manager)

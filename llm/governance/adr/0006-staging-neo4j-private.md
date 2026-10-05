@@ -1,9 +1,9 @@
 ---
-title: "ADR-0003: Staging Neo4j is private (VPC-only) with a repeatable password rotation"
+title: "ADR-0006: Staging Neo4j is private (VPC-only) with a repeatable password rotation"
 nav_exclude: true
 ---
 
-# ADR-0003: Staging Neo4j is private (VPC-only) with a repeatable password rotation
+# ADR-0006: Staging Neo4j is private (VPC-only) with a repeatable password rotation
 
 Status: Proposed
 Date: 2026-10-05

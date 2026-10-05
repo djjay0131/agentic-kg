@@ -20,7 +20,7 @@ variable "env" {
   type        = string
 }
 
-# Networking — Neo4j is private (ADR-0003); Cloud Run reaches it via Direct
+# Networking — Neo4j is private (ADR-0006); Cloud Run reaches it via Direct
 # VPC egress.
 variable "network" {
   description = "VPC network the Neo4j VM and Cloud Run egress attach to"
@@ -56,7 +56,7 @@ variable "neo4j_vpc_egress" {
 
 variable "neo4j_assign_public_ip" {
   description = <<-EOT
-    Attach the VM's ephemeral public IP. Defaults to true so applying ADR-0003
+    Attach the VM's ephemeral public IP. Defaults to true so applying ADR-0006
     cannot replace the instance; the firewall is the ingress control. Set false
     in a maintenance window to detach it (may replace the instance).
   EOT

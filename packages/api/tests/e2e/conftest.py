@@ -17,7 +17,7 @@ import pytest
 class APITestConfig:
     """Configuration for API E2E tests.
 
-    ADR-0003: these tests run against the deployed, public API only. Neo4j
+    ADR-0006: these tests run against the deployed, public API only. Neo4j
     is VPC-private, so the runner no longer has (and must not need) direct
     database credentials. The API's ``/health`` response is what proves the
     private Neo4j path works.

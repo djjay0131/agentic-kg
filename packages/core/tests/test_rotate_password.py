@@ -1,4 +1,4 @@
-"""Unit tests for the in-VPC Neo4j password-rotation entrypoint (ADR-0003).
+"""Unit tests for the in-VPC Neo4j password-rotation entrypoint (ADR-0006).
 
 No live Neo4j: the driver factory is injected. The tests pin the contract
 that matters — the ALTER uses parameters, a read probe is run with the new

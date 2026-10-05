@@ -1,4 +1,4 @@
-"""Structural assertions for the Neo4j password-rotation workflow (ADR-0003).
+"""Structural assertions for the Neo4j password-rotation workflow (ADR-0006).
 
 Parses ``.github/workflows/rotate-neo4j-password.yml`` on disk (no network,
 no Docker) and fails if the security properties regress:
@@ -96,7 +96,7 @@ def test_password_is_never_echoed_or_persisted(text: str) -> None:
 
 
 def test_rotates_inside_the_vpc_via_a_cloud_run_job(text: str) -> None:
-    # After ADR-0003 Neo4j is private; the runner cannot reach it directly.
+    # After ADR-0006 Neo4j is private; the runner cannot reach it directly.
     assert "gcloud run jobs execute" in text
     assert "agentic-kg-rotate-neo4j-" in text
 

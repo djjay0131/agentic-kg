@@ -8,7 +8,7 @@ parent: Operations
 
 Operator steps to (1) take staging Neo4j off the public internet and
 (2) rotate its credential safely. Projects the decision in
-[`ADR-0003`](https://github.com/djjay0131/agentic-kg/blob/master/llm/governance/adr/0003-staging-neo4j-private.md);
+[`ADR-0006`](https://github.com/djjay0131/agentic-kg/blob/master/llm/governance/adr/0006-staging-neo4j-private.md);
 the two planes rule means the ADR is authoritative and this page is the
 derived runbook.
 
@@ -238,4 +238,4 @@ curl -fsS "<api-url>/api/stats"    # counts present → the private path is live
   it may replace the instance, so lift `prevent_destroy` for that apply.
 - **The old address is in git history** and cannot be removed without a
   rewrite. The firewall is the control.
-- **Core DB `e2e` tests no longer run in CI** (see ADR-0003 Consequences).
+- **Core DB `e2e` tests no longer run in CI** (see ADR-0006 Consequences).

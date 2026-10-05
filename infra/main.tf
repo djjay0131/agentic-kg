@@ -55,7 +55,7 @@ resource "google_compute_instance" "neo4j" {
   }
 
   # The firewall, not the absence of a NAT IP, is the ingress control.
-  # `neo4j_assign_public_ip` defaults to true so that applying ADR-0003
+  # `neo4j_assign_public_ip` defaults to true so that applying ADR-0006
   # cannot replace the instance; with the firewall closed the address is
   # unreachable. Detaching it is a documented follow-up.
   network_interface {
@@ -125,7 +125,7 @@ data "google_compute_subnetwork" "neo4j" {
 
 locals {
   # Default to the subnetwork CIDR so Neo4j is reachable only from inside the
-  # VPC (Cloud Run Direct VPC egress sources from this range). ADR-0003.
+  # VPC (Cloud Run Direct VPC egress sources from this range). ADR-0006.
   neo4j_source_ranges = length(var.neo4j_allowed_source_ranges) > 0 ? (
     var.neo4j_allowed_source_ranges
   ) : [data.google_compute_subnetwork.neo4j.ip_cidr_range]
@@ -137,7 +137,7 @@ locals {
 resource "google_compute_firewall" "neo4j" {
   name        = "allow-neo4j-${var.env}"
   network     = var.network
-  description = "Neo4j bolt/http from the VPC subnetwork only. Never 0.0.0.0/0. See ADR-0003."
+  description = "Neo4j bolt/http from the VPC subnetwork only. Never 0.0.0.0/0. See ADR-0006."
 
   allow {
     protocol = "tcp"
@@ -151,12 +151,12 @@ resource "google_compute_firewall" "neo4j" {
 }
 
 # Optional break-glass SSH via Identity-Aware Proxy. IAP is allowed on 22
-# ONLY — never on 7474/7687. See ADR-0003.
+# ONLY — never on 7474/7687. See ADR-0006.
 resource "google_compute_firewall" "neo4j_iap_ssh" {
   count       = var.enable_iap_ssh ? 1 : 0
   name        = "allow-iap-ssh-neo4j-${var.env}"
   network     = var.network
-  description = "SSH to the Neo4j VM through IAP only (tcp/22, IAP range). See ADR-0003."
+  description = "SSH to the Neo4j VM through IAP only (tcp/22, IAP range). See ADR-0006."
 
   allow {
     protocol = "tcp"
@@ -185,7 +185,7 @@ resource "google_secret_manager_secret" "neo4j_uri" {
 resource "google_secret_manager_secret_version" "neo4j_uri" {
   secret = google_secret_manager_secret.neo4j_uri.id
   # Internal VPC address: Cloud Run reaches it through Direct VPC egress.
-  # See ADR-0003.
+  # See ADR-0006.
   secret_data = "bolt://${google_compute_instance.neo4j.network_interface[0].network_ip}:7687"
 }
 
@@ -218,7 +218,7 @@ resource "google_project_iam_member" "secret_accessor" {
 }
 
 # Cloud Run Direct VPC egress runs as this service account; it needs
-# networkUser to attach to the subnetwork. ADR-0003.
+# networkUser to attach to the subnetwork. ADR-0006.
 resource "google_project_iam_member" "network_user" {
   project = var.project_id
   role    = "roles/compute.networkUser"
@@ -241,7 +241,7 @@ resource "google_cloud_run_v2_service" "api" {
     }
 
     # Direct VPC egress: Neo4j is private, public APIs still use managed
-    # egress. ADR-0003.
+    # egress. ADR-0006.
     vpc_access {
       network_interfaces {
         network    = var.network
@@ -405,7 +405,7 @@ resource "google_cloud_run_v2_job" "ingest" {
         }
       }
 
-      # Direct VPC egress: same private path to Neo4j as the API. ADR-0003.
+      # Direct VPC egress: same private path to Neo4j as the API. ADR-0006.
       vpc_access {
         network_interfaces {
           network    = var.network
@@ -495,7 +495,7 @@ resource "google_cloud_run_v2_service_iam_member" "ui_public" {
 # These secrets are automatically synced to GitHub Actions so CI can run
 # integration tests against the staging environment without manual setup.
 
-# Removed by ADR-0003: STAGING_NEO4J_URI / STAGING_NEO4J_PASSWORD. GitHub
+# Removed by ADR-0006: STAGING_NEO4J_URI / STAGING_NEO4J_PASSWORD. GitHub
 # runners no longer reach Neo4j directly (it is VPC-private), and the
 # credential now has a single source of truth in Secret Manager. Any stale
 # values should be deleted from the repository settings by the owner.
@@ -508,7 +508,7 @@ resource "github_actions_secret" "staging_api_url" {
 }
 
 # =============================================================================
-# Password rotation (ADR-0003)
+# Password rotation (ADR-0006)
 # =============================================================================
 # The rotation job runs INSIDE the VPC (Neo4j is private). The workflow
 # stages the new password in NEO4J_PASSWORD_NEXT so it never has to be
