@@ -8,8 +8,8 @@ A green conformance run says nothing on its own. A suite wired to a store that
 silently no-ops, or fixtures that make every assertion vacuous, passes exactly
 as convincingly as a correct one. So each defect the shared suite is supposed to
 catch is injected here, one at a time, and the specific test that should notice
-is asserted to fail. The control case — the unmutated adapter passing all ten
-— runs in the same module against the same helper, so "all ten" is measured
+is asserted to fail. The control case — the unmutated adapter passing all fourteen
+— runs in the same module against the same helper, so "all fourteen" is measured
 the same way in both directions.
 
 The mutations are applied with ``monkeypatch`` against the real implementation
@@ -78,11 +78,15 @@ def test_the_suite_has_the_tests_this_module_assumes() -> None:
     assert CONTRACT_TESTS == (
         "test_capability_conformance_for_temporal_options",
         "test_create_and_attach_commits_and_returns_new_epoch",
+        "test_create_and_revoke_identity_in_one_batch_commits_a_tombstone",
         "test_entity_readable_after_commit_not_before",
         "test_failed_entity_version_precondition_blocks_commit_atomically",
         "test_include_superseded_and_include_revoked_are_independent",
         "test_revoke_identity_hides_entity_and_preserves_creation_epoch",
+        "test_revoke_identity_hides_its_assertions_by_default_and_flag_reveals",
         "test_revoked_assertions_hidden_by_default_visible_with_flag",
+        "test_revoked_identity_assertion_visibility_flag_cross_terms",
+        "test_second_revoke_of_already_revoked_identity_does_not_commit",
         "test_snapshot_read_at_old_epoch_hides_later_records",
         "test_superseded_assertions_hidden_by_default_visible_with_flag",
         "test_transaction_at_filters_by_half_open_recorded_superseded_window",
@@ -194,6 +198,55 @@ def _mutate_revoke_restamps_creation_epoch(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr(Neo4jCanonicalGraphStore, "_apply_revoke_identity", restamp)
 
 
+def _mutate_revoked_subject_shield_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Serve a revoked identity's assertions on a default read.
+
+    The read-layer half of ``REVOKE_IDENTITY`` (ADR-0026, issue #49): a
+    rolled-back run must not leave live assertions hanging off an identity no
+    reader can see. Neutralising the shield leaves the assertions' own status
+    intact, so only the assertion-shield test can notice.
+    """
+    monkeypatch.setattr(store_module, "_subject_revoked", lambda history, options: False)
+
+
+def _mutate_shield_collapsed_into_flags(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One "show me everything" switch instead of two independent ones.
+
+    The mutant the *new* cross-term exists for: an adapter that lifts the
+    identity shield whenever either flag is set passes the single-flag
+    assertion-shield test and fails only when ``include_superseded`` alone must
+    not reach past a withdrawn identity.
+    """
+
+    def collapsed(history, options):  # noqa: ANN001, ANN202
+        latest, _ = store_module._effective(history, None)
+        show_all = options.include_revoked or options.include_superseded
+        return latest is CurationStatus.REVOKED and not show_all
+
+    monkeypatch.setattr(store_module, "_subject_revoked", collapsed)
+
+
+def _mutate_double_revoke_commits(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A second revoke of an already-revoked identity commits a new epoch.
+
+    ADR-0026 issue #50b: the store must fail loudly instead of consuming an
+    epoch that looks like it did something. The mutant drops the already-revoked
+    check but otherwise appends a status entry exactly as the real method does,
+    so only the double-revoke test can tell.
+    """
+
+    def without_check(self, tx, payload, epoch):  # noqa: ANN001, ANN202
+        identity_id = payload.get("identity_id")
+        if self._load_identity(tx, str(identity_id)) is None:
+            raise store_module.CommitRefused(
+                f"unknown_identity: REVOKE_IDENTITY names an unknown identity {identity_id!r}"
+            )
+        self._append_identity_status(tx, str(identity_id), epoch, CurationStatus.REVOKED)
+        return [str(identity_id)]
+
+    monkeypatch.setattr(Neo4jCanonicalGraphStore, "_apply_revoke_identity", without_check)
+
+
 def _mutate_snapshot_reads_ignore_epoch(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ignore ``curation_epoch``: always read the latest state.
 
@@ -251,6 +304,21 @@ MUTANTS: tuple[tuple[str, Callable[[pytest.MonkeyPatch], None], str], ...] = (
         "test_revoke_identity_hides_entity_and_preserves_creation_epoch",
     ),
     (
+        "revoked subject does not shield assertions",
+        _mutate_revoked_subject_shield_off,
+        "test_revoke_identity_hides_its_assertions_by_default_and_flag_reveals",
+    ),
+    (
+        "revoked-subject shield collapsed into one flag",
+        _mutate_shield_collapsed_into_flags,
+        "test_revoked_identity_assertion_visibility_flag_cross_terms",
+    ),
+    (
+        "second revoke commits a no-op epoch",
+        _mutate_double_revoke_commits,
+        "test_second_revoke_of_already_revoked_identity_does_not_commit",
+    ),
+    (
         "snapshot reads ignore curation_epoch",
         _mutate_snapshot_reads_ignore_epoch,
         "test_snapshot_read_at_old_epoch_hides_later_records",
@@ -304,10 +372,10 @@ def test_in_place_status_mutation_breaks_the_epoch_read(
     *already-committed* assertion at a later epoch and then reads back at the
     earlier one. So the mutation below (replace the status history instead of
     appending to it, i.e. backdate the new status to the original epoch) leaves
-    all ten contract tests green while destroying the property the
+    all fourteen contract tests green while destroying the property the
     evidence-evolution scenario depends on.
 
-    This asserts both halves: the ten stay green, and the epoch read goes
+    This asserts both halves: the fourteen stay green, and the epoch read goes
     wrong. That is why ``test_old_assertion_is_still_active_at_its_own_epoch``
     exists as a separate criterion rather than being folded into "it conforms".
     """
@@ -459,8 +527,8 @@ def shadowed_contract_methods(cls: type) -> set[str]:
 def test_the_conforming_class_shadows_no_contract_method() -> None:
     """Closes the last hole in ``suite_gate.py``, which junit alone cannot see.
 
-    A subclass that overrides all ten contract methods with ``pass`` (and a
-    ``make_store`` that raises) still emits ten passing testcases under one
+    A subclass that overrides all fourteen contract methods with ``pass`` (and a
+    ``make_store`` that raises) still emits fourteen passing testcases under one
     classname, so the gate reports ``10/10 shared contract tests passed`` and
     exits 0. The junit report records *that* the names ran, never *what* ran —
     an XML-level gate cannot distinguish the real body from a stub, and no
@@ -544,7 +612,7 @@ def test_half_dropped_valid_window_survives_the_shared_suite(
 
     ``test_capability_conformance_for_temporal_options`` probes ``valid_at``
     only *inside* the window and *after* it, so an implementation that dropped
-    the ``valid_from`` comparison passes all ten. So did this repo's own
+    the ``valid_from`` comparison passes all fourteen. So did this repo's own
     façade probe, until a reviewer pointed the mutation at it — 84 passed with
     the lower bound deleted.
     """

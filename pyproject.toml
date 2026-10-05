@@ -42,28 +42,34 @@ dependencies = [
 # agentic-kgis has zero tags, and its version sat at 0.2.0 for 122 commits
 # (it is 0.3.0 at the pin below, but still untagged).
 migration = [
-    # agentic-kgis @ de48639 = version 0.3.0 (up from 0.2.1 at baf0b67e).
-    # kg_contracts CONTRACT_VERSION is now "2.0.0". Ships kg_contracts, kgis,
-    # kg_eval. Three changes this repo had to act on:
-    #  (a) ADR-0024 - `ConfidencePolicy.route()` takes an `IdentityDisposition`.
-    #      The default is RESOLVED_EXISTING, which reproduces prior routing
-    #      exactly. NOTE: nothing outside kg_contracts passes one at this pin,
-    #      so the AUTO deadlock is fixed in the contract and NOT wired into the
-    #      KGCS producer. Measured in tests/migration/ingestion/
-    #      test_adjudication_routing.py: still 0 of 252 through ResolutionPolicy.
-    #  (b) ADR-0025 - `REVOKE_IDENTITY` is the eighth CurationOperationType and
-    #      the CREATE_IDENTITY inverse. This adapter must apply it or identity
-    #      rollback is impossible; see migration/neo4j/operations.py.
-    #  (c) BEHAVIOUR BREAK - `GraphReadOptions.include_revoked` exists and
-    #      REVOKED records are hidden from every default read, at any epoch.
-    #      This reverses what the adapter previously did (upstream pinned
-    #      revoked-visible-by-default). Safe here: nothing in this repository
-    #      wrote CurationStatus.REVOKED before this pin.
-    "agentic-kgis @ git+https://github.com/djjay0131/agentic-kgis@de48639a7a008debbdb2712e20ca26b7b593b22b",
-    # agentic-kgcs main @ f68d1d7 (up from 14ffd0e8, the squash-merge of #34).
-    # Version still self-reports 1.0.0 - the SHA is the only identity, which is
-    # why packages/core/tests/migration/neo4j/pin_gate.py checks the resolved
-    # commit rather than the version.
+    # agentic-kgis @ d5bab8f6 = version 0.3.0 (up from de48639a, also 0.3.0).
+    # kg_contracts CONTRACT_VERSION is "2.0.0". Ships kg_contracts, kgis,
+    # kg_eval. Changes this repo had to act on:
+    #  (a) ADR-0026 (agentic-kgis #54, issues #49/#50) - a revoked identity
+    #      shields its ASSERTIONS from default reads (read-layer, statuses
+    #      untouched); a batch applies operations in order so create-then-revoke
+    #      in one batch commits a tombstone; a second revoke commits nothing and
+    #      consumes no epoch. FOUR new tests join GraphMutationStoreContract
+    #      (14 total); this adapter implements all three in Cypher.
+    #  (b) CARRIED FROM de48639a - ADR-0024's `IdentityDisposition` on
+    #      `ConfidencePolicy.route()`, and ADR-0025's `REVOKE_IDENTITY` (eighth
+    #      CurationOperationType, CREATE_IDENTITY inverse) with `include_revoked`
+    #      hiding REVOKED records from every default read at any epoch.
+    "agentic-kgis @ git+https://github.com/djjay0131/agentic-kgis@d5bab8f6d6207ce554ee5f687d37938f747eaa79",
+    # agentic-kgcs main @ 727df56 (the merge of #44), up from f68d1d7. #45, the
+    # release bump, is still open, so this pins the fix commit. Version still
+    # self-reports 1.0.0 - the SHA is the only identity, which is why
+    # packages/core/tests/migration/neo4j/pin_gate.py checks the resolved commit
+    # rather than the version.
+    #
+    # New at 727df56 (agentic-kgcs #44, ADR-0022): the identity disposition is
+    # derived BEFORE routing, so entity candidates are NEW_IDENTITY and an
+    # absent `identity_confidence` no longer blocks AUTO. Measured over the
+    # committed corpus at published thresholds: the contract default now routes
+    # 8 of 252 AUTO (the DOI-keyed structured Papers), defers 244, and still
+    # reaches no graded entity. Consequence acted on here: the registered-
+    # identifier guard in migration/curation/pipeline.py no longer short-circuits
+    # on the identity-gate field.
     #
     # Carried forward from earlier pins and still true:
     #   - after #30, `orcid` is no longer a default strong namespace, so Author
@@ -93,7 +99,7 @@ migration = [
     #   - `Compensator._invert`'s legacy reversal_data fallback now RAISES by
     #     default (opt in with `allow_legacy_reversal_data=True`); a malformed
     #     INVERSE_PAYLOAD_KEY raises unconditionally.
-    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@f68d1d7186578c2c80989e75b4d3d0e2c81ec911",
+    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@727df564e1c4a9b11c0f8a4e6be7867fbf5a63ac",
 ]
 dev = [
     "pytest>=7.0.0",
