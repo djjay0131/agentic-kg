@@ -1,0 +1,223 @@
+<h1 id="neo4j-hardening-runbook">Neo4j hardening runbook</h1>
+
+<p>Operator steps to (1) take staging Neo4j off the public internet and
+(2) rotate its credential safely. Projects the decision in
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/governance/adr/0003-staging-neo4j-private.md"><code class="language-plaintext highlighter-rouge">ADR-0003</code></a>;
+the two planes rule means the ADR is authoritative and this page is the
+derived runbook.</p>
+
+<p><strong>Project:</strong> <code class="language-plaintext highlighter-rouge">vt-gcp-00042</code> (staging) · <strong>Region:</strong> <code class="language-plaintext highlighter-rouge">us-central1</code>
+<strong>Terraform state:</strong> local (<code class="language-plaintext highlighter-rouge">infra/terraform.tfstate</code>) — the owner applies;
+CI never does.</p>
+
+<hr />
+
+<h2 id="preconditions">Preconditions</h2>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">gcloud</code> authenticated to the <strong><code class="language-plaintext highlighter-rouge">vt-gcp-00042</code></strong> VT (non-prod) project.</li>
+  <li>Terraform <code class="language-plaintext highlighter-rouge">&gt;= 1.5</code> on <code class="language-plaintext highlighter-rouge">PATH</code>, run from <code class="language-plaintext highlighter-rouge">infra/</code>.</li>
+  <li><code class="language-plaintext highlighter-rouge">roles/owner</code>-class access to the project (firewall, IAM, Secret Manager,
+Cloud Run).</li>
+  <li>The <code class="language-plaintext highlighter-rouge">job</code> image has been rebuilt since the last core change (the rotation
+job runs <code class="language-plaintext highlighter-rouge">python -m agentic_kg.rotate_password</code> from that image).</li>
+  <li>The GitHub environment <code class="language-plaintext highlighter-rouge">staging</code> has <code class="language-plaintext highlighter-rouge">GCP_WORKLOAD_IDENTITY_PROVIDER</code> and
+<code class="language-plaintext highlighter-rouge">GCP_SERVICE_ACCOUNT</code> set, exactly as <code class="language-plaintext highlighter-rouge">deploy-master.yml</code> uses them.</li>
+  <li><strong>Do not</strong> run these commands from an agent session or CI.</li>
+</ul>
+
+<p>Capture the current state first:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud compute firewall-rules describe allow-neo4j-staging <span class="se">\</span>
+  <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042 <span class="nt">--format</span><span class="o">=</span><span class="s1">'value(sourceRanges)'</span>
+gcloud secrets versions list NEO4J_PASSWORD <span class="se">\</span>
+  <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042 <span class="nt">--format</span><span class="o">=</span><span class="s1">'table(name,state,createTime)'</span>
+</code></pre></div></div>
+
+<hr />
+
+<h2 id="part-1--make-neo4j-private-staged-apply-zero-downtime">Part 1 — Make Neo4j private (staged apply, zero downtime)</h2>
+
+<p>The order matters: <strong>egress first, then the internal address, then close the
+firewall.</strong> Each stage is verified before the next.</p>
+
+<h3 id="step-1--add-vpc-egress-and-rotation-infrastructure-firewall-still-open">Step 1 — Add VPC egress and rotation infrastructure (firewall still open)</h3>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">cd </span>infra
+terraform init <span class="nt">-backend</span><span class="o">=</span><span class="nb">false</span>        <span class="c"># provider only; never against real state from CI</span>
+terraform plan <span class="nt">-var-file</span><span class="o">=</span>envs/staging.tfvars
+</code></pre></div></div>
+
+<p>Confirm the plan shows <strong>no replacement</strong> of <code class="language-plaintext highlighter-rouge">google_compute_instance.neo4j</code>
+(<code class="language-plaintext highlighter-rouge">prevent_destroy</code> will refuse one) and no change to <code class="language-plaintext highlighter-rouge">NEO4J_URI</code> yet.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>terraform apply <span class="nt">-var-file</span><span class="o">=</span>envs/staging.tfvars <span class="se">\</span>
+  <span class="nt">-target</span><span class="o">=</span>google_project_iam_member.network_user <span class="se">\</span>
+  <span class="nt">-target</span><span class="o">=</span>google_cloud_run_v2_service.api <span class="se">\</span>
+  <span class="nt">-target</span><span class="o">=</span>google_cloud_run_v2_job.ingest <span class="se">\</span>
+  <span class="nt">-target</span><span class="o">=</span>google_cloud_run_v2_job.rotate_password <span class="se">\</span>
+  <span class="nt">-target</span><span class="o">=</span>google_secret_manager_secret.neo4j_password_next
+</code></pre></div></div>
+
+<p><strong>Verify</strong> the API still reaches Neo4j (it is still using the public URI,
+now through the VPC path is not yet exercised):</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl <span class="nt">-fsS</span> <span class="s2">"</span><span class="si">$(</span>gcloud run services describe agentic-kg-api-staging <span class="se">\</span>
+  <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042 <span class="nt">--format</span><span class="o">=</span><span class="s1">'value(status.url)'</span><span class="si">)</span><span class="s2">/health"</span>
+<span class="c"># expect {"status":"ok","neo4j_connected":true,...}</span>
+</code></pre></div></div>
+
+<p><strong>Rollback:</strong> re-run <code class="language-plaintext highlighter-rouge">terraform apply</code> after reverting the skipped targets;
+VPC egress is additive and harmless on its own.</p>
+
+<h3 id="step-2--switch-neo4j_uri-to-the-internal-address">Step 2 — Switch <code class="language-plaintext highlighter-rouge">NEO4J_URI</code> to the internal address</h3>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>terraform apply <span class="nt">-var-file</span><span class="o">=</span>envs/staging.tfvars <span class="se">\</span>
+  <span class="nt">-target</span><span class="o">=</span>google_secret_manager_secret_version.neo4j_uri <span class="se">\</span>
+  <span class="nt">-target</span><span class="o">=</span>google_cloud_run_v2_service.api <span class="se">\</span>
+  <span class="nt">-target</span><span class="o">=</span>google_cloud_run_v2_job.ingest
+</code></pre></div></div>
+
+<p>This creates a new Cloud Run revision whose <code class="language-plaintext highlighter-rouge">NEO4J_URI</code> is
+<code class="language-plaintext highlighter-rouge">bolt://&lt;internal-ip&gt;:7687</code>, reached through the Direct VPC egress added in
+Step 1. The <strong>firewall is still open</strong>, so even if egress were misconfigured
+the old revision would still work.</p>
+
+<p><strong>Verify</strong> the API health again (same command). Confirm the new revision:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud run services describe agentic-kg-api-staging <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="se">\</span>
+  <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042 <span class="nt">--format</span><span class="o">=</span><span class="s1">'value(status.latestReadyRevisionName)'</span>
+</code></pre></div></div>
+
+<p><strong>Rollback:</strong> re-apply with the previous URI value (the NAT IP). The
+firewall is still open, so this is instant.</p>
+
+<h3 id="step-3--close-the-firewall-and-remove-the-duplicated-ci-secrets">Step 3 — Close the firewall and remove the duplicated CI secrets</h3>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>terraform apply <span class="nt">-var-file</span><span class="o">=</span>envs/staging.tfvars
+</code></pre></div></div>
+
+<p>This is the full convergence: it narrows
+<code class="language-plaintext highlighter-rouge">google_compute_firewall.neo4j.source_ranges</code> to the subnetwork CIDR, adds
+the optional IAP-SSH rule, and <strong>deletes</strong> the <code class="language-plaintext highlighter-rouge">STAGING_NEO4J_URI</code> /
+<code class="language-plaintext highlighter-rouge">STAGING_NEO4J_PASSWORD</code> GitHub-secret resources.</p>
+
+<p>Then delete the now-dangling repository secrets by hand (Terraform cannot
+delete values it no longer manages):</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gh secret delete STAGING_NEO4J_URI <span class="nt">--repo</span> djjay0131/agentic-kg <span class="o">||</span> <span class="nb">true
+</span>gh secret delete STAGING_NEO4J_PASSWORD <span class="nt">--repo</span> djjay0131/agentic-kg <span class="o">||</span> <span class="nb">true</span>
+</code></pre></div></div>
+
+<p><strong>Verify</strong> the port is closed from the internet and open from inside:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud compute firewall-rules describe allow-neo4j-staging <span class="se">\</span>
+  <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042 <span class="nt">--format</span><span class="o">=</span><span class="s1">'value(sourceRanges)'</span>   <span class="c"># expect the subnet CIDR, not 0.0.0.0/0</span>
+curl <span class="nt">-v</span> <span class="nt">--max-time</span> 5 <span class="s2">"http://&lt;old-nat-ip&gt;:7474"</span> <span class="p">;</span> <span class="nb">echo</span> <span class="s2">"exit=</span><span class="nv">$?</span><span class="s2">"</span>  <span class="c"># expect timeout/refused</span>
+</code></pre></div></div>
+
+<p><strong>Rollback:</strong> re-open the firewall only (<code class="language-plaintext highlighter-rouge">terraform apply</code> with
+<code class="language-plaintext highlighter-rouge">neo4j_allowed_source_ranges=["0.0.0.0/0"]</code> <strong>as a deliberate, temporary</strong>
+override), rotate the credential immediately afterwards.</p>
+
+<hr />
+
+<h2 id="part-2--rotate-the-password">Part 2 — Rotate the password</h2>
+
+<h3 id="after-part-1-the-designed-path">After Part 1 (the designed path)</h3>
+
+<p>Dispatch the workflow (it never runs on its own):</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gh workflow run rotate-neo4j-password.yml <span class="se">\</span>
+  <span class="nt">--repo</span> djjay0131/agentic-kg <span class="se">\</span>
+  <span class="nt">-f</span> <span class="nv">reason</span><span class="o">=</span><span class="s2">"post-hardening rotation"</span>
+gh run watch <span class="nt">--repo</span> djjay0131/agentic-kg
+</code></pre></div></div>
+
+<p>What the workflow does, in order: generates a <code class="language-plaintext highlighter-rouge">secrets.token_urlsafe(48)</code>
+password and <code class="language-plaintext highlighter-rouge">::add-mask::</code>s it; stages it in <code class="language-plaintext highlighter-rouge">NEO4J_PASSWORD_NEXT</code>; runs
+<code class="language-plaintext highlighter-rouge">agentic-kg-rotate-neo4j-staging</code> (inside the VPC) which executes
+<code class="language-plaintext highlighter-rouge">ALTER CURRENT USER SET PASSWORD FROM $current TO $next</code> and reconnects with
+the new credential to run <code class="language-plaintext highlighter-rouge">RETURN 1 AS ok</code>; promotes the value to a new
+<code class="language-plaintext highlighter-rouge">NEO4J_PASSWORD</code> version; rolls the API service and ingest Job; verifies the
+API health; and only then disables the superseded version and destroys the
+transport version.</p>
+
+<p><strong>Verify</strong> independently:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl <span class="nt">-fsS</span> <span class="s2">"</span><span class="si">$(</span>gcloud run services describe agentic-kg-api-staging <span class="se">\</span>
+  <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042 <span class="nt">--format</span><span class="o">=</span><span class="s1">'value(status.url)'</span><span class="si">)</span><span class="s2">/health"</span>
+gcloud secrets versions list NEO4J_PASSWORD <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042 <span class="se">\</span>
+  <span class="nt">--format</span><span class="o">=</span><span class="s1">'table(name,state,createTime)'</span>   <span class="c"># exactly one ENABLED version</span>
+</code></pre></div></div>
+
+<p><strong>Rollback:</strong> re-enable the disabled version and point a fresh revision at
+it, then disable the new one:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud secrets versions <span class="nb">enable</span> &lt;previous-version&gt; <span class="nt">--secret</span><span class="o">=</span>NEO4J_PASSWORD <span class="se">\</span>
+  <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042
+gcloud run services update agentic-kg-api-staging <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="se">\</span>
+  <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042 <span class="nt">--update-secrets</span><span class="o">=</span><span class="nv">NEO4J_PASSWORD</span><span class="o">=</span>NEO4J_PASSWORD:&lt;previous-version&gt; <span class="se">\</span>
+  <span class="nt">--update-labels</span><span class="o">=</span>neo4j-password-rolled-back<span class="o">=</span><span class="si">$(</span><span class="nb">date</span> +%s<span class="si">)</span>
+gcloud run <span class="nb">jobs </span>update agentic-kg-ingest-staging <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="se">\</span>
+  <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042 <span class="nt">--update-secrets</span><span class="o">=</span><span class="nv">NEO4J_PASSWORD</span><span class="o">=</span>NEO4J_PASSWORD:&lt;previous-version&gt;
+</code></pre></div></div>
+
+<p>To complete the rollback, also set the <em>database</em> password back (run the
+rotation job with the roles reversed) — or accept the new credential and
+just re-point the services, which is the normal recovery.</p>
+
+<h3 id="before-part-1-legacy--public-endpoint">Before Part 1 (legacy / public endpoint)</h3>
+
+<p>Until Part 1 is applied, Neo4j is still reachable on the old NAT IP. The
+same rotation can be run locally:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">export </span><span class="nv">NEO4J_URI</span><span class="o">=</span><span class="s2">"bolt://&lt;old-nat-ip&gt;:7687"</span>
+<span class="nb">export </span><span class="nv">NEO4J_PASSWORD</span><span class="o">=</span><span class="s2">"</span><span class="si">$(</span>gcloud secrets versions access latest <span class="se">\</span>
+  <span class="nt">--secret</span><span class="o">=</span>NEO4J_PASSWORD <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042<span class="si">)</span><span class="s2">"</span>
+<span class="nb">export </span><span class="nv">NEO4J_PASSWORD_NEXT</span><span class="o">=</span><span class="s2">"</span><span class="si">$(</span>python3 <span class="nt">-c</span> <span class="s1">'import secrets; print(secrets.token_urlsafe(48))'</span><span class="si">)</span><span class="s2">"</span>
+.venv/bin/python <span class="nt">-m</span> agentic_kg.rotate_password
+</code></pre></div></div>
+
+<p>Then follow the workflow’s promote → roll → verify → disable sequence by
+hand. Do not paste either password into a terminal that records history.</p>
+
+<hr />
+
+<h2 id="part-3--verification-queries">Part 3 — Verification queries</h2>
+
+<p>Run through IAP SSH (the new <code class="language-plaintext highlighter-rouge">allow-iap-ssh-neo4j-staging</code> rule permits
+tcp/22 from <code class="language-plaintext highlighter-rouge">35.235.240.0/20</code>):</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud compute ssh agentic-kg-neo4j-staging <span class="nt">--zone</span><span class="o">=</span>us-central1-a <span class="se">\</span>
+  <span class="nt">--tunnel-through-iap</span> <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042
+</code></pre></div></div>
+
+<p>On the VM, <code class="language-plaintext highlighter-rouge">cypher-shell</code> prompts for the password (it is never typed on the
+command line):</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>cypher-shell <span class="nt">-u</span> neo4j
+<span class="c"># at the prompt:</span>
+MATCH <span class="o">(</span>n<span class="o">)</span> RETURN count<span class="o">(</span>n<span class="o">)</span> AS nodes<span class="p">;</span>
+</code></pre></div></div>
+
+<p>Or, without touching the database directly, use the API:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl <span class="nt">-fsS</span> <span class="s2">"&lt;api-url&gt;/api/stats"</span>    <span class="c"># counts present → the private path is live</span>
+</code></pre></div></div>
+
+<hr />
+
+<h2 id="residual-risks-and-follow-ups">Residual risks and follow-ups</h2>
+
+<ul>
+  <li><strong><code class="language-plaintext highlighter-rouge">default-allow-ssh</code> is still open to <code class="language-plaintext highlighter-rouge">0.0.0.0/0</code>.</strong> It is a default
+network rule Terraform does not manage. Remove or scope it, or add a
+higher-precedence deny, as a follow-up.</li>
+  <li><strong>The ephemeral public IP is still attached</strong> (unreachable on
+<code class="language-plaintext highlighter-rouge">7474</code>/<code class="language-plaintext highlighter-rouge">7687</code>). Detach it with <code class="language-plaintext highlighter-rouge">neo4j_assign_public_ip=false</code> in a window;
+it may replace the instance, so lift <code class="language-plaintext highlighter-rouge">prevent_destroy</code> for that apply.</li>
+  <li><strong>The old address is in git history</strong> and cannot be removed without a
+rewrite. The firewall is the control.</li>
+  <li><strong>Core DB <code class="language-plaintext highlighter-rouge">e2e</code> tests no longer run in CI</strong> (see ADR-0003 Consequences).</li>
+</ul>
