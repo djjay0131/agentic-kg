@@ -364,6 +364,78 @@ def neo4j_exclusive(neo4j_container) -> bool:
     return session_owns_database(neo4j_container)
 
 
+# =============================================================================
+# Shared-session schema survival (issues #91 and #94)
+# =============================================================================
+#
+# ``SchemaManager.initialize(force=False)`` returns early once the
+# ``SchemaVersion`` marker reaches ``SCHEMA_VERSION`` -- even when the
+# constraints and indexes that marker stands for are gone. Two tests in
+# ``knowledge_graph/test_database_ownership_seam.py`` drop the whole schema on
+# purpose, to measure that a refused collection-time DDL call changes nothing.
+# They restored nothing, and the suite still passed only because a later test
+# (``drop_all`` in the same file) deleted the ``SchemaVersion`` node, which made
+# the next ``initialize(force=False)`` rebuild the schema from scratch. That is
+# an accident of collection order: with random ordering a schema drop can be the
+# last thing that happens before tests needing uniqueness constraints and vector
+# indexes, and those tests fail (issue #94, seeds 11/22).
+#
+# So the fixture checks the schema *objects*, not the version marker, and repairs
+# whatever is missing before it hands a repository out. That is the invariant the
+# shared session actually needs: a repository from this fixture points at a
+# database whose schema is present, whatever a previous test did to it.
+
+
+def expected_schema_names() -> frozenset[str]:
+    """Every constraint/index/vector-index name the schema defines."""
+    from agentic_kg.knowledge_graph import schema as schema_module
+
+    names = {name for name, _ in schema_module.CONSTRAINTS}
+    names |= {name for name, _ in schema_module.INDEXES}
+    names |= {name for name, _ in schema_module.VECTOR_INDEXES}
+    return frozenset(names)
+
+
+def missing_schema_names(present: set[str]) -> set[str]:
+    """The schema objects this database is missing, given what it has.
+
+    Pure so it can be tested without a database -- see
+    ``test_shared_session_schema.py``.
+    """
+    return set(expected_schema_names()) - set(present)
+
+
+def present_schema_names(repo) -> set[str]:
+    """Every constraint and index name the connected database currently has."""
+    present: set[str] = set()
+    with repo.session() as session:
+        for record in session.run("SHOW CONSTRAINTS YIELD name"):
+            present.add(record["name"])
+        for record in session.run("SHOW INDEXES YIELD name"):
+            present.add(record["name"])
+    return present
+
+
+def ensure_schema(repo) -> set[str]:
+    """Guarantee ``repo`` points at a database carrying the full schema.
+
+    Returns the names that had to be rebuilt -- empty when nothing was missing --
+    so a caller can prove which branch ran rather than infer it. ``force=True``
+    is only used on the repair path; the common path stays the cheap
+    ``initialize(force=False)``, which also restores the ``SchemaVersion`` marker
+    if a destructive test wiped every node (``drop_all``).
+    """
+    from agentic_kg.knowledge_graph.schema import SchemaManager
+
+    missing = missing_schema_names(present_schema_names(repo))
+    manager = SchemaManager(repository=repo)
+    if missing:
+        manager.initialize(force=True)
+    else:
+        manager.initialize(force=False)
+    return missing
+
+
 @pytest.fixture
 def neo4j_repository(neo4j_config, neo4j_exclusive):
     """
@@ -377,7 +449,6 @@ def neo4j_repository(neo4j_config, neo4j_exclusive):
     run's rows could be destroyed.
     """
     from agentic_kg.knowledge_graph.repository import Neo4jRepository
-    from agentic_kg.knowledge_graph.schema import SchemaManager
 
     if not neo4j_exclusive:
         raise SharedDatabaseSweepError(
@@ -393,9 +464,10 @@ def neo4j_repository(neo4j_config, neo4j_exclusive):
         # Verify connection
         repo.verify_connectivity()
 
-        # Initialize schema (idempotent - won't destroy existing data)
-        schema_manager = SchemaManager(repository=repo)
-        schema_manager.initialize(force=False)
+        # Ensure the schema, not the version marker that stands for it: isolation
+        # tests drop the schema on purpose and initialize(force=False) would skip
+        # rebuilding it. See the block comment above `expected_schema_names`.
+        ensure_schema(repo)
 
         yield repo
 
