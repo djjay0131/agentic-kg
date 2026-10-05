@@ -2,7 +2,7 @@
 
 <p>Operator steps to (1) take staging Neo4j off the public internet and
 (2) rotate its credential safely. Projects the decision in
-<a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/governance/adr/0003-staging-neo4j-private.md"><code class="language-plaintext highlighter-rouge">ADR-0003</code></a>;
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/governance/adr/0006-staging-neo4j-private.md"><code class="language-plaintext highlighter-rouge">ADR-0006</code></a>;
 the two planes rule means the ADR is authoritative and this page is the
 derived runbook.</p>
 
@@ -219,5 +219,5 @@ higher-precedence deny, as a follow-up.</li>
 it may replace the instance, so lift <code class="language-plaintext highlighter-rouge">prevent_destroy</code> for that apply.</li>
   <li><strong>The old address is in git history</strong> and cannot be removed without a
 rewrite. The firewall is the control.</li>
-  <li><strong>Core DB <code class="language-plaintext highlighter-rouge">e2e</code> tests no longer run in CI</strong> (see ADR-0003 Consequences).</li>
+  <li><strong>Core DB <code class="language-plaintext highlighter-rouge">e2e</code> tests no longer run in CI</strong> (see ADR-0006 Consequences).</li>
 </ul>

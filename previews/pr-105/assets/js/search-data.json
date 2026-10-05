@@ -1156,7 +1156,7 @@
   },"165": {
     "doc": "Neo4j hardening runbook (private staging + password rotation)",
     "title": "Neo4j hardening runbook",
-    "content": "Operator steps to (1) take staging Neo4j off the public internet and (2) rotate its credential safely. Projects the decision in ADR-0003; the two planes rule means the ADR is authoritative and this page is the derived runbook. Project: vt-gcp-00042 (staging) · Region: us-central1 Terraform state: local (infra/terraform.tfstate) — the owner applies; CI never does. ",
+    "content": "Operator steps to (1) take staging Neo4j off the public internet and (2) rotate its credential safely. Projects the decision in ADR-0006; the two planes rule means the ADR is authoritative and this page is the derived runbook. Project: vt-gcp-00042 (staging) · Region: us-central1 Terraform state: local (infra/terraform.tfstate) — the owner applies; CI never does. ",
     "url": "/agentic-kg/previews/pr-105/operations/neo4j-hardening-runbook.html#neo4j-hardening-runbook",
     
     "relUrl": "/operations/neo4j-hardening-runbook.html#neo4j-hardening-runbook"
@@ -1191,7 +1191,7 @@
   },"170": {
     "doc": "Neo4j hardening runbook (private staging + password rotation)",
     "title": "Residual risks and follow-ups",
-    "content": ". | default-allow-ssh is still open to 0.0.0.0/0. It is a default network rule Terraform does not manage. Remove or scope it, or add a higher-precedence deny, as a follow-up. | The ephemeral public IP is still attached (unreachable on 7474/7687). Detach it with neo4j_assign_public_ip=false in a window; it may replace the instance, so lift prevent_destroy for that apply. | The old address is in git history and cannot be removed without a rewrite. The firewall is the control. | Core DB e2e tests no longer run in CI (see ADR-0003 Consequences). | . ",
+    "content": ". | default-allow-ssh is still open to 0.0.0.0/0. It is a default network rule Terraform does not manage. Remove or scope it, or add a higher-precedence deny, as a follow-up. | The ephemeral public IP is still attached (unreachable on 7474/7687). Detach it with neo4j_assign_public_ip=false in a window; it may replace the instance, so lift prevent_destroy for that apply. | The old address is in git history and cannot be removed without a rewrite. The firewall is the control. | Core DB e2e tests no longer run in CI (see ADR-0006 Consequences). | . ",
     "url": "/agentic-kg/previews/pr-105/operations/neo4j-hardening-runbook.html#residual-risks-and-follow-ups",
     
     "relUrl": "/operations/neo4j-hardening-runbook.html#residual-risks-and-follow-ups"
