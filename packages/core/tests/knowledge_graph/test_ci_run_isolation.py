@@ -33,6 +33,7 @@ have caught that, so it is the load-bearing test here.
 """
 
 import os
+import re
 import subprocess
 import sys
 import uuid
@@ -152,7 +153,11 @@ class TestRealFixturePath:
             "invariant asserted below would have been satisfied by a child that "
             "did nothing.\n" + combined[-3000:]
         )
-        assert "1 passed" in combined, (
+        # Any positive pass count, not the literal "1 passed": if TARGET ever
+        # gains a parametrize, the count changes and an exact-string liveness
+        # check would fail for a reason that has nothing to do with the
+        # invariant it guards (review finding N3).
+        assert re.search(r"\b[1-9]\d* passed\b", combined), (
             f"the child session did not report running {self.TARGET}. Either the "
             "target moved (see test_the_target_test_exists) or the child could "
             "not start its own container.\n" + combined[-3000:]
@@ -237,7 +242,7 @@ class TestRealFixturePath:
         assert result.returncode == 0, (
             "a session that owns its own database was refused.\n" + combined[-3000:]
         )
-        assert "1 passed" in combined, combined[-3000:]
+        assert re.search(r"\b[1-9]\d* passed\b", combined), combined[-3000:]
 
 
 class TestOwnershipIsAFactNotAnAssertion:

@@ -44,6 +44,7 @@ import pytest
 from ..conftest import (
     UnownedDatabaseError,
     database_is_declared,
+    ensure_schema,
     guard_is_installed,
 )
 
@@ -310,11 +311,15 @@ class TestCollectionTimeIsGuarded:
                 text=True,
                 timeout=600,
             )
+            combined = result.stdout + result.stderr
+            after = schema_counts()
         finally:
             scratch.unlink(missing_ok=True)
-
-        combined = result.stdout + result.stderr
-        after = schema_counts()
+            # Restore the shared session's schema. This test drops it to give
+            # the measurement somewhere to move; leaving it dropped made every
+            # later test order-dependent on a node wipe elsewhere (issues #91,
+            # #94). ``after`` was measured above, before this restore.
+            ensure_schema(neo4j_repository)
 
         assert after == before, (
             "a module body ran DDL against a database named only by environment "
@@ -727,6 +732,9 @@ class TestAuditedModulesRefuseSharedDatabases:
             f"{before} -> {after}. Credentials in the environment are not "
             "permission to write, and schema is a write."
         )
+        # Restore the shared session's schema for the tests that follow (issues
+        # #91, #94). ``after`` was measured above, before this restore.
+        ensure_schema(neo4j_repository)
         with neo4j_repository.session() as session:
             still_there = session.run(
                 "MATCH (n {id: $id}) RETURN count(n) AS n", id=sentinel
@@ -851,3 +859,11 @@ class TestDropAllIsNotReachableByAccident:
         with neo4j_repository.session() as session:
             remaining = session.run("MATCH (n) RETURN count(n) AS n").single()["n"]
         assert remaining == 0
+
+        # This test wipes every node by design (it is testing `drop_all`), so it
+        # cannot restore the graph it found. What it *must* not leave behind is a
+        # container whose schema marker it erased: a later test's
+        # `initialize(force=False)` depends on it. Restore the schema (and with
+        # it the SchemaVersion node) explicitly, instead of relying on the next
+        # node wipe to do it by accident (issues #91, #94).
+        ensure_schema(neo4j_repository)
