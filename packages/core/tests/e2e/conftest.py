@@ -2,9 +2,9 @@
 E2E test configuration and fixtures.
 
 Configure via environment variables:
-    STAGING_API_URL=https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app
-    STAGING_NEO4J_URI=bolt://34.173.74.125:7687
-    STAGING_NEO4J_PASSWORD=<from terraform output>
+    STAGING_API_URL=<Cloud Run URL, e.g. the `api_url` terraform output>
+    STAGING_NEO4J_URI=<bolt URI, the `neo4j_bolt_uri` terraform output>
+    STAGING_NEO4J_PASSWORD=<the `neo4j_password` terraform output>
     OPENAI_API_KEY=<for LLM extraction tests>
 """
 
@@ -33,19 +33,20 @@ class E2EConfig:
     @classmethod
     def from_env(cls) -> "E2EConfig":
         """Load config from environment variables."""
-        api_url = os.environ.get(
-            "STAGING_API_URL",
-            "https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app",
-        )
-        neo4j_uri = os.environ.get(
-            "STAGING_NEO4J_URI",
-            "bolt://34.173.74.125:7687",
-        )
+        api_url = os.environ.get("STAGING_API_URL")
+        neo4j_uri = os.environ.get("STAGING_NEO4J_URI")
         neo4j_password = os.environ.get("STAGING_NEO4J_PASSWORD", "")
         openai_api_key = os.environ.get("OPENAI_API_KEY")
 
+        # No baked-in defaults: an unset/rotated staging endpoint must skip,
+        # not silently point the suite at a stale address. Get the real values
+        # from the Terraform outputs (`neo4j_bolt_uri`, `api_url`) or CI secrets.
         if not neo4j_password:
             pytest.skip("STAGING_NEO4J_PASSWORD not set")
+        if not neo4j_uri:
+            pytest.skip("STAGING_NEO4J_URI not set")
+        if not api_url:
+            pytest.skip("STAGING_API_URL not set")
 
         return cls(
             api_url=api_url,

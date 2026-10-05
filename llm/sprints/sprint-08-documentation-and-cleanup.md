@@ -239,7 +239,7 @@ graph TB
     subgraph "Agentic-KG System"
         UI[Next.js UI<br/>agentic-kg-ui-staging<br/>Port 3000]
         API[FastAPI API<br/>agentic-kg-api-staging<br/>Port 8000]
-        NEO[(Neo4j Database<br/>34.173.74.125:7687)]
+        NEO[(Neo4j Database<br/>&lt;staging-neo4j-host&gt;:7687)]
     end
 
     subgraph "Denario Services"
