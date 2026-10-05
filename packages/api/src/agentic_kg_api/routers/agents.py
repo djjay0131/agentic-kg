@@ -10,10 +10,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
+from agentic_kg.agents.schemas import CheckpointDecision, CheckpointType
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from agentic_kg.agents.schemas import CheckpointDecision, CheckpointType, WorkflowStatus
 from agentic_kg_api.websocket import ws_manager
 
 logger = logging.getLogger(__name__)
@@ -138,24 +138,33 @@ async def list_workflows() -> list[WorkflowStatusResponse]:
 
 @router.get("/workflows/{run_id}", response_model=WorkflowStateResponse)
 async def get_workflow(run_id: str) -> WorkflowStateResponse:
-    """Get the full state of a workflow."""
+    """Get the full state of a workflow.
+
+    Returns 404 for an unknown run id. This is what issue #76 was about: the
+    runner used to resolve an unknown id to an empty state, so this endpoint
+    answered 200 and callers could not tell "missing" from "present".
+    """
     runner = _get_runner()
     try:
         state = await runner.get_state(run_id)
-        return WorkflowStateResponse(
-            run_id=state.get("run_id", run_id),
-            status=state.get("status", "unknown"),
-            current_step=state.get("current_step", ""),
-            ranked_problems=state.get("ranked_problems", []),
-            selected_problem_id=state.get("selected_problem_id"),
-            proposal=state.get("proposal"),
-            evaluation_result=state.get("evaluation_result"),
-            synthesis_report=state.get("synthesis_report"),
-            messages=state.get("messages", []),
-            errors=state.get("errors", []),
-        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Workflow {run_id} not found")
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Workflow not found: {e}")
+        logger.error(f"Failed to read workflow {run_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return WorkflowStateResponse(
+        run_id=state.get("run_id", run_id),
+        status=state.get("status", "unknown"),
+        current_step=state.get("current_step", ""),
+        ranked_problems=state.get("ranked_problems", []),
+        selected_problem_id=state.get("selected_problem_id"),
+        proposal=state.get("proposal"),
+        evaluation_result=state.get("evaluation_result"),
+        synthesis_report=state.get("synthesis_report"),
+        messages=state.get("messages", []),
+        errors=state.get("errors", []),
+    )
 
 
 @router.post("/workflows/{run_id}/checkpoints/{checkpoint_type}")

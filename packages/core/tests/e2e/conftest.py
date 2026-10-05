@@ -11,6 +11,7 @@ Configure via environment variables:
 from __future__ import annotations
 
 import os
+import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -18,6 +19,12 @@ import pytest
 
 if TYPE_CHECKING:
     from neo4j import Driver
+
+
+# Run-unique namespace for every node an e2e test writes (#78). It keeps the
+# TEST_ marker cleanup relies on while guaranteeing two concurrent runs
+# against the same staging database never delete each other's rows.
+E2E_NAMESPACE = f"TEST_{uuid.uuid4().hex[:8]}"
 
 
 @dataclass

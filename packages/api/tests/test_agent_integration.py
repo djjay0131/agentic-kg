@@ -5,13 +5,12 @@ Tests the full flow: API router → WorkflowRunner → state management,
 with mocked LLM and Neo4j but real FastAPI + runner wiring.
 """
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-
-from fastapi.testclient import TestClient
-
 from agentic_kg_api.main import app
 from agentic_kg_api.routers import agents
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture
@@ -126,6 +125,13 @@ class TestGetWorkflow:
         resp = client_with_runner.get("/api/agents/workflows/nonexistent")
         assert resp.status_code == 404
 
+    def test_get_workflow_internal_error_is_500(self, client_with_runner, mock_runner):
+        """A non-KeyError failure is a genuine server fault, not a missing
+        workflow — it must not be masked as 404 (issue #76)."""
+        mock_runner.get_state.side_effect = RuntimeError("boom")
+        resp = client_with_runner.get("/api/agents/workflows/test-run-001")
+        assert resp.status_code == 500
+
 
 class TestSubmitCheckpoint:
     def test_approve_checkpoint(self, client_with_runner, mock_runner):
@@ -148,6 +154,18 @@ class TestSubmitCheckpoint:
             json={"decision": "reject", "feedback": "Not feasible"},
         )
         assert resp.status_code == 200
+
+    def test_submit_checkpoint_to_nonexistent_workflow(
+        self, client_with_runner, mock_runner
+    ):
+        """Issue #76: a checkpoint against an unknown id must 404, not be
+        accepted against a phantom workflow."""
+        mock_runner.resume_workflow.side_effect = KeyError("not found")
+        resp = client_with_runner.post(
+            "/api/agents/workflows/nonexistent-run/checkpoints/select_problem",
+            json={"decision": "approve", "feedback": "Test feedback"},
+        )
+        assert resp.status_code == 404
 
 
 class TestCancelWorkflow:
