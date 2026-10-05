@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING
 import pytest
 from agentic_kg.knowledge_graph.models import (
     Author,
+    Evidence,
+    ExtractionMetadata,
     Paper,
     Problem,
     ProblemStatus,
@@ -45,6 +47,39 @@ def make_test_doi(prefix: str) -> str:
     the TEST_ namespace visible to cleanup while satisfying that contract.
     """
     return f"10.{E2E_NAMESPACE}/{prefix}_{uuid.uuid4().hex[:8]}"
+
+
+def make_problem(
+    problem_id: str,
+    statement: str,
+    status: ProblemStatus = ProblemStatus.OPEN,
+    source_doi: str | None = None,
+) -> Problem:
+    """Build a Problem carrying the evidence + extraction metadata the
+    repository serializes.
+
+    ``Problem.to_neo4j_properties`` calls ``.model_dump()`` on both nested
+    fields, and the read path rebuilds them, so a Problem created through
+    ``Neo4jRepository`` must supply valid values (the unit fixtures do the
+    same).
+    """
+    return Problem(
+        id=problem_id,
+        statement=statement,
+        status=status,
+        evidence=Evidence(
+            source_doi=source_doi or make_test_doi("source"),
+            source_title="E2E Source Paper",
+            section="introduction",
+            quoted_text="A quoted problem statement from the source paper.",
+            char_offset_start=0,
+            char_offset_end=40,
+        ),
+        extraction_metadata=ExtractionMetadata(
+            extraction_model="gpt-4",
+            confidence_score=0.9,
+        ),
+    )
 
 
 @pytest.fixture
@@ -82,9 +117,9 @@ class TestKGPopulationE2E:
         """Test creating and retrieving a problem."""
         problem_id = make_test_id("problem")
 
-        problem = Problem(
-            id=problem_id,
-            statement=(
+        problem = make_problem(
+            problem_id,
+            (
                 f"{E2E_NAMESPACE} How can we improve the efficiency of "
                 "transformer models for long-context understanding?"
             ),
@@ -168,13 +203,14 @@ class TestKGPopulationE2E:
         repo.create_paper(paper)
 
         # Create problem
-        problem = Problem(
-            id=problem_id,
-            statement=(
+        problem = make_problem(
+            problem_id,
+            (
                 f"{E2E_NAMESPACE} Problem extracted from a source paper for "
                 "relationship testing."
             ),
             status=ProblemStatus.OPEN,
+            source_doi=paper_doi,
         )
         repo.create_problem(problem, generate_embedding=False)
 
@@ -199,9 +235,9 @@ class TestKGPopulationE2E:
             ProblemStatus.OPEN,
         ]
         for i, status in enumerate(statuses):
-            problem = Problem(
-                id=make_test_id(f"problem_{i}"),
-                statement=(
+            problem = make_problem(
+                make_test_id(f"problem_{i}"),
+                (
                     f"{E2E_NAMESPACE} Test problem number {i} used to verify "
                     "status-filtered listing."
                 ),
@@ -240,9 +276,9 @@ class TestHybridSearchE2E:
     ):
         """Test structured (keyword-filtered) search."""
         unique_keyword = f"uniquekeyword{uuid.uuid4().hex[:6]}"
-        problem = Problem(
-            id=make_test_id("searchable"),
-            statement=(
+        problem = make_problem(
+            make_test_id("searchable"),
+            (
                 f"{E2E_NAMESPACE} A problem about {unique_keyword} and related "
                 "research directions."
             ),
@@ -296,13 +332,14 @@ class TestRelationshipsE2E:
         repo.link_paper_to_author(paper_doi, author_id, position=1)
 
         # Create problem linked to paper
-        problem = Problem(
-            id=problem_id,
-            statement=(
+        problem = make_problem(
+            problem_id,
+            (
                 f"{E2E_NAMESPACE} Problem from a chain-test paper used to "
                 "verify graph traversal."
             ),
             status=ProblemStatus.OPEN,
+            source_doi=paper_doi,
         )
         repo.create_problem(problem, generate_embedding=False)
         RelationService(repository=repo).link_problem_to_paper(
@@ -331,9 +368,9 @@ class TestRelationshipsE2E:
     def test_count_test_nodes(self, neo4j_session: "Session", repo: Neo4jRepository):
         """Test that we can count the run's namespaced nodes."""
         for i in range(3):
-            problem = Problem(
-                id=make_test_id(f"count_{i}"),
-                statement=(
+            problem = make_problem(
+                make_test_id(f"count_{i}"),
+                (
                     f"{E2E_NAMESPACE} Count test problem number {i} for node "
                     "counting."
                 ),
