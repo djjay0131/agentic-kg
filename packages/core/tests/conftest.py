@@ -90,10 +90,15 @@ def declare_session_database(uri: str, *, reason: str) -> None:
     """Declare a database as one this session may talk to.
 
     ``reason`` is required so every declaration carries its justification at the
-    call site; there are exactly three in this repository -- ``neo4j_container``
-    below, ``tests/e2e/conftest.py``, and
-    ``tests/migration/neo4j/conftest.py`` -- and every one of them names a
+    call site. There are four in this repository -- ``neo4j_container`` below,
+    ``tests/e2e/conftest.py``, ``tests/migration/neo4j/conftest.py`` and
+    ``tests/migration/curation/conftest.py`` -- and every one of them names a
     database this session started or a deployment the suite exists to exercise.
+
+    The count is prose, not a checked invariant: no test asserts it, so a fifth
+    call site will not fail anything and this sentence will simply go stale
+    again. It said "exactly three" while there were four. Read it as a pointer
+    to the call sites, not as a guarantee about how many there are.
     """
     _DECLARED_TARGETS.add(_target_key(uri))
 
