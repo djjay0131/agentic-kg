@@ -83,12 +83,14 @@ invisible skip, made invisible by that same skip. Nothing here imports
 
 from __future__ import annotations
 
+import ast
 import fnmatch
 import importlib.util
 import os
 import re
 from pathlib import Path, PurePosixPath
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -734,16 +736,197 @@ def test_evaluation_package_is_not_imported_by_default_install_paths() -> None:
     radius stays zero, and it is the check that matters most now that the extra
     really is installed in one CI job: a stray import would break every job that
     does *not* install it.
+
+    **An import-graph walk, not a grep (issue #92).** The check used to be
+    ``"migration.evaluation" in text``, which was wrong at both ends: a docstring
+    that merely *names* the module failed the guard, while a genuine import
+    spelled ``from agentic_kg.migration import evaluation`` walked past it,
+    because that source contains no ``migration.evaluation`` substring. The
+    assertion is about what a module imports, so it parses imports.
     """
-    src = REPO_ROOT / "packages/core/src/agentic_kg"
-    offenders = []
-    for path in src.rglob("*.py"):
-        if "migration/evaluation" in path.as_posix():
-            continue
-        text = path.read_text(encoding="utf-8")
-        if "migration.evaluation" in text or re.search(r"^\s*import kg_eval", text, re.M):
-            offenders.append(str(path.relative_to(REPO_ROOT)))
+    offenders = _modules_importing_the_evaluation_stack()
     assert offenders == [], (
-        "these modules reach into the evaluation subpackage (or kg_eval) from the "
+        "these modules import the evaluation subpackage (or kg_eval) from the "
         f"default import path, which breaks a no-extras install: {offenders}"
     )
+
+
+# --------------------------------------------------------------------------
+# The import-graph scan, and proof that it can fail (issue #92).
+# --------------------------------------------------------------------------
+
+#: Where the default-path modules live, and the subpackage that is allowed to
+#: import ``kg_eval`` because it is the only thing on this path that exists to.
+SRC_ROOT = REPO_ROOT / "packages/core/src"
+AGENTIC_KG_SRC = SRC_ROOT / "agentic_kg"
+EVALUATION_SRC_DIR = AGENTIC_KG_SRC / "migration" / "evaluation"
+EVALUATION_MODULE = "agentic_kg.migration.evaluation"
+KG_EVAL_MODULE = "kg_eval"
+
+
+def _is_evaluation_target(dotted: str | None) -> bool:
+    """Does this absolute module path reach the evaluation stack?"""
+    if not dotted:
+        return False
+    return any(
+        dotted == target or dotted.startswith(target + ".")
+        for target in (EVALUATION_MODULE, KG_EVAL_MODULE)
+    )
+
+
+def _module_name(path: Path) -> str:
+    """The absolute dotted module name of a file under ``packages/core/src``."""
+    relative = path.relative_to(SRC_ROOT).with_suffix("")
+    parts = list(relative.parts)
+    if parts and parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join(parts)
+
+
+def _resolve_import_from(
+    node: ast.ImportFrom, module_name: str, is_package: bool
+) -> str | None:
+    """The absolute module an ``ImportFrom`` addresses, resolving relative dots.
+
+    ``from . import evaluation`` and ``from ..migration import evaluation`` are
+    real imports a substring search cannot see at all. Returns ``None`` for a
+    relative import that escapes the package (invalid, so nothing to report).
+    """
+    if node.level == 0:
+        return node.module
+    package = module_name if is_package else module_name.rpartition(".")[0]
+    parts = package.split(".") if package else []
+    drop = node.level - 1
+    if drop > len(parts):
+        return None
+    base_parts = parts[: len(parts) - drop] if drop else parts
+    base = ".".join(base_parts)
+    if node.module:
+        base = f"{base}.{node.module}" if base else node.module
+    return base
+
+
+def _evaluation_imports_in(
+    source: str, module_name: str, is_package: bool = False
+) -> list[int]:
+    """Line numbers of import statements that reach the evaluation stack."""
+    tree = ast.parse(source)
+    lines: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            if any(_is_evaluation_target(alias.name) for alias in node.names):
+                lines.add(node.lineno)
+        elif isinstance(node, ast.ImportFrom):
+            base = _resolve_import_from(node, module_name, is_package)
+            if _is_evaluation_target(base):
+                lines.add(node.lineno)
+                continue
+            for alias in node.names:
+                dotted = f"{base}.{alias.name}" if base else alias.name
+                if _is_evaluation_target(dotted):
+                    lines.add(node.lineno)
+                    break
+    return sorted(lines)
+
+
+def _modules_importing_the_evaluation_stack() -> list[str]:
+    """Default-path modules that import the evaluation stack, as ``path:line``."""
+    offenders: list[str] = []
+    for path in sorted(AGENTIC_KG_SRC.rglob("*.py")):
+        if path.is_relative_to(EVALUATION_SRC_DIR):
+            continue
+        for lineno in _evaluation_imports_in(
+            path.read_text(encoding="utf-8"),
+            _module_name(path),
+            is_package=path.name == "__init__.py",
+        ):
+            offenders.append(f"{path.relative_to(REPO_ROOT)}:{lineno}")
+    return offenders
+
+
+@pytest.mark.parametrize(
+    "source, expected",
+    [
+        pytest.param("import agentic_kg.migration.evaluation\n", [1], id="import-dotted"),
+        pytest.param(
+            "import agentic_kg.migration.evaluation as ev\n", [1], id="import-dotted-as"
+        ),
+        pytest.param(
+            "import agentic_kg.migration.evaluation.runner\n",
+            [1],
+            id="import-dotted-submodule",
+        ),
+        pytest.param(
+            "from agentic_kg.migration import evaluation\n", [1], id="from-migration"
+        ),
+        pytest.param(
+            "from agentic_kg.migration import evaluation as ev\n",
+            [1],
+            id="from-migration-as",
+        ),
+        pytest.param(
+            "from agentic_kg.migration.evaluation import runner\n",
+            [1],
+            id="from-evaluation",
+        ),
+        pytest.param("import kg_eval\n", [1], id="import-kg-eval"),
+        pytest.param("from kg_eval import runner\n", [1], id="from-kg-eval"),
+        pytest.param("import kg_eval.runner\n", [1], id="import-kg-eval-submodule"),
+        pytest.param(
+            "from ..migration import evaluation\n",
+            [1],
+            id="relative-from-migration",
+        ),
+    ],
+)
+def test_the_import_scan_can_actually_see_an_import(source, expected) -> None:
+    """The scan must fail on every real spelling, or a green run means nothing.
+
+    Each case is a genuine import that reaches the evaluation stack; the
+    substring check this replaces missed the ``from ... import evaluation``
+    forms entirely (issue #92).
+    """
+    assert _evaluation_imports_in(source, module_name="agentic_kg.curation.arm_export") == (
+        expected
+    )
+
+
+def test_the_import_scan_ignores_prose_that_names_the_module() -> None:
+    """The false-positive end of issue #92.
+
+    A docstring that names the module is not an import. The old substring check
+    failed on exactly this, which is how a guard gets weakened or deleted.
+    """
+    source = (
+        '"""Do not import agentic_kg.migration.evaluation from a default-path\n'
+        'module, and do not reach for kg_eval either."""\n'
+        "VALUE = 'kg_eval'\n"
+    )
+    assert _evaluation_imports_in(source, module_name="agentic_kg.some.module") == []
+
+
+def test_the_import_scan_allows_the_guarded_runtime_loader() -> None:
+    """``migration/imports.py`` loads ``kg_eval`` at runtime, by design.
+
+    It uses ``importlib`` rather than a static import, so the deliberate escape
+    hatch a no-extras install relies on is not mistaken for a stray import.
+    """
+    source = 'import importlib\nimportlib.import_module("kg_eval")\n'
+    assert _evaluation_imports_in(source, module_name="agentic_kg.migration.imports") == []
+
+
+def test_the_tree_scan_skips_the_evaluation_subpackage_itself() -> None:
+    """The one place allowed to import ``kg_eval`` is not reported.
+
+    ``evaluation/runner.py`` imports ``kg_eval`` wholesale -- that is its job.
+    Prove the file really does import the stack, then prove the tree scan
+    excludes it anyway, so the exemption is demonstrated rather than assumed.
+    """
+    runner = EVALUATION_SRC_DIR / "runner.py"
+    assert runner.is_file(), "the module this test is about has moved"
+    imported = _evaluation_imports_in(runner.read_text(encoding="utf-8"), _module_name(runner))
+    assert imported, "expected evaluation/runner.py to import the evaluation stack"
+    offenders = _modules_importing_the_evaluation_stack()
+    assert not any("migration/evaluation/" in offender for offender in offenders)
+
+
