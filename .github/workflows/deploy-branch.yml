@@ -69,10 +69,24 @@ jobs:
             --ignore=packages/core/tests/e2e \
             -m "not integration and not costly"
 
+  # Docker tags may not contain '/', but branch names often do
+  # (e.g. integration/kgis-kgcs-adoption). Derive a tag-safe ref once.
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - id: tag
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          SAFE=$(printf '%s' "$REF_NAME" | tr -c 'A-Za-z0-9_.-' '-' | cut -c1-80)
+          echo "tag=${SAFE}-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
   # Build images
   build:
-    needs: [test]
-    if: always() && (needs.test.result == 'success' || needs.test.result == 'skipped')
+    needs: [test, meta]
+    if: always() && needs.meta.result == 'success' && (needs.test.result == 'success' || needs.test.result == 'skipped')
     # Same reason as deploy-master: build-images.yml requests id-token: write,
     # and a reusable call can't request more than the caller grants (repo
     # default is read-only). Without this the workflow startup_fails.
@@ -82,7 +96,7 @@ jobs:
     uses: ./.github/workflows/build-images.yml
     with:
       services: ${{ inputs.services }}
-      image_tag: ${{ github.ref_name }}-${{ github.sha }}
+      image_tag: ${{ needs.meta.outputs.tag }}
       push: true
     secrets:
       GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
