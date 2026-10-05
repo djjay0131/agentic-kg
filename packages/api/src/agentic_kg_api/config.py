@@ -25,6 +25,14 @@ class APIConfig:
         )
     )
     api_key: str = field(default_factory=lambda: os.getenv("API_KEY", ""))
+    # Read-only canonical projection router. Off by default: every
+    # /api/canonical/* route returns 404 unless this is enabled (ADR-0005).
+    canonical_api_enabled: bool = field(
+        default_factory=lambda: (
+            os.getenv("CANONICAL_API_ENABLED", "").strip().lower()
+            in {"1", "true", "yes", "on"}
+        )
+    )
 
     @property
     def requires_auth(self) -> bool:
