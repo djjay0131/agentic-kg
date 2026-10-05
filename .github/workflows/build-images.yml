@@ -91,8 +91,15 @@ jobs:
 
       - name: Set image metadata
         id: meta
+        env:
+          # Passed via env, not interpolated into the shell, so a ref name
+          # cannot inject commands.
+          RAW_TAG: ${{ inputs.image_tag }}
         run: |
-          TAG="${{ inputs.image_tag }}"
+          # Branch names contain '/', which is not legal in a Docker tag, so
+          # deploy-branch could never deploy a fix/... branch (invalid
+          # reference format). Normalise to '-'.
+          TAG="$(printf '%s' "$RAW_TAG" | tr '/' '-')"
           REGISTRY="${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}"
 
           echo "api_image=${REGISTRY}/api:${TAG}" >> $GITHUB_OUTPUT

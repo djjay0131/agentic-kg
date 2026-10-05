@@ -85,20 +85,28 @@ def wait_for_neo4j(driver: "Driver", timeout: float = 30.0) -> bool:
 
 
 def clear_test_data(session: "Session", prefix: str = "TEST_") -> int:
-    """Clear test data from Neo4j (nodes with IDs starting with prefix)."""
+    """Delete nodes belonging to one test run's namespace.
+
+    ``prefix`` is a run-unique namespace (e.g. ``TEST_ab12cd34``), so a
+    concurrent e2e run cannot delete this run's rows and vice versa (#78).
+    Matches the identifying property of every node type the suite writes:
+    ``id`` (Problem, Author), ``doi`` (Paper, ``10.<namespace>/...``),
+    ``statement`` (Problem) and ``name`` (Author).
+    """
+    doi_prefix = f"10.{prefix}"
     result = session.run(
         """
         MATCH (n)
         WHERE n.id STARTS WITH $prefix
-           OR n.paper_id STARTS WITH $prefix
-           OR n.problem_id STARTS WITH $prefix
+           OR n.doi STARTS WITH $doi_prefix
+           OR n.statement STARTS WITH $prefix
+           OR n.name STARTS WITH $prefix
         DETACH DELETE n
-        RETURN count(n) as deleted
         """,
         prefix=prefix,
+        doi_prefix=doi_prefix,
     )
-    record = result.single()
-    return record["deleted"] if record else 0
+    return result.consume().counters.nodes_deleted
 
 
 def seed_test_paper(session: "Session", paper_id: str = "TEST_paper_001") -> dict[str, Any]:

@@ -83,3 +83,19 @@ def test_build_images_declares_exactly_the_gcp_secrets() -> None:
         "GCP_WORKLOAD_IDENTITY_PROVIDER",
         "GCP_SERVICE_ACCOUNT",
     }
+
+
+def test_build_images_sanitizes_ref_slashes_for_docker_tag() -> None:
+    """deploy-branch passes ``<ref_name>-<sha>``; a fix/... ref contains '/',
+    which is illegal in a Docker tag, so the reusable workflow must normalise
+    it (or the deploy fails with 'invalid reference format')."""
+    text = (_WORKFLOWS_DIR / "build-images.yml").read_text(encoding="utf-8")
+    assert "tr '/' '-'" in text
+
+
+def test_deploy_branch_sanitizes_branch_label() -> None:
+    """GCP label values allow only [a-z0-9_-]; the deploy sets a ``branch``
+    label from ``github.ref_name``, so a fix/... ref must be normalized."""
+    text = (_WORKFLOWS_DIR / "deploy-branch.yml").read_text(encoding="utf-8")
+    assert "tr '/' '-'" in text
+    assert "steps.branch_label.outputs.label" in text

@@ -89,8 +89,9 @@ docker compose up
 - **CI/CD**: Cloud Build (`cloudbuild.yaml`) with `_SERVICE=api|job` substitution
 - **GitHub Actions workflows**:
   - `smoke-ingest.yml` — ci-smoke-test-ingestion (PR + daily cron + workflow_dispatch)
-  - `integration-tests.yml` — integration suite against staging Neo4j
+  - `integration-tests.yml` — integration suite against an ephemeral testcontainers Neo4j; E2E against the deployed public API + live sources (staging Neo4j is VPC-private per ADR-0006)
   - `test.yml` — unit tests
+  - `rotate-neo4j-password.yml` — dispatch-only, in-VPC Neo4j password rotation (ADR-0006)
   - `deploy-branch.yml` / `deploy-master.yml` / `deploy-tag.yml` — Cloud Build triggers
   - `governance-checks.yml` — runs the pinned agentic-governance ruleset (Node 20) on every PR + push to master (PR #41)
   - `build-images.yml`, `code-review.yml`, `preview-docs.yml`, `update-docs.yml`

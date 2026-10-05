@@ -64,10 +64,19 @@ runbook for the owner to apply deliberately.
    - the `integration-tests.yml` "Integration Tests" job runs against an
      **ephemeral testcontainers Neo4j** (already supported by
      `packages/core/tests/conftest.py`) instead of staging;
-   - the "E2E Tests (Staging)" job targets the **deployed public API**
-     (`packages/api/tests/e2e`) with only `STAGING_API_URL`. The API's
+   - the "E2E Tests" job targets the **deployed public API**
+     (`packages/api/tests/e2e`) with `STAGING_API_URL`. The API's
      `/health` response asserts `neo4j_connected`, which exercises the
-     private path end to end;
+     private path end to end. The same job also runs the core e2e tests
+     that touch only public live services (Semantic Scholar, arXiv, the
+     staging API), with a step-scoped `SEMANTIC_SCHOLAR_API_KEY` (#103's
+     authenticated-live-call improvement);
+   - core e2e tests that assert on graph contents are marked
+     `requires_db` and explicitly deselected in CI (`-m "not
+     requires_db"`). They run only where the database is reachable: an
+     in-VPC Cloud Run Job, or locally via an IAP tunnel. Nothing skips
+     silently — the DB fixture fails loudly when credentials are absent,
+     and both E2E steps guard their required secrets;
    - the duplicated `STAGING_NEO4J_URI` / `STAGING_NEO4J_PASSWORD`
      GitHub secrets and their `github_actions_secret` resources are
      deleted. No VPC connector or Cloud Run Job test runner is built
