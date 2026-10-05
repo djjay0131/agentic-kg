@@ -215,11 +215,20 @@ def purge_paper_extraction(
             report.problems_deleted = row.get("deleted_problems", 0) or 0
 
         # 7. Clear the Paper node's extraction status — re-extraction will rewrite.
+        #
+        # taxonomy_hash MUST be reset (AC-23). The re-ingest skip check
+        # (`_can_skip_entity_extraction`) treats a matching hash as "already
+        # extracted under this taxonomy" and short-circuits the whole
+        # LLM-touching body. If the purge leaves the hash behind, the very
+        # next ingest skips the paper and the RESEARCHES Paper→Topic edges
+        # (and all the other extraction edges) deleted above are never
+        # restored. Clearing it forces the rewrite.
         session.run(
             """
             MATCH (p:Paper {doi: $doi})
             SET p.extraction_incomplete = false,
-                p.extraction_failed_extractors = ''
+                p.extraction_failed_extractors = '',
+                p.taxonomy_hash = ''
             """,
             doi=paper_doi,
         )

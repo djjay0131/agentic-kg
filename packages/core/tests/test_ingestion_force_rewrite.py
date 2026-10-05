@@ -98,6 +98,25 @@ class TestForceRewriteWiring:
         patched_pipeline_chain["purge"].assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_skippable_paper_is_not_purged(self, patched_pipeline_chain):
+        """AC-21 must win over the purge for an up-to-date paper.
+
+        The skip check runs *before* the purge: a paper already extracted
+        under the current taxonomy is skipped end-to-end, so the purge
+        never deletes its Paper→Topic ``RESEARCHES`` edges. Purging first
+        deleted those edges and the skip check then swallowed the rewrite.
+        """
+        patched_pipeline_chain["footprint"].return_value = True
+        with patch(
+            "agentic_kg.ingestion._can_skip_entity_extraction",
+            return_value=True,
+        ):
+            result = await ingest_papers(query="test")
+
+        patched_pipeline_chain["purge"].assert_not_called()
+        assert result.papers_skipped_complete == 1
+
+    @pytest.mark.asyncio
     async def test_purge_blocked_records_skip_not_crash(
         self, patched_pipeline_chain
     ):

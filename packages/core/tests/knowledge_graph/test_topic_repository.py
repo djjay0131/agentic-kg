@@ -337,6 +337,58 @@ class TestTopicAssignment:
         assert refreshed.paper_count == 1
         assert refreshed.problem_count == 0
 
+    def test_purge_clears_taxonomy_hash_so_reingest_rewrites_topic_edge(
+        self, neo4j_repository, sample_paper_data
+    ):
+        """AC-23 on the real store: the purge drops the Paper→Topic
+        ``RESEARCHES`` edge AND resets ``taxonomy_hash``, so the re-ingest
+        skip check no longer swallows the rewrite that restores it.
+
+        Purge-first ordering (pre-fix) deleted the edge and left the hash
+        matching → the next ingest skipped the paper → topic gone.
+        """
+        from agentic_kg.extraction.kg_integration_v2 import (
+            _set_paper_extraction_metadata,
+        )
+        from agentic_kg.extraction.re_ingestion import purge_paper_extraction
+        from agentic_kg.ingestion import _can_skip_entity_extraction
+
+        topic = Topic(name=_test_name("PurgeTopic"), level=TopicLevel.AREA)
+        neo4j_repository.create_topic(topic, generate_embedding=False)
+        paper = Paper(**sample_paper_data)
+        neo4j_repository.create_paper(paper)
+        neo4j_repository.assign_entity_to_topic(
+            paper.doi, topic.id, entity_label="Paper"
+        )
+        _set_paper_extraction_metadata(
+            neo4j_repository,
+            paper.doi,
+            extraction_incomplete=False,
+            extraction_failed_extractors="",
+            taxonomy_hash="hash-v1",
+        )
+        # Precondition: edge present, and the paper is skippable.
+        assert _can_skip_entity_extraction(
+            neo4j_repository, paper.doi, "hash-v1"
+        )
+
+        purge_paper_extraction(neo4j_repository, paper.doi)
+
+        with neo4j_repository.session() as session:
+            row = session.run(
+                """
+                MATCH (:Paper {doi: $doi})-[r:RESEARCHES]->(:Topic)
+                RETURN count(r) AS n
+                """,
+                doi=paper.doi,
+            ).single()
+        assert row["n"] == 0
+        # The purge reset the hash → the next ingest re-extracts → the
+        # RESEARCHES edge is rewritten instead of silently staying gone.
+        assert not _can_skip_entity_extraction(
+            neo4j_repository, paper.doi, "hash-v1"
+        )
+
     def test_assign_unknown_label_raises(self, neo4j_repository):
         topic = Topic(name=_test_name("AssignBad"), level=TopicLevel.AREA)
         neo4j_repository.create_topic(topic, generate_embedding=False)
