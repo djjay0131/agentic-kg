@@ -8,8 +8,7 @@ paper this is"); the policy it lives on is **batch-wide**.
 
 An independent reviewer closed that gap by demonstrating it rather than arguing
 it: two ``Topic`` candidates for one concept, ``identity_confidence=None``, two
-irreversible identities minted, ``roll_back`` returning ``plan=None`` with both
-operations non-compensable. Nothing enforced the justification — the only thing
+duplicate identities minted. Nothing enforced the justification — the only thing
 holding the line was the LLM extractor's 0.8/0.75 scores happening to keep
 graded entities away from ``AUTO``, which is a coincidence of the corpus, not a
 property of the design.
@@ -82,7 +81,7 @@ def enabled() -> MigrationConfig:
 
 
 def test_the_reviewers_two_topic_demonstration_is_now_refused() -> None:
-    """The exact case that minted two irreversible identities is rejected."""
+    """The exact case that minted two duplicate identities is rejected."""
     candidates = one_concept_two_candidates()
     with pytest.raises(UnsafeIdentityRelaxation) as excinfo:
         run_curation(
@@ -93,7 +92,7 @@ def test_the_reviewers_two_topic_demonstration_is_now_refused() -> None:
     message = str(excinfo.value)
     assert "Topic" in message
     assert "2 candidate(s)" in message
-    assert "CREATE_IDENTITY has no inverse" in message
+    assert "nothing downstream merges them" in message
 
 
 def test_the_refusal_happens_before_the_store_is_touched() -> None:
@@ -322,8 +321,8 @@ def test_a_real_doi_on_a_paper_is_still_admitted() -> None:
 def test_two_papers_with_the_same_doi_are_refused_not_duplicated() -> None:
     """**Attack C.** The original defect, reproduced through its own fix.
 
-    Two candidates carrying the identical DOI each minted an identity —
-    irreversibly, since ``CREATE_IDENTITY`` has no inverse — because
+    Two candidates carrying the identical DOI each minted an identity — the
+    duplicate persisted — because
     ``DerivedIdFactory.identity_id`` keys on ``candidate_id`` and nothing
     dedupes. ``policy.py`` stated "two candidates carrying the same DOI are the
     same paper" as the entire content of the relaxation's justification, and the
@@ -341,7 +340,7 @@ def test_two_papers_with_the_same_doi_are_refused_not_duplicated() -> None:
     message = str(excinfo.value)
     assert "doi:" + doi in message
     assert "claimed by 2 candidates" in message
-    assert "CREATE_IDENTITY has no inverse" in message
+    assert "duplicates would persist as separate identities" in message
 
 
 def test_the_same_doi_in_different_case_is_the_same_identifier() -> None:

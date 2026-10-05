@@ -833,17 +833,18 @@ def test_restore_record_cannot_be_used_to_retract(evolved) -> None:
 #
 # agentic-kgcs f68d1d7 changes where an `assertion_id` comes from. It is now
 # minted from `record_seed(fact_id, object, valid_period, evidence_refs,
-# provenance)` -- **clock-free**, so:
+# provenance)` -- **clock-free**, so a true replay (same fact, same object, same
+# evidence) collides onto the record it already minted, while the same fact
+# carrying NEW evidence hashes to a DIFFERENT id and is a new record.
 #
-#   * a true replay (same fact, same object, same evidence) collides onto the
-#     record it already minted and the executor refuses it via the per-subject
-#     `assertion_absent` guard; while
-#   * the same fact carrying NEW evidence hashes to a DIFFERENT id and is a new
-#     record.
-#
-# The tests below assert that **by identity**. Counting rows would pass against
-# an adapter that appended a duplicate of the prior record, which is the exact
-# failure the clock-free seed exists to prevent.
+# The **identity and seed properties** are asserted without a database in
+# `tests/migration/curation/test_evidence_evolution.py`, which drives the real
+# producer (`run_curation`) against the reference store and covers a distinct
+# record id, clock-freeness, and true-replay refusal. That module and this one
+# used to overlap; the unit-level claims now live there and this module keeps
+# only what needs the real adapter: the store-applied guarantees below, asserted
+# **by identity** rather than by row count, because counting rows would pass
+# against an adapter that appended a duplicate of the prior record.
 
 
 @pytest.fixture
@@ -917,62 +918,6 @@ def evidence_evolution(make_canonical_store):
         "supersede_plan": supersede_plan,
         "seed": assertion_record_seed,
     }
-
-
-def test_new_evidence_mints_a_different_record_id(evidence_evolution) -> None:
-    """The identity claim, at the source: new evidence changes the seed.
-
-    Asserted against ``record_seed`` itself as well as against the two ids, so
-    a failure says *which* half broke - a planner that stopped seeding, or a
-    seed that stopped including evidence.
-    """
-    prior, successor = evidence_evolution["prior"], evidence_evolution["successor"]
-    seed = evidence_evolution["seed"]
-
-    assert successor.assertion_id != prior.assertion_id
-    assert seed(successor) != seed(prior)
-    # ... and the difference is the evidence, nothing else.
-    assert successor.object_value == prior.object_value
-    assert successor.predicate == prior.predicate
-    assert successor.subject_identity == prior.subject_identity
-    assert successor.valid_period == prior.valid_period
-
-
-def test_the_minted_id_is_clock_free(evidence_evolution) -> None:
-    """Re-minting the same successor at a different wall time yields the same id.
-
-    This is the property that makes a true replay collide instead of appending.
-    ``recorded_at`` is the only clock-bearing input moved here; if it reached
-    the seed, these two ids would differ.
-    """
-    from datetime import timedelta
-
-    planner = _planner("0")
-    prior = evidence_evolution["prior"]
-    once = planner.next_record(
-        prior, evidence_refs=evidence_evolution["new_evidence"], recorded_at=T1
-    )
-    twice = planner.next_record(
-        prior,
-        evidence_refs=evidence_evolution["new_evidence"],
-        recorded_at=T1 + timedelta(days=365),
-    )
-    assert once.assertion_id == twice.assertion_id == evidence_evolution["successor"].assertion_id
-
-
-def test_a_true_replay_is_refused_rather_than_duplicated(evidence_evolution) -> None:
-    """Same fact, same object, *same* evidence: nothing record-distinguishing.
-
-    ``next_record`` refuses to mint it - the successor would collide with the
-    record it is supposedly superseding, which is a replay, not an evolution.
-    """
-    planner = _planner("0")
-    with pytest.raises(ValueError, match="nothing record-distinguishing"):
-        planner.next_record(
-            evidence_evolution["prior"],
-            evidence_refs=evidence_evolution["first_evidence"],
-            recorded_at=T1,
-        )
 
 
 def test_replaying_the_committed_plan_is_refused_by_the_assertion_absent_guard(

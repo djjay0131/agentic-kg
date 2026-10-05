@@ -384,19 +384,25 @@ def test_pinning_the_empty_graph_snapshot_makes_the_second_batch_stale(
     assert second.execution.outcome is ExecutionOutcome.STALE
 
 
-def test_an_attach_assertion_carries_no_per_subject_guard(
+def test_an_attach_assertion_carries_an_assertion_absent_guard(
     enabled_config: MigrationConfig, memory_store: object
 ) -> None:
-    """Recorded, not fixed: the attach path has only the plan-level snapshot guard.
+    """Upstream closed the per-subject gap: an attach now carries its own guard.
 
-    ``CREATE_IDENTITY`` emits an ``entity_version=0`` precondition the store
-    enforces, so replaying a create is refused whatever the snapshot says. An
-    ``ATTACH_ASSERTION`` emits none — knowing a subject's current version needs
-    a graph read the deterministic core does not do (KGCS ADR candidate 0003) —
-    so once the snapshot guard is satisfied, nothing refuses a replayed attach.
-    This test exists so that gap is a documented, checked fact rather than a
-    surprise, and it goes red the day upstream closes it.
+    ``CREATE_IDENTITY`` has always emitted an ``entity_version=0`` precondition
+    the store enforces, so replaying a create is refused whatever the snapshot
+    says. An ``ATTACH_ASSERTION`` used to emit none (KGCS ADR candidate 0003),
+    so once the plan-level snapshot guard was satisfied nothing refused a
+    replayed attach. At ``f68d1d7`` the planner emits an ``assertion_absent``
+    guard naming ``(subject_identity, assertion_id)``, which the executor reads
+    back through the store before applying. This test replaced the one that
+    pinned the gap; it goes red if the guard disappears again.
     """
+    from kgcs.planner import (
+        ASSERTION_ABSENT_PRECONDITION_KIND,
+        read_assertion_absent_guard,
+    )
+
     from ._synthetic import attachable_attribute_candidate
 
     entity = run_curation(
@@ -413,7 +419,18 @@ def test_an_attach_assertion_carries_no_per_subject_guard(
         confidence_policy=CONTRACT_DEFAULT_POLICY,
     )
     assert attach.operation_counts() == {"ATTACH_ASSERTION": 1}
-    assert {p.kind for p in attach.plan.preconditions} == {"snapshot_version"}
+    assert {p.kind for p in attach.plan.preconditions} == {
+        "snapshot_version",
+        ASSERTION_ABSENT_PRECONDITION_KIND,
+    }
+
+    guards = [
+        p for p in attach.plan.preconditions if p.kind == ASSERTION_ABSENT_PRECONDITION_KIND
+    ]
+    assert len(guards) == 1
+    subject, assertion_id = read_assertion_absent_guard(guards[0])
+    assert subject == identity_id
+    assert assertion_id == attach.plan.operations[0].payload["assertion_id"]
 
     assert {p.kind for p in entity.plan.preconditions} == {
         "snapshot_version",

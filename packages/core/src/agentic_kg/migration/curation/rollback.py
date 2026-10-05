@@ -7,15 +7,17 @@ plan goes through the same :class:`PlanExecutor` and the same
 ``GraphMutationStore`` as the forward one. There is no second write path, and
 this module adds none.
 
-**Partial rollback is reported, never implied.** ``CREATE_IDENTITY`` and
-``PROMOTE_ONTOLOGY_TERM`` have no inverse in the v1 ``CurationOperationType``
-vocabulary — there is no "un-create identity" — so a plan made only of
-``CREATE_IDENTITY`` operations compensates to **nothing at all**:
-``CompensationResult.plan`` is ``None`` and every operation lands in
-``non_compensable``. That is exactly the shape of the plan this repo's curation
-path currently emits (see ``policy.py``), so on today's pipeline *rollback is
-not available*, and :class:`RollbackResult.fully_reversed` says so rather than
-an ``execution=None`` being read as "nothing to undo".
+**Partial rollback is reported, never implied.** ``PROMOTE_ONTOLOGY_TERM`` has
+no inverse in the v1 ``CurationOperationType`` vocabulary, so a plan containing
+it cannot be fully compensated: that operation lands in ``non_compensable`` and
+``CompensationResult.plan`` covers only the rest. ``CREATE_IDENTITY`` used to be
+in the same position; at the 0.3.0 re-pin it gained a ``REVOKE_IDENTITY``
+inverse (KGIS ADR-0025), so the plan this repo's curation path emits — all
+``CREATE_IDENTITY`` — now compensates to a real plan of ``REVOKE_IDENTITY``
+operations. ``roll_back`` therefore reports a rollback that is *available*;
+whether it committed is a separate fact (``RollbackResult.fully_reversed``),
+because a store that does not implement ``REVOKE_IDENTITY`` still returns
+``UNSUPPORTED_OPERATION`` without touching anything.
 
 ``against_snapshot`` is required by ``Compensator.compensate`` and must be the
 epoch the original plan committed at, which is ``ExecutionRecord.new_epoch``.

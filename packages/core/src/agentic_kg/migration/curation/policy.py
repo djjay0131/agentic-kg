@@ -49,10 +49,13 @@ What it costs, stated plainly: the identity gate is the fail-closed guard that
 says "do not auto-mint an identity when no entity resolution has told you this
 is a new one". With it off, two candidates naming the same real-world entity
 mint two identities (``DerivedIdFactory.identity_id`` keys on the candidate id),
-and nothing dedupes them — irreversibly, because ``CREATE_IDENTITY`` has no
-inverse. An independent reviewer demonstrated exactly that: two ``Topic``
-candidates for one concept, ``identity_confidence=None``, two identities minted,
-``roll_back`` returning ``plan=None`` with both operations non-compensable.
+and nothing dedupes them, so the two records persist as separate identities.
+(At the 0.3.0 re-pin ``CREATE_IDENTITY`` gained a ``REVOKE_IDENTITY`` inverse, so
+``roll_back`` now returns a compensating plan rather than ``plan=None``; that
+makes a duplicate *removable* by a caller who remembers to compensate it, not
+*merged*.) An independent reviewer demonstrated exactly the duplication: two
+``Topic`` candidates for one concept, ``identity_confidence=None``, two
+identities minted.
 
 That is acceptable only where identity is carried by a **registered
 identifier** rather than inferred — which is what the *structured* arm's
@@ -145,7 +148,7 @@ class RegisteredIdentifier:
     reviewer walked through it four ways: a ``Topic`` with a ``doi``-namespaced
     key of ``"banana"``; the same with whitespace; a ``Topic`` whose *second*
     alias was a DOI; and — the one that mattered — two candidates carrying the
-    **identical** DOI minting two irreversible identities.
+    **identical** DOI minting two duplicate identities.
 
     * ``namespace`` — which registry the alias claims.
     * ``identifies`` — what that registry can identify. A DOI names a *work*;
