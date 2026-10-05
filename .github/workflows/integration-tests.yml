@@ -13,6 +13,9 @@ on:
       - 'packages/core/**'
       - 'pyproject.toml'
 
+permissions:
+  contents: read
+
 jobs:
   unit-tests:
     name: Unit Tests

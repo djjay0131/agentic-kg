@@ -19,6 +19,13 @@ on:
         required: false
         type: boolean
         default: true
+    secrets:
+      GCP_WORKLOAD_IDENTITY_PROVIDER:
+        description: 'Workload Identity Federation provider resource name'
+        required: true
+      GCP_SERVICE_ACCOUNT:
+        description: 'Deploy service account email for WIF impersonation'
+        required: true
     outputs:
       api_image:
         description: 'Full API image reference'
@@ -34,6 +41,9 @@ env:
   REGISTRY: us-central1-docker.pkg.dev
   PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
   REPOSITORY: agentic-kg
+
+permissions:
+  contents: read
 
 jobs:
   build:
