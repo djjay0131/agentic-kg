@@ -39,6 +39,9 @@ env:
   PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
   REGION: us-central1
 
+permissions:
+  contents: read
+
 jobs:
   # Run tests first (unless skipped)
   test:
@@ -81,7 +84,9 @@ jobs:
       services: ${{ inputs.services }}
       image_tag: ${{ github.ref_name }}-${{ github.sha }}
       push: true
-    secrets: inherit
+    secrets:
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
   # Deploy to target environment
   deploy:

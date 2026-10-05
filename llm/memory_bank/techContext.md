@@ -83,7 +83,7 @@ docker compose up
 - **Region**: `us-central1`
 - **API (staging)**: Cloud Run Service at `https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app`
 - **Ingestion Job (staging)**: Cloud Run Job `agentic-kg-ingest-staging` (Terraform-managed)
-- **Neo4j (staging)**: Compute Engine at `bolt://34.173.74.125:7687` (Browser: `http://34.173.74.125:7474`)
+- **Neo4j (staging)**: Compute Engine bolt + browser endpoints — the address is deliberately not recorded here (this repo is public). Operators read it from the Terraform outputs `neo4j_bolt_uri` / `neo4j_browser_url` (`infra/outputs.tf`); the bolt URI is also held in the Secret Manager `NEO4J_URI` secret.
 - **Neo4j Schema**: Initialized via `SchemaManager` — `SCHEMA_VERSION = 7` (10 uniqueness constraints, property indexes, 7 vector indexes across Problem / ProblemMention / ProblemConcept / Topic / ResearchConcept / Model / Method). Full node/edge catalog: `docs/reference/` (published).
 - **Terraform IaC**: `infra/` directory — API service, ingest job, IAM, env vars
 - **CI/CD**: Cloud Build (`cloudbuild.yaml`) with `_SERVICE=api|job` substitution
