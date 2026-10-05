@@ -211,7 +211,10 @@ class OpenAICompletionClient:
         config = LLMConfig(provider=LLMProvider.OPENAI, temperature=self._temperature)
         if self._model is not None:
             config.model = self._model
-        client = OpenAIClient(config)
+        # `OpenAIClient` is generic over its structured-output model; the live
+        # adapter is a staging-only path and mypy has no type argument to
+        # specialize it with here, so the client is deliberately opaque.
+        client: Any = OpenAIClient(config)
 
         async def _extract() -> str:
             response = await client.extract(request.prompt, _AdmissionPayload)
