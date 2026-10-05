@@ -25,3 +25,4 @@ individually numbered here.
 | [0002](0002-migrate-to-llm-control-plane.md) | Migrate governance content to the `llm/` control plane | Accepted | 2026-08-31 |
 | [0003](0003-kgis-kgcs-ontology-mapping.md) | KGIS/KGCS ontology mapping and the canonical/projection split | Proposed |
 | [0004](0004-kgis-kgcs-adoption-opt-in-seam.md) | Adopt KGIS/KGCS behind an opt-in, commit-pinned migration seam | Accepted |
+| [0005](0005-kgis-kgcs-staging-isolation.md) | Isolate the KGIS ledger and KGCS canonical graph inside the staging Neo4j | Proposed |
