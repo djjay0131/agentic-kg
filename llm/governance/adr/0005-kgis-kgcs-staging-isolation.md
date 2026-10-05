@@ -5,7 +5,7 @@ nav_exclude: true
 
 # ADR-0005: Isolate the KGIS ledger and KGCS canonical graph inside the staging Neo4j
 
-Status: Proposed
+Status: Accepted
 Date: 2026-10-05
 
 ## Context
