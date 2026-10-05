@@ -80,12 +80,14 @@ migration = [
     #     adapter applies REVOKE_IDENTITY - declining it would leave every plan
     #     that mints an identity un-rollbackable through this store.
     "agentic-kgis @ git+https://github.com/djjay0131/agentic-kgis@d5bab8f6d6207ce554ee5f687d37938f747eaa79",
-    # agentic-kgcs main @ 727df56 (the merge of #44), up from f68d1d7. #45, the
-    # release bump that would move the version string off 1.0.0, is still open
-    # upstream, so this pins the fix commit itself. The version string
-    # self-reports 1.0.0 across both, which is exactly why the SHA is the pin
-    # and why tests/migration/neo4j/pin_gate.py verifies the RESOLVED commit
-    # from direct_url.json rather than the version.
+    # agentic-kgcs @ e2c24fca = the v2.0.0 release commit (agentic-kgcs #45),
+    # up from 727df56 (the merge of #44). The release is METADATA-ONLY over
+    # 727df56: verified, `git diff --stat 727df56 e2c24fca` touches only
+    # CHANGELOG.md, llm/memory_bank/* and pyproject.toml (version 1.0.0 ->
+    # 2.0.0). No source moves, so every claim about 727df56 below still holds.
+    # The version is still not what CI keys on - the SHA is the pin, and
+    # tests/migration/neo4j/pin_gate.py verifies the RESOLVED commit from
+    # direct_url.json rather than the version.
     #
     # NEW at 727df56 (agentic-kgcs #44, ADR-0022): the identity disposition is
     # derived BEFORE routing. `kgcs.policy.ResolutionPolicy.resolve` used to
@@ -157,7 +159,7 @@ migration = [
     #
     # agentic-kgcs depends on agentic-kgis>=0.2.0, satisfied by the git pin
     # above rather than from PyPI.
-    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@727df564e1c4a9b11c0f8a4e6be7867fbf5a63ac",
+    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@e2c24fca8533af79e520a2ea5fddadd0668baa07",
 ]
 
 [project.scripts]

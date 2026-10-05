@@ -56,11 +56,12 @@ migration = [
     #      CurationOperationType, CREATE_IDENTITY inverse) with `include_revoked`
     #      hiding REVOKED records from every default read at any epoch.
     "agentic-kgis @ git+https://github.com/djjay0131/agentic-kgis@d5bab8f6d6207ce554ee5f687d37938f747eaa79",
-    # agentic-kgcs main @ 727df56 (the merge of #44), up from f68d1d7. #45, the
-    # release bump, is still open, so this pins the fix commit. Version still
-    # self-reports 1.0.0 - the SHA is the only identity, which is why
-    # packages/core/tests/migration/neo4j/pin_gate.py checks the resolved commit
-    # rather than the version.
+    # agentic-kgcs @ e2c24fca = the v2.0.0 release commit (agentic-kgcs #45),
+    # up from 727df56 (the merge of #44). The release is METADATA-ONLY over
+    # 727df56: verified, `git diff --stat 727df56 e2c24fca` touches only
+    # CHANGELOG.md, llm/memory_bank/* and pyproject.toml (version 1.0.0 ->
+    # 2.0.0). No source moves. The version is still not what CI keys on -
+    # packages/core/tests/migration/neo4j/pin_gate.py checks the resolved commit.
     #
     # New at 727df56 (agentic-kgcs #44, ADR-0022): the identity disposition is
     # derived BEFORE routing, so entity candidates are NEW_IDENTITY and an
@@ -99,7 +100,7 @@ migration = [
     #   - `Compensator._invert`'s legacy reversal_data fallback now RAISES by
     #     default (opt in with `allow_legacy_reversal_data=True`); a malformed
     #     INVERSE_PAYLOAD_KEY raises unconditionally.
-    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@727df564e1c4a9b11c0f8a4e6be7867fbf5a63ac",
+    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@e2c24fca8533af79e520a2ea5fddadd0668baa07",
 ]
 dev = [
     "pytest>=7.0.0",
