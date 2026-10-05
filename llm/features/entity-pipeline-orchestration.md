@@ -72,16 +72,18 @@ The fix is one orchestration feature: refactor `ingest_papers` Phase 2/3 to wire
 
 For each paper:
   ┌─────────────────────────────────────────────────────────────────┐
-  │ 1. Purge guardrail (existing AC-13 wiring; unchanged)           │
-  │ 2. Resolve text source:                                         │
+  │ 1. Skip check (AC-21) — up-to-date papers short-circuit here,   │
+  │    so the purge below never deletes edges it cannot restore     │
+  │ 2. Purge guardrail (existing AC-13 wiring; unchanged)           │
+  │ 3. Resolve text source:                                         │
   │     - PDF path: pipeline.process_pdf_url() →                    │
   │       (problems, section_text)                                  │
   │     - No PDF: section_text = paper.abstract (Q1 fallback)       │
-  │ 3. extract_all_entities(...) — 5-way parallel (NEW)             │
-  │ 4. normalize_cross_entity(...) — async, per-paper (NEW)         │
-  │ 5. V1: integrate_extracted_problems(...) — runs if problems     │
+  │ 4. extract_all_entities(...) — 5-way parallel (NEW)             │
+  │ 5. normalize_cross_entity(...) — async, per-paper (NEW)         │
+  │ 6. V1: integrate_extracted_problems(...) — runs if problems     │
   │    non-empty (unchanged gate)                                   │
-  │ 6. V2: integrate_paper_entities(...) — runs if ANY extraction   │
+  │ 7. V2: integrate_paper_entities(...) — runs if ANY extraction   │
   │    non-empty (Q3) OR if V1 ran                                  │
   └─────────────────────────────────────────────────────────────────┘
 ```
@@ -398,6 +400,20 @@ async def ingest_papers(
         # ---- Phase 2 + 3: Per-paper unified loop ----
         for paper in search.papers:
             try:
+                # Skip check (AC-21) BEFORE the purge: an up-to-date paper
+                # is skipped end-to-end and its stored edges are left alone.
+                # Purge-first deleted them and the skip check then swallowed
+                # the rewrite (topic persistence bug).
+                if (
+                    extract_entities
+                    and not force_reextract
+                    and _can_skip_entity_extraction(
+                        repo, paper.doi, taxonomy_hash
+                    )
+                ):
+                    result.papers_skipped_complete += 1
+                    continue
+
                 # Purge guardrail (existing AC-13).
                 if paper.doi and _paper_has_footprint(repo, paper.doi):
                     try:
@@ -746,10 +762,10 @@ async def _returns(value):
 ### AC-23: AC-13 purge naturally enables re-extraction
 - **Given** a Paper P that was previously extracted (Paper.taxonomy_hash set)
 - **When** AC-13's `purge_paper_extraction` runs against P
-- **Then** P's `taxonomy_hash` is cleared (set to empty string by `_set_paper_extraction_metadata` zero-state)
+- **Then** P's `taxonomy_hash` is cleared (the purge SETs it to `''`)
 - **And** the next `ingest_papers` run sees `existing.taxonomy_hash == ""` ≠ current_hash
 - **And** the skip check fails for P → P is re-extracted in the next batch
-- **And** this contract holds without any code change in the purge path (skip check just composes with existing zero-state semantics)
+- **And** within a single `ingest_papers` run the skip check is evaluated **before** the purge, so an up-to-date paper is skipped rather than purged-then-not-rewritten (the topic-persistence bug: the purge deleted the RESEARCHES Paper→Topic edges and the skip check swallowed the rewrite)
 
 ### AC-24: Default-true rollout is loud
 - **Given** an operator deploys this feature without explicit flag overrides

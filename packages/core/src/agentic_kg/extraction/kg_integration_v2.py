@@ -862,7 +862,7 @@ def integrate_paper_entities(
 
     Spec contract (AC-5b, AC-6, AC-7, AC-8, AC-15):
 
-    - For each topic above ``min_topic_confidence``, write a ``BELONGS_TO``
+    - For each topic above ``min_topic_confidence``, write a ``RESEARCHES``
       edge from Paper to Topic via ``assign_entity_to_topic``. Unknown
       topic names (taxonomy drift mid-batch) are skipped, not crashed.
     - For each concept above ``min_concept_confidence``, call
@@ -885,7 +885,7 @@ def integrate_paper_entities(
 
     result = EntityIntegrationResult(paper_doi=paper_doi)
 
-    # ---- Topics → BELONGS_TO ----
+    # ---- Topics → RESEARCHES (Paper→Topic; BELONGS_TO is problem-side) ----
     from agentic_kg.knowledge_graph.repository import NotFoundError
 
     for assignment in extraction_result.topics:
