@@ -35,6 +35,13 @@ if TYPE_CHECKING:
     from neo4j import Session
 
 
+# Every test here asserts on graph contents and needs a live Neo4j session.
+# ADR-0006 makes staging Neo4j VPC-private, so these are deselected in the
+# GitHub-hosted E2E job (``-m "not requires_db"``) and run only where the
+# database is reachable: an in-VPC Cloud Run Job, or locally via an IAP tunnel.
+pytestmark = pytest.mark.requires_db
+
+
 def make_test_id(prefix: str) -> str:
     """Generate a run-namespaced unique test ID."""
     return f"{E2E_NAMESPACE}_{prefix}_{uuid.uuid4().hex[:8]}"
