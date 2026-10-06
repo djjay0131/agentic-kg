@@ -10,9 +10,7 @@ Provides:
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Optional
-
-from neo4j import ManagedTransaction
+from typing import Optional
 
 from agentic_kg.config import SearchConfig, get_config
 from agentic_kg.knowledge_graph.embeddings import (
@@ -94,39 +92,25 @@ class SearchService:
             logger.error(f"Failed to generate query embedding: {e}")
             return []
 
-        def _search(tx: ManagedTransaction, emb: list[float], k: int) -> list[dict]:
-            # Neo4j vector search
-            result = tx.run(
-                """
-                CALL db.index.vector.queryNodes(
-                    'problem_embedding_idx',
-                    $k,
-                    $embedding
-                ) YIELD node, score
-                WHERE score >= $min_score
-                RETURN node, score
-                """,
-                embedding=emb,
-                k=k,
-                min_score=min_score,
-            )
-            return [
-                {"node": dict(record["node"]), "score": record["score"]}
-                for record in result
-            ]
-
-        with self._repo.session() as session:
-            records = session.execute_read(
-                lambda tx: _search(tx, query_embedding, top_k)
-            )
+        # Vector search over canonical ProblemConcept *and* legacy Problem
+        # embeddings. Since the Canonical Problem Architecture, ingestion
+        # writes ProblemConcept nodes only, so a problem_embedding_idx-only
+        # query returned nothing for freshly ingested data.
+        views = self._repo.semantic_problem_views(
+            query_embedding, top_k=top_k, min_score=min_score
+        )
 
         results = []
-        for record in records:
-            problem = self._problem_from_neo4j(record["node"])
+        for view in views:
+            try:
+                problem = self._repo.problem_view_to_problem(view)
+            except Exception as e:
+                logger.warning("Skipping unreadable Problem node: %s", e)
+                continue
             results.append(
                 SearchResult(
                     problem=problem,
-                    score=record["score"],
+                    score=view["score"],
                     match_type="semantic",
                 )
             )
@@ -159,74 +143,30 @@ class SearchService:
         """
         top_k = top_k or self._config.default_top_k
 
-        def _search(
-            tx: ManagedTransaction,
-            filters: dict[str, Any],
-            limit: int,
-        ) -> list[dict]:
-            if filters.get("topic_id"):
-                query = (
-                    "MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic {id: $topic_id})"
-                )
-            else:
-                query = "MATCH (p:Problem)"
-            conditions = []
-            params: dict[str, Any] = {"limit": limit}
-            if filters.get("topic_id"):
-                params["topic_id"] = filters["topic_id"]
-
-            if filters.get("status"):
-                conditions.append("p.status = $status")
-                params["status"] = filters["status"]
-
-            if filters.get("has_datasets") is not None:
-                if filters["has_datasets"]:
-                    conditions.append("size(p.datasets) > 0")
-                else:
-                    conditions.append("size(p.datasets) = 0")
-
-            # Year filtering requires joining with source paper
-            if filters.get("year_from") or filters.get("year_to"):
-                query += " MATCH (p)-[:EXTRACTED_FROM]->(paper:Paper)"
-                if filters.get("year_from"):
-                    conditions.append("paper.year >= $year_from")
-                    params["year_from"] = filters["year_from"]
-                if filters.get("year_to"):
-                    conditions.append("paper.year <= $year_to")
-                    params["year_to"] = filters["year_to"]
-
-            if conditions:
-                query += " WHERE " + " AND ".join(conditions)
-
-            query += " RETURN p ORDER BY p.created_at DESC LIMIT $limit"
-
-            result = tx.run(query, **params)
-            return [{"node": dict(record["p"]), "score": 1.0} for record in result]
-
-        filters = {
-            "topic_id": topic_id,
-            "status": status.value if status else None,
-            "has_datasets": has_datasets,
-            "year_from": year_from,
-            "year_to": year_to,
-        }
-
-        with self._repo.session() as session:
-            records = session.execute_read(
-                lambda tx: _search(tx, filters, top_k)
-            )
+        # Canonical ProblemConcept nodes are unioned with legacy :Problem
+        # nodes; topic association covers a direct BELONGS_TO edge and,
+        # concept-side, a mention extracted from a paper that RESEARCHES
+        # the topic.
+        views = self._repo.structured_problem_views(
+            topic_id=topic_id,
+            status=status,
+            has_datasets=has_datasets,
+            year_from=year_from,
+            year_to=year_to,
+            limit=top_k,
+        )
 
         results = []
-        for record in records:
+        for view in views:
             try:
-                problem = self._problem_from_neo4j(record["node"])
+                problem = self._repo.problem_view_to_problem(view)
             except Exception as e:
                 logger.warning("Skipping unreadable Problem node: %s", e)
                 continue
             results.append(
                 SearchResult(
                     problem=problem,
-                    score=record["score"],
+                    score=1.0,
                     match_type="structured",
                 )
             )
@@ -270,19 +210,7 @@ class SearchService:
         # belong to it so we don't have to hit Neo4j per candidate.
         topic_problem_ids: Optional[set[str]] = None
         if topic_id:
-            with self._repo.session() as session:
-                records = session.execute_read(
-                    lambda tx: [
-                        r["id"] for r in tx.run(
-                            """
-                            MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic {id: $tid})
-                            RETURN p.id AS id
-                            """,
-                            tid=topic_id,
-                        )
-                    ]
-                )
-            topic_problem_ids = set(records)
+            topic_problem_ids = set(self._repo.problem_ids_for_topic(topic_id))
 
         filtered_results = []
         for result in semantic_results:

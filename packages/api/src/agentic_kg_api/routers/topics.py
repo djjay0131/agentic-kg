@@ -5,14 +5,13 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-
 from agentic_kg.knowledge_graph.embeddings import generate_topic_embedding
 from agentic_kg.knowledge_graph.models import Topic, TopicLevel
 from agentic_kg.knowledge_graph.repository import (
     Neo4jRepository,
     NotFoundError,
 )
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from agentic_kg_api.dependencies import get_repo
 from agentic_kg_api.schemas import (
@@ -203,54 +202,37 @@ def get_topic_problems(
     limit: int = Query(default=50, ge=1, le=500),
     repo: Neo4jRepository = Depends(get_repo),
 ) -> TopicProblemsResponse:
-    """Return Problems linked to the topic (optionally including descendants)."""
+    """Return Problems linked to the topic (optionally including descendants).
+
+    Serves the canonical ``ProblemConcept`` read model: a problem is
+    associated with the topic via a direct ``BELONGS_TO`` edge or, when a
+    concept, via a mention extracted from a paper that ``RESEARCHES`` it.
+    Legacy ``:Problem`` nodes are unioned in.
+    """
     try:
         repo.get_topic(topic_id)
     except NotFoundError:
         raise HTTPException(status_code=404, detail=f"Topic not found: {topic_id}")
 
-    if include_subtopics:
-        cypher = """
-        MATCH (descendant:Topic)-[:SUBTOPIC_OF*0..]->(root:Topic {id: $topic_id})
-        WITH collect(descendant) AS topics
-        MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic)
-        WHERE t IN topics
-        RETURN DISTINCT p
-        LIMIT $limit
-        """
-    else:
-        cypher = """
-        MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic {id: $topic_id})
-        RETURN p
-        LIMIT $limit
-        """
+    views = repo.list_problem_views_for_topic(
+        topic_id,
+        include_subtopics=include_subtopics,
+        limit=limit,
+    )
 
-    def _run(tx, tid, lim):
-        result = tx.run(cypher, topic_id=tid, limit=lim)
-        return [dict(r["p"]) for r in result]
-
-    with repo.session() as session:
-        records = session.execute_read(lambda tx: _run(tx, topic_id, limit))
-
-    summaries = []
-    for record in records:
-        problem = repo._problem_from_neo4j(record)
-        confidence = None
-        if problem.extraction_metadata:
-            confidence = problem.extraction_metadata.confidence_score
-        summaries.append(
-            ProblemSummary(
-                id=problem.id,
-                statement=problem.statement,
-                status=(
-                    problem.status.value
-                    if hasattr(problem.status, "value")
-                    else str(problem.status)
-                ),
-                confidence=confidence,
-                created_at=problem.created_at,
-            )
+    summaries = [
+        ProblemSummary(
+            id=view["id"],
+            statement=view.get("statement") or "",
+            status=str(view.get("status") or "open"),
+            confidence=view.get("confidence"),
+            created_at=view.get("created_at"),
+            canonical_statement=view.get("canonical_statement"),
+            mention_count=view.get("mention_count") or 0,
+            paper_count=view.get("paper_count") or 0,
         )
+        for view in views
+    ]
 
     return TopicProblemsResponse(
         topic_id=topic_id,
