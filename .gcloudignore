@@ -53,3 +53,23 @@ Thumbs.db
 
 # Jupyter
 .ipynb_checkpoints/
+
+# The frozen corpus the `job` image carries (docker/Dockerfile.job COPYs it to
+# KGIS_CORPUS_DIR). The broad `docs/` and `tests/` exclusions above would drop
+# it from the `gcloud builds submit` context, so re-include only these two
+# subtrees. gitignore semantics require each parent directory to be un-excluded
+# before its children can be re-included, hence the re-exclude/re-include chain.
+# (The GitHub Actions deploy path uses `docker build` with no .dockerignore, so
+# it already has these files; this keeps the manual cloudbuild.yaml path correct.)
+!packages/core/tests/
+packages/core/tests/*
+!packages/core/tests/extraction/
+packages/core/tests/extraction/*
+!packages/core/tests/extraction/fixtures/
+packages/core/tests/extraction/fixtures/*
+!packages/core/tests/extraction/fixtures/ground_truth_chain/
+!docs/
+docs/*
+!docs/ground-truth/
+docs/ground-truth/*
+!docs/ground-truth/importer-output/

@@ -29,6 +29,8 @@ corpus quietly.
 
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -36,19 +38,54 @@ import yaml
 
 from agentic_kg.migration.ingestion.documents import PaperDocument
 
-#: Repo root. `parents[0]` is this file's directory (`ingestion/`), so the root
-#: — six levels up past `migration`, `agentic_kg`, `src`, `core`, `packages` —
-#: is `parents[6]`. Derived rather than configured so the corpus is findable
-#: from a test or a script without an env var.
+#: Environment variable naming the directory the corpus paths hang off. Set by
+#: the Cloud Run Job image (`docker/Dockerfile.job`), which carries the corpus
+#: outside any checkout; unset in a source or editable install, where the
+#: repo-relative default below resolves.
+KGIS_CORPUS_DIR = "KGIS_CORPUS_DIR"
+
+#: Repo root, used when :data:`KGIS_CORPUS_DIR` is unset. `parents[0]` is this
+#: file's directory (`ingestion/`), so the root — six levels up past `migration`,
+#: `agentic_kg`, `src`, `core`, `packages` — is `parents[6]`.
 #:
 #: This resolves correctly only for a source or editable install, which is what
-#: the migration CI job uses (`pip install -e`). On a non-editable install the
-#: corpus is simply absent and :func:`load_paper` raises `CorpusError` naming
-#: the missing path — a loud failure, not a silently empty corpus.
+#: the migration CI job uses (`pip install -e`). Without the env var on a
+#: non-editable install the corpus is simply absent and :func:`load_paper`
+#: raises `CorpusError` naming the missing path — a loud failure, not a
+#: silently empty corpus. The Job image therefore sets :data:`KGIS_CORPUS_DIR`
+#: and copies the corpus under it at the same repo-relative layout.
 _REPO_ROOT = Path(__file__).resolve().parents[6]
 
-CORPUS_TEXT_DIR = _REPO_ROOT / "packages/core/tests/extraction/fixtures/ground_truth_chain"
-IMPORTER_OUTPUT_DIR = _REPO_ROOT / "docs/ground-truth/importer-output"
+
+def corpus_root(environ: Mapping[str, str] | None = None) -> Path:
+    """The root the corpus paths hang off.
+
+    ``KGIS_CORPUS_DIR`` overrides it so the corpus can ship inside an image
+    rather than a checkout. The paths below stay repo-relative, so the image
+    reproduces the same layout under the override and this function reads no
+    per-file configuration. Read on every call (not cached at import) so a test
+    or caller can point it at a fixture with ``monkeypatch.setenv``.
+    """
+    env = os.environ if environ is None else environ
+    override = env.get(KGIS_CORPUS_DIR)
+    return Path(override) if override else _REPO_ROOT
+
+
+def corpus_text_dir(environ: Mapping[str, str] | None = None) -> Path:
+    """Directory of ``paper_<slug>.txt`` files, under :func:`corpus_root`."""
+    return corpus_root(environ) / "packages/core/tests/extraction/fixtures/ground_truth_chain"
+
+
+def importer_output_dir(environ: Mapping[str, str] | None = None) -> Path:
+    """Directory of importer-output ``*.yml`` files, under :func:`corpus_root`."""
+    return corpus_root(environ) / "docs/ground-truth/importer-output"
+
+
+#: Default resolution at import, kept for callers that import the names. The
+#: functions above are the live source: they re-read ``KGIS_CORPUS_DIR`` per
+#: call, so these constants do not reflect a later change to the environment.
+CORPUS_TEXT_DIR = corpus_text_dir()
+IMPORTER_OUTPUT_DIR = importer_output_dir()
 
 #: slug -> the importer-output file carrying that paper's identity block.
 #:
@@ -96,7 +133,7 @@ class CorpusPaper:
 
 
 def text_path(slug: str) -> Path:
-    return CORPUS_TEXT_DIR / f"paper_{slug}.txt"
+    return corpus_text_dir() / f"paper_{slug}.txt"
 
 
 def importer_path(slug: str) -> Path:
@@ -107,7 +144,7 @@ def importer_path(slug: str) -> Path:
             f"{slug!r} has no importer-output mapping; known slugs: "
             f"{', '.join(sorted(SLUG_TO_IMPORTER_FILE))}"
         ) from None
-    return IMPORTER_OUTPUT_DIR / filename
+    return importer_output_dir() / filename
 
 
 def _read_identity(path: Path) -> tuple[str, str, int | None]:
@@ -170,24 +207,28 @@ def discovered_text_slugs() -> frozenset[str]:
     """
     return frozenset(
         path.name[len("paper_") : -len(".txt")]
-        for path in CORPUS_TEXT_DIR.glob("paper_*.txt")
+        for path in corpus_text_dir().glob("paper_*.txt")
     )
 
 
 def discovered_importer_files() -> frozenset[str]:
     """Importer-output filenames discovered on disk."""
-    return frozenset(path.name for path in IMPORTER_OUTPUT_DIR.glob("*.yml"))
+    return frozenset(path.name for path in importer_output_dir().glob("*.yml"))
 
 
 __all__ = [
     "CORPUS_TEXT_DIR",
     "GRADED_SLUGS",
     "IMPORTER_OUTPUT_DIR",
+    "KGIS_CORPUS_DIR",
     "SLUG_TO_IMPORTER_FILE",
     "CorpusError",
     "CorpusPaper",
+    "corpus_root",
+    "corpus_text_dir",
     "discovered_importer_files",
     "discovered_text_slugs",
+    "importer_output_dir",
     "importer_path",
     "load_corpus",
     "load_paper",
