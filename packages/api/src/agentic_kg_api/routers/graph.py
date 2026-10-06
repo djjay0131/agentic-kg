@@ -8,7 +8,8 @@ the concept read model and union in any legacy ``:Problem`` node.
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from agentic_kg.knowledge_graph.repository import Neo4jRepository
+from fastapi import APIRouter, Depends, Query
 
 from agentic_kg_api.dependencies import get_repo
 from agentic_kg_api.schemas import GraphLink, GraphNode, GraphResponse
@@ -53,6 +54,7 @@ def get_graph(
     ),
     include_papers: bool = Query(default=True, description="Include paper nodes"),
     include_topics: bool = Query(default=True, description="Include Topic nodes"),
+    repo: Neo4jRepository = Depends(get_repo),
 ) -> GraphResponse:
     """
     Get graph data for visualization.
@@ -84,7 +86,6 @@ def get_graph(
         return node_id
 
     try:
-        repo = get_repo()
         with repo.session() as session:
             if topic_id:
                 concept_query = """
@@ -243,6 +244,7 @@ def get_graph(
 def get_neighbors(
     node_id: str,
     depth: int = Query(default=1, ge=1, le=3, description="Traversal depth"),
+    repo: Neo4jRepository = Depends(get_repo),
 ) -> GraphResponse:
     """
     Get neighboring nodes for a given node.
@@ -256,7 +258,6 @@ def get_neighbors(
     seen_nodes: set[str] = set()
 
     try:
-        repo = get_repo()
         with repo.session() as session:
             if ":" not in node_id:
                 return GraphResponse(nodes=[], links=[])
