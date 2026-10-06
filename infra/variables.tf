@@ -184,3 +184,29 @@ variable "enable_build_triggers" {
   type        = bool
   default     = false
 }
+
+# KGIS/KGCS opt-in seam (ADR-0004 / ADR-0005, issue #112)
+variable "kgis_kgcs_enabled" {
+  description = <<-EOT
+    Opt the staging API service and ingest Job into the KGIS/KGCS migration
+    path. When true, Terraform sets CANONICAL_API_ENABLED /
+    KGCS_CANONICAL_NAMESPACE on the API and INGEST_MODE /
+    KGIS_INGESTION_ENABLED / KGCS_RESOLUTION_ENABLED /
+    KGCS_CANONICAL_NAMESPACE / INGEST_LEDGER_DIR on the ingest Job. The deploy
+    workflows only roll the image, so Terraform alone owns these values.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "canonical_namespace" {
+  description = "KGCS canonical namespace, shared by the API and the ingest Job (ADR-0005 isolation boundary)"
+  type        = string
+  default     = "staging"
+}
+
+variable "ingest_ledger_dir" {
+  description = "Job-local directory for the KGIS ledger (ADR-0005; not durable)"
+  type        = string
+  default     = "/tmp/kgis-shadow"
+}

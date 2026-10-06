@@ -1,7 +1,7 @@
-project_id        = "vt-gcp-00042"
-region            = "us-central1"
-zone              = "us-central1-a"
-env               = "staging"
+project_id         = "vt-gcp-00042"
+region             = "us-central1"
+zone               = "us-central1-a"
+env                = "staging"
 neo4j_machine_type = "e2-medium"
 neo4j_disk_size    = 20
 api_memory         = "1Gi"
@@ -14,14 +14,19 @@ ingest_job_memory  = "2Gi"
 ingest_job_cpu     = "2"
 ingest_job_timeout = 1800
 
-# GitHub Actions secrets sync
-# Set github_owner and sync_github_secrets=true to auto-sync staging credentials
-# Requires GITHUB_TOKEN env var with repo and secrets permissions
-github_owner        = "djjay0131"
-github_repo         = "agentic-kg"
-sync_github_secrets = true
+# GitHub Actions is the deploy path. Cloud Build triggers are not in use and
+# the STAGING_API_URL GitHub-secret sync is no longer needed: ADR-0006 removed
+# the duplicated Neo4j credentials, and the deploy workflows read URLs from
+# Cloud Run directly.
+github_owner          = "djjay0131"
+github_repo           = "agentic-kg"
+sync_github_secrets   = false
+enable_build_triggers = false
 
-# Cloud Build triggers
-# Requires GitHub connection in Cloud Build console first:
-# https://console.cloud.google.com/cloud-build/triggers/connect
-enable_build_triggers = true
+# KGIS/KGCS opt-in seam (ADR-0004/ADR-0005, issue #112). These were hand-set
+# per docs/operations/kgis-kgcs-staging-runbook.md and silently dropped by the
+# next deploy; Terraform is now the single owner. The namespace MUST be the
+# same value on the API and the ingest Job — it is the isolation boundary.
+kgis_kgcs_enabled   = true
+canonical_namespace = "staging"
+ingest_ledger_dir   = "/tmp/kgis-shadow"

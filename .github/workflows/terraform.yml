@@ -1,0 +1,144 @@
+# Terraform for infra/ (issue #112, ADR-0006).
+#
+# pull_request touching infra/** -> fmt -check, init (GCS backend, read-only),
+# validate, plan with -lock=false, and the plan summary posted to the job
+# summary. No apply, and no secret values in the output.
+#
+# workflow_dispatch with `apply: true` -> the same plan then apply, protected by
+# the `staging` GitHub environment (reviewers/approval live there).
+#
+# State: gs://vt-gcp-00042-tfstate, isolated by prefix agentic-kg/<env>.
+# Auth: the same WIF provider / service account the deploy workflows use.
+# The service account needs the roles listed in the adoption PR body; this
+# workflow never receives long-lived credentials.
+
+name: Terraform
+
+on:
+  pull_request:
+    paths:
+      - 'infra/**'
+      - '.github/workflows/terraform.yml'
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Apply the plan (requires the staging environment approval)'
+        required: true
+        type: boolean
+        default: false
+      environment:
+        description: 'Target environment (state prefix agentic-kg/<environment>)'
+        required: true
+        type: choice
+        options:
+          - staging
+        default: staging
+
+permissions:
+  contents: read
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_ENV: ${{ github.event.inputs.environment || 'staging' }}
+  REGION: us-central1
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+
+jobs:
+  plan:
+    name: Plan (${{ github.event.inputs.environment || 'staging' }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: infra
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          # >= 1.7 for `for_each` in import blocks (infra/imports.tf).
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+
+      - name: Terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init
+        run: terraform init -backend-config="prefix=agentic-kg/$TF_ENV"
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan
+        # -lock=false: a PR plan must never write a state lock.
+        run: |
+          terraform plan \
+            -var-file="envs/$TF_ENV.tfvars" \
+            -lock=false \
+            -no-color \
+            -out=tfplan
+
+      - name: Post plan summary
+        # Only resource addresses and actions are posted. No attribute values
+        # (so no secret material) reach the job summary.
+        run: |
+          terraform show -json tfplan > plan.json
+          {
+            echo "## Terraform plan (\`$TF_ENV\`)"
+            echo ""
+            echo '```'
+            echo "Actions: $(jq -r '[.resource_changes[]?.change.actions[]] | group_by(.) | map("\(length) \(.[0])") | join(", ")' plan.json)"
+            echo ""
+            jq -r '.resource_changes[]? | "\(.change.actions | join(","))  \(.address)"' plan.json | sort
+            echo '```'
+            echo ""
+            echo "Imports: $(jq -r '[.resource_changes[]? | select(.change.importing != null)] | length' plan.json)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  apply:
+    name: Apply (${{ github.event.inputs.environment || 'staging' }})
+    if: github.event_name == 'workflow_dispatch' && inputs.apply
+    needs: [plan]
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: infra
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+
+      - name: Terraform init
+        run: terraform init -backend-config="prefix=agentic-kg/$TF_ENV"
+
+      - name: Terraform apply
+        run: |
+          terraform apply \
+            -var-file="envs/$TF_ENV.tfvars" \
+            -auto-approve \
+            -no-color

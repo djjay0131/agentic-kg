@@ -1,15 +1,14 @@
 terraform {
-  required_version = ">= 1.5.0"
+  # >= 1.7.0 for `for_each` in `import {}` blocks (infra/imports.tf).
+  required_version = ">= 1.7.0"
 
   required_providers {
     google = {
       source  = "hashicorp/google"
       version = "~> 5.0"
     }
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.0"
-    }
+    # The `random` provider was removed with `random_password.neo4j`: the Neo4j
+    # password value is now owned by the rotation workflow, not Terraform.
     github = {
       source  = "integrations/github"
       version = "~> 6.0"
