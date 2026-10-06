@@ -149,8 +149,8 @@ pytest -m "e2e and not costly" -v
 ## Staging Environment
 
 - **API URL**: https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app
-- **Neo4j Bolt**: bolt://34.173.74.125:7687
-- **Neo4j Browser**: http://34.173.74.125:7474
+- **Neo4j Bolt**: `<staging-neo4j-host>:7687` (from the `neo4j_bolt_uri` Terraform output)
+- **Neo4j Browser**: `<staging-neo4j-host>:7474` (from the `neo4j_browser_url` Terraform output)
 
 Get Neo4j password:
 ```bash

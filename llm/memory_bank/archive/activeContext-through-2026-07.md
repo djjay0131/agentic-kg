@@ -597,7 +597,7 @@ tests_passing: 1312
 - `mentions_linked_to_paper` sanity check sometimes fails when papers pre-exist from earlier imports (DOI casing mismatch in EXTRACTED_FROM edge creation)
 - arXiv_pdf variable scope bug in Denario core (`denario/langgraph_agents/literature.py:114`) — external dependency
 - Legacy `memory-bank/` and `construction/{design,requirements,backlog}` deleted 2026-07-07 — content superseded by `llm/memory_bank/` + `llm/features/`
-- `docs/status/service-inventory.html` publishes the staging Neo4j browser endpoint (`http://34.173.74.125:7474`) — should be scrubbed; advertising an open Neo4j browser is not ideal even on a private staging DB
+- `docs/status/service-inventory.html` published the staging Neo4j browser endpoint (`http://<staging-neo4j-host>:7474`) — scrubbed 2026-10; advertising an open Neo4j browser is not ideal even on a private staging DB
 - PR #16 (Cloud Build triggers) — still open, no checks, stale; needs a decision (keep / close / revisit)
 - E-8 spec (`llm/features/extraction-prompt-expansion.md`) is **untracked** in working tree — commit before reboot if you want it persisted to git
 

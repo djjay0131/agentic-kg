@@ -14,6 +14,9 @@ env:
   PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
   REGION: us-central1
 
+permissions:
+  contents: read
+
 jobs:
   # Extract version from tag
   version:

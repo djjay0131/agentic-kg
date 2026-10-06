@@ -1,16 +1,16 @@
 output "neo4j_ip" {
-  description = "External IP of the Neo4j VM"
-  value       = google_compute_instance.neo4j.network_interface[0].access_config[0].nat_ip
+  description = "Internal (VPC) IP of the Neo4j VM. ADR-0006: private only."
+  value       = google_compute_instance.neo4j.network_interface[0].network_ip
 }
 
 output "neo4j_bolt_uri" {
-  description = "Neo4j Bolt connection URI"
-  value       = "bolt://${google_compute_instance.neo4j.network_interface[0].access_config[0].nat_ip}:7687"
+  description = "Neo4j Bolt connection URI (internal/VPC address; see ADR-0006)"
+  value       = "bolt://${google_compute_instance.neo4j.network_interface[0].network_ip}:7687"
 }
 
 output "neo4j_browser_url" {
-  description = "Neo4j Browser URL"
-  value       = "http://${google_compute_instance.neo4j.network_interface[0].access_config[0].nat_ip}:7474"
+  description = "Neo4j Browser URL (internal/VPC address; see ADR-0006)"
+  value       = "http://${google_compute_instance.neo4j.network_interface[0].network_ip}:7474"
 }
 
 output "neo4j_password" {

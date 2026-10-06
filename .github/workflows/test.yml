@@ -12,6 +12,9 @@ concurrency:
   group: test-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -47,6 +50,14 @@ jobs:
           pytest packages/core/tests \
             --ignore=packages/core/tests/e2e \
             -v --cov=agentic_kg --cov-report=term-missing --cov-report=xml
+
+      - name: Run API tests
+        # packages/api/tests is a separate `tests` package from
+        # packages/core/tests, so it needs its own invocation (one pytest run
+        # over both raises ImportPathMismatchError). Previously no workflow
+        # ran it at all, including the #76 404 regression tests.
+        run: |
+          pytest packages/api/tests -v --tb=short
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v4
