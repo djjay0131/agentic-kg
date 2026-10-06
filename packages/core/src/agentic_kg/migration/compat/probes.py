@@ -485,18 +485,6 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
         needs=("trace_id",),
     ),
     CypherProbe(
-        id="api.graph.problem_relations_by_topic",
-        read_path_ids=("api.graph.problem_relations_by_topic",),
-        informative=("source", "rel_type", "target"),
-        cypher=(
-            "MATCH (p1:Problem)-[:BELONGS_TO]->(:Topic {id: $topic_id}) "
-            "MATCH (p1)-[r]->(p2:Problem) "
-            "RETURN p1.id AS source, type(r) AS rel_type, p2.id AS target "
-            "ORDER BY source, rel_type, target LIMIT $limit"
-        ),
-        needs=("topic_id", "limit"),
-    ),
-    CypherProbe(
         id="api.graph.problems",
         read_path_ids=("api.graph.problems",),
         informative=("id", "statement", "status"),

@@ -88,13 +88,6 @@
         "target": "<T>_problem_2"
       }
     ],
-    "api.graph.problem_relations_by_topic": [
-      {
-        "rel_type": "EXTENDS",
-        "source": "<T>_problem_1",
-        "target": "<T>_problem_2"
-      }
-    ],
     "api.graph.problems": [
       {
         "id": "<T>_problem_1",

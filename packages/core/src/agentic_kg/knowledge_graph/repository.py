@@ -22,10 +22,13 @@ from neo4j.exceptions import (
 from agentic_kg.config import Neo4jConfig, get_config
 from agentic_kg.knowledge_graph.models import (
     Author,
+    Evidence,
+    ExtractionMetadata,
     Method,
     Model,
     Paper,
     Problem,
+    ProblemConcept,
     ProblemStatus,
     ResearchConcept,
     Topic,
@@ -301,8 +304,13 @@ class Neo4jRepository:
         """
         Get a Problem by ID.
 
+        Concept-aware since the Canonical Problem Architecture: a
+        ``ProblemConcept`` id (or one of its ``ProblemMention`` ids) resolves
+        to the canonical problem, adapted to the ``Problem`` model the agents
+        were written against. A legacy ``:Problem`` id still resolves.
+
         Args:
-            problem_id: Problem ID.
+            problem_id: Problem / ProblemConcept / ProblemMention ID.
 
         Returns:
             Problem instance.
@@ -310,21 +318,8 @@ class Neo4jRepository:
         Raises:
             NotFoundError: If problem not found.
         """
-        def _get(tx: ManagedTransaction, pid: str) -> Optional[dict]:
-            result = tx.run(
-                "MATCH (p:Problem {id: $id}) RETURN p",
-                id=pid
-            )
-            record = result.single()
-            return dict(record["p"]) if record else None
-
-        with self.session() as session:
-            data = session.execute_read(lambda tx: _get(tx, problem_id))
-
-        if data is None:
-            raise NotFoundError(f"Problem not found: {problem_id}")
-
-        return self._problem_from_neo4j(data)
+        view = self.get_problem_view(problem_id)
+        return self.problem_view_to_problem(view)
 
     def update_problem(
         self,
@@ -404,6 +399,15 @@ class Neo4jRepository:
         Raises:
             NotFoundError: If problem not found.
         """
+        # Canonical concept ids route through the concept writer. Legacy
+        # :Problem ids keep the original path below.
+        try:
+            self.get_problem_concept(problem_id)
+        except NotFoundError:
+            pass
+        else:
+            return self.delete_problem_concept(problem_id, soft=soft)
+
         if soft:
             # Soft delete: change status to deprecated
             problem = self.get_problem(problem_id)
@@ -442,6 +446,9 @@ class Neo4jRepository:
         """
         List problems with optional filtering.
 
+        Concept-aware: canonical ``ProblemConcept`` nodes are unioned with any
+        legacy ``:Problem`` nodes and adapted to the ``Problem`` model.
+
         Args:
             status: Filter by status.
             limit: Maximum results.
@@ -450,37 +457,14 @@ class Neo4jRepository:
         Returns:
             List of problems.
         """
-        def _list(
-            tx: ManagedTransaction,
-            status_val: Optional[str],
-            lim: int,
-            off: int,
-        ) -> list[dict]:
-            query = "MATCH (p:Problem)"
-            params: dict[str, Any] = {"limit": lim, "offset": off}
-
-            if status_val:
-                query += " WHERE p.status = $status"
-                params["status"] = status_val
-
-            query += " RETURN p ORDER BY p.created_at DESC SKIP $offset LIMIT $limit"
-
-            result = tx.run(query, **params)
-            return [dict(record["p"]) for record in result]
-
-        status_str = status.value if status else None
-
-        with self.session() as session:
-            records = session.execute_read(
-                lambda tx: _list(tx, status_str, limit, offset)
-            )
+        views = self.list_problem_views(status=status, limit=limit, offset=offset)
 
         # A single malformed (e.g. legacy-serialized) node must not break
         # the whole listing — skip and log instead.
         problems = []
-        for record in records:
+        for view in views:
             try:
-                problems.append(self._problem_from_neo4j(record))
+                problems.append(self.problem_view_to_problem(view))
             except Exception as e:
                 logger.warning("Skipping unreadable Problem node: %s", e)
         return problems
@@ -521,6 +505,768 @@ class Neo4jRepository:
                 )
 
         return Problem(**data)
+
+    # =========================================================================
+    # Canonical Problem Read Model (ProblemConcept + legacy Problem)
+    # =========================================================================
+    #
+    # Since the Canonical Problem Architecture (Sprint 09/10, M7/M8) ingestion
+    # writes ``(:ProblemMention)-[:INSTANCE_OF]->(:ProblemConcept)`` with the
+    # mention linked to its source paper via ``EXTRACTED_FROM``; it no longer
+    # writes ``:Problem`` nodes (see ``extraction/kg_integration_v2.py`` and
+    # ``auto_linker.py``). Every query that matched ``:Problem`` therefore
+    # returned nothing for freshly ingested data — the API showed 0 problems
+    # for a run that had logged ``problems=45``.
+    #
+    # The read model below serves the canonical ``ProblemConcept`` as the
+    # problem and carries its mentions / evidence / source papers. It is a
+    # *union*: a legacy ``:Problem`` node (pre-canonical ingestion, or data
+    # copied by the v3 topic migration) still resolves, so no historical
+    # problem disappears. Concepts are always considered first.
+    #
+    # The common view shape returned by these methods:
+    #   id, kind ("concept"|"problem"), statement, canonical_statement,
+    #   status, assumptions, constraints, datasets, metrics, baselines,
+    #   evidence, extraction_metadata, mentions, papers, mention_count,
+    #   paper_count, confidence, created_at, updated_at
+    #
+    # API response shapes are preserved by mapping ``statement`` to the
+    # concept's ``canonical_statement`` and building ``evidence`` from the
+    # first mention. New fields (mention_count / paper_count / mentions /
+    # papers) are additive.
+
+    @staticmethod
+    def _as_datetime(value: Any) -> Optional[datetime]:
+        """Parse a stored ISO-8601 timestamp, passing datetimes through."""
+        if value is None or isinstance(value, datetime):
+            return value
+        try:
+            return datetime.fromisoformat(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _as_dict_list(value: Any) -> list[dict]:
+        decoded = decode_json_field(value, [])
+        return decoded if isinstance(decoded, list) else []
+
+    @staticmethod
+    def _as_dict(value: Any) -> Optional[dict]:
+        decoded = decode_json_field(value, {})
+        return decoded if isinstance(decoded, dict) and decoded else None
+
+    def _concept_view(
+        self,
+        data: dict,
+        *,
+        confidence: Any = None,
+        mention_count: Any = None,
+        mentions: Optional[list[dict]] = None,
+        papers: Optional[list[dict]] = None,
+    ) -> dict:
+        """Normalize a ProblemConcept node into the common problem view."""
+        mentions = mentions or []
+        papers = papers or []
+
+        # Evidence + extraction metadata come from the concept's mentions
+        # (the concept node itself carries neither).
+        evidence = None
+        extraction_metadata = None
+        for mention in mentions:
+            if extraction_metadata is None and mention.get("extraction_metadata"):
+                extraction_metadata = mention["extraction_metadata"]
+            if evidence is None and mention.get("paper_doi"):
+                evidence = {
+                    "source_doi": mention.get("paper_doi"),
+                    "source_title": mention.get("paper_title"),
+                    "section": mention.get("section"),
+                    "quoted_text": mention.get("quoted_text"),
+                }
+            if evidence and extraction_metadata:
+                break
+
+        if confidence is None:
+            scores = [
+                m.get("confidence")
+                for m in mentions
+                if m.get("confidence") is not None
+            ]
+            confidence = max(scores) if scores else None
+
+        baselines = self._as_dict_list(data.get("claimed_baselines")) + (
+            self._as_dict_list(data.get("verified_baselines"))
+        )
+
+        return {
+            "id": data["id"],
+            "kind": "concept",
+            "statement": data.get("canonical_statement", "") or "",
+            "canonical_statement": data.get("canonical_statement"),
+            "status": data.get("status", ProblemStatus.OPEN.value),
+            "assumptions": self._as_dict_list(data.get("assumptions")),
+            "constraints": self._as_dict_list(data.get("constraints")),
+            "datasets": self._as_dict_list(data.get("datasets")),
+            "metrics": self._as_dict_list(data.get("metrics")),
+            "baselines": baselines,
+            "evidence": evidence,
+            "extraction_metadata": extraction_metadata,
+            "mentions": mentions,
+            "papers": papers,
+            "mention_count": int(
+                mention_count
+                if mention_count is not None
+                else (data.get("mention_count") or 0)
+            ),
+            "paper_count": int(data.get("paper_count") or 0),
+            "confidence": confidence,
+            "created_at": self._as_datetime(data.get("created_at")),
+            "updated_at": self._as_datetime(data.get("updated_at")),
+        }
+
+    def _legacy_problem_view(self, data: dict) -> dict:
+        """Normalize a legacy :Problem node into the common problem view."""
+        extraction_metadata = self._as_dict(data.get("extraction_metadata"))
+        confidence = None
+        if extraction_metadata:
+            confidence = extraction_metadata.get("confidence_score")
+        return {
+            "id": data["id"],
+            "kind": "problem",
+            "statement": data.get("statement", "") or "",
+            "canonical_statement": None,
+            "status": data.get("status", ProblemStatus.OPEN.value),
+            "assumptions": self._as_dict_list(data.get("assumptions")),
+            "constraints": self._as_dict_list(data.get("constraints")),
+            "datasets": self._as_dict_list(data.get("datasets")),
+            "metrics": self._as_dict_list(data.get("metrics")),
+            "baselines": self._as_dict_list(data.get("baselines")),
+            "evidence": self._as_dict(data.get("evidence")),
+            "extraction_metadata": extraction_metadata,
+            "mentions": [],
+            "papers": [],
+            "mention_count": 0,
+            "paper_count": 0,
+            "confidence": confidence,
+            "created_at": self._as_datetime(data.get("created_at")),
+            "updated_at": self._as_datetime(data.get("updated_at")),
+        }
+
+    def problem_view_to_problem(self, view: dict) -> Problem:
+        """Adapt a common problem view into the legacy ``Problem`` model.
+
+        Used by the research agents and the search service, which were
+        written against ``Problem``. ``statement`` is the concept's
+        canonical statement when the view is concept-backed.
+        """
+        try:
+            status = ProblemStatus(view.get("status") or ProblemStatus.OPEN.value)
+        except ValueError:
+            status = ProblemStatus.OPEN
+
+        evidence = None
+        raw_evidence = view.get("evidence")
+        if raw_evidence:
+            try:
+                evidence = Evidence(**raw_evidence)
+            except Exception:
+                evidence = None
+
+        extraction_metadata = None
+        raw_meta = view.get("extraction_metadata")
+        if raw_meta:
+            try:
+                extraction_metadata = ExtractionMetadata(**raw_meta)
+            except Exception:
+                extraction_metadata = None
+
+        # ``Problem`` requires evidence for RESOLVED/DEPRECATED. A concept
+        # whose mentions could not supply a full evidence record is surfaced
+        # as OPEN rather than dropped (defensive; ingestion emits OPEN).
+        if status in (ProblemStatus.RESOLVED, ProblemStatus.DEPRECATED) and not evidence:
+            status = ProblemStatus.OPEN
+
+        now = datetime.now(timezone.utc)
+        return Problem(
+            id=view["id"],
+            statement=view.get("statement") or "",
+            status=status,
+            assumptions=view.get("assumptions") or [],
+            constraints=view.get("constraints") or [],
+            datasets=view.get("datasets") or [],
+            metrics=view.get("metrics") or [],
+            baselines=view.get("baselines") or [],
+            evidence=evidence,
+            extraction_metadata=extraction_metadata,
+            created_at=view.get("created_at") or now,
+            updated_at=view.get("updated_at") or now,
+        )
+
+    @staticmethod
+    def _sort_views(views: list[dict]) -> list[dict]:
+        epoch = datetime.min.replace(tzinfo=timezone.utc)
+        return sorted(
+            views,
+            key=lambda v: (v.get("created_at") or epoch).timestamp(),
+            reverse=True,
+        )
+
+    def list_problem_views(
+        self,
+        status: Optional[ProblemStatus] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        """List canonical problems (concepts unioned with legacy Problems)."""
+        status_str = status.value if status else None
+        fetch = offset + limit
+
+        concept_cypher = """
+        MATCH (c:ProblemConcept)
+        WHERE $status IS NULL OR c.status = $status
+        OPTIONAL MATCH (m:ProblemMention)-[:INSTANCE_OF]->(c)
+        WITH DISTINCT c, m
+        WITH c, count(m) AS mention_count, max(m.match_score) AS confidence
+        RETURN c, mention_count, confidence
+        ORDER BY c.created_at DESC
+        LIMIT $lim
+        """
+        legacy_cypher = """
+        MATCH (p:Problem)
+        WHERE $status IS NULL OR p.status = $status
+        RETURN p
+        ORDER BY p.created_at DESC
+        LIMIT $lim
+        """
+
+        def _run(tx: ManagedTransaction) -> tuple[list[dict], list[dict]]:
+            concepts = [
+                (dict(r["c"]), r["mention_count"], r["confidence"])
+                for r in tx.run(
+                    concept_cypher, status=status_str, lim=fetch
+                )
+            ]
+            legacy = [
+                dict(r["p"])
+                for r in tx.run(legacy_cypher, status=status_str, lim=fetch)
+            ]
+            return concepts, legacy
+
+        with self.session() as session:
+            concepts, legacy = session.execute_read(_run)
+
+        views = [
+            self._concept_view(data, confidence=confidence, mention_count=count)
+            for data, count, confidence in concepts
+        ]
+        views.extend(self._legacy_problem_view(data) for data in legacy)
+        return self._sort_views(views)[offset : offset + limit]
+
+    def _mentions_for_concept(
+        self, concept_id: str, limit: int = 200
+    ) -> list[dict]:
+        """Return mentions for a concept, joined to their source paper."""
+        cypher = """
+        MATCH (m:ProblemMention)-[r:INSTANCE_OF]->(c:ProblemConcept {id: $id})
+        OPTIONAL MATCH (m)-[:EXTRACTED_FROM]->(paper:Paper)
+        RETURN m, r, paper
+        ORDER BY m.created_at DESC
+        LIMIT $lim
+        """
+
+        def _run(tx: ManagedTransaction) -> list[dict]:
+            return [
+                {"m": dict(r["m"]), "r": dict(r["r"]), "p": (
+                    dict(r["paper"]) if r["paper"] else None
+                )}
+                for r in tx.run(cypher, id=concept_id, lim=limit)
+            ]
+
+        with self.session() as session:
+            records = session.execute_read(_run)
+
+        mentions = []
+        for record in records:
+            mention = record["m"]
+            relation = record["r"]
+            paper = record["p"]
+            meta = self._as_dict(mention.get("extraction_metadata"))
+            confidence = relation.get("confidence")
+            if confidence is None:
+                confidence = mention.get("match_score")
+            mentions.append(
+                {
+                    "id": mention.get("id"),
+                    "statement": mention.get("statement"),
+                    "quoted_text": mention.get("quoted_text"),
+                    "section": mention.get("section"),
+                    "paper_doi": paper.get("doi") if paper else mention.get("paper_doi"),
+                    "paper_title": paper.get("title") if paper else None,
+                    "paper_year": paper.get("year") if paper else None,
+                    "confidence": confidence,
+                    "match_confidence": mention.get("match_confidence"),
+                    "review_status": mention.get("review_status"),
+                    "extraction_metadata": meta,
+                    "created_at": self._as_datetime(mention.get("created_at")),
+                }
+            )
+        return mentions
+
+    @staticmethod
+    def _papers_from_mentions(mentions: list[dict]) -> list[dict]:
+        seen: set[str] = set()
+        papers = []
+        for mention in mentions:
+            doi = mention.get("paper_doi")
+            if not doi or doi in seen:
+                continue
+            seen.add(doi)
+            papers.append(
+                {
+                    "doi": doi,
+                    "title": mention.get("paper_title"),
+                    "year": mention.get("paper_year"),
+                }
+            )
+        return papers
+
+    def get_problem_view(self, problem_id: str) -> dict:
+        """Get one canonical problem, resolving concept / mention / legacy ids."""
+        concept_id = problem_id
+
+        # Direct concept id.
+        with self.session() as session:
+            record = session.execute_read(
+                lambda tx: tx.run(
+                    "MATCH (c:ProblemConcept {id: $id}) RETURN c",
+                    id=concept_id,
+                ).single()
+            )
+            if record is None:
+                # A ProblemMention id resolves to the concept it instantiates.
+                record = session.execute_read(
+                    lambda tx: tx.run(
+                        """
+                        MATCH (m:ProblemMention {id: $id})-[:INSTANCE_OF]
+                              ->(c:ProblemConcept)
+                        RETURN c LIMIT 1
+                        """,
+                        id=problem_id,
+                    ).single()
+                )
+                if record is not None:
+                    concept_id = record["c"]["id"]
+
+        if record is not None:
+            mentions = self._mentions_for_concept(concept_id)
+            view = self._concept_view(
+                dict(record["c"]),
+                mention_count=len(mentions),
+                mentions=mentions,
+                papers=self._papers_from_mentions(mentions),
+            )
+            view["paper_count"] = len(view["papers"])
+            return view
+
+        # Legacy :Problem fallback.
+        with self.session() as session:
+            legacy = session.execute_read(
+                lambda tx: tx.run(
+                    "MATCH (p:Problem {id: $id}) RETURN p",
+                    id=problem_id,
+                ).single()
+            )
+        if legacy is not None:
+            return self._legacy_problem_view(dict(legacy["p"]))
+
+        raise NotFoundError(f"Problem not found: {problem_id}")
+
+    def get_problem_concept(self, concept_id: str) -> ProblemConcept:
+        """Get a ProblemConcept by id (raises NotFoundError)."""
+        with self.session() as session:
+            record = session.execute_read(
+                lambda tx: tx.run(
+                    "MATCH (c:ProblemConcept {id: $id}) RETURN c",
+                    id=concept_id,
+                ).single()
+            )
+        if record is None:
+            raise NotFoundError(f"ProblemConcept not found: {concept_id}")
+        return self._problem_concept_from_neo4j(dict(record["c"]))
+
+    def _problem_concept_from_neo4j(self, data: dict) -> ProblemConcept:
+        data["assumptions"] = self._as_dict_list(data.get("assumptions"))
+        data["constraints"] = self._as_dict_list(data.get("constraints"))
+        data["datasets"] = self._as_dict_list(data.get("datasets"))
+        data["metrics"] = self._as_dict_list(data.get("metrics"))
+        data["verified_baselines"] = self._as_dict_list(
+            data.get("verified_baselines")
+        )
+        data["claimed_baselines"] = self._as_dict_list(data.get("claimed_baselines"))
+        for field in ("created_at", "updated_at", "synthesized_at"):
+            data[field] = self._as_datetime(data.get(field))
+        data.pop("embedding", None)
+        return ProblemConcept(**data)
+
+    def update_problem_concept(
+        self,
+        concept_id: str,
+        *,
+        status: Optional[ProblemStatus] = None,
+        statement: Optional[str] = None,
+    ) -> dict:
+        """Update a ProblemConcept's status / canonical statement.
+
+        Returns the refreshed view. Raises NotFoundError when absent.
+        """
+        sets = ["c.updated_at = $updated_at"]
+        params: dict[str, Any] = {
+            "id": concept_id,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        if status is not None:
+            sets.append("c.status = $status")
+            params["status"] = status.value
+        if statement is not None:
+            sets.append("c.canonical_statement = $statement")
+            params["statement"] = statement
+
+        def _update(tx: ManagedTransaction) -> bool:
+            record = tx.run(
+                f"MATCH (c:ProblemConcept {{id: $id}}) SET {', '.join(sets)} "
+                "RETURN c.id",
+                **params,
+            ).single()
+            return record is not None
+
+        with self.session() as session:
+            found = session.execute_write(_update)
+        if not found:
+            raise NotFoundError(f"ProblemConcept not found: {concept_id}")
+        return self.get_problem_view(concept_id)
+
+    def delete_problem_concept(self, concept_id: str, soft: bool = True) -> bool:
+        """Delete a ProblemConcept. Soft delete sets status DEPRECATED.
+
+        Only removes the node when nothing else references it; otherwise the
+        concept is deprecated so its mentions keep their canonical anchor.
+        """
+        if soft:
+            self.update_problem_concept(
+                concept_id, status=ProblemStatus.DEPRECATED
+            )
+            return True
+
+        def _delete(tx: ManagedTransaction) -> Optional[int]:
+            # Keep the concept if any mention still instantiates it: dropping
+            # it would orphan ProblemMention nodes.
+            record = tx.run(
+                """
+                MATCH (c:ProblemConcept {id: $id})
+                OPTIONAL MATCH (m:ProblemMention)-[:INSTANCE_OF]->(c)
+                WITH c, count(m) AS refs
+                DETACH DELETE c
+                RETURN refs
+                """,
+                id=concept_id,
+            ).single()
+            return record["refs"] if record else None
+
+        with self.session() as session:
+            refs = session.execute_write(_delete)
+        if refs is None:
+            raise NotFoundError(f"ProblemConcept not found: {concept_id}")
+        return True
+
+    def problem_ids_for_topic(self, topic_id: str) -> list[str]:
+        """Ids of concepts + legacy problems associated with a Topic.
+
+        A problem is associated with a topic when it has a direct
+        ``BELONGS_TO`` edge, or (concept-side) when one of its mentions was
+        extracted from a paper that ``RESEARCHES`` the topic.
+        """
+        cypher = """
+        MATCH (c:ProblemConcept)-[:BELONGS_TO]->(:Topic {id: $tid})
+        RETURN c.id AS id
+        UNION
+        MATCH (c:ProblemConcept)<-[:INSTANCE_OF]-(:ProblemMention)
+              -[:EXTRACTED_FROM]->(:Paper)-[:RESEARCHES]->(:Topic {id: $tid})
+        RETURN DISTINCT c.id AS id
+        UNION
+        MATCH (p:Problem)-[:BELONGS_TO]->(:Topic {id: $tid})
+        RETURN p.id AS id
+        """
+        with self.session() as session:
+            records = session.execute_read(
+                lambda tx: [r["id"] for r in tx.run(cypher, tid=topic_id)]
+            )
+        return records
+
+    def list_problem_views_for_topic(
+        self,
+        topic_id: str,
+        include_subtopics: bool = True,
+        limit: int = 50,
+    ) -> list[dict]:
+        """Canonical problems associated with a Topic (optionally descendants).
+
+        Association is a direct ``BELONGS_TO`` edge or, concept-side, a
+        mention extracted from a paper that ``RESEARCHES`` the topic.
+        """
+        if include_subtopics:
+            topic_cypher = """
+            MATCH (d:Topic)-[:SUBTOPIC_OF*0..]->(root:Topic {id: $tid})
+            RETURN collect(DISTINCT d.id) AS ids
+            """
+        else:
+            topic_cypher = "RETURN [$tid] AS ids"
+
+        with self.session() as session:
+            topic_ids = session.execute_read(
+                lambda tx: tx.run(topic_cypher, tid=topic_id).single()["ids"]
+            )
+
+        concept_cypher = """
+        MATCH (t:Topic) WHERE t.id IN $tids
+        MATCH (c:ProblemConcept)-[:BELONGS_TO]->(t)
+        OPTIONAL MATCH (m:ProblemMention)-[:INSTANCE_OF]->(c)
+        WITH DISTINCT c, m
+        WITH c, count(m) AS mention_count, max(m.match_score) AS confidence
+        RETURN c, mention_count, confidence
+        ORDER BY c.created_at DESC
+        LIMIT $lim
+        """
+        paper_cypher = """
+        MATCH (t:Topic) WHERE t.id IN $tids
+        MATCH (c:ProblemConcept)<-[:INSTANCE_OF]-(:ProblemMention)
+              -[:EXTRACTED_FROM]->(:Paper)-[:RESEARCHES]->(t)
+        OPTIONAL MATCH (m:ProblemMention)-[:INSTANCE_OF]->(c)
+        WITH DISTINCT c, m
+        WITH c, count(m) AS mention_count, max(m.match_score) AS confidence
+        RETURN c, mention_count, confidence
+        ORDER BY c.created_at DESC
+        LIMIT $lim
+        """
+        legacy_cypher = """
+        MATCH (t:Topic) WHERE t.id IN $tids
+        MATCH (p:Problem)-[:BELONGS_TO]->(t)
+        RETURN DISTINCT p
+        ORDER BY p.created_at DESC
+        LIMIT $lim
+        """
+
+        def _run(tx: ManagedTransaction) -> tuple[list, list, list]:
+            concepts = [
+                (dict(r["c"]), r["mention_count"], r["confidence"])
+                for r in tx.run(concept_cypher, tids=topic_ids, lim=limit)
+            ]
+            via_paper = [
+                (dict(r["c"]), r["mention_count"], r["confidence"])
+                for r in tx.run(paper_cypher, tids=topic_ids, lim=limit)
+            ]
+            legacy = [
+                dict(r["p"])
+                for r in tx.run(legacy_cypher, tids=topic_ids, lim=limit)
+            ]
+            return concepts, via_paper, legacy
+
+        with self.session() as session:
+            concepts, via_paper, legacy = session.execute_read(_run)
+
+        seen: set[str] = set()
+        views: list[dict] = []
+        for data, count, confidence in concepts + via_paper:
+            if data["id"] in seen:
+                continue
+            seen.add(data["id"])
+            views.append(
+                self._concept_view(
+                    data, confidence=confidence, mention_count=count
+                )
+            )
+        for data in legacy:
+            if data["id"] in seen:
+                continue
+            seen.add(data["id"])
+            views.append(self._legacy_problem_view(data))
+        return self._sort_views(views)[:limit]
+
+    def semantic_problem_views(
+        self,
+        embedding: list[float],
+        top_k: int = 10,
+        min_score: Optional[float] = None,
+    ) -> list[dict]:
+        """Vector search over ProblemConcept *and* legacy Problem embeddings.
+
+        Returns common views annotated with a ``score`` key.
+        """
+        threshold = min_score if min_score is not None else 0.0
+
+        def _query(index: str) -> str:
+            return f"""
+            CALL db.index.vector.queryNodes('{index}', $k, $embedding)
+            YIELD node, score
+            WHERE score >= $min_score
+            RETURN node, score
+            """
+
+        def _run(tx: ManagedTransaction) -> list[dict]:
+            records = []
+            for index in ("concept_embedding_idx", "problem_embedding_idx"):
+                for record in tx.run(
+                    _query(index), k=top_k, embedding=embedding,
+                    min_score=threshold,
+                ):
+                    node = dict(record["node"])
+                    labels = set(record["node"].labels)
+                    records.append(
+                        {
+                            "node": node,
+                            "score": record["score"],
+                            "kind": (
+                                "concept" if "ProblemConcept" in labels else "problem"
+                            ),
+                        }
+                    )
+            return records
+
+        with self.session() as session:
+            records = session.execute_read(_run)
+
+        views = []
+        for record in records:
+            if record["kind"] == "concept":
+                view = self._concept_view(record["node"])
+            else:
+                view = self._legacy_problem_view(record["node"])
+            view["score"] = record["score"]
+            views.append(view)
+        views.sort(key=lambda v: v["score"], reverse=True)
+        return views[:top_k]
+
+    def structured_problem_views(
+        self,
+        *,
+        topic_id: Optional[str] = None,
+        status: Optional[ProblemStatus] = None,
+        has_datasets: Optional[bool] = None,
+        year_from: Optional[int] = None,
+        year_to: Optional[int] = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Filter canonical problems (concepts unioned with legacy Problems)."""
+        if topic_id:
+            ids = set(self.problem_ids_for_topic(topic_id))
+            if not ids:
+                return []
+            candidates = self._views_by_ids(ids)
+        else:
+            candidates = self.list_problem_views(
+                status=None, limit=max(limit * 2, 200), offset=0
+            )
+
+        filtered = []
+        for view in candidates:
+            if status is not None and view.get("status") != status.value:
+                continue
+            if has_datasets is not None:
+                if bool(view.get("datasets")) != has_datasets:
+                    continue
+            if year_from is not None or year_to is not None:
+                years = [
+                    p.get("year")
+                    for p in view.get("papers", [])
+                    if p.get("year") is not None
+                ]
+                if not years:
+                    continue
+                if year_from is not None and max(years) < year_from:
+                    continue
+                if year_to is not None and min(years) > year_to:
+                    continue
+            filtered.append(view)
+            if len(filtered) >= limit:
+                break
+        return filtered
+
+    def _views_by_ids(self, ids: set[str]) -> list[dict]:
+        """Fetch common views for a set of concept/problem ids."""
+        concept_cypher = """
+        MATCH (c:ProblemConcept) WHERE c.id IN $ids
+        OPTIONAL MATCH (m:ProblemMention)-[:INSTANCE_OF]->(c)
+        WITH DISTINCT c, m
+        WITH c, count(m) AS mention_count, max(m.match_score) AS confidence
+        RETURN c, mention_count, confidence
+        """
+        legacy_cypher = "MATCH (p:Problem) WHERE p.id IN $ids RETURN p"
+
+        def _run(tx: ManagedTransaction):
+            concepts = [
+                (dict(r["c"]), r["mention_count"], r["confidence"])
+                for r in tx.run(concept_cypher, ids=list(ids))
+            ]
+            legacy = [
+                dict(r["p"]) for r in tx.run(legacy_cypher, ids=list(ids))
+            ]
+            return concepts, legacy
+
+        with self.session() as session:
+            concepts, legacy = session.execute_read(_run)
+
+        views = [
+            self._concept_view(data, confidence=c, mention_count=m)
+            for data, m, c in concepts
+        ]
+        views.extend(self._legacy_problem_view(data) for data in legacy)
+        return self._sort_views(views)
+
+    def get_problem_stats(self) -> dict:
+        """Counts for ``/api/stats`` over the canonical problem read model."""
+        status_cypher = """
+        MATCH (n)
+        WHERE n:ProblemConcept OR n:Problem
+        RETURN n.status AS status, count(n) AS count
+        """
+        total_cypher = """
+        MATCH (n) WHERE n:ProblemConcept OR n:Problem RETURN count(n) AS count
+        """
+        topic_cypher = """
+        MATCH (t:Topic)<-[:BELONGS_TO]-(n)
+        WHERE n:ProblemConcept OR n:Problem
+        RETURN t.name AS name, count(DISTINCT n) AS count
+        UNION
+        MATCH (t:Topic)<-[:RESEARCHES]-(:Paper)<-[:EXTRACTED_FROM]-(:ProblemMention)
+              -[:INSTANCE_OF]->(n:ProblemConcept)
+        RETURN t.name AS name, count(DISTINCT n) AS count
+        """
+        papers_cypher = "MATCH (p:Paper) RETURN count(p) AS count"
+        topics_cypher = "MATCH (t:Topic) RETURN count(t) AS count"
+
+        def _run(tx: ManagedTransaction) -> dict:
+            total = tx.run(total_cypher).single()["count"]
+            by_status: dict[str, int] = {}
+            for record in tx.run(status_cypher):
+                key = record["status"] or "unknown"
+                by_status[key] = by_status.get(key, 0) + record["count"]
+            by_topic: dict[str, int] = {}
+            for record in tx.run(topic_cypher):
+                if record["name"] is None:
+                    continue
+                by_topic[record["name"]] = (
+                    by_topic.get(record["name"], 0) + record["count"]
+                )
+            papers = tx.run(papers_cypher).single()["count"]
+            topics = tx.run(topics_cypher).single()["count"]
+            return {
+                "total_problems": total,
+                "total_papers": papers,
+                "total_topics": topics,
+                "problems_by_status": by_status,
+                "problems_by_topic": by_topic,
+            }
+
+        with self.session() as session:
+            return session.execute_read(_run)
 
     # =========================================================================
     # Paper Operations

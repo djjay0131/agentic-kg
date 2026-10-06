@@ -36,6 +36,26 @@ class ProblemSummary(BaseModel):
     status: str
     confidence: Optional[float] = None
     created_at: Optional[datetime] = None
+    # Canonical Problem Architecture fields (additive):
+    canonical_statement: Optional[str] = None
+    mention_count: int = 0
+    paper_count: int = 0
+
+
+class ProblemMentionResponse(BaseModel):
+    """A paper-specific mention of a canonical problem."""
+
+    id: Optional[str] = None
+    statement: Optional[str] = None
+    quoted_text: Optional[str] = None
+    section: Optional[str] = None
+    paper_doi: Optional[str] = None
+    paper_title: Optional[str] = None
+    paper_year: Optional[int] = None
+    confidence: Optional[float] = None
+    match_confidence: Optional[str] = None
+    review_status: Optional[str] = None
+    created_at: Optional[datetime] = None
 
 
 class ProblemDetail(BaseModel):
@@ -53,6 +73,12 @@ class ProblemDetail(BaseModel):
     extraction_metadata: Optional[ExtractionMetadataResponse] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    # Canonical Problem Architecture fields (additive):
+    canonical_statement: Optional[str] = None
+    mention_count: int = 0
+    paper_count: int = 0
+    mentions: list[ProblemMentionResponse] = Field(default_factory=list)
+    papers: list[dict] = Field(default_factory=list)
 
 
 class ProblemUpdate(BaseModel):

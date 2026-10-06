@@ -1,4 +1,4 @@
-"""The four surfaces this harness excludes, and the proof they are still broken.
+"""The three surfaces this harness excludes, and the proof they are still broken.
 
 Excluding something from a compatibility contract is a claim, and an unchecked
 claim rots. Each entry in
@@ -7,11 +7,16 @@ code does not reach the graph", and every one of those is asserted here against
 the real call signatures.
 
 Why assert that a defect is *present*? Because the exclusion is only justified
-while it is. If someone repairs ``PUT /api/problems/{id}`` or the
-``ContinuationAgent`` related-problem lookup, the surface becomes testable and
-the harness must grow to cover it — and the way to make that decision happen
-rather than be forgotten is for this file to go red on the day of the fix.
-Each assertion says so in its message.
+while it is. If someone repairs the ``ContinuationAgent`` related-problem
+lookup or the review queue, the surface becomes testable and the harness must
+grow to cover it — and the way to make that decision happen rather than be
+forgotten is for this file to go red on the day of the fix. Each assertion says
+so in its message.
+
+``PUT /api/problems/{id}`` used to be the first of these. #110 repaired it (the
+router resolves a canonical view, then writes through ``update_problem_concept``
+for a concept or ``update_problem(problem)`` for a legacy row), so its tripwire
+is now the positive test ``test_put_problem_binds_its_arguments_correctly``.
 
 Signature-level throughout: no HTTP client, no Neo4j, no LLM. The defects are
 argument-binding errors, and ``inspect.signature`` sees them without running
@@ -33,40 +38,57 @@ REPO_ROOT = Path(__file__).resolve().parents[5]
 
 
 def test_the_scoped_out_set_is_not_empty() -> None:
-    assert len(SCOPED_OUT_SURFACES) == 4
-    assert len({s.id for s in SCOPED_OUT_SURFACES}) == 4
+    assert len(SCOPED_OUT_SURFACES) == 3
+    assert len({s.id for s in SCOPED_OUT_SURFACES}) == 3
 
 
 # ---------------------------------------------------------------------------
-# 1. PUT /api/problems/{id}
+# 1. PUT /api/problems/{id} -- repaired by #110, now a positive test
 # ---------------------------------------------------------------------------
 
 
-def test_put_problem_binds_its_arguments_to_the_wrong_parameters() -> None:
-    """``repo.update_problem(problem_id, problem)`` against
-    ``update_problem(problem: Problem, regenerate_embedding: bool = False)``.
+def test_put_problem_binds_its_arguments_correctly() -> None:
+    """The former tripwire, inverted because #110 fixed the route.
 
-    The str lands on ``problem`` and the Problem on ``regenerate_embedding``;
-    the body then evaluates ``problem.id`` on a str. FastAPI has no handler for
-    the AttributeError, so the route answers 500.
-
-    The router is read as source rather than imported, so this test does not
-    require ``packages/api`` to be installed.
+    Before #110 the router made the positional call
+    ``repo.update_problem(problem_id, problem)`` against
+    ``update_problem(problem: Problem, regenerate_embedding: bool = False)``:
+    the str landed on ``problem`` and the Problem on ``regenerate_embedding``,
+    so the body raised ``AttributeError`` and the route answered 500. The router
+    now resolves a canonical view and dispatches: a concept is written through
+    ``repo.update_problem_concept(...)``, a legacy row through the correctly
+    bound ``repo.update_problem(problem)``. The router is read as source rather
+    than imported, so this test does not require ``packages/api`` to be
+    installed.
     """
     from agentic_kg.knowledge_graph.repository import Neo4jRepository
 
     params = list(inspect.signature(Neo4jRepository.update_problem).parameters)
     assert params == ["self", "problem", "regenerate_embedding"], (
-        f"update_problem's signature changed to {params}; re-check whether "
-        f"PUT /api/problems/{{id}} still misbinds, and if it does not, remove "
-        f"'write.api.put_problem' from SCOPED_OUT_SURFACES and cover the route."
+        f"update_problem's signature changed to {params}; re-check the PUT "
+        f"/api/problems/{{id}} dispatch against it."
+    )
+    concept_params = list(
+        inspect.signature(Neo4jRepository.update_problem_concept).parameters
+    )
+    assert concept_params == ["self", "concept_id", "status", "statement"], (
+        f"update_problem_concept's signature changed to {concept_params}; "
+        f"re-check the concept branch of PUT /api/problems/{{id}}."
     )
 
     router = REPO_ROOT / "packages/api/src/agentic_kg_api/routers/problems.py"
     source = router.read_text(encoding="utf-8")
-    assert "repo.update_problem(problem_id, problem)" in source, (
-        "PUT /api/problems/{id} no longer makes the positional call this "
-        "harness scopes out. Re-evaluate the exclusion."
+    assert "repo.update_problem(problem_id, problem)" not in source, (
+        "PUT /api/problems/{id} has reintroduced the positional misbind that "
+        "made the route answer 500. Re-pin the defect."
+    )
+    assert "repo.update_problem(problem)" in source, (
+        "PUT /api/problems/{id} no longer writes the legacy :Problem through "
+        "the correctly bound one-argument call; re-check the route."
+    )
+    assert "repo.update_problem_concept(" in source, (
+        "PUT /api/problems/{id} no longer routes concept updates through "
+        "update_problem_concept; re-check the route."
     )
 
 

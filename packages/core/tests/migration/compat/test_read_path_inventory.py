@@ -489,16 +489,19 @@ def test_a_read_is_detected_regardless_of_whitespace_or_case() -> None:
 
 
 def test_a_split_fstring_query_is_not_split_past_the_criterion() -> None:
-    """Class [A]: the ORDER BY lives in a fragment with no MATCH of its own.
+    """Class [A]: the ORDER BY lives in a fragment with no read marker of its own.
 
-    ``Neo4jRepository.list_problems`` is the real instance -- it builds
+    The historical instance was ``Neo4jRepository.list_problems``, which built
     ``query = "MATCH (p:Problem)"`` then ``query += " ... ORDER BY ... SKIP
-    ... LIMIT ..."``. A Cypher-only view of the literals drops the second
-    fragment, so the method read as contract-free. It was inventoried anyway,
-    which is luck rather than coverage, so this asserts the criterion sees the
-    whole query.
+    ... LIMIT ..."``. #110 rewrote ``list_problems`` to delegate to
+    ``list_problem_views``, so the split now lives one method down:
+    ``search_topics_by_embedding`` (and its three siblings) opens with a
+    ``CALL db.index.vector.queryNodes(...)`` fragment and appends
+    ``RETURN node as t, score ORDER BY score DESC`` as a second fragment that
+    contains no read marker. A Cypher-only view of the literals drops the second
+    fragment, so the method would read as contract-free.
     """
-    assert "list_problems" in _repository_reads_carrying_a_contract()
+    assert "search_topics_by_embedding" in _repository_reads_carrying_a_contract()
 
     # And the shape in miniature, independent of that one method surviving.
     fragments = '\n'.join(
