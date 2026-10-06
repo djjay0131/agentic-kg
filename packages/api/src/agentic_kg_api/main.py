@@ -163,43 +163,21 @@ def health_check() -> HealthResponse:
 
 @app.get("/api/stats", response_model=StatsResponse, tags=["stats"])
 def get_stats() -> StatsResponse:
-    """Get system statistics."""
+    """Get system statistics.
+
+    Counts the canonical ``ProblemConcept`` read model (unioned with any
+    legacy ``:Problem`` nodes). Before the fix this counted only
+    ``:Problem``, so a run that ingested 45 problems reported 0.
+    """
     try:
         repo = get_repo()
-        with repo.session() as session:
-            # Count problems
-            result = session.run("MATCH (p:Problem) RETURN count(p) as count")
-            total_problems = result.single()["count"]
-
-            # Count papers
-            result = session.run("MATCH (p:Paper) RETURN count(p) as count")
-            total_papers = result.single()["count"]
-
-            # Count topics
-            result = session.run("MATCH (t:Topic) RETURN count(t) as count")
-            total_topics = result.single()["count"]
-
-            # Problems by status
-            result = session.run(
-                "MATCH (p:Problem) RETURN p.status as status, count(p) as count"
-            )
-            problems_by_status = {r["status"]: r["count"] for r in result}
-
-            # Problems by Topic
-            result = session.run(
-                """
-                MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic)
-                RETURN t.name as name, count(p) as count
-                """
-            )
-            problems_by_topic = {r["name"]: r["count"] for r in result}
-
+        stats = repo.get_problem_stats()
         return StatsResponse(
-            total_problems=total_problems,
-            total_papers=total_papers,
-            total_topics=total_topics,
-            problems_by_status=problems_by_status,
-            problems_by_topic=problems_by_topic,
+            total_problems=stats["total_problems"],
+            total_papers=stats["total_papers"],
+            total_topics=stats["total_topics"],
+            problems_by_status=stats["problems_by_status"],
+            problems_by_topic=stats["problems_by_topic"],
         )
     except Exception as e:
         logger.error(f"Failed to get stats: {e}")

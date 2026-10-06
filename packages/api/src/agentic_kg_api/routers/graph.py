@@ -1,4 +1,9 @@
-"""Graph data endpoints for visualization."""
+"""Graph data endpoints for visualization.
+
+Since the Canonical Problem Architecture, ingestion writes ``ProblemConcept``
+(and ``ProblemMention``) nodes rather than ``:Problem``. These endpoints serve
+the concept read model and union in any legacy ``:Problem`` node.
+"""
 
 import logging
 from typing import Optional
@@ -11,6 +16,33 @@ from agentic_kg_api.schemas import GraphLink, GraphNode, GraphResponse
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/graph", tags=["graph"])
+
+_PROBLEM_LABELS = {"ProblemConcept", "Problem", "ProblemMention"}
+
+
+def _problem_type(labels: set[str]) -> Optional[str]:
+    if labels & _PROBLEM_LABELS:
+        return "problem"
+    if "Paper" in labels:
+        return "paper"
+    if "Topic" in labels:
+        return "topic"
+    return None
+
+
+def _problem_label(node, prefix: str) -> str:
+    statement = node.get("canonical_statement") or node.get("statement") or prefix
+    return statement[:50] + "..." if len(statement) > 50 else statement
+
+
+def _problem_properties(node) -> dict:
+    return {
+        "statement": node.get("canonical_statement") or node.get("statement", ""),
+        "status": node.get("status", "open"),
+        "confidence": node.get("confidence"),
+        "mention_count": node.get("mention_count", 0),
+        "paper_count": node.get("paper_count", 0),
+    }
 
 
 @router.get("", response_model=GraphResponse)
@@ -25,137 +57,125 @@ def get_graph(
     """
     Get graph data for visualization.
 
-    Returns nodes (problems, papers, topics) and links (relations) between them.
-    When ``topic_id`` is provided, only problems BELONGS_TO that Topic are returned.
+    Returns nodes (problems, papers, topics) and links (relations) between
+    them. When ``topic_id`` is provided, only problems associated with that
+    Topic are returned (direct ``BELONGS_TO`` or, concept-side, via a source
+    paper that ``RESEARCHES`` the topic).
     """
     nodes: list[GraphNode] = []
     links: list[GraphLink] = []
     seen_nodes: set[str] = set()
+    problem_element_ids: list[str] = []
+
+    def add_problem_node(node, kind_hint: str = "problem"):
+        node_id = f"problem:{node.element_id}"
+        if node_id in seen_nodes:
+            return node_id
+        seen_nodes.add(node_id)
+        problem_element_ids.append(node.element_id)
+        nodes.append(
+            GraphNode(
+                id=node_id,
+                label=_problem_label(node, kind_hint),
+                type="problem",
+                properties=_problem_properties(node),
+            )
+        )
+        return node_id
 
     try:
         repo = get_repo()
         with repo.session() as session:
             if topic_id:
-                problem_query = """
-                MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic {id: $topic_id})
+                concept_query = """
+                MATCH (c:ProblemConcept)
+                WHERE (c)-[:BELONGS_TO]->(:Topic {id: $topic_id})
+                   OR EXISTS {
+                        (c)<-[:INSTANCE_OF]-(:ProblemMention)-[:EXTRACTED_FROM]
+                             ->(:Paper)-[:RESEARCHES]->(:Topic {id: $topic_id})
+                   }
+                RETURN c
+                LIMIT $limit
+                """
+                legacy_query = """
+                MATCH (p:Problem)-[:BELONGS_TO]->(:Topic {id: $topic_id})
                 RETURN p
                 LIMIT $limit
                 """
-                params = {"limit": limit, "topic_id": topic_id}
+                params: dict = {"limit": limit, "topic_id": topic_id}
             else:
-                problem_query = """
-                MATCH (p:Problem)
-                RETURN p
-                LIMIT $limit
-                """
+                concept_query = "MATCH (c:ProblemConcept) RETURN c LIMIT $limit"
+                legacy_query = "MATCH (p:Problem) RETURN p LIMIT $limit"
                 params = {"limit": limit}
 
-            result = session.run(problem_query, **params)
+            for record in session.run(concept_query, **params):
+                add_problem_node(record["c"], "problem")
+            for record in session.run(legacy_query, **params):
+                add_problem_node(record["p"], "problem")
 
-            for record in result:
-                node = record["p"]
-                node_id = f"problem:{node.element_id}"
-                if node_id not in seen_nodes:
-                    seen_nodes.add(node_id)
-                    statement = node.get("statement", "")
-                    label = statement[:50] + "..." if len(statement) > 50 else statement
-                    nodes.append(
-                        GraphNode(
-                            id=node_id,
-                            label=label,
-                            type="problem",
-                            properties={
-                                "statement": statement,
-                                "status": node.get("status", "open"),
-                                "confidence": node.get("confidence"),
-                            },
-                        )
+            # Legacy Problem -> Problem relations.
+            rel_query = """
+            MATCH (p1:Problem)-[r]->(p2:Problem)
+            RETURN p1, type(r) AS rel_type, r, p2
+            LIMIT $limit
+            """
+            for record in session.run(rel_query, limit=limit * 2):
+                source_id = add_problem_node(record["p1"], "problem")
+                target_id = add_problem_node(record["p2"], "problem")
+                links.append(
+                    GraphLink(
+                        source=source_id,
+                        target=target_id,
+                        type=record["rel_type"],
+                        properties=dict(record["r"]) if record["r"] else {},
                     )
-
-            # Relations between problems
-            if topic_id:
-                rel_query = """
-                MATCH (p1:Problem)-[:BELONGS_TO]->(:Topic {id: $topic_id})
-                MATCH (p1)-[r]->(p2:Problem)
-                RETURN p1, type(r) as rel_type, r, p2
-                LIMIT $limit
-                """
-                rel_params = {"limit": limit * 2, "topic_id": topic_id}
-            else:
-                rel_query = """
-                MATCH (p1:Problem)-[r]->(p2:Problem)
-                RETURN p1, type(r) as rel_type, r, p2
-                LIMIT $limit
-                """
-                rel_params = {"limit": limit * 2}
-
-            result = session.run(rel_query, **rel_params)
-
-            for record in result:
-                source_id = f"problem:{record['p1'].element_id}"
-                target_id = f"problem:{record['p2'].element_id}"
-
-                if source_id in seen_nodes and target_id not in seen_nodes:
-                    p2 = record["p2"]
-                    statement = p2.get("statement", "")
-                    label = statement[:50] + "..." if len(statement) > 50 else statement
-                    seen_nodes.add(target_id)
-                    nodes.append(
-                        GraphNode(
-                            id=target_id,
-                            label=label,
-                            type="problem",
-                            properties={
-                                "statement": statement,
-                                "status": p2.get("status", "open"),
-                            },
-                        )
-                    )
-
-                if source_id in seen_nodes and target_id in seen_nodes:
-                    links.append(
-                        GraphLink(
-                            source=source_id,
-                            target=target_id,
-                            type=record["rel_type"],
-                            properties=dict(record["r"]) if record["r"] else {},
-                        )
-                    )
-
-            if include_papers:
-                result = session.run(
-                    """
-                    MATCH (p:Problem)-[r:EXTRACTED_FROM]->(paper:Paper)
-                    RETURN p, paper
-                    LIMIT $limit
-                    """,
-                    limit=limit,
                 )
 
-                for record in result:
-                    problem_id = f"problem:{record['p'].element_id}"
-                    paper = record["paper"]
-                    paper_id = f"paper:{paper.element_id}"
-
-                    if paper_id not in seen_nodes:
-                        seen_nodes.add(paper_id)
-                        title = paper.get("title", "Unknown Paper")
-                        label = title[:40] + "..." if len(title) > 40 else title
-                        nodes.append(
-                            GraphNode(
-                                id=paper_id,
-                                label=label,
-                                type="paper",
-                                properties={
-                                    "title": title,
-                                    "doi": paper.get("doi"),
-                                    "year": paper.get("year"),
-                                    "authors": paper.get("authors", []),
-                                },
-                            )
+            if include_papers:
+                paper_queries = [
+                    """
+                    MATCH (c:ProblemConcept)<-[:INSTANCE_OF]-(:ProblemMention)
+                          -[:EXTRACTED_FROM]->(paper:Paper)
+                    WHERE elementId(c) IN $ids
+                    RETURN c AS problem, paper
+                    LIMIT $limit
+                    """,
+                    """
+                    MATCH (p:Problem)-[:EXTRACTED_FROM]->(paper:Paper)
+                    WHERE elementId(p) IN $ids
+                    RETURN p AS problem, paper
+                    LIMIT $limit
+                    """,
+                ]
+                for index, query in enumerate(paper_queries):
+                    for record in session.run(
+                        query, ids=problem_element_ids, limit=limit
+                    ):
+                        problem = record["problem"]
+                        paper = record["paper"]
+                        problem_id = (
+                            f"problem:{problem.element_id}"
+                            if index == 1
+                            else add_problem_node(problem, "problem")
                         )
-
-                    if problem_id in seen_nodes:
+                        paper_id = f"paper:{paper.element_id}"
+                        if paper_id not in seen_nodes:
+                            seen_nodes.add(paper_id)
+                            title = paper.get("title", "Unknown Paper")
+                            label = title[:40] + "..." if len(title) > 40 else title
+                            nodes.append(
+                                GraphNode(
+                                    id=paper_id,
+                                    label=label,
+                                    type="paper",
+                                    properties={
+                                        "title": title,
+                                        "doi": paper.get("doi"),
+                                        "year": paper.get("year"),
+                                        "authors": paper.get("authors", []),
+                                    },
+                                )
+                            )
                         links.append(
                             GraphLink(
                                 source=problem_id,
@@ -164,22 +184,32 @@ def get_graph(
                             )
                         )
 
-            # Topic nodes (BELONGS_TO edges)
-            if include_topics:
-                problem_ids = [n.id for n in nodes if n.type == "problem"]
-                if problem_ids:
-                    element_ids = [pid.replace("problem:", "") for pid in problem_ids]
-                    result = session.run(
-                        """
-                        MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic)
-                        WHERE elementId(p) IN $ids
-                        RETURN p, t
-                        """,
-                        ids=element_ids,
-                    )
-                    for record in result:
-                        problem_id = f"problem:{record['p'].element_id}"
-                        topic = record["t"]
+            if include_topics and problem_element_ids:
+                topic_queries = [
+                    """
+                    MATCH (c:ProblemConcept)-[:BELONGS_TO]->(topic:Topic)
+                    WHERE elementId(c) IN $ids
+                    RETURN c AS problem, topic
+                    """,
+                    """
+                    MATCH (c:ProblemConcept)<-[:INSTANCE_OF]-(:ProblemMention)
+                          -[:EXTRACTED_FROM]->(:Paper)-[:RESEARCHES]->(topic:Topic)
+                    WHERE elementId(c) IN $ids
+                    RETURN c AS problem, topic
+                    """,
+                    """
+                    MATCH (p:Problem)-[:BELONGS_TO]->(topic:Topic)
+                    WHERE elementId(p) IN $ids
+                    RETURN p AS problem, topic
+                    """,
+                ]
+                for query in topic_queries:
+                    for record in session.run(query, ids=problem_element_ids):
+                        problem = record["problem"]
+                        topic = record["topic"]
+                        problem_id = f"problem:{problem.element_id}"
+                        if problem_id not in seen_nodes:
+                            continue
                         topic_node_id = f"topic:{topic.get('id')}"
                         if topic_node_id not in seen_nodes:
                             seen_nodes.add(topic_node_id)
@@ -217,7 +247,9 @@ def get_neighbors(
     """
     Get neighboring nodes for a given node.
 
-    Useful for expanding the graph from a selected node.
+    Useful for expanding the graph from a selected node. Handles both
+    canonical ``ProblemConcept`` and legacy ``:Problem`` node ids under the
+    ``problem:`` prefix.
     """
     nodes: list[GraphNode] = []
     links: list[GraphLink] = []
@@ -226,85 +258,84 @@ def get_neighbors(
     try:
         repo = get_repo()
         with repo.session() as session:
-            # Parse node_id to determine type
-            if node_id.startswith("problem:"):
-                element_id = node_id.replace("problem:", "")
-                query = """
-                    MATCH (p:Problem)
-                    WHERE elementId(p) = $element_id
-                    OPTIONAL MATCH (p)-[r]-(neighbor)
-                    RETURN p, collect({rel: r, rel_type: type(r), neighbor: neighbor}) as connections
-                """
-                result = session.run(query, element_id=element_id)
-                record = result.single()
+            if ":" not in node_id:
+                return GraphResponse(nodes=[], links=[])
+            prefix, element_id = node_id.split(":", 1)
 
-                if record and record["p"]:
-                    # Add the center node
-                    node = record["p"]
-                    center_id = f"problem:{node.element_id}"
-                    seen_nodes.add(center_id)
-                    statement = node.get("statement", "")
-                    label = statement[:50] + "..." if len(statement) > 50 else statement
+            result = session.run(
+                """
+                MATCH (n)
+                WHERE elementId(n) = $element_id
+                OPTIONAL MATCH (n)-[r]-(neighbor)
+                RETURN n,
+                    collect({
+                        rel_type: type(r),
+                        neighbor: neighbor,
+                        labels: labels(neighbor)
+                    }) AS connections
+                """,
+                element_id=element_id,
+            )
+            record = result.single()
+            if not record or record["n"] is None:
+                return GraphResponse(nodes=[], links=[])
+
+            center = record["n"]
+            center_labels = set(center.labels)
+            center_type = _problem_type(center_labels) or prefix
+            center_id = f"{center_type}:{center.element_id}"
+            seen_nodes.add(center_id)
+            nodes.append(
+                GraphNode(
+                    id=center_id,
+                    label=_problem_label(center, center_type),
+                    type=center_type,
+                    properties=(
+                        _problem_properties(center)
+                        if center_type == "problem"
+                        else dict(center)
+                    ),
+                )
+            )
+
+            for conn in record["connections"]:
+                neighbor = conn["neighbor"]
+                if neighbor is None:
+                    continue
+                neighbor_type = _problem_type(set(conn["labels"] or []))
+                if neighbor_type is None:
+                    continue
+                neighbor_id = f"{neighbor_type}:{neighbor.element_id}"
+                if neighbor_id not in seen_nodes:
+                    seen_nodes.add(neighbor_id)
+                    if neighbor_type == "problem":
+                        label = _problem_label(neighbor, "problem")
+                        props = _problem_properties(neighbor)
+                    elif neighbor_type == "paper":
+                        title = neighbor.get("title", "Unknown")
+                        label = title[:40] + "..." if len(title) > 40 else title
+                        props = {"title": title, "doi": neighbor.get("doi")}
+                    else:
+                        label = neighbor.get("name", "Unknown Topic")
+                        props = {
+                            "name": neighbor.get("name"),
+                            "level": neighbor.get("level"),
+                        }
                     nodes.append(
                         GraphNode(
-                            id=center_id,
+                            id=neighbor_id,
                             label=label,
-                            type="problem",
-                            properties={
-                                "statement": statement,
-                                "status": node.get("status", "open"),
-                            },
+                            type=neighbor_type,
+                            properties=props,
                         )
                     )
-
-                    # Add neighbors
-                    for conn in record["connections"]:
-                        if conn["neighbor"]:
-                            neighbor = conn["neighbor"]
-                            labels = list(neighbor.labels)
-                            if "Problem" in labels:
-                                neighbor_id = f"problem:{neighbor.element_id}"
-                                neighbor_type = "problem"
-                                stmt = neighbor.get("statement", "")
-                                neighbor_label = (
-                                    stmt[:50] + "..." if len(stmt) > 50 else stmt
-                                )
-                                props = {
-                                    "statement": stmt,
-                                    "status": neighbor.get("status", "open"),
-                                }
-                            elif "Paper" in labels:
-                                neighbor_id = f"paper:{neighbor.element_id}"
-                                neighbor_type = "paper"
-                                title = neighbor.get("title", "Unknown")
-                                neighbor_label = (
-                                    title[:40] + "..." if len(title) > 40 else title
-                                )
-                                props = {
-                                    "title": title,
-                                    "doi": neighbor.get("doi"),
-                                }
-                            else:
-                                continue
-
-                            if neighbor_id not in seen_nodes:
-                                seen_nodes.add(neighbor_id)
-                                nodes.append(
-                                    GraphNode(
-                                        id=neighbor_id,
-                                        label=neighbor_label,
-                                        type=neighbor_type,
-                                        properties=props,
-                                    )
-                                )
-
-                            links.append(
-                                GraphLink(
-                                    source=center_id,
-                                    target=neighbor_id,
-                                    type=conn["rel_type"],
-                                )
-                            )
+                links.append(
+                    GraphLink(
+                        source=center_id,
+                        target=neighbor_id,
+                        type=conn["rel_type"],
+                    )
+                )
 
     except Exception as e:
         logger.error(f"Failed to get neighbors: {e}")
