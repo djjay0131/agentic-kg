@@ -12,6 +12,9 @@ on:
       - 'pyproject.toml'
       - 'docker/**'
 
+permissions:
+  contents: read
+
 jobs:
   pre-check:
     name: Pre-Check

@@ -39,6 +39,9 @@ env:
   PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
   REGION: us-central1
 
+permissions:
+  contents: read
+
 jobs:
   # Run tests first (unless skipped)
   test:
@@ -81,7 +84,9 @@ jobs:
       services: ${{ inputs.services }}
       image_tag: ${{ github.ref_name }}-${{ github.sha }}
       push: true
-    secrets: inherit
+    secrets:
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
   # Deploy to target environment
   deploy:
@@ -128,6 +133,17 @@ jobs:
             echo "suffix=-${{ inputs.environment }}" >> $GITHUB_OUTPUT
           fi
 
+      - name: Set sanitized branch label
+        id: branch_label
+        env:
+          RAW_REF: ${{ github.ref_name }}
+        run: |
+          # GCP label values allow only lowercase letters, digits, '_' and
+          # '-', so a branch like fix/foo is rejected as a label value.
+          # Normalize it for the --labels flag.
+          LABEL="$(printf '%s' "$RAW_REF" | tr '/' '-' | tr '[:upper:]' '[:lower:]' | cut -c1-63)"
+          echo "label=${LABEL}" >> $GITHUB_OUTPUT
+
       - name: Deploy API service
         if: steps.parse.outputs.deploy_api == 'true'
         run: |
@@ -142,7 +158,7 @@ jobs:
             --max-instances=10 \
             --set-secrets=NEO4J_URI=NEO4J_URI:latest,NEO4J_PASSWORD=NEO4J_PASSWORD:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest \
             --allow-unauthenticated \
-            --labels=environment=${{ inputs.environment }},branch=${{ github.ref_name }}
+            --labels=environment=${{ inputs.environment }},branch=${{ steps.branch_label.outputs.label }}
 
       - name: Deploy UI service
         if: steps.parse.outputs.deploy_ui == 'true'
@@ -158,7 +174,7 @@ jobs:
             --max-instances=5 \
             --set-secrets=OPENAI_API_KEY=OPENAI_API_KEY:latest \
             --allow-unauthenticated \
-            --labels=environment=${{ inputs.environment }},branch=${{ github.ref_name }}
+            --labels=environment=${{ inputs.environment }},branch=${{ steps.branch_label.outputs.label }}
 
       # Ingest Cloud Run Job (batch runner — not a service; no port/URL).
       # `jobs deploy` creates-or-updates, so a fresh -dev job is created on first run.
@@ -172,7 +188,7 @@ jobs:
             --cpu=2 \
             --max-retries=0 \
             --set-secrets=NEO4J_URI=NEO4J_URI:latest,NEO4J_PASSWORD=NEO4J_PASSWORD:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest \
-            --labels=environment=${{ inputs.environment }},branch=${{ github.ref_name }}
+            --labels=environment=${{ inputs.environment }},branch=${{ steps.branch_label.outputs.label }}
 
       - name: Get service URLs
         id: urls

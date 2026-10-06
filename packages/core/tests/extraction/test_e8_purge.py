@@ -7,6 +7,7 @@ been touched by a non-extraction edge (manual SOLVED_BY, human curation)
 unless ``--force-rewrite`` is set.
 """
 
+import re
 from unittest.mock import MagicMock
 
 import pytest
@@ -15,6 +16,7 @@ from agentic_kg.extraction.re_ingestion import (
     PurgeReport,
     purge_paper_extraction,
 )
+from agentic_kg.ingestion import _can_skip_entity_extraction
 
 
 @pytest.fixture
@@ -240,6 +242,105 @@ class TestPurgeHappyPath:
         all_queries = " ".join(c.args[0] for c in session.run.call_args_list)
         assert "extraction_incomplete" in all_queries
         assert "extraction_failed_extractors" in all_queries
+
+    def test_clears_taxonomy_hash_state(self, mock_repo):
+        """AC-23: the purge must clear ``Paper.taxonomy_hash``.
+
+        Otherwise the re-ingest skip check (``_can_skip_entity_extraction``)
+        still sees a matching hash after the purge and short-circuits the
+        rewrite — so the RESEARCHES Paper→Topic edges the purge just deleted
+        are never restored. "topics identified and then not stored."
+        """
+        session = mock_repo.session.return_value
+        empty = MagicMock()
+        empty.single.return_value = {"count": 0}
+        empty.__iter__ = lambda self: iter([])
+        session.run.return_value = empty
+
+        purge_paper_extraction(mock_repo, paper_doi="10.1/abc", force_rewrite=False)
+        all_queries = " ".join(c.args[0] for c in session.run.call_args_list)
+        assert "taxonomy_hash" in all_queries
+
+
+# =============================================================================
+# AC-23: purge → skip-check composition (no Neo4j)
+# =============================================================================
+
+
+class _FakeResult:
+    """Result stub: empty iterable, single ``.single()`` row."""
+
+    def __init__(self, single=None):
+        self._single = single
+
+    def __iter__(self):
+        return iter(())
+
+    def single(self):
+        return self._single
+
+
+class _FakePurgeRepository:
+    """Stateful Paper-node stub for the purge → skip composition.
+
+    Models only the Paper extraction-status properties the composition
+    reads, and applies whatever ``SET p.<prop> = <literal>`` assignments a
+    query actually carries. That way the test exercises the real purge
+    Cypher instead of a hand-rolled expectation of it.
+    """
+
+    def __init__(self, taxonomy_hash: str = "hash-v1"):
+        self.paper = {
+            "taxonomy_hash": taxonomy_hash,
+            "extraction_incomplete": False,
+            "extraction_failed_extractors": "",
+        }
+
+    def session(self):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def run(self, query, *args, **kwargs):
+        if "SET p." in query:
+            for prop, raw in re.findall(
+                r"p\.(\w+)\s*=\s*('[^']*'|true|false)", query
+            ):
+                if raw in ("true", "false"):
+                    self.paper[prop] = raw == "true"
+                else:
+                    self.paper[prop] = raw.strip("'")
+        if "AS taxonomy_hash" in query:
+            return _FakeResult(dict(self.paper))
+        if "deleted_mentions" in query:
+            return _FakeResult({"deleted_mentions": 0})
+        if "deleted_problems" in query:
+            return _FakeResult({"deleted_problems": 0})
+        return _FakeResult()
+
+
+class TestPurgeSkipComposition:
+    def test_purge_clears_hash_so_next_ingest_is_not_skipped(self):
+        """A purged paper must be re-extracted, not skipped.
+
+        This is the persistence half of the Topic bug: the purge deletes
+        Paper→Topic ``RESEARCHES`` edges, so a matching ``taxonomy_hash``
+        surviving the purge makes the skip check swallow the rewrite and
+        the topic edges stay gone.
+        """
+        repo = _FakePurgeRepository(taxonomy_hash="hash-v1")
+        # Before the purge, the paper is complete under this taxonomy.
+        assert _can_skip_entity_extraction(repo, "10.1/abc", "hash-v1") is True
+
+        purge_paper_extraction(repo, paper_doi="10.1/abc", force_rewrite=False)
+
+        # AC-23: purge resets the hash → the skip check now fails →
+        # extraction (and the RESEARCHES rewrite) runs next batch.
+        assert _can_skip_entity_extraction(repo, "10.1/abc", "hash-v1") is False
 
 
 # =============================================================================

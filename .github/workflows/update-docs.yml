@@ -61,7 +61,7 @@ jobs:
         run: bundle exec jekyll build --strict_front_matter --trace
 
       - name: Validate HTML and links
-        uses: chabad360/htmlproofer@master
+        uses: chabad360/htmlproofer@a1a3419200cea0e832a5c6249647d1d271178e82  # master
         with:
           directory: docs/_site
           arguments: >-

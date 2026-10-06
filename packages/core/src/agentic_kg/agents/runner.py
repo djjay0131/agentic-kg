@@ -128,6 +128,25 @@ class WorkflowRunner:
 
         return run_id
 
+    def has_workflow(self, run_id: str) -> bool:
+        """Return whether ``run_id`` names a workflow this runner has started.
+
+        ``MemorySaver.aget_state`` returns an empty snapshot for an unknown
+        thread instead of raising, so callers that need to distinguish "not
+        found" from "present" must consult the tracked set explicitly.
+        """
+        return run_id in self._workflows
+
+    def _require_workflow(self, run_id: str) -> None:
+        """Raise ``KeyError`` if ``run_id`` is not a tracked workflow.
+
+        The API maps ``KeyError`` to HTTP 404; anything else is a genuine
+        500. Without this guard an unknown id resolves to an empty state and
+        the API answered 200 (issue #76).
+        """
+        if not self.has_workflow(run_id):
+            raise KeyError(f"Workflow {run_id} not found")
+
     async def resume_workflow(
         self,
         run_id: str,
@@ -148,7 +167,11 @@ class WorkflowRunner:
 
         Returns:
             Updated workflow state.
+
+        Raises:
+            KeyError: If ``run_id`` is not a tracked workflow.
         """
+        self._require_workflow(run_id)
         thread_config = {"configurable": {"thread_id": run_id}}
 
         # Get current state from checkpointer
@@ -172,7 +195,12 @@ class WorkflowRunner:
         return await self.get_state(run_id)
 
     async def get_state(self, run_id: str) -> ResearchState:
-        """Get the current state of a workflow."""
+        """Get the current state of a workflow.
+
+        Raises:
+            KeyError: If ``run_id`` is not a tracked workflow.
+        """
+        self._require_workflow(run_id)
         thread_config = {"configurable": {"thread_id": run_id}}
         snapshot = await self._graph.aget_state(thread_config)
         return dict(snapshot.values)
@@ -199,12 +227,16 @@ class WorkflowRunner:
         return list(self._workflows.values())
 
     async def cancel_workflow(self, run_id: str) -> None:
-        """Cancel a running workflow."""
-        if run_id in self._workflows:
-            self._workflows[run_id]["status"] = WorkflowStatus.CANCELLED.value
-            self._workflows[run_id]["updated_at"] = datetime.now(
-                timezone.utc
-            ).isoformat()
+        """Cancel a running workflow.
+
+        Raises:
+            KeyError: If ``run_id`` is not a tracked workflow.
+        """
+        self._require_workflow(run_id)
+        self._workflows[run_id]["status"] = WorkflowStatus.CANCELLED.value
+        self._workflows[run_id]["updated_at"] = datetime.now(
+            timezone.utc
+        ).isoformat()
 
     def _sync_metadata(self, run_id: str, thread_config: dict) -> None:
         """Sync in-memory metadata from the graph state."""

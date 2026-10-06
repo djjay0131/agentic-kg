@@ -285,7 +285,6 @@ class TestEnvBlock:
     def test_env_lists_required_keys(self, workflow):
         env = _smoke_job(workflow)["env"]
         assert set(env) == {
-            "OPENAI_API_KEY",
             "NEO4J_URI",
             "NEO4J_USERNAME",
             "NEO4J_PASSWORD",
@@ -293,18 +292,25 @@ class TestEnvBlock:
             # SM-6: the throughput lever, CI-only
             "OPENAI_EXTRACTION_MODEL",
             "OPENAI_TPM",
-            # Authenticates S2 so populate_citations survives the shared
-            # anonymous rate pool; without it CITES lands 0 edges.
-            "SEMANTIC_SCHOLAR_API_KEY",
         }
 
-    def test_openai_key_from_secret(self, workflow):
-        env = _smoke_job(workflow)["env"]
+    def test_api_keys_scoped_to_ingest_step(self, workflow):
+        """#80: API keys live on the ingest step, not the job env, so the
+        checkout / install / artifact steps never hold them."""
+        step = _step_by_name(workflow, "Ingest (with single retry)")
+        env = step["env"]
         assert "secrets.OPENAI_API_KEY" in env["OPENAI_API_KEY"]
-
-    def test_s2_key_from_secret(self, workflow):
-        env = _smoke_job(workflow)["env"]
         assert "secrets.SEMANTIC_SCHOLAR_API_KEY" in env["SEMANTIC_SCHOLAR_API_KEY"]
+
+    def test_api_keys_absent_from_job_env(self, workflow):
+        """#80: neither key may regress to the job-wide env block."""
+        env = _smoke_job(workflow)["env"]
+        assert "OPENAI_API_KEY" not in env
+        assert "SEMANTIC_SCHOLAR_API_KEY" not in env
+
+    def test_top_level_permissions_contents_read(self, workflow):
+        """#80: least-privilege GITHUB_TOKEN for this PR-triggered workflow."""
+        assert workflow["permissions"] == {"contents": "read"}
 
     def test_sm7_throttle_budget_at_real_ceiling(self, workflow):
         """AC-6: CI sets OPENAI_TPM to this org's REAL ceiling (30000) so the

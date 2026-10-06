@@ -433,7 +433,7 @@ async def run_sanity_checks() -> list[SanityCheck]:
 - Existing: `PaperAggregator`, `PaperImporter`, `BatchProcessor`, `PaperProcessingPipeline`, `KGIntegratorV2`
 - External APIs: Semantic Scholar, arXiv, OpenAlex (require network access)
 - LLM API: OpenAI (requires `OPENAI_API_KEY` for extraction and agent workflows)
-- Neo4j: Staging instance at `bolt://34.173.74.125:7687` (requires credentials)
+- Neo4j: Staging instance at `<staging-neo4j-host>:7687` (requires credentials). The real host is the `neo4j_bolt_uri` Terraform output / the Secret Manager `NEO4J_URI` secret — deliberately not recorded in this public repo.
 
 ## Open Questions
 

@@ -21,6 +21,9 @@ env:
   PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
   REGION: us-central1
 
+permissions:
+  contents: read
+
 jobs:
   # Detect which packages changed
   changes:
@@ -115,7 +118,9 @@ jobs:
         ${{ needs.changes.outputs.api == 'true' && 'api,' || '' }}${{ needs.changes.outputs.ui == 'true' && 'ui,' || '' }}${{ needs.changes.outputs.job == 'true' && 'job' || '' }}
       image_tag: latest
       push: true
-    secrets: inherit
+    secrets:
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
   # Deploy to staging
   deploy-staging:
