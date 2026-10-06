@@ -46,31 +46,31 @@ class TestGetGraph:
 
     @patch("agentic_kg_api.routers.graph.get_repo")
     def test_get_graph_with_problems(self, mock_get_repo, client):
-        """Returns problem nodes."""
+        """Returns canonical problem (ProblemConcept) nodes."""
         mock_repo = MagicMock()
         mock_session = MagicMock()
 
         problem_node = _make_neo4j_node("elem1", {
-            "statement": "How to scale transformers?",
+            "canonical_statement": "How to scale transformers?",
             "status": "open",
             "confidence": 0.9,
         })
 
-        # First call: problem nodes
+        # First call: concept scan. Every subsequent call (legacy problems,
+        # relations, papers, topics) returns empty.
         problems_result = MagicMock()
-        problems_result.__iter__ = MagicMock(return_value=iter([{"p": problem_node}]))
+        problems_result.__iter__ = MagicMock(return_value=iter([{"c": problem_node}]))
 
-        # Subsequent calls: relations, papers -- all empty
         empty_result = MagicMock()
         empty_result.__iter__ = MagicMock(return_value=iter([]))
 
-        # Routes: problem scan, relations scan, paper scan, topic scan (all empty after first).
-        mock_session.run.side_effect = [
-            problems_result,
-            empty_result,
-            empty_result,
-            empty_result,
-        ]
+        calls = {"n": 0}
+
+        def _run(*args, **kwargs):
+            calls["n"] += 1
+            return problems_result if calls["n"] == 1 else empty_result
+
+        mock_session.run.side_effect = _run
         mock_repo.session.return_value.__enter__ = MagicMock(return_value=mock_session)
         mock_repo.session.return_value.__exit__ = MagicMock(return_value=False)
         mock_get_repo.return_value = mock_repo

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -159,25 +159,13 @@ class TestTopicSearch:
 
 
 class TestGetTopicProblems:
-    def _wire_session(self, mock_repo, problem_dicts):
-        session = MagicMock()
-        session.execute_read.return_value = problem_dicts
-        mock_repo.session.return_value.__enter__ = MagicMock(return_value=session)
-        mock_repo.session.return_value.__exit__ = MagicMock(return_value=False)
-
     def test_returns_problems(self, client, mock_repo):
-        mock_repo.get_topic.return_value = _make_topic()
-        problem_dict = {"id": "p1", "statement": "Test statement long enough"}
-        self._wire_session(mock_repo, [problem_dict])
+        from tests.conftest import make_problem_view
 
-        from datetime import datetime, timezone
-        problem_mock = MagicMock()
-        problem_mock.id = "p1"
-        problem_mock.statement = "Test statement long enough"
-        problem_mock.status = MagicMock(value="open")
-        problem_mock.extraction_metadata = None
-        problem_mock.created_at = datetime.now(timezone.utc)
-        mock_repo._problem_from_neo4j.return_value = problem_mock
+        mock_repo.get_topic.return_value = _make_topic()
+        mock_repo.list_problem_views_for_topic.return_value = [
+            make_problem_view(id="p1", statement="Test statement long enough")
+        ]
 
         response = client.get("/api/topics/topic-uuid-1/problems")
         assert response.status_code == 200
@@ -186,6 +174,35 @@ class TestGetTopicProblems:
         assert len(data["problems"]) == 1
         assert data["problems"][0]["id"] == "p1"
         assert data["include_subtopics"] is True
+        call_kwargs = mock_repo.list_problem_views_for_topic.call_args[1]
+        assert call_kwargs["include_subtopics"] is True
+
+    def test_returns_concept_problems(self, client, mock_repo):
+        """A canonical ProblemConcept is returned for its Topic.
+
+        Regression: ingestion no longer writes :Problem, so the old
+        ``MATCH (p:Problem)-[:BELONGS_TO]`` query returned nothing.
+        """
+        from tests.conftest import make_problem_view
+
+        mock_repo.get_topic.return_value = _make_topic()
+        mock_repo.list_problem_views_for_topic.return_value = [
+            make_problem_view(
+                id="concept-1",
+                kind="concept",
+                statement="Canonical topic problem statement",
+                canonical_statement="Canonical topic problem statement",
+                mention_count=2,
+                paper_count=1,
+            )
+        ]
+
+        response = client.get("/api/topics/topic-uuid-1/problems")
+        assert response.status_code == 200
+        problem = response.json()["problems"][0]
+        assert problem["id"] == "concept-1"
+        assert problem["canonical_statement"] == "Canonical topic problem statement"
+        assert problem["mention_count"] == 2
 
     def test_topic_not_found(self, client, mock_repo):
         mock_repo.get_topic.side_effect = NotFoundError("missing")

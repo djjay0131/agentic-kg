@@ -11,6 +11,7 @@ on:
     branches: [master]
     paths:
       - 'packages/core/**'
+      - 'packages/api/**'
       - 'pyproject.toml'
   # Manual trigger. The E2E job otherwise only runs on push to master, so a
   # PR author had no way to exercise it before merge. Dispatch runs it against
@@ -113,6 +114,16 @@ jobs:
             -m integration \
             -v --tb=short \
             --junitxml=test-results/integration-tests.xml
+
+      - name: Run API read-model integration tests
+        # Asserts canonical ProblemMention/ProblemConcept nodes ingested the
+        # way the pipeline does are visible through /api/stats,
+        # /api/problems, /api/problems/{id} and /api/topics/{id}/problems.
+        run: |
+          pytest packages/api/tests/integration/ \
+            -m integration \
+            -v --tb=short \
+            --junitxml=test-results/api-read-model-integration-tests.xml
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
