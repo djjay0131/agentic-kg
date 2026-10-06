@@ -1030,7 +1030,7 @@
   },"147": {
     "doc": "Operations",
     "title": "Operations",
-    "content": "Operator runbooks for running and tuning the agentic-kg pipeline in staging and production — the concrete steps to take when a run misbehaves, and the knobs that change its behavior. | Extraction throughput (OpenAI rate limits) | . ",
+    "content": "Operator runbooks for running and tuning the agentic-kg pipeline in staging and production — the concrete steps to take when a run misbehaves, and the knobs that change its behavior. | Extraction throughput (OpenAI rate limits) | Neo4j hardening (private staging + password rotation) | . ",
     "url": "/agentic-kg/operations/",
     
     "relUrl": "/operations/"
@@ -1154,258 +1154,307 @@
     
     "relUrl": "/ground-truth/named-resources.html"
   },"165": {
+    "doc": "Neo4j hardening runbook (private staging + password rotation)",
+    "title": "Neo4j hardening runbook",
+    "content": "Operator steps to (1) take staging Neo4j off the public internet and (2) rotate its credential safely. Projects the decision in ADR-0006; the two planes rule means the ADR is authoritative and this page is the derived runbook. Project: vt-gcp-00042 (staging) · Region: us-central1 Terraform state: local (infra/terraform.tfstate) — the owner applies; CI never does. ",
+    "url": "/agentic-kg/operations/neo4j-hardening-runbook.html#neo4j-hardening-runbook",
+    
+    "relUrl": "/operations/neo4j-hardening-runbook.html#neo4j-hardening-runbook"
+  },"166": {
+    "doc": "Neo4j hardening runbook (private staging + password rotation)",
+    "title": "Preconditions",
+    "content": ". | gcloud authenticated to the vt-gcp-00042 VT (non-prod) project. | Terraform &gt;= 1.5 on PATH, run from infra/. | roles/owner-class access to the project (firewall, IAM, Secret Manager, Cloud Run). | The job image has been rebuilt since the last core change (the rotation job runs python -m agentic_kg.rotate_password from that image). | The GitHub environment staging has GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_SERVICE_ACCOUNT set, exactly as deploy-master.yml uses them. | Do not run these commands from an agent session or CI. | . Capture the current state first: . gcloud compute firewall-rules describe allow-neo4j-staging \\ --project=vt-gcp-00042 --format='value(sourceRanges)' gcloud secrets versions list NEO4J_PASSWORD \\ --project=vt-gcp-00042 --format='table(name,state,createTime)' . ",
+    "url": "/agentic-kg/operations/neo4j-hardening-runbook.html#preconditions",
+    
+    "relUrl": "/operations/neo4j-hardening-runbook.html#preconditions"
+  },"167": {
+    "doc": "Neo4j hardening runbook (private staging + password rotation)",
+    "title": "Part 1 — Make Neo4j private (staged apply, zero downtime)",
+    "content": "The order matters: egress first, then the internal address, then close the firewall. Each stage is verified before the next. Step 1 — Add VPC egress and rotation infrastructure (firewall still open) . cd infra terraform init -backend=false # provider only; never against real state from CI terraform plan -var-file=envs/staging.tfvars . Confirm the plan shows no replacement of google_compute_instance.neo4j (prevent_destroy will refuse one) and no change to NEO4J_URI yet. terraform apply -var-file=envs/staging.tfvars \\ -target=google_project_iam_member.network_user \\ -target=google_cloud_run_v2_service.api \\ -target=google_cloud_run_v2_job.ingest \\ -target=google_cloud_run_v2_job.rotate_password \\ -target=google_secret_manager_secret.neo4j_password_next . Verify the API still reaches Neo4j (it is still using the public URI, now through the VPC path is not yet exercised): . curl -fsS \"$(gcloud run services describe agentic-kg-api-staging \\ --region=us-central1 --project=vt-gcp-00042 --format='value(status.url)')/health\" # expect {\"status\":\"ok\",\"neo4j_connected\":true,...} . Rollback: re-run terraform apply after reverting the skipped targets; VPC egress is additive and harmless on its own. Step 2 — Switch NEO4J_URI to the internal address . terraform apply -var-file=envs/staging.tfvars \\ -target=google_secret_manager_secret_version.neo4j_uri \\ -target=google_cloud_run_v2_service.api \\ -target=google_cloud_run_v2_job.ingest . This creates a new Cloud Run revision whose NEO4J_URI is bolt://&lt;internal-ip&gt;:7687, reached through the Direct VPC egress added in Step 1. The firewall is still open, so even if egress were misconfigured the old revision would still work. Verify the API health again (same command). Confirm the new revision: . gcloud run services describe agentic-kg-api-staging --region=us-central1 \\ --project=vt-gcp-00042 --format='value(status.latestReadyRevisionName)' . Rollback: re-apply with the previous URI value (the NAT IP). The firewall is still open, so this is instant. Step 3 — Close the firewall and remove the duplicated CI secrets . terraform apply -var-file=envs/staging.tfvars . This is the full convergence: it narrows google_compute_firewall.neo4j.source_ranges to the subnetwork CIDR, adds the optional IAP-SSH rule, and deletes the STAGING_NEO4J_URI / STAGING_NEO4J_PASSWORD GitHub-secret resources. Then delete the now-dangling repository secrets by hand (Terraform cannot delete values it no longer manages): . gh secret delete STAGING_NEO4J_URI --repo djjay0131/agentic-kg || true gh secret delete STAGING_NEO4J_PASSWORD --repo djjay0131/agentic-kg || true . Verify the port is closed from the internet and open from inside: . gcloud compute firewall-rules describe allow-neo4j-staging \\ --project=vt-gcp-00042 --format='value(sourceRanges)' # expect the subnet CIDR, not 0.0.0.0/0 curl -v --max-time 5 \"http://&lt;old-nat-ip&gt;:7474\" ; echo \"exit=$?\" # expect timeout/refused . Rollback: re-open the firewall only (terraform apply with neo4j_allowed_source_ranges=[\"0.0.0.0/0\"] as a deliberate, temporary override), rotate the credential immediately afterwards. ",
+    "url": "/agentic-kg/operations/neo4j-hardening-runbook.html#part-1--make-neo4j-private-staged-apply-zero-downtime",
+    
+    "relUrl": "/operations/neo4j-hardening-runbook.html#part-1--make-neo4j-private-staged-apply-zero-downtime"
+  },"168": {
+    "doc": "Neo4j hardening runbook (private staging + password rotation)",
+    "title": "Part 2 — Rotate the password",
+    "content": "After Part 1 (the designed path) . Dispatch the workflow (it never runs on its own): . gh workflow run rotate-neo4j-password.yml \\ --repo djjay0131/agentic-kg \\ -f reason=\"post-hardening rotation\" gh run watch --repo djjay0131/agentic-kg . What the workflow does, in order: generates a secrets.token_urlsafe(48) password and ::add-mask::s it; stages it in NEO4J_PASSWORD_NEXT; runs agentic-kg-rotate-neo4j-staging (inside the VPC) which executes ALTER CURRENT USER SET PASSWORD FROM $current TO $next and reconnects with the new credential to run RETURN 1 AS ok; promotes the value to a new NEO4J_PASSWORD version; rolls the API service and ingest Job; verifies the API health; and only then disables the superseded version and destroys the transport version. Verify independently: . curl -fsS \"$(gcloud run services describe agentic-kg-api-staging \\ --region=us-central1 --project=vt-gcp-00042 --format='value(status.url)')/health\" gcloud secrets versions list NEO4J_PASSWORD --project=vt-gcp-00042 \\ --format='table(name,state,createTime)' # exactly one ENABLED version . Rollback: re-enable the disabled version and point a fresh revision at it, then disable the new one: . gcloud secrets versions enable &lt;previous-version&gt; --secret=NEO4J_PASSWORD \\ --project=vt-gcp-00042 gcloud run services update agentic-kg-api-staging --region=us-central1 \\ --project=vt-gcp-00042 --update-secrets=NEO4J_PASSWORD=NEO4J_PASSWORD:&lt;previous-version&gt; \\ --update-labels=neo4j-password-rolled-back=$(date +%s) gcloud run jobs update agentic-kg-ingest-staging --region=us-central1 \\ --project=vt-gcp-00042 --update-secrets=NEO4J_PASSWORD=NEO4J_PASSWORD:&lt;previous-version&gt; . To complete the rollback, also set the database password back (run the rotation job with the roles reversed) — or accept the new credential and just re-point the services, which is the normal recovery. Before Part 1 (legacy / public endpoint) . Until Part 1 is applied, Neo4j is still reachable on the old NAT IP. The same rotation can be run locally: . export NEO4J_URI=\"bolt://&lt;old-nat-ip&gt;:7687\" export NEO4J_PASSWORD=\"$(gcloud secrets versions access latest \\ --secret=NEO4J_PASSWORD --project=vt-gcp-00042)\" export NEO4J_PASSWORD_NEXT=\"$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')\" .venv/bin/python -m agentic_kg.rotate_password . Then follow the workflow’s promote → roll → verify → disable sequence by hand. Do not paste either password into a terminal that records history. ",
+    "url": "/agentic-kg/operations/neo4j-hardening-runbook.html#part-2--rotate-the-password",
+    
+    "relUrl": "/operations/neo4j-hardening-runbook.html#part-2--rotate-the-password"
+  },"169": {
+    "doc": "Neo4j hardening runbook (private staging + password rotation)",
+    "title": "Part 3 — Verification queries",
+    "content": "Run through IAP SSH (the new allow-iap-ssh-neo4j-staging rule permits tcp/22 from 35.235.240.0/20): . gcloud compute ssh agentic-kg-neo4j-staging --zone=us-central1-a \\ --tunnel-through-iap --project=vt-gcp-00042 . On the VM, cypher-shell prompts for the password (it is never typed on the command line): . cypher-shell -u neo4j # at the prompt: MATCH (n) RETURN count(n) AS nodes; . Or, without touching the database directly, use the API: . curl -fsS \"&lt;api-url&gt;/api/stats\" # counts present → the private path is live . ",
+    "url": "/agentic-kg/operations/neo4j-hardening-runbook.html#part-3--verification-queries",
+    
+    "relUrl": "/operations/neo4j-hardening-runbook.html#part-3--verification-queries"
+  },"170": {
+    "doc": "Neo4j hardening runbook (private staging + password rotation)",
+    "title": "Residual risks and follow-ups",
+    "content": ". | default-allow-ssh is still open to 0.0.0.0/0. It is a default network rule Terraform does not manage. Remove or scope it, or add a higher-precedence deny, as a follow-up. | The ephemeral public IP is still attached (unreachable on 7474/7687). Detach it with neo4j_assign_public_ip=false in a window; it may replace the instance, so lift prevent_destroy for that apply. | The old address is in git history and cannot be removed without a rewrite. The firewall is the control. | Core DB e2e tests no longer run in CI (see ADR-0006 Consequences). | . ",
+    "url": "/agentic-kg/operations/neo4j-hardening-runbook.html#residual-risks-and-follow-ups",
+    
+    "relUrl": "/operations/neo4j-hardening-runbook.html#residual-risks-and-follow-ups"
+  },"171": {
+    "doc": "Neo4j hardening runbook (private staging + password rotation)",
+    "title": "Neo4j hardening runbook (private staging + password rotation)",
+    "content": " ",
+    "url": "/agentic-kg/operations/neo4j-hardening-runbook.html",
+    
+    "relUrl": "/operations/neo4j-hardening-runbook.html"
+  },"172": {
     "doc": "Overview",
     "title": "Project Overview",
     "content": "Agentic KG is a platform for building research knowledge graphs from scientific papers and applying AI agents to identify, deduplicate, and advance open research problems. Research problems are modeled as first-class entities with rich operational context: assumptions, constraints, datasets, metrics, and evidence. Specialized agents operate over the graph to rank problems, propose continuations, execute evaluations, and synthesize results. ",
     "url": "/agentic-kg/about/overview.html#project-overview",
     
     "relUrl": "/about/overview.html#project-overview"
-  },"166": {
+  },"173": {
     "doc": "Overview",
     "title": "Who it’s for",
     "content": ". | Researchers looking for tractable open problems in their field | Research teams tracking problem evolution across papers | Anyone already using the Denario framework | . ",
     "url": "/agentic-kg/about/overview.html#who-its-for",
     
     "relUrl": "/about/overview.html#who-its-for"
-  },"167": {
+  },"174": {
     "doc": "Overview",
     "title": "Learn more",
     "content": ". | Architecture → | How it works → | Quickstart → | . ",
     "url": "/agentic-kg/about/overview.html#learn-more",
     
     "relUrl": "/about/overview.html#learn-more"
-  },"168": {
+  },"175": {
     "doc": "Overview",
     "title": "Overview",
     "content": " ",
     "url": "/agentic-kg/about/overview.html",
     
     "relUrl": "/about/overview.html"
-  },"169": {
+  },"176": {
     "doc": "Quickstart",
     "title": "Quickstart",
     "content": "git clone https://github.com/djjay0131/agentic-kg.git cd agentic-kg # Create virtual environment python3.12 -m venv .venv source .venv/bin/activate # Install uv sync # or: pip install -e '.[dev]' # Run unit tests (excludes live-Neo4j tests) pytest packages/core/tests/ --ignore=packages/core/tests/e2e -q # Local stack docker compose up . See README.md for the full setup guide. ",
     "url": "/agentic-kg/about/quickstart.html",
     
     "relUrl": "/about/quickstart.html"
-  },"170": {
+  },"177": {
     "doc": "Related work",
     "title": "Related work",
     "content": ". | Agentic Knowledge Graphs paper — design inspiration for the three-layer architecture and problem-as-entity modeling. | Denario framework — the underlying agent runtime; Agentic KG extends it. | GraphRAG — hierarchical community summarization technique referenced in gap analysis §4.3. | . A fuller reading list will land here as this page is authored. ",
     "url": "/agentic-kg/about/related-work.html",
     
     "relUrl": "/about/related-work.html"
-  },"171": {
+  },"178": {
     "doc": "Roadmap",
     "title": "Roadmap",
     "content": "A live, data-driven view of the roadmap is maintained on the Status → Backlog page, regenerated from llm/features/BACKLOG.md on every push. ",
     "url": "/agentic-kg/about/roadmap.html",
     
     "relUrl": "/about/roadmap.html"
-  },"172": {
+  },"179": {
     "doc": "Roadmap",
     "title": "Near-term themes",
     "content": ". | Entity ecosystem expansion — Topic, ResearchConcept, Model, Method entities (Category 3 on the backlog) | Community detection — Leiden / Louvain over the graph, with hierarchical summaries (Category 4) | Graph-based RAG retrieval — the “killer feature” — multi-hop, community-aware answering (Category 5) | . ",
     "url": "/agentic-kg/about/roadmap.html#near-term-themes",
     
     "relUrl": "/about/roadmap.html#near-term-themes"
-  },"173": {
+  },"180": {
     "doc": "Roadmap",
     "title": "Ongoing",
     "content": ". | Production deployment readiness (Category 6) | Success-criteria validation (Category 7) | . ",
     "url": "/agentic-kg/about/roadmap.html#ongoing",
     
     "relUrl": "/about/roadmap.html#ongoing"
-  },"174": {
+  },"181": {
     "doc": "Screenshots",
     "title": "Screenshots",
     "content": "Placeholder. Screenshots of the Next.js UI and the Neo4j graph browser will land here during Phase B. For now, see the deployed staging service: . | API: https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app | Neo4j Browser: not publicly published — access via SSH tunnel or VPN (retrieve URI from Secret Manager / Terraform output neo4j_uri) | . ",
     "url": "/agentic-kg/about/screenshots.html",
     
     "relUrl": "/about/screenshots.html"
-  },"175": {
+  },"182": {
     "doc": "Segmenter Findings",
     "title": "SectionSegmenter mis-segments every paper in the ground-truth set",
     "content": "Found: 2026-07-27, while preparing extractor input for the ground-truth curation task (docs/ground-truth/README.md). Affects: packages/core/src/agentic_kg/extraction/section_segmenter.py, and therefore every entity extracted by ingest_papers. Severity: High. One of eight papers yields zero extractor input. Update 2026-08-09: a seventh, independent cause was found — see (7). Causes (1)–(6) are about locating section boundaries; (7) is about which sections are kept once located, and it survives fixing all of them. It is also the only one that reaches the ground-truth labels. Update 2026-09-06: an eighth cause was found while measuring the SEG-1 fix — see (8). Note the numbering convention breaks here: this document’s causes are numbered to match SEG-n backlog IDs, but SEG-8, SEG-9 and SEG-10 were already taken by non-cause items (test fixtures, hyphen normalization, a set-membership decision), so cause (8) is tracked as SEG-11. Causes (1)–(7) still map to SEG-1–SEG-7. ⚠️ Correction (2026-09-06): “silently and with no error” is out of date . This document originally said the zero-input paper produced “zero entities, silently and with no error.” SM-1 (content-acquisition-resilience, merged as #44) moved _build_extractor_section_text to before the usability gate in _acquire_full_text (ingestion.py:291-296), so fact_completion now produces: . WARNING PDF source too thin (&lt;url&gt;): 0 chars . is counted as failed_thin in result.acquisition_failures, and is skipped (ingestion.py:553-565). The consequence is therefore a dropped paper — one carrying 32 of the 53 chain entities — not a silent zero. What is still silent is the partial case. cskg yields 8,917 chars with no abstract and no methods, clears the 250-char floor, logs INFO Full text acquired, and is indistinguishable from a healthy paper. SEG-1 added a WARNING for exactly this (_missing_wanted_sections, ingestion.py), plus a DEBUG line per rejected heading candidate in _find_headings so the misses in (3), (4) and (5) below are observable without writing a script. ",
     "url": "/agentic-kg/ground-truth/segmenter-findings.html#sectionsegmenter-mis-segments-every-paper-in-the-ground-truth-set",
     
     "relUrl": "/ground-truth/segmenter-findings.html#sectionsegmenter-mis-segments-every-paper-in-the-ground-truth-set"
-  },"176": {
+  },"183": {
     "doc": "Segmenter Findings",
     "title": "Summary",
     "content": "ingest_papers feeds all four entity extractors a single text block built by _build_extractor_section_text (ingestion.py:198), which keeps only the sections typed abstract, introduction, methods, experiments. Running the current segmenter over the 8-paper ground-truth chain, not one paper produced a clean abstract + introduction + methods + experiments block, only one of eight produced an abstract at all, and only two of the six papers that have a methods section had it recognized. This was found by preparing labeling input, not by looking for bugs. The labeling task is now unblocked via a hand-written segmenter (scripts/segment_ground_truth.py) — this document records the underlying defect so it can be fixed on its own terms. ",
     "url": "/agentic-kg/ground-truth/segmenter-findings.html#summary",
     
     "relUrl": "/ground-truth/segmenter-findings.html#summary"
-  },"177": {
+  },"184": {
     "doc": "Segmenter Findings",
     "title": "Observed output",
     "content": "Chars fed to the extractors, per paper, via SectionSegmenter.segment(): . | Slug | Chars | Sections detected | Problem | . | fact_completion | 0 | references only | Extractors receive \"\" and short-circuit — no entities at all | . | cskg | 8,919 | intro (822w), experiments (517w) | No abstract, no methods | . | empire | 12,405 | one methods block | Abstract, intro, and most sections missed | . | kg_validation_hitl | 23,938 | 5 fragments | No abstract | . | cskg2 | 39,226 | one methods block | Methods swallows everything to the references | . | llm_ontology_gen | 43,250 | 7 fragments | No abstract | . | hypothesis_generation | 49,517 | 4 fragments | No abstract | . | kg_construction_survey | 244,748 | introduction = 16,715 words | Whole body swallowed into “introduction” | . For comparison, hand-verified boundaries over the same PDFs yield 1,130–6,456 words per paper — all eight plausible, all eight with a real abstract. ",
     "url": "/agentic-kg/ground-truth/segmenter-findings.html#observed-output",
     
     "relUrl": "/ground-truth/segmenter-findings.html#observed-output"
-  },"178": {
+  },"185": {
     "doc": "Segmenter Findings",
     "title": "Root causes",
     "content": "1. Roman-numeral section headings never match . Every pattern in SECTION_PATTERNS admits only Arabic numbering: . SectionType.INTRODUCTION: [ r\"^(?:\\d+\\.?\\s*)?introduction\\s*$\", ... ] . IEEE-format papers number sections with Roman numerals. Confirmed present in the PDFs and unmatched by every pattern: . fact_completion: I. INTRODUCTION, II. RELATED WORK, III. SciCheck, IV. EVALUATION, V. USE CASE: AI-KG, VI. CONCLUSION empire: I. INTRODUCTION, II. BACKGROUND, III. RELATED WORK, IV. RESEARCH APPROACH, V. RESULTS, VI. THREATS TO VALIDITY, VII. DISCUSSION, VIII. CONCLUSION . In fact_completion the only heading that matched anything was the unnumbered REFERENCES, which is why that paper produces an empty extractor input. Fix: extend the numeric prefix group to accept Roman numerals and letters, e.g. (?:(?:\\d+|[IVXLC]+|[A-Z])[\\.\\)]?\\s*)?. Fixed 2026-09-06 (SEG-1) — but not as proposed above. Measuring the candidates over all eight PDFs rejected the [A-Z] half of that pattern and the hierarchical form: . | Variant | fact_completion extractor input | . | before | 0 | . | Roman + Arabic (shipped) | 25,586 | . | Roman + Arabic + [A-Z] | 12,449 | . IEEE uses letters for subsections, so [A-Z] promotes B. RESULTS AND DISCUSSION — a child of IV. EVALUATION — to a top-level results heading, truncating experiments from 3,045w to 1,032w and diverting 2,009w into a type the keep-list discards: a net loss of 13,137 chars. Stripping hierarchical numbers (4.4.) does the same thing to hypothesis_generation, costing 5,585 chars by promoting 4.4. Results out of 4. Evaluation. Shipped instead: a flat Roman/Arabic enumerator (_ROMAN / _ENUMERATOR) stripped once in _classify_heading, with the per-pattern prefix groups deleted from all 34 literals — so the vocabulary additions in (3), (4) and (5) inherit numbering support and cannot forget it. Measured result: fact_completion 0 → 25,586, empire 12,405 → 17,953, the other six byte-identical. Spec: llm/features/seg1-roman-numeral-headings.md; regression guard: scripts/measure_segmentation.py. Note what SEG-1 does not fix on these two papers: neither gains an abstract (run-in form, cause (3)) and neither gains a methods section (III. SciCheck / IV. RESEARCH APPROACH, cause (5)). 2. segment_with_abstract can never match an abstract . section_segmenter.py:377: . abstract_match = re.search( r\"^(?:abstract\\s*[:\\-]?\\s*)(.*?)(?=\\n\\s*(?:\\d+\\.?\\s*)?(?:introduction|1\\.|I\\.))\", text, re.IGNORECASE | re.DOTALL, # &lt;-- no re.MULTILINE ) . Without re.MULTILINE, ^ anchors to the start of the entire document. Every real PDF begins with a title and author block, so this never fires. Empirically confirmed: segment() and segment_with_abstract() returned byte-identical output on all 8 papers. This is currently moot in production — pipeline.py:475 calls plain .segment(), so segment_with_abstract is dead code on the ingest path. Worth deciding whether to fix it or delete it. Fix: add re.MULTILINE, and note the lookahead also needs the Roman-numeral fix from (1) to terminate correctly. 3. Run-in abstracts defeat the standalone-line pattern . r\"^abstract\\s*$\" requires Abstract alone on a line. Real formats run the abstract into the same line: . IEEE ESEM: Abstract—[Background.] Empirical research in requirements... IEEE Access: ABSTRACT In the last few years, we have witnessed... Springer: Abstract. In recent years, we saw the emergence of... Elsevier: A B S T R A C T (letter-spaced by the PDF extractor) Nature SD: (no \"Abstract\" label at all — it is the lead paragraph) . Five distinct conventions across eight papers, and the pattern matches none. Fix: allow a run-in delimiter ([—\\-–.:] or whitespace) after the keyword, and handle the letter-spaced A B S T R A C T form that Elsevier PDFs produce. 4. An unrecognized heading lets the previous section swallow the rest . Section spans run from one recognized heading to the next, so a journal whose headings aren’t in the pattern table produces one enormous section. cskg2 is Nature Scientific Data, whose top-level headings are Background &amp; Summary, Methods, Data Records, Technical Validation, Usage Notes. Only Methods matches, so it absorbs 39k chars through to the references. The same mechanism inflated the survey’s introduction to 16,715 words. Note the semantic mapping is also missing: Background &amp; Summary is that journal’s introduction and Technical Validation its evaluation, but neither name appears in SECTION_PATTERNS. Fix: add the Nature/Scientific Data heading vocabulary, and consider a sanity check that flags any single section exceeding some word count as probable under-segmentation rather than passing it downstream. 5. Methods and experiments sections are usually not named “Methods” or “Experiments” . The pattern table assumes generic section names. Real papers name the methods section after the thing they built, or write a descriptive sentence. Testing the live patterns against the actual headings of this set: . | Paper | Wanted | Actual heading | Classified as | . | cskg | methods | The Computer Science Knowledge Graph | unmatched | . | cskg | experiments | Evaluation | experiments ✓ | . | cskg2 | methods | Methods | methods ✓ | . | cskg2 | experiments | Technical Validation | unmatched | . | llm_ontology_gen | experiments | 4. Experiments | experiments ✓ | . | fact_completion | methods | III. SciCheck | unmatched | . | fact_completion | experiments | IV. EVALUATION | unmatched | . | kg_validation_hitl | methods | 4. Integrating LLMs and HiL into the SCICERO validation | unmatched | . | kg_validation_hitl | experiments | 5. Experiment design and implementation | unmatched | . | hypothesis_generation | methods | 3. Methodology | methods ✓ | . | hypothesis_generation | experiments | 4. Evaluation | experiments ✓ | . | empire | methods | IV. RESEARCH APPROACH | unmatched | . 7 of 12 unmatched. Only 2 of 6 methods sections are found. This is a separate defect from (1), and the more stubborn one: only IV. EVALUATION is explained by Roman numerals. Five of the seven misses survive a perfect Roman-numeral fix, for four different reasons: . | Named after the contribution — The Computer Science Knowledge Graph, III. SciCheck. No keyword list can catch these; the section is named after the system the paper introduces. | Journal-specific vocabulary — Technical Validation is Nature Scientific Data’s evaluation section. Fixable by adding vocabulary (see (4)). | Descriptive sentence headings — 4. Integrating LLMs and HiL into the SCICERO validation. Contains no method keyword at all. | Keyword present but pattern too strict — 5. Experiment design and implementation fails because the pattern is experiment(?:s|al)?\\s*(?:setup|settings)?\\s*$, which allows only setup or settings as a suffix. IV. RESEARCH APPROACH fails because the approach pattern admits only our or proposed as a prefix. | . The last category is cheap to fix: relax the anchors so a heading containing a method/experiment keyword matches, rather than requiring near-exact equality. That alone would recover 5. Experiment design and implementation and IV. RESEARCH APPROACH. The first and third categories cannot be fixed by pattern-matching. Options worth weighing: . | Positional fallback — if no methods section is found, treat the span between the last recognized front-matter section (related work / background) and the first recognized results/evaluation section as methods. This works for cskg, fact_completion, and kg_validation_hitl. | Don’t filter at all — feed everything except references, acknowledgments, and appendices. Given (4) already lets unrecognized headings silently merge into their predecessor, the section allowlist is providing less filtering precision than it appears to. | LLM-assisted heading classification for the residue, which is more machinery than this probably warrants. | . Whatever is chosen, note that the current failure is silent: an unmatched methods heading doesn’t error, it just quietly removes the paper’s core technical content from every extractor’s input. 6. Unbounded section length reaches the LLM call . Independent of the above: 244,748 chars would be sent as a single extractor prompt. There is no length guard between _build_extractor_section_text and the extractor calls, only MIN_USABLE_CHARS = 250 on the lower end. 7. The four-section keep-list loses content even when boundaries are perfect . Found: 2026-08-09, while reconciling fact_completion. This is a different defect from (1)–(5) and survives fixing all of them. Causes (1)–(5) are about finding section boundaries. This one is about which sections are kept once found. _build_extractor_section_text (ingestion.py:198) keeps exactly four types — abstract, introduction, methods, experiments — and discards everything else. scripts/segment_ground_truth.py uses hand-verified boundaries, so it isolates the variable: any content missing from paper_&lt;slug&gt;.txt is lost to the keep-list policy, not to boundary detection. Measuring that loss across all eight papers: . | Slug | Body chars | Fed to extractors | Coverage | Chain entities in body | Lost | . | hypothesis_generation | 61,088 | 43,771 | 71.7% | 17 | 2 | . | fact_completion | 47,804 | 33,340 | 69.7% | 32 | 5 | . | cskg2 | 51,847 | 35,470 | 68.4% | 34 | 0 | . | cskg | 37,639 | 24,955 | 66.3% | 18 | 1 | . | kg_validation_hitl | 73,055 | 34,693 | 47.5% | 12 | 4 | . | empire | 57,871 | 20,380 | 35.2% | 2 | 0 | . | llm_ontology_gen | 84,401 | 17,347 | 20.6% | 12 | 8 | . | kg_construction_survey | 181,256 | 7,139 | 3.9% | 22 | 18 | . “Body” is PDF text up to the last references heading. “Chain entities” are the 53 distinct gold entities (canonical + aliases, word-boundary matched, grouped so an alias hit counts as the entity being visible) drawn from the gold files that existed on 2026-08-09. “Lost” means the entity appears in the body under some gold surface form and under none of them in the extractor’s input. Two papers are effectively unlabelable, for defensible per-paper reasons. | kg_construction_survey gets 3.9% of its body. The keep-list is [\"abstract\", \"introduction\"], which is the honest call for a 94-page survey with no methods or experiments sections — but the consequence is that 18 of the 22 chain entities in the paper are invisible, and the paper contributes almost nothing to a validation set built around cross-paper concept accumulation. Worth asking whether it earns its place in the set at all. | llm_ontology_gen gets 20.6%, losing 8 of 12 — including scientific knowledge graph, the chain’s spine concept, and fine-tuning. Cause: its 3. Background is background (excluded) and its approach lives in 4. Experiments, so the method content straddles a kept and an excluded span. | . fact_completion is the sharpest case, because the loss is targeted. Its Section V (Use Case: AI-KG, 6,502 chars) is excluded as a use_case type, and it is the single densest source of chain-recurring entities in the document: . | support score — “the authors adopted a support score deﬁned as the number of research papers where the fact was extracted from”. This is the concept cskg and cskg2 were reconciled to share one canonical for, and it occurs zero times in the extractor input. The five support hits there are the verb “supporting” and the AI-KG relation names supportsTask/supportsMethod. | TransR (a scored model on cskg2), the CSO topic classifier (a scored model on both predecessors), verb clustering (predicate mapping on both), and the exact phrase information extraction pipeline (a scored concept on both). | . A “use case” or “application” section is where a paper says what its artifact is for — on this paper that is where it connects to the rest of the chain. Why this matters more than a coverage number. The set exists to watch a concept accumulate evidence across a citation chain. Where a recurring entity is present in the paper and absent from the extractor’s input, the diff will show a recall gap that is a keep-list decision, not an importer failure. Gold cannot compensate: labeling an entity the importer cannot read just manufactures a guaranteed miss. Fix options, in increasing order of change: . | Add use_case / application to the keep-list. Cheapest, and recovers the fact_completion case specifically. | Add results and background, which would recover empire (35.2%, V. RESULTS excluded) and llm_ontology_gen. | Invert the filter — keep everything except references, acknowledgments, appendices and author bios. This is the “don’t filter at all” option already raised under (5), and this data strengthens it: the allowlist’s precision benefit is unmeasured, while its recall cost is now measured and large. Note it interacts with (6) — the survey would then send 181k chars to one prompt, so a length guard becomes a prerequisite rather than a nice-to-have. | . Caveats on the numbers. Body includes tables, figure captions and running headers, so coverage is a floor rather than an exact reading ratio. One of fact_completion’s five losses (paraphrase-distilroberta-base-v2) is a surface-form artifact rather than a section exclusion — the extractor breaks it as paraphrase-distilrobertabase-v2 here and as paraphrasedistilroberta-base-v2 in cskg, so the gold alias from one paper does not match the other. empire’s zero is not a clean bill of health: only 2 chain entities appear in it at all, because it is the one paper from a different research community. And the probe set is drawn from the three papers reviewed so far, so the unreviewed papers are being measured with their neighbours’ vocabulary and their “in body” counts understate what is actually there. 8. Single-word body lines classify as headings . Found: 2026-09-06, while measuring the SEG-1 fix. Tracked as SEG-11 (not SEG-8 — see the numbering note at the top). Independent of (1)–(7). _find_headings accepts any line shorter than max_heading_length (100 chars) that matches a pattern. It requires nothing heading-shaped of the line: no blank-line delimitation, no capitalization check, no position or repetition check. Several METHODS patterns are bare single words: . SectionType.METHODS: [ r\"^method(?:s|ology)?\\s*$\", r\"^approach\\s*$\", r\"^(?:our\\s+)?(?:proposed\\s+)?(?:method|approach|framework|model)\\s*$\", r\"^technique(?:s)?\\s*$\", ... ] . So a table column header reading MODEL becomes a top-level methods section: . &gt;&gt;&gt; SectionSegmenter()._classify_heading(\"MODEL\") &lt;SectionType.METHODS: 'methods'&gt; . Measured over the set: . | Paper | Phantom methods sections | Titles | . | llm_ontology_gen | 5 | MODEL ×5 (a table column header) | . | kg_validation_hitl | 4 | Model ×3, Method ×1 | . | kg_construction_survey | 2 | Model, Approach | . | empire | 1 | Method | . This distorts how the other causes read. empire’s only methods block is one of these phantoms — its actual method section, IV. RESEARCH APPROACH, is a cause-(5) miss. So the “one methods block” recorded for empire in the Observed output table above is not a real methods section, and SEG-1’s +5,548 chars on that paper is entirely introduction/background recovery. Two further consequences worth noting: . | A phantom heading does not just add a bogus section, it splits a real one — the span it opens is subtracted from whatever section legitimately contained that line. | Fixing (5) by relaxing the method/experiment anchors (its cheap option) widens this surface, because looser patterns match more stray lines. The two should be scheduled together. | . Fix: a heading-context heuristic rather than a vocabulary change — some combination of blank-line delimitation, an all-caps/title-case test, and a repetition filter to drop running headers. Needs its own measurement; the cheap-looking version (require a blank line before the heading) has not been tested against PyMuPDF’s actual line breaks. ",
     "url": "/agentic-kg/ground-truth/segmenter-findings.html#root-causes",
     
     "relUrl": "/ground-truth/segmenter-findings.html#root-causes"
-  },"179": {
+  },"186": {
     "doc": "Segmenter Findings",
     "title": "Reproduction",
     "content": "python -m venv .venv-gt .venv-gt/Scripts/python.exe -m pip install PyMuPDF httpx tenacity pydantic PyYAML neo4j .venv-gt/Scripts/python.exe scripts/segment_ground_truth.py # hand-verified boundaries . To observe the defect itself, call SectionSegmenter().segment(full_text) on any PDF in ground-truth-papers/ and inspect doc.sections. Measuring it, per paper (added by SEG-1): .venv/Scripts/python.exe scripts/measure_segmentation.py . Prints extractor-input chars per paper against scripts/seg_baseline.json and exits non-zero if any paper regresses. Causes (3), (4), (5) and (7) will each legitimately move those numbers — re-baseline with --update-baseline and justify the diff in the PR. Requires the gitignored PDFs, so it cannot run in CI; the PDF-free guards are packages/core/tests/extraction/test_section_segmenter.py and packages/core/tests/test_measure_segmentation.py. To see what the segmenter rejected — the (3)/(4)/(5) misses — raise the log level: . logging.getLogger(\"agentic_kg.extraction.section_segmenter\").setLevel(logging.DEBUG) # unmatched candidate heading: 'III. SciCheck' # unmatched candidate heading: 'Technical Validation' # unmatched candidate heading: 'B. RESULTS AND DISCUSSION' . ",
     "url": "/agentic-kg/ground-truth/segmenter-findings.html#reproduction",
     
     "relUrl": "/ground-truth/segmenter-findings.html#reproduction"
-  },"180": {
+  },"187": {
     "doc": "Segmenter Findings",
     "title": "Suggested test coverage",
     "content": "The current tests appear to exercise Arabic-numbered, standalone-heading papers only. Worth adding fixtures for: . | Roman-numeral headings (IEEE) | Each of the five abstract conventions listed in (3) | A paper with journal-specific headings (Nature Scientific Data) | A methods section named after the contribution rather than “Methods” (e.g. III. SciCheck) — see (5) | A descriptive sentence heading containing no method keyword | An assertion that no single section exceeds a plausible word count | An assertion that a paper with a known methods section actually yields one — the current failure mode is silent, so a test that only checks “segmentation returned some sections” would pass on every paper in this set | . ",
     "url": "/agentic-kg/ground-truth/segmenter-findings.html#suggested-test-coverage",
     
     "relUrl": "/ground-truth/segmenter-findings.html#suggested-test-coverage"
-  },"181": {
+  },"188": {
     "doc": "Segmenter Findings",
     "title": "Impact on the ground-truth task",
     "content": "None to the labels from causes (1)–(6), by construction. scripts/segment_ground_truth.py uses hand-verified boundaries, so the gold files describe what the importer intends to read. Baking today’s segmenter output into gold would have invalidated all eight files the moment the segmenter is fixed. It does mean the eventual importer-vs-gold diff will show large recall gaps that are segmenter failures, not extractor failures. Fix this first, or the diff will be read wrong. Cause (7) is the exception, and it does reach the labels — added 2026-08-09. Hand-verified boundaries do not help when the content is inside a section type the keep-list discards. Coverage ranges from 3.9% to 71.7% of body text, and on fact_completion, llm_ontology_gen and kg_construction_survey the discarded spans hold chain-recurring entities that appear nowhere in the extractor’s input. Gold correctly omits them — an entity the importer cannot read is not a labeling target — but that means those papers under-contribute to the concept accumulation the set was built to measure, silently. Decide the keep-list question before diffing, and if it changes, the affected paper_&lt;slug&gt;.txt fixtures must be regenerated and their reviews redone rather than patched. ",
     "url": "/agentic-kg/ground-truth/segmenter-findings.html#impact-on-the-ground-truth-task",
     
     "relUrl": "/ground-truth/segmenter-findings.html#impact-on-the-ground-truth-task"
-  },"182": {
+  },"189": {
     "doc": "Segmenter Findings",
     "title": "Segmenter Findings",
     "content": " ",
     "url": "/agentic-kg/ground-truth/segmenter-findings.html",
     
     "relUrl": "/ground-truth/segmenter-findings.html"
-  },"183": {
+  },"190": {
     "doc": "Service inventory",
     "title": "Service Inventory",
     "content": "Last Updated: 2026-04-17 . This document provides a comprehensive inventory of all deployed services across the agentic-kg and Denario projects. ",
     "url": "/agentic-kg/status/service-inventory.html#service-inventory",
     
     "relUrl": "/status/service-inventory.html#service-inventory"
-  },"184": {
+  },"191": {
     "doc": "Service inventory",
     "title": "Quick Reference",
     "content": "| Service | Type | Status | Primary URL | . | agentic-kg-api-staging | FastAPI | ✅ Healthy | https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app | . | agentic-kg-ui-staging | Next.js | ⚠️ Fixing | https://agentic-kg-ui-staging-tqpsba7pza-uc.a.run.app | . | denario | Streamlit | ⚠️ Legacy | https://denario-tqpsba7pza-uc.a.run.app | . | denario-app | Streamlit | ✅ Active | https://denario-app-tqpsba7pza-uc.a.run.app | . ",
     "url": "/agentic-kg/status/service-inventory.html#quick-reference",
     
     "relUrl": "/status/service-inventory.html#quick-reference"
-  },"185": {
+  },"192": {
     "doc": "Service inventory",
     "title": "Agentic-KG Services",
     "content": "agentic-kg-api-staging . Type: FastAPI Backend Repository: djjay0131/agentic-kg Status: ✅ Healthy . URLs: . | Primary: https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app | Legacy: https://agentic-kg-api-staging-542888988741.us-central1.run.app | . Purpose: REST API backend for the research problem knowledge graph system. Features: . | Problem CRUD operations | Paper management | Hybrid semantic search | LLM-based extraction pipeline | Agent workflow orchestration | . Health Check: . curl https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app/health # {\"status\":\"ok\",\"version\":\"0.1.0\",\"neo4j_connected\":true} . API Documentation: . | OpenAPI: /docs | ReDoc: /redoc | . Environment Variables: . | NEO4J_URI - Neo4j connection string (from Secret Manager) | NEO4J_PASSWORD - Neo4j password (from Secret Manager) | OPENAI_API_KEY - OpenAI API key (from Secret Manager) | ANTHROPIC_API_KEY - Anthropic API key (from Secret Manager) | . Dependencies: . | Neo4j (bolt URL retrieved from Secret Manager — see NEO4J_URI) | GCP Secret Manager | . agentic-kg-ui-staging . Type: Next.js Frontend Repository: djjay0131/agentic-kg Status: ⚠️ API URL configuration fix in progress . URLs: . | Primary: https://agentic-kg-ui-staging-tqpsba7pza-uc.a.run.app | Legacy: https://agentic-kg-ui-staging-542888988741.us-central1.run.app | . Purpose: Web dashboard for exploring the knowledge graph and managing research problems. Features: . | Dashboard with system stats | Problem browser and detail views | Paper listing | Semantic search interface | Graph visualization (react-force-graph) | Extraction interface | Agent workflow UI | . Pages: . | / - Dashboard | /problems - Problem list | /problems/[id] - Problem details | /papers - Paper list | /graph - Graph visualization | /extract - Extraction interface | /workflows - Agent workflows | /workflows/[id] - Workflow detail | . Build-Time Environment: . | NEXT_PUBLIC_API_URL - API endpoint (required at build time) | . Dependencies: . | agentic-kg-api-staging | . ",
     "url": "/agentic-kg/status/service-inventory.html#agentic-kg-services",
     
     "relUrl": "/status/service-inventory.html#agentic-kg-services"
-  },"186": {
+  },"193": {
     "doc": "Service inventory",
     "title": "Denario Services",
     "content": "denario (Legacy) . Type: Streamlit App Repository: djjay0131/Denario Status: ⚠️ Legacy - Consider deprecating . URLs: . | Primary: https://denario-tqpsba7pza-uc.a.run.app | Legacy: https://denario-542888988741.us-central1.run.app | . Purpose: Original Denario Streamlit interface (older version). Version: Commit 5d5713e Dockerfile: docker/Dockerfile.prod Install: pip install \"denario[app]\" . Environment Variables: . | OPENAI_API_KEY - OpenAI API key (from Secret Manager) | GOOGLE_API_KEY - Google/Gemini API key (from Secret Manager) | ANTHROPIC_API_KEY - Anthropic API key (from Secret Manager) | PERPLEXITY_API_KEY - Perplexity API key (from Secret Manager) | . Issues: . | Older version without recent bug fixes | No file upload restrictions | Missing Vertex AI improvements | . denario-app (Active) . Type: Streamlit App Repository: djjay0131/DenarioApp Status: ✅ Active with improvements . URLs: . | Primary: https://denario-app-tqpsba7pza-uc.a.run.app | Legacy: https://denario-app-542888988741.us-central1.run.app | . Purpose: Enhanced Denario Streamlit interface with production improvements. Version: Commit b5e1270 Dockerfile: Dockerfile (root) Install: pip install denario_app . Improvements over legacy denario: . | File upload restrictions (.md and .txt only) | Better error handling (UnicodeDecodeError) | Vertex AI integration (GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION) | Docker permission fixes | Production warnings | . Environment Variables: . | OPENAI_API_KEY - OpenAI API key (from Secret Manager) | GOOGLE_API_KEY - Google/Gemini API key (from Secret Manager) | ANTHROPIC_API_KEY - Anthropic API key (from Secret Manager) | PERPLEXITY_API_KEY - Perplexity API key (from Secret Manager) | GOOGLE_CLOUD_PROJECT - GCP project ID (vt-gcp-00042) | GOOGLE_CLOUD_LOCATION - GCP region (us-central1) | . Recent Commits: . | b5e1270 - Add GOOGLE_CLOUD_PROJECT env vars for Vertex AI | b9f6b4b - Restrict file uploads to markdown/text files only | 289b1ef - Add PDF text extraction support using PyMuPDF | 06d6def - Fix Docker build permission issue | a6e2c70 - Add Cloud Build configuration for GCP deployment | . ",
     "url": "/agentic-kg/status/service-inventory.html#denario-services",
     
     "relUrl": "/status/service-inventory.html#denario-services"
-  },"187": {
+  },"194": {
     "doc": "Service inventory",
     "title": "Infrastructure",
     "content": "Neo4j Database . Type: Neo4j Graph Database (Compute Engine, staging) Status: ✅ Running . Access: . | Bolt and Browser endpoints are intentionally not published here. Retrieve them at runtime via Secret Manager (NEO4J_URI) or Terraform output (terraform output -raw neo4j_uri). | The Neo4j Browser should not be exposed publicly; access via SSH tunnel or VPN only. | . Purpose: Graph database for storing research problems, papers, and relationships. Credentials: . | Username: neo4j | Password: Stored in GCP Secret Manager (NEO4J_PASSWORD) | . Terraform: . | Configuration: infra/terraform/ | Get password: cd infra &amp;&amp; terraform output -raw neo4j_password | Get URI: cd infra &amp;&amp; terraform output -raw neo4j_uri | . GCP Secret Manager . Secrets: . | OPENAI_API_KEY - 164 bytes | ANTHROPIC_API_KEY - 108 bytes | GOOGLE_API_KEY - 39 bytes | PERPLEXITY_API_KEY - 53 bytes | NEO4J_URI - Connection string | NEO4J_PASSWORD - Database password | . Access: . # List secrets gcloud secrets list # View secret value gcloud secrets versions access latest --secret=\"OPENAI_API_KEY\" . ",
     "url": "/agentic-kg/status/service-inventory.html#infrastructure",
     
     "relUrl": "/status/service-inventory.html#infrastructure"
-  },"188": {
+  },"195": {
     "doc": "Service inventory",
     "title": "URL Formats",
     "content": "Cloud Run provides two URL formats for each service: . | Legacy Format (Project Number): . | Pattern: https://{service}-{project-number}.{region}.run.app | Example: https://denario-542888988741.us-central1.run.app | Shown by: gcloud run services list | . | New Format (Random String): . | Pattern: https://{service}-{random}.{region-code}.a.run.app | Example: https://denario-tqpsba7pza-uc.a.run.app | Shown by: gcloud run services describe | . | . Both URLs point to the same service and are fully functional. ",
     "url": "/agentic-kg/status/service-inventory.html#url-formats",
     
     "relUrl": "/status/service-inventory.html#url-formats"
-  },"189": {
+  },"196": {
     "doc": "Service inventory",
     "title": "Repository Links",
     "content": ". | agentic-kg: https://github.com/djjay0131/agentic-kg | Denario: https://github.com/djjay0131/Denario (fork) | DenarioApp: https://github.com/djjay0131/DenarioApp (fork) | Upstream Denario: https://github.com/AstroPilot-AI/Denario | Upstream DenarioApp: https://github.com/AstroPilot-AI/DenarioApp | . ",
     "url": "/agentic-kg/status/service-inventory.html#repository-links",
     
     "relUrl": "/status/service-inventory.html#repository-links"
-  },"190": {
+  },"197": {
     "doc": "Service inventory",
     "title": "Recommendations",
     "content": "Immediate Actions . | Fix agentic-kg-ui deployment - Rebuild with NEXT_PUBLIC_API_URL (in progress) | Document denario vs denario-app - Clarify which to use | Consider deprecating legacy denario service - Consolidate to denario-app | . Future Improvements . | Set up custom domains for cleaner URLs | Implement monitoring and alerting | Create automated health check dashboard | Document API endpoints with OpenAPI | Set up automated deployment pipelines | . ",
     "url": "/agentic-kg/status/service-inventory.html#recommendations",
     
     "relUrl": "/status/service-inventory.html#recommendations"
-  },"191": {
+  },"198": {
     "doc": "Service inventory",
     "title": "Deployment Commands",
     "content": "List All Services . gcloud run services list --region=us-central1 . Get Service Details . gcloud run services describe {service-name} --region=us-central1 . Check Service Health . # agentic-kg API curl https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app/health # UI (check HTTP status) curl -I https://agentic-kg-ui-staging-tqpsba7pza-uc.a.run.app . View Logs . gcloud run services logs read {service-name} --region=us-central1 --limit=50 . ",
     "url": "/agentic-kg/status/service-inventory.html#deployment-commands",
     
     "relUrl": "/status/service-inventory.html#deployment-commands"
-  },"192": {
+  },"199": {
     "doc": "Service inventory",
     "title": "Support",
     "content": "For issues or questions: . | Check service logs: gcloud run services logs read | Review deployment docs: llm/sprints/ | Contact: djjay0131@gmail.com | . ",
     "url": "/agentic-kg/status/service-inventory.html#support",
     
     "relUrl": "/status/service-inventory.html#support"
-  },"193": {
+  },"200": {
     "doc": "Service inventory",
     "title": "Service inventory",
     "content": " ",
     "url": "/agentic-kg/status/service-inventory.html",
     
     "relUrl": "/status/service-inventory.html"
-  },"194": {
+  },"201": {
     "doc": "Sprints",
     "title": "Sprints",
     "content": "Auto-regenerated from llm/sprints/ on every push. | # | Sprint | Status | Source | . | 0 |   |   |   | . | GCP Deployment |   |   |   | . | {: .label .label-yellow }In Progress |   |   |   | . | sprint-00-gcp-deployment.md | . |   | . | 1 | . | Knowledge Graph Foundation | . | {: .label .label-yellow }In Progress | . | sprint-01-knowledge-graph.md | . |   | . | 2 | . | Data Acquisition Layer | . | {: .label .label-green }Complete | . | sprint-02-data-acquisition.md | . |   | . | 3 | . | Information Extraction Pipeline | . | {: .label .label-yellow }In Progress | . | sprint-03-extraction-pipeline.md | . |   | . | 4 | . | API Service + Production Web UI | . | {: .label .label-yellow }In Progress | . | sprint-04-api-and-ui.md | . |   | . | 5 | . | Agent Implementation | . | {: .label .label-yellow }In Progress | . | sprint-05-agent-implementation.md | . |   | . | 6 | . | Full-Stack Integration | . | {: .label .label-green }Complete | . | sprint-06-integration.md | . |   | . | 7 | . | End-to-End Testing | . | {: .label .label-green }Complete | . | sprint-07-e2e-testing.md | . |   | . | 8 | . | Documentation &amp; Service Cleanup | . | {: .label .label-green }Complete ✅ | . | sprint-08-documentation-and-cleanup.md | . |   | . | 9 | . | Canonical Problem Architecture - Phase 1: Data Model &amp; Core Matching | . | {: .label .label-green }COMPLETED | . | sprint-09-canonical-problem-phase-1.md | . |   | . | 10 | . | Canonical Problem Architecture - Phase 2: Agent Workflows for MEDIUM/LOW Confidence | . | {: .label .label-yellow }In Progress | . | sprint-10-canonical-problem-phase-2.md | . |   | . ",
     "url": "/agentic-kg/status/sprints.html",
     
     "relUrl": "/status/sprints.html"
-  },"195": {
+  },"202": {
     "doc": "Topic Taxonomy",
     "title": "Topic Taxonomy",
     "content": "The Topic taxonomy is agentic-kg’s controlled vocabulary for classifying research work. It is a hand-curated, three-level hierarchy that behaves as a closed set: extraction can only classify a paper into topics that already exist in the taxonomy — it cannot invent new ones. | Data (source of truth): packages/core/src/agentic_kg/knowledge_graph/data/seed_taxonomy.yml | Loader / validator / exporter: knowledge_graph/taxonomy.py | Node model: Topic in models/entities.py (see Entity Catalog) | Level enum: TopicLevel in models/enums.py | CLI: agentic-kg load-taxonomy | . ",
     "url": "/agentic-kg/reference/topic-taxonomy.html",
     
     "relUrl": "/reference/topic-taxonomy.html"
-  },"196": {
+  },"203": {
     "doc": "Topic Taxonomy",
     "title": "The three levels",
     "content": "TopicLevel defines exactly three levels; nesting is strict. | Level | Meaning | Example | Parent | . | domain | Broad field | Computer Science | (none — root) | . | area | Sub-field within a domain | Natural Language Processing | a domain | . | subtopic | Specific topic within an area | Information Extraction | an area | . graph TD CS[\"Computer Science&lt;br/&gt;&lt;i&gt;(domain)&lt;/i&gt;\"] --&gt; NLP[\"Natural Language Processing&lt;br/&gt;&lt;i&gt;(area)&lt;/i&gt;\"] NLP --&gt; IE[\"Information Extraction&lt;br/&gt;&lt;i&gt;(subtopic)&lt;/i&gt;\"] NLP --&gt; QA[\"Question Answering&lt;br/&gt;&lt;i&gt;(subtopic)&lt;/i&gt;\"] NLP --&gt; LLM[\"Large Language Models&lt;br/&gt;&lt;i&gt;(subtopic)&lt;/i&gt;\"] CS --&gt; IR[\"Information Retrieval&lt;br/&gt;&lt;i&gt;(area)&lt;/i&gt;\"] IR --&gt; RAG[\"Retrieval-Augmented Generation&lt;br/&gt;&lt;i&gt;(subtopic)&lt;/i&gt;\"] classDef domain fill:#e8f0fe,stroke:#4285f4,color:#111; classDef area fill:#fef7e0,stroke:#f9ab00,color:#111; classDef sub fill:#e6f4ea,stroke:#34a853,color:#111; class CS domain; class NLP,IR area; class IE,QA,LLM,RAG sub; . Edges above are SUBTOPIC_OF in the graph (child → parent). The diagram shows a slice; the full seed set is below. Structural rules (enforced by parse_taxonomy and the Topic model): . | Allowed parent → child transitions: ∅ → domain → area → subtopic. A subtopic cannot nest further; a domain cannot appear as a child. | A domain topic must not have a parent (parent_id is None). | Names must be unique within the same (parent, level). | In the graph, hierarchy is materialized as (child)-[:SUBTOPIC_OF]-&gt;(parent). | . ",
     "url": "/agentic-kg/reference/topic-taxonomy.html#the-three-levels",
     
     "relUrl": "/reference/topic-taxonomy.html#the-three-levels"
-  },"197": {
+  },"204": {
     "doc": "Topic Taxonomy",
     "title": "Current seed taxonomy",
     "content": "Six areas under a single Computer Science domain, focused on the project’s corpus (graph retrieval, knowledge graphs, NLP, ML, IR). This mirrors seed_taxonomy.yml — edit that file, not this table, to change the taxonomy. Computer Science (domain) . | Area | Subtopics | . | Natural Language Processing | Information Extraction · Question Answering · Machine Translation · Text Summarization · Large Language Models | . | Information Retrieval | Graph-Based Retrieval · Dense Retrieval · Retrieval-Augmented Generation · Hybrid Retrieval | . | Knowledge Representation | Knowledge Graphs · Ontology Engineering · Entity Linking | . | Machine Learning | Deep Learning · Transfer Learning · Graph Neural Networks · Self-Supervised Learning · Reinforcement Learning | . | Data Management | Graph Databases · Vector Databases | . | AI Agents and Reasoning | Multi-Agent Systems · Tool Use · Chain-of-Thought Reasoning | . Each node also carries a one-line description (see the YAML) that feeds a richer embedding for semantic matching. ",
     "url": "/agentic-kg/reference/topic-taxonomy.html#current-seed-taxonomy",
     
     "relUrl": "/reference/topic-taxonomy.html#current-seed-taxonomy"
-  },"198": {
+  },"205": {
     "doc": "Topic Taxonomy",
     "title": "YAML schema",
     "content": "The taxonomy file is a recursive list of nodes: . - name: str # required, length &gt;= 2 level: str # required, one of domain/area/subtopic description: str # optional — used for richer embeddings source: str # optional, default \"manual\" openalex_id: str # optional children: list # optional, same schema, one level deeper . flatten_taxonomy walks this recursively (no fixed depth assumption), so a future taxonomy deeper than three levels would work without code changes — though the level enum would need extending first. ",
     "url": "/agentic-kg/reference/topic-taxonomy.html#yaml-schema",
     
     "relUrl": "/reference/topic-taxonomy.html#yaml-schema"
-  },"199": {
+  },"206": {
     "doc": "Topic Taxonomy",
     "title": "How the taxonomy is used",
     "content": ". | Loading (idempotent). load_taxonomy merges each node via repository.merge_topic keyed on (name, level, parent_id), creating SUBTOPIC_OF edges automatically. Re-running is a no-op for unchanged nodes and reports {created, matched} counts. | Closed-set extraction. TopicExtractor snapshots the taxonomy at startup and builds a closed-set Literal schema over its names, so the LLM can only return topics that exist in the taxonomy — off-taxonomy classifications are impossible by construction. | Staleness auditing. extraction/taxonomy_hash.py computes a canonical hash (canonical_taxonomy_hash) over the taxonomy. Papers are stamped with the hash they were ingested under, so when the taxonomy changes, previously ingested papers can be detected as stale and re-classified. | Export / round-trip. export_taxonomy reads the live graph back into the YAML shape (embeddings excluded, regenerated on import), keeping the file human-editable. | . ",
     "url": "/agentic-kg/reference/topic-taxonomy.html#how-the-taxonomy-is-used",
     
     "relUrl": "/reference/topic-taxonomy.html#how-the-taxonomy-is-used"
-  },"200": {
+  },"207": {
     "doc": "Topic Taxonomy",
     "title": "Vocabulary style vs. other entities",
     "content": "The Topic taxonomy is the graph’s only closed-set vocabulary. The other concept-like nodes are open: . | Node | Vocabulary | New values enter by | . | Topic | closed-set | editing the seed taxonomy + reload | . | Model | hybrid (open + canonical seeds) | extraction; seeds write-protected | . | ResearchConcept | open-set | extraction; deduped at 0.90 cosine | . | Method | open-set | extraction; deduped at 0.90 cosine | . ",
     "url": "/agentic-kg/reference/topic-taxonomy.html#vocabulary-style-vs-other-entities",
     
     "relUrl": "/reference/topic-taxonomy.html#vocabulary-style-vs-other-entities"
-  },"201": {
+  },"208": {
     "doc": "Topic Taxonomy",
     "title": "Known limitations / roadmap",
     "content": "Scaling the taxonomy is a tracked, open backlog item — T-1 in llm/features/BACKLOG.md: “Taxonomy management at scale — versioned taxonomy with branching + merge + conflict resolution.” Today the taxonomy is a single hand-curated file with no versioning or branching; growing it or reconciling concurrent edits is a manual, re-extract operation. ",
