@@ -3,15 +3,17 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-
-from agentic_kg.knowledge_graph.models import Problem, ProblemStatus
+from agentic_kg.knowledge_graph.models import ProblemStatus
 from agentic_kg.knowledge_graph.repository import Neo4jRepository, NotFoundError
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from agentic_kg_api.dependencies import get_repo
 from agentic_kg_api.schemas import (
+    EvidenceResponse,
+    ExtractionMetadataResponse,
     ProblemDetail,
     ProblemListResponse,
+    ProblemMentionResponse,
     ProblemSummary,
     ProblemUpdate,
 )
@@ -20,53 +22,63 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/problems", tags=["problems"])
 
 
-def _problem_to_summary(p: Problem) -> ProblemSummary:
-    """Convert a Problem model to a summary response."""
-    confidence = None
-    if p.extraction_metadata:
-        confidence = p.extraction_metadata.confidence_score
+def _view_to_summary(view: dict) -> ProblemSummary:
+    """Convert a canonical problem view to a summary response."""
     return ProblemSummary(
-        id=p.id,
-        statement=p.statement,
-        status=p.status.value if isinstance(p.status, ProblemStatus) else str(p.status),
-        confidence=confidence,
-        created_at=p.created_at,
+        id=view["id"],
+        statement=view.get("statement") or "",
+        status=str(view.get("status") or ProblemStatus.OPEN.value),
+        confidence=view.get("confidence"),
+        created_at=view.get("created_at"),
+        canonical_statement=view.get("canonical_statement"),
+        mention_count=view.get("mention_count") or 0,
+        paper_count=view.get("paper_count") or 0,
     )
 
 
-def _problem_to_detail(p: Problem) -> ProblemDetail:
-    """Convert a Problem model to a detail response."""
+def _view_to_detail(view: dict) -> ProblemDetail:
+    """Convert a canonical problem view to a detail response."""
     evidence = None
-    if p.evidence:
-        evidence = {
-            "source_doi": p.evidence.source_doi,
-            "source_title": p.evidence.source_title,
-            "section": p.evidence.section,
-            "quoted_text": p.evidence.quoted_text,
-        }
+    raw_evidence = view.get("evidence")
+    if raw_evidence:
+        evidence = EvidenceResponse(
+            source_doi=raw_evidence.get("source_doi"),
+            source_title=raw_evidence.get("source_title"),
+            section=raw_evidence.get("section"),
+            quoted_text=raw_evidence.get("quoted_text"),
+        )
 
     extraction_metadata = None
-    if p.extraction_metadata:
-        extraction_metadata = {
-            "extraction_model": p.extraction_metadata.extraction_model,
-            "confidence_score": p.extraction_metadata.confidence_score,
-            "extractor_version": p.extraction_metadata.extractor_version,
-            "human_reviewed": p.extraction_metadata.human_reviewed,
-        }
+    raw_meta = view.get("extraction_metadata")
+    if raw_meta:
+        extraction_metadata = ExtractionMetadataResponse(
+            extraction_model=raw_meta.get("extraction_model"),
+            confidence_score=raw_meta.get("confidence_score"),
+            extractor_version=raw_meta.get("extractor_version"),
+            human_reviewed=bool(raw_meta.get("human_reviewed", False)),
+        )
 
     return ProblemDetail(
-        id=p.id,
-        statement=p.statement,
-        status=p.status.value if isinstance(p.status, ProblemStatus) else str(p.status),
-        assumptions=[{"text": a.text, "implicit": a.implicit, "confidence": a.confidence} for a in p.assumptions],
-        constraints=[{"text": c.text, "type": c.type.value if hasattr(c.type, "value") else str(c.type), "confidence": c.confidence} for c in p.constraints],
-        datasets=[{"name": d.name, "url": d.url, "available": d.available} for d in p.datasets],
-        metrics=[{"name": m.name, "description": m.description, "baseline_value": m.baseline_value} for m in p.metrics],
-        baselines=[{"name": b.name, "paper_doi": b.paper_doi} for b in p.baselines],
+        id=view["id"],
+        statement=view.get("statement") or "",
+        status=str(view.get("status") or ProblemStatus.OPEN.value),
+        assumptions=view.get("assumptions") or [],
+        constraints=view.get("constraints") or [],
+        datasets=view.get("datasets") or [],
+        metrics=view.get("metrics") or [],
+        baselines=view.get("baselines") or [],
         evidence=evidence,
         extraction_metadata=extraction_metadata,
-        created_at=p.created_at,
-        updated_at=p.updated_at,
+        created_at=view.get("created_at"),
+        updated_at=view.get("updated_at"),
+        canonical_statement=view.get("canonical_statement"),
+        mention_count=view.get("mention_count") or 0,
+        paper_count=view.get("paper_count") or 0,
+        mentions=[
+            ProblemMentionResponse(**mention)
+            for mention in (view.get("mentions") or [])
+        ],
+        papers=view.get("papers") or [],
     )
 
 
@@ -77,7 +89,7 @@ def list_problems(
     offset: int = Query(default=0, ge=0),
     repo: Neo4jRepository = Depends(get_repo),
 ) -> ProblemListResponse:
-    """List problems with optional filtering."""
+    """List canonical problems (ProblemConcepts unioned with legacy Problems)."""
     problem_status = None
     if status:
         try:
@@ -85,14 +97,14 @@ def list_problems(
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
 
-    problems = repo.list_problems(
+    views = repo.list_problem_views(
         status=problem_status,
         limit=limit,
         offset=offset,
     )
     return ProblemListResponse(
-        problems=[_problem_to_summary(p) for p in problems],
-        total=len(problems),
+        problems=[_view_to_summary(view) for view in views],
+        total=len(views),
         limit=limit,
         offset=offset,
     )
@@ -103,12 +115,12 @@ def get_problem(
     problem_id: str,
     repo: Neo4jRepository = Depends(get_repo),
 ) -> ProblemDetail:
-    """Get a problem by ID."""
+    """Get a canonical problem by id (concept, mention, or legacy Problem)."""
     try:
-        problem = repo.get_problem(problem_id)
+        view = repo.get_problem_view(problem_id)
     except NotFoundError:
         raise HTTPException(status_code=404, detail=f"Problem not found: {problem_id}")
-    return _problem_to_detail(problem)
+    return _view_to_detail(view)
 
 
 @router.put("/{problem_id}", response_model=ProblemDetail)
@@ -117,22 +129,45 @@ def update_problem(
     update: ProblemUpdate,
     repo: Neo4jRepository = Depends(get_repo),
 ) -> ProblemDetail:
-    """Update a problem's status or fields."""
+    """Update a problem's status or statement.
+
+    Canonical ``ProblemConcept`` nodes are written through the concept
+    writer; legacy ``:Problem`` nodes keep the original path.
+    """
+    try:
+        view = repo.get_problem_view(problem_id)
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail=f"Problem not found: {problem_id}")
+
+    new_status = None
+    if update.status:
+        try:
+            new_status = ProblemStatus(update.status)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {update.status}")
+
+    if view.get("kind") == "concept":
+        updated_view = repo.update_problem_concept(
+            problem_id,
+            status=new_status,
+            statement=update.statement,
+        )
+        return _view_to_detail(updated_view)
+
+    # Legacy :Problem path.
     try:
         problem = repo.get_problem(problem_id)
     except NotFoundError:
         raise HTTPException(status_code=404, detail=f"Problem not found: {problem_id}")
 
-    if update.status:
-        try:
-            problem.status = ProblemStatus(update.status)
-        except ValueError:
-            raise HTTPException(status_code=400, detail=f"Invalid status: {update.status}")
+    if new_status:
+        problem.status = new_status
     if update.statement is not None:
         problem.statement = update.statement
 
-    updated = repo.update_problem(problem_id, problem)
-    return _problem_to_detail(updated)
+    repo.update_problem(problem)
+    refreshed = repo.get_problem_view(problem_id)
+    return _view_to_detail(refreshed)
 
 
 @router.delete("/{problem_id}")
@@ -140,7 +175,7 @@ def delete_problem(
     problem_id: str,
     repo: Neo4jRepository = Depends(get_repo),
 ) -> dict:
-    """Soft-delete a problem."""
+    """Soft-delete a problem (concept or legacy)."""
     try:
         repo.delete_problem(problem_id, soft=True)
     except NotFoundError:

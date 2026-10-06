@@ -74,7 +74,13 @@ class ContinuationAgent(BaseAgent):
             with self.repo.session() as session:
                 result = session.run(
                     """
-                    MATCH (p:Problem {id: $id})-[:BELONGS_TO]->(t:Topic)
+                    MATCH (n {id: $id})
+                    WHERE n:Problem OR n:ProblemConcept
+                    OPTIONAL MATCH (n)-[:BELONGS_TO]->(t1:Topic)
+                    OPTIONAL MATCH (n)<-[:INSTANCE_OF]-(:ProblemMention)
+                          -[:EXTRACTED_FROM]->(:Paper)-[:RESEARCHES]->(t2:Topic)
+                    WITH coalesce(t1, t2) AS t
+                    WHERE t IS NOT NULL
                     RETURN t.name AS name
                     LIMIT 1
                     """,

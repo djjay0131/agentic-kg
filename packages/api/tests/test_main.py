@@ -53,45 +53,19 @@ class TestStatsEndpoint:
     def test_stats_returns_counts(self, client):
         """Stats endpoint returns problem and paper counts."""
         # The stats endpoint calls get_repo() directly (not via Depends),
-        # so we need to patch the module-level function.
+        # so we patch the module-level function. Counts come from the
+        # canonical read model (ProblemConcept unioned with legacy Problem).
         mock_repo = MagicMock()
-        mock_session = MagicMock()
-
-        # Set up query results
-        problems_count = MagicMock()
-        problems_count.single.return_value = {"count": 10}
-
-        papers_count = MagicMock()
-        papers_count.single.return_value = {"count": 5}
-
-        topics_count = MagicMock()
-        topics_count.single.return_value = {"count": 2}
-
-        status_result = MagicMock()
-        status_result.__iter__ = MagicMock(
-            return_value=iter([
-                {"status": "open", "count": 7},
-                {"status": "solved", "count": 3},
-            ])
-        )
-
-        topic_result = MagicMock()
-        topic_result.__iter__ = MagicMock(
-            return_value=iter([
-                {"name": "Natural Language Processing", "count": 6},
-                {"name": "Computer Vision", "count": 4},
-            ])
-        )
-
-        mock_session.run.side_effect = [
-            problems_count,
-            papers_count,
-            topics_count,
-            status_result,
-            topic_result,
-        ]
-        mock_repo.session.return_value.__enter__ = MagicMock(return_value=mock_session)
-        mock_repo.session.return_value.__exit__ = MagicMock(return_value=False)
+        mock_repo.get_problem_stats.return_value = {
+            "total_problems": 10,
+            "total_papers": 5,
+            "total_topics": 2,
+            "problems_by_status": {"open": 7, "solved": 3},
+            "problems_by_topic": {
+                "Natural Language Processing": 6,
+                "Computer Vision": 4,
+            },
+        }
 
         with patch("agentic_kg_api.main.get_repo", return_value=mock_repo):
             response = client.get("/api/stats")

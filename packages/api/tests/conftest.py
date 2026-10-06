@@ -90,6 +90,31 @@ def make_problem(**kwargs):
     return p
 
 
+def make_problem_view(**kwargs):
+    """Create a canonical problem view dict (repository read-model shape)."""
+    return {
+        "id": kwargs.get("id", "prob-001"),
+        "kind": kwargs.get("kind", "problem"),
+        "statement": kwargs.get("statement", "How to improve transformer efficiency?"),
+        "canonical_statement": kwargs.get("canonical_statement"),
+        "status": kwargs.get("status", "open"),
+        "assumptions": kwargs.get("assumptions", []),
+        "constraints": kwargs.get("constraints", []),
+        "datasets": kwargs.get("datasets", []),
+        "metrics": kwargs.get("metrics", []),
+        "baselines": kwargs.get("baselines", []),
+        "evidence": kwargs.get("evidence"),
+        "extraction_metadata": kwargs.get("extraction_metadata"),
+        "mentions": kwargs.get("mentions", []),
+        "papers": kwargs.get("papers", []),
+        "mention_count": kwargs.get("mention_count", 0),
+        "paper_count": kwargs.get("paper_count", 0),
+        "confidence": kwargs.get("confidence"),
+        "created_at": kwargs.get("created_at"),
+        "updated_at": kwargs.get("updated_at"),
+    }
+
+
 def make_paper(**kwargs):
     """Create a mock Paper object with sensible defaults."""
     from unittest.mock import MagicMock
