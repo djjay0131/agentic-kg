@@ -199,15 +199,32 @@ def test_ranking_agent_retrieves_the_baseline_candidates(
     # would make it do.
     state = create_initial_state(max_problems=20)
     candidates = agent._query_candidates(state)
-    fixture_candidates = [
-        c for c in candidates if c["id"].startswith(compat_graph.token)
-    ]
-    assert fixture_candidates, "the RankingAgent retrieved none of the fixture problems"
 
-    ids = [c["id"].replace(compat_graph.token, "<T>") for c in fixture_candidates]
+    # #110: the read model unions canonical ProblemConcept nodes with legacy
+    # :Problem nodes, so the candidate set now also carries the fixture's
+    # ``_pconcept_*`` rows. The deterministic baseline probe still records the
+    # legacy :Problem read (the projection's concept rows cannot exist on a
+    # legacy graph), so compare the legacy subset to it in order and assert the
+    # canonical rows are surfaced too.
+    legacy_ids = [
+        c["id"] for c in candidates if c["id"] in set(compat_graph.problem_ids)
+    ]
+    assert legacy_ids, "the RankingAgent retrieved none of the fixture problems"
+
+    ids = [cid.replace(compat_graph.token, "<T>") for cid in legacy_ids]
     baseline_ids = [row["id"] for row in _load_baseline()["ranking.candidates"]]
     assert ids == baseline_ids, (
-        "the RankingAgent's candidate order diverged from the recorded baseline"
+        "the RankingAgent's legacy candidate order diverged from the recorded "
+        "baseline"
+    )
+
+    surfaced_concepts = {
+        c["id"] for c in candidates if c["id"] in set(compat_graph.problem_concept_ids)
+    }
+    assert surfaced_concepts == set(compat_graph.problem_concept_ids), (
+        "the canonical ProblemConcept problems were not surfaced by the "
+        "concept-aware read model (#110): expected "
+        f"{sorted(compat_graph.problem_concept_ids)}, got {sorted(surfaced_concepts)}"
     )
 
 

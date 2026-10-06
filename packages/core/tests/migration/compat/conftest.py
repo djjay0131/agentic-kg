@@ -100,7 +100,12 @@ class FixtureGraph:
     inputs: ProbeInputs
     #: Model ids in fixture-declaration order; the counter tests need them.
     model_ids: tuple[str, ...]
+    #: ResearchConcept ids (INVOLVES_CONCEPT targets).
     concept_ids: tuple[str, ...]
+    #: Canonical ProblemConcept ids. Since #110 the problem read model unions
+    #: these with legacy :Problem nodes, so tests that assert the union need to
+    #: name them separately from the legacy ``problem_ids``.
+    problem_concept_ids: tuple[str, ...]
     problem_ids: tuple[str, ...]
     paper_dois: tuple[str, ...]
     topic_ids: tuple[str, ...]
@@ -369,6 +374,10 @@ def compat_graph(neo4j_repository: Any, compat_token: str) -> Iterator[FixtureGr
         ),
         model_ids=tuple(model_ids),
         concept_ids=tuple(c.id for c in concepts),
+        problem_concept_ids=(
+            f"{tok}_pconcept_alpha",
+            f"{tok}_pconcept_bravo",
+        ),
         problem_ids=tuple(p.id for p in problems),
         paper_dois=(paper1.doi, paper2.doi),
         topic_ids=(root.id, area.id),

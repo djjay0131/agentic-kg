@@ -46,10 +46,12 @@ Four things make this registry more than a transcription:
    one tomorrow. They are marked ``DECLARED_CHANGE`` and are held to a
    *reachability* contract instead of a parity one.
 
-3. **Three write surfaces are recorded as ``SCOPED_OUT``** with the reason. They
+3. **Two write surfaces are recorded as ``SCOPED_OUT``** with the reason. They
    are non-functional today (see :mod:`agentic_kg.migration.compat` docstring),
    so a compatibility test that depended on them would be asserting over a code
-   path that raises before it reaches the graph.
+   path that raises before it reaches the graph. A third, PUT
+   ``/api/problems/{id}``, was scoped out on the same grounds and removed in
+   #110 when the route was repaired.
 
 Read-only: nothing in this module opens a driver or mutates anything.
 """
@@ -140,24 +142,25 @@ READ_PATHS: tuple[ReadPath, ...] = (
         surface="RankingAgent._query_candidates (no topic filter)",
         source_file=f"{CORE}/agents/ranking.py",
         snippet="results = self.search.structured_search(",
-        labels=("Problem",),
-        relationships=(),
+        labels=("Problem", "ProblemConcept", "ProblemMention"),
+        relationships=("INSTANCE_OF",),
         properties=("id", "statement", "status", "created_at", "extraction_metadata"),
-        ordering=("p.created_at DESC",),
+        ordering=("c.created_at DESC", "p.created_at DESC"),
         compat=CompatClass.PARITY,
         note=(
             "Delegates to SearchService.structured_search; falls back to "
             "Neo4jRepository.list_problems when no search service is injected. "
-            "Both order on p.created_at DESC.\n"
+            "Since #110 both reach the concept+legacy union (ProblemConcept "
+            "unioned with :Problem), so canonical problems now appear here too.\n"
             "NEW DEFECT D-4: `state.get('status_filter', 'open')` never yields "
             "'open' — create_initial_state stores the key with value None, so "
             "the default beside it is dead and the agent runs unfiltered. When a "
             "caller DOES set it (POST /api/agents/workflows accepts "
             "`status_filter` as a plain str, routers/agents.py:50), "
-            "search.py:208 evaluates `status.value` on that str and raises "
-            "AttributeError, which ranking.py's blanket `except Exception` turns "
-            "into a workflow with zero candidates. Masked in unit tests by a "
-            "MagicMock search service."
+            "repository.py's structured_problem_views evaluates "
+            "`status.value` on that str and raises AttributeError, which "
+            "ranking.py's blanket `except Exception` turns into a workflow with "
+            "zero candidates. Masked in unit tests by a MagicMock search service."
         ),
     ),
     ReadPath(
@@ -165,26 +168,49 @@ READ_PATHS: tuple[ReadPath, ...] = (
         surface="RankingAgent._query_candidates (topic_filter set)",
         source_file=f"{CORE}/agents/ranking.py",
         snippet="topic_id=topic_id,",
-        labels=("Problem", "Topic"),
-        relationships=("BELONGS_TO",),
+        labels=("Problem", "ProblemConcept", "ProblemMention", "Paper", "Topic"),
+        relationships=(
+            "BELONGS_TO",
+            "INSTANCE_OF",
+            "EXTRACTED_FROM",
+            "RESEARCHES",
+        ),
         properties=("id", "statement", "status", "created_at"),
-        ordering=("p.created_at DESC",),
+        ordering=("c.created_at DESC", "p.created_at DESC"),
         compat=CompatClass.DECLARED_CHANGE,
-        note="Reaches search.py:169, which matches the unwritten Problem->Topic edge.",
+        note=(
+            "Reaches the concept+legacy union: a direct Problem->Topic "
+            "BELONGS_TO edge has no automated writer, so on a pipeline-built "
+            "graph the legacy half is empty; the projection derives the edge and "
+            "adds the paper-RESEARCHES leg (spec §5.2)."
+        ),
     ),
     ReadPath(
         id="agent.continuation.topic_name",
         surface="ContinuationAgent._lookup_topic_name",
         source_file=f"{CORE}/agents/continuation.py",
-        snippet="MATCH (p:Problem {id: $id})-[:BELONGS_TO]->(t:Topic)",
-        labels=("Problem", "Topic"),
-        relationships=("BELONGS_TO",),
+        snippet="MATCH (n {id: $id})",
+        also=(
+            "OPTIONAL MATCH (n)-[:BELONGS_TO]->(t1:Topic)",
+            "OPTIONAL MATCH (n)<-[:INSTANCE_OF]-(:ProblemMention)",
+        ),
+        labels=("Problem", "ProblemConcept", "ProblemMention", "Paper", "Topic"),
+        relationships=(
+            "BELONGS_TO",
+            "INSTANCE_OF",
+            "EXTRACTED_FROM",
+            "RESEARCHES",
+        ),
         properties=("id", "name"),
         compat=CompatClass.DECLARED_CHANGE,
         note=(
-            "Swallows every exception and returns 'unspecified', so it degrades "
-            "silently rather than failing. Today it always returns 'unspecified' "
-            "on a pipeline-built graph."
+            "Concept-aware since #110: a direct ``(n)-[:BELONGS_TO]->(Topic)`` "
+            "(legacy :Problem or an explicit ProblemConcept edge) OR, concept-side, "
+            "a mention extracted from a paper that ``RESEARCHES`` the topic. On a "
+            "legacy graph only the direct edge exists, so this is a declared "
+            "change that adds the paper-resolved topic after cutover. Swallows "
+            "every exception and returns 'unspecified', so it degrades silently "
+            "rather than failing."
         ),
     ),
     ReadPath(
@@ -257,88 +283,147 @@ READ_PATHS: tuple[ReadPath, ...] = (
     # ------------------------------------------------------------------
     ReadPath(
         id="search.structured.by_topic",
-        surface="SearchService.structured_search(topic_id=...)",
+        surface=(
+            "SearchService.structured_search(topic_id=...) "
+            "-> Neo4jRepository.structured_problem_views"
+        ),
         source_file=f"{CORE}/knowledge_graph/search.py",
-        snippet='"MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic {id: $topic_id})"',
-        labels=("Problem", "Topic"),
-        relationships=("BELONGS_TO",),
+        snippet="topic_id=topic_id,",
+        also=("views = self._repo.structured_problem_views(",),
+        labels=("Problem", "ProblemConcept", "ProblemMention", "Paper", "Topic"),
+        relationships=(
+            "BELONGS_TO",
+            "INSTANCE_OF",
+            "EXTRACTED_FROM",
+            "RESEARCHES",
+        ),
         properties=("id", "statement", "status", "created_at", "datasets"),
-        ordering=("p.created_at DESC",),
+        ordering=("c.created_at DESC", "p.created_at DESC"),
         compat=CompatClass.DECLARED_CHANGE,
+        via=("structured_problem_views", "problem_ids_for_topic"),
         note=(
-            "The Problem->Topic edge this filters on has no automated writer, so "
-            "on a pipeline-built graph this returns empty for every topic. The "
-            "projection derives the edge (spec §5.2), so results appear for the "
-            "first time — a declared change, not a regression."
+            "Since #110 the query lives in repository.py and the union is "
+            "concept+legacy: a topic association is a direct ``BELONGS_TO`` or, "
+            "concept-side, a mention extracted from a paper that ``RESEARCHES`` "
+            "the topic. The Problem->Topic edge this filters on has no automated "
+            "writer, so on a pipeline-built graph the legacy half returns empty "
+            "for every topic; the projection derives the edge and the paper leg "
+            "(spec §5.2), so results appear for the first time — a declared "
+            "change, not a regression."
         ),
     ),
     ReadPath(
         id="search.structured.by_status",
-        surface="SearchService.structured_search(status=...)",
+        surface=(
+            "SearchService.structured_search(status=...) "
+            "-> Neo4jRepository.structured_problem_views"
+        ),
         source_file=f"{CORE}/knowledge_graph/search.py",
-        snippet='query += " RETURN p ORDER BY p.created_at DESC LIMIT $limit"',
-        also=('query = "MATCH (p:Problem)"',),
-        labels=("Problem",),
-        relationships=(),
+        snippet="status=status,",
+        also=("views = self._repo.structured_problem_views(",),
+        labels=("Problem", "ProblemConcept", "ProblemMention"),
+        relationships=("INSTANCE_OF",),
         properties=("id", "statement", "status", "created_at"),
-        ordering=("p.created_at DESC",),
+        ordering=("c.created_at DESC", "p.created_at DESC"),
         compat=CompatClass.PARITY,
+        via=("structured_problem_views", "list_problem_views"),
     ),
     ReadPath(
         id="search.structured.by_year",
-        surface="SearchService.structured_search(year_from/year_to)",
+        surface=(
+            "SearchService.structured_search(year_from/year_to) "
+            "-> Neo4jRepository.structured_problem_views"
+        ),
         source_file=f"{CORE}/knowledge_graph/search.py",
-        snippet='query += " MATCH (p)-[:EXTRACTED_FROM]->(paper:Paper)"',
-        labels=("Problem", "Paper"),
-        relationships=("EXTRACTED_FROM",),
+        snippet="year_from=year_from,",
+        also=("views = self._repo.structured_problem_views(",),
+        labels=("Problem", "ProblemConcept", "ProblemMention", "Paper"),
+        relationships=("INSTANCE_OF", "EXTRACTED_FROM"),
         properties=("year",),
-        ordering=("p.created_at DESC",),
         compat=CompatClass.PARITY,
-        note="The Problem->Paper shape of EXTRACTED_FROM, not the mention shape.",
+        via=("structured_problem_views", "list_problem_views"),
+        note=(
+            "Since #110 the year filter runs in Python over the view's "
+            "``papers`` list rather than joining ``(p)-[:EXTRACTED_FROM]->(paper)`` "
+            "in Cypher. That list is populated from a concept's mentions, so the "
+            "legacy :Problem half of the union supplies no year and is dropped by "
+            "a year filter -- recorded, not hidden."
+        ),
     ),
     ReadPath(
         id="search.semantic",
-        surface="SearchService.semantic_search / POST /api/search",
+        surface=(
+            "SearchService.semantic_search / POST /api/search "
+            "-> Neo4jRepository.semantic_problem_views"
+        ),
         source_file=f"{CORE}/knowledge_graph/search.py",
-        snippet="'problem_embedding_idx',",
-        labels=("Problem",),
+        snippet="views = self._repo.semantic_problem_views(",
+        labels=("Problem", "ProblemConcept"),
         relationships=(),
         properties=("embedding",),
-        vector_indexes=("problem_embedding_idx",),
+        vector_indexes=("concept_embedding_idx", "problem_embedding_idx"),
         compat=CompatClass.PARITY,
+        via=("semantic_problem_views",),
         note=(
-            "The index is named as a string literal, so the projection's DDL must "
-            "recreate it under exactly this name. Not exercised by the "
-            "deterministic baseline: it needs a live embedding provider."
+            "Since #110 this unions vector search over canonical "
+            "``concept_embedding_idx`` and legacy ``problem_embedding_idx`` so "
+            "freshly ingested ProblemConcepts are found. Both index names are "
+            "literals in repository.py, so the projection's DDL must recreate "
+            "them under exactly these names. Not exercised by the deterministic "
+            "baseline: it needs a live embedding provider."
         ),
     ),
     ReadPath(
         id="search.hybrid.topic_leg",
-        surface="SearchService.hybrid_search(topic_id=...)",
+        surface=(
+            "SearchService.hybrid_search(topic_id=...) "
+            "-> Neo4jRepository.problem_ids_for_topic"
+        ),
         source_file=f"{CORE}/knowledge_graph/search.py",
-        snippet="MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic {id: $tid})",
-        labels=("Problem", "Topic"),
-        relationships=("BELONGS_TO",),
+        snippet="self._repo.problem_ids_for_topic(topic_id)",
+        labels=("Problem", "ProblemConcept", "ProblemMention", "Paper", "Topic"),
+        relationships=(
+            "BELONGS_TO",
+            "INSTANCE_OF",
+            "EXTRACTED_FROM",
+            "RESEARCHES",
+        ),
         properties=("id",),
         compat=CompatClass.DECLARED_CHANGE,
+        via=("problem_ids_for_topic",),
         note=(
             "Resolves the topic's problem-id set up front, then filters the "
-            "semantic hits against it. An empty set silently drops every "
-            "semantic result, so a topic-filtered hybrid search returns nothing "
-            "today no matter how good the embedding match was."
+            "semantic hits against it. Since #110 the set is the concept+legacy "
+            "union (direct BELONGS_TO or a mention from a RESEARCHES paper). An "
+            "empty set silently drops every semantic result, so a topic-filtered "
+            "hybrid search returns nothing today no matter how good the embedding "
+            "match was."
         ),
     ),
     ReadPath(
         id="repo.list_problems",
-        via=("list_problems",),
-        surface="Neo4jRepository.list_problems (GET /api/problems)",
+        via=("list_problem_views", "list_problems", "get_problem_view"),
+        surface=(
+            "Neo4jRepository canonical problem reads "
+            "(GET /api/problems, GET /api/problems/{id})"
+        ),
         source_file=f"{CORE}/knowledge_graph/repository.py",
-        snippet='query += " RETURN p ORDER BY p.created_at DESC SKIP $offset LIMIT $limit"',
-        labels=("Problem",),
-        relationships=(),
+        snippet=(
+            "        MATCH (c:ProblemConcept)\n"
+            "        WHERE $status IS NULL OR c.status = $status"
+        ),
+        labels=("Problem", "ProblemConcept", "ProblemMention"),
+        relationships=("INSTANCE_OF",),
         properties=("id", "statement", "status", "created_at"),
-        ordering=("p.created_at DESC",),
+        ordering=("c.created_at DESC", "p.created_at DESC"),
         compat=CompatClass.PARITY,
+        note=(
+            "Since #110 ``list_problem_views`` / ``get_problem_view`` union "
+            "canonical ProblemConcept nodes with legacy :Problem nodes, and the "
+            "router surfaces serve that union. The legacy half is unchanged on a "
+            "legacy graph; the concept half is empty there, so the deterministic "
+            "baseline records legacy only."
+        ),
     ),
     ReadPath(
         id="relations.paper_authors",
@@ -360,49 +445,66 @@ READ_PATHS: tuple[ReadPath, ...] = (
     # ------------------------------------------------------------------
     ReadPath(
         id="api.stats.problems_by_topic",
-        surface="GET /api/stats",
+        surface="GET /api/stats -> Neo4jRepository.get_problem_stats",
         source_file=f"{API}/main.py",
-        snippet="MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic)",
-        labels=("Problem", "Topic"),
-        relationships=("BELONGS_TO",),
+        snippet="stats = repo.get_problem_stats()",
+        labels=("Problem", "ProblemConcept", "ProblemMention", "Paper", "Topic"),
+        relationships=(
+            "BELONGS_TO",
+            "RESEARCHES",
+            "EXTRACTED_FROM",
+            "INSTANCE_OF",
+        ),
         properties=("name",),
         compat=CompatClass.DECLARED_CHANGE,
+        via=("get_problem_stats",),
         note=(
-            "`problems_by_topic` is `{}` on any pipeline-built graph. The "
-            "dashboard histogram is empty today and becomes populated after "
-            "cutover."
+            "``problems_by_topic`` is ``{}`` on any pipeline-built legacy graph "
+            "for the BELONGS_TO half. Since #110 the count unions the canonical "
+            "ProblemConcept read model and adds the paper-RESEARCHES leg, so the "
+            "dashboard histogram becomes populated after cutover."
         ),
     ),
     ReadPath(
         id="api.stats.counts",
-        surface="GET /api/stats (totals + by status)",
+        surface="GET /api/stats (totals + by status) -> Neo4jRepository.get_problem_stats",
         source_file=f"{API}/main.py",
-        snippet='"MATCH (p:Problem) RETURN p.status as status, count(p) as count"',
-        also=(
-            '"MATCH (p:Problem) RETURN count(p) as count"',
-            '"MATCH (p:Paper) RETURN count(p) as count"',
-            '"MATCH (t:Topic) RETURN count(t) as count"',
-        ),
-        labels=("Problem", "Paper", "Topic"),
+        snippet="stats = repo.get_problem_stats()",
+        labels=("Problem", "ProblemConcept", "Paper", "Topic"),
         relationships=(),
         properties=("status",),
         compat=CompatClass.PARITY,
+        via=("get_problem_stats",),
         note=(
-            "Bare label counts. If canonical ledger rows ever carried one of "
-            "these labels in the same database, this endpoint would silently "
-            "over-count — see test_no_ledger_leak.py."
+            "Since #110 the problem total and by-status counts cover "
+            "ProblemConcept OR Problem in one query. On a legacy graph that is "
+            "exactly the :Problem count, so the baseline is unchanged. If "
+            "canonical ledger rows ever carried one of these labels in the same "
+            "database, this endpoint would silently over-count — see "
+            "test_no_ledger_leak.py."
         ),
     ),
     ReadPath(
         id="api.graph.problems_by_topic",
         surface="GET /api/graph?topic_id=",
         source_file=f"{API}/routers/graph.py",
-        snippet="MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic {id: $topic_id})",
-        labels=("Problem", "Topic"),
-        relationships=("BELONGS_TO",),
-        properties=("statement", "status", "confidence"),
+        snippet="WHERE (c)-[:BELONGS_TO]->(:Topic {id: $topic_id})",
+        also=("MATCH (p:Problem)-[:BELONGS_TO]->(:Topic {id: $topic_id})",),
+        labels=("Problem", "ProblemConcept", "ProblemMention", "Paper", "Topic"),
+        relationships=(
+            "BELONGS_TO",
+            "INSTANCE_OF",
+            "EXTRACTED_FROM",
+            "RESEARCHES",
+        ),
+        properties=("canonical_statement", "statement", "status", "confidence"),
         compat=CompatClass.DECLARED_CHANGE,
-        note="LIMIT without ORDER BY — ordering is incidental (spec U-8).",
+        note=(
+            "Since #110 the topic branch unions ProblemConcept (direct "
+            "BELONGS_TO or via a mention from a RESEARCHES paper) with legacy "
+            ":Problem (direct BELONGS_TO only). LIMIT without ORDER BY — "
+            "ordering is incidental (spec U-8)."
+        ),
     ),
     ReadPath(
         id="api.graph.problem_relations",
@@ -416,75 +518,121 @@ READ_PATHS: tuple[ReadPath, ...] = (
         note=(
             "UNTYPED relationship pattern: any Problem->Problem edge is rendered. "
             "A projection that adds a new Problem->Problem edge type changes this "
-            "endpoint's output without touching its code."
+            "endpoint's output without touching its code. Since #110 this "
+            "unfiltered query serves both the topic and unfiltered branches; the "
+            "old topic-filtered relation leg was removed (its read-path entry and "
+            "probe were retired with it)."
         ),
     ),
     ReadPath(
         id="api.graph.problems_papers",
         surface="GET /api/graph?include_papers=true",
         source_file=f"{API}/routers/graph.py",
-        snippet="MATCH (p:Problem)-[r:EXTRACTED_FROM]->(paper:Paper)",
-        labels=("Problem", "Paper"),
-        relationships=("EXTRACTED_FROM",),
+        snippet="MATCH (c:ProblemConcept)<-[:INSTANCE_OF]-(:ProblemMention)",
+        also=("MATCH (p:Problem)-[:EXTRACTED_FROM]->(paper:Paper)",),
+        labels=("Problem", "ProblemConcept", "ProblemMention", "Paper"),
+        relationships=("INSTANCE_OF", "EXTRACTED_FROM"),
         properties=("title", "doi", "year", "authors"),
         compat=CompatClass.PARITY,
+        note="Concept-side paper leg reads ProblemMention->Paper; legacy leg unchanged.",
     ),
     ReadPath(
         id="api.graph.include_topics",
         surface="GET /api/graph?include_topics=true",
         source_file=f"{API}/routers/graph.py",
-        snippet="MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic)",
-        labels=("Problem", "Topic"),
-        relationships=("BELONGS_TO",),
+        snippet="MATCH (c:ProblemConcept)-[:BELONGS_TO]->(topic:Topic)",
+        also=(
+            "MATCH (c:ProblemConcept)<-[:INSTANCE_OF]-(:ProblemMention)",
+            "MATCH (p:Problem)-[:BELONGS_TO]->(topic:Topic)",
+        ),
+        labels=("Problem", "ProblemConcept", "ProblemMention", "Paper", "Topic"),
+        relationships=(
+            "BELONGS_TO",
+            "INSTANCE_OF",
+            "EXTRACTED_FROM",
+            "RESEARCHES",
+        ),
         properties=("id", "name", "level", "problem_count"),
         compat=CompatClass.DECLARED_CHANGE,
         note=(
-            "Also reads Topic.problem_count, a denormalized counter the "
-            "projection recomputes from edges (spec §4.4) — so the rendered "
-            "value can change even where the edge set does not."
+            "Since #110 unions three legs: concept BELONGS_TO, concept via a "
+            "mention from a RESEARCHES paper, and legacy BELONGS_TO. Also reads "
+            "Topic.problem_count, a denormalized counter the projection "
+            "recomputes from edges (spec §4.4) — so the rendered value can change "
+            "even where the edge set does not."
         ),
     ),
     ReadPath(
         id="api.graph.node_neighbourhood",
         surface="GET /api/graph/node/{node_id}",
         source_file=f"{API}/routers/graph.py",
-        snippet="OPTIONAL MATCH (p)-[r]-(neighbor)",
-        labels=("Problem",),
+        snippet="OPTIONAL MATCH (n)-[r]-(neighbor)",
+        labels=(
+            "Problem",
+            "ProblemConcept",
+            "ProblemMention",
+            "Paper",
+            "Topic",
+        ),
         relationships=(),
-        properties=("statement", "status"),
+        properties=("statement", "canonical_statement", "status"),
         compat=CompatClass.PARITY,
         note=(
-            "UNTYPED and UNLABELLED neighbour pattern — it renders whatever is "
-            "adjacent. The strongest ledger-leak surface in the application; "
-            "asserted behaviourally in test_no_ledger_leak.py."
+            "UNTYPED and UNLABELLED neighbour pattern keyed on elementId — it "
+            "renders whatever is adjacent to a ProblemConcept, ProblemMention, "
+            "Problem, Paper or Topic. The strongest ledger-leak surface in the "
+            "application; asserted behaviourally in test_no_ledger_leak.py."
         ),
     ),
     ReadPath(
         id="api.topics.problems",
-        surface="GET /api/topics/{id}/problems",
+        surface="GET /api/topics/{id}/problems -> Neo4jRepository.list_problem_views_for_topic",
         source_file=f"{API}/routers/topics.py",
-        snippet="MATCH (p:Problem)-[:BELONGS_TO]->(t:Topic {id: $topic_id})",
-        labels=("Problem", "Topic"),
-        relationships=("BELONGS_TO",),
+        snippet="views = repo.list_problem_views_for_topic(",
+        labels=("Problem", "ProblemConcept", "ProblemMention", "Paper", "Topic"),
+        relationships=(
+            "BELONGS_TO",
+            "INSTANCE_OF",
+            "EXTRACTED_FROM",
+            "RESEARCHES",
+        ),
         properties=("id", "statement", "status", "created_at"),
         compat=CompatClass.DECLARED_CHANGE,
+        via=("list_problem_views_for_topic",),
         note=(
-            "LIMIT with no ORDER BY (spec U-8): row order is whatever the "
-            "planner produces, so this endpoint has no stable pagination "
-            "contract to preserve in the first place. The probe adds an ORDER BY "
-            "so the baseline is reproducible, and that difference is deliberate."
+            "Since #110 serves the concept+legacy union: a problem is associated "
+            "with the topic via a direct BELONGS_TO edge or, concept-side, a "
+            "mention extracted from a paper that RESEARCHES it. LIMIT with no "
+            "ORDER BY (spec U-8): row order is whatever the planner produces, so "
+            "this endpoint has no stable pagination contract to preserve in the "
+            "first place. The probe adds an ORDER BY so the baseline is "
+            "reproducible, and that difference is deliberate."
         ),
     ),
     ReadPath(
         id="api.topics.problems_subtopics",
-        surface="GET /api/topics/{id}/problems?include_subtopics=true",
+        surface=(
+            "GET /api/topics/{id}/problems?include_subtopics=true "
+            "-> Neo4jRepository.list_problem_views_for_topic"
+        ),
         source_file=f"{API}/routers/topics.py",
-        snippet="MATCH (descendant:Topic)-[:SUBTOPIC_OF*0..]->(root:Topic {id: $topic_id})",
-        labels=("Problem", "Topic"),
-        relationships=("BELONGS_TO", "SUBTOPIC_OF"),
+        snippet="views = repo.list_problem_views_for_topic(",
+        labels=("Problem", "ProblemConcept", "ProblemMention", "Paper", "Topic"),
+        relationships=(
+            "SUBTOPIC_OF",
+            "BELONGS_TO",
+            "INSTANCE_OF",
+            "EXTRACTED_FROM",
+            "RESEARCHES",
+        ),
         properties=("id", "statement", "status"),
         compat=CompatClass.DECLARED_CHANGE,
-        note="Variable-length SUBTOPIC_OF traversal; the projection must keep the direction.",
+        via=("list_problem_views_for_topic",),
+        note=(
+            "Variable-length SUBTOPIC_OF traversal resolves the descendant topic "
+            "ids; the projection must keep the direction. The concept+legacy "
+            "association union is the same as the direct-route sibling above."
+        ),
     ),
     ReadPath(
         id="api.concepts.list",
@@ -615,15 +763,17 @@ READ_PATHS: tuple[ReadPath, ...] = (
         id="api.graph.problems",
         surface="GET /api/graph (no topic filter)",
         source_file=f"{API}/routers/graph.py",
-        snippet="                MATCH (p:Problem)\n                RETURN p\n",
-        labels=("Problem",),
+        snippet='concept_query = "MATCH (c:ProblemConcept) RETURN c LIMIT $limit"',
+        also=('legacy_query = "MATCH (p:Problem) RETURN p LIMIT $limit"',),
+        labels=("Problem", "ProblemConcept"),
         relationships=(),
-        properties=("statement", "status", "confidence"),
+        properties=("canonical_statement", "statement", "status", "confidence"),
         compat=CompatClass.PARITY,
         note=(
-            "The unfiltered branch of the same endpoint whose topic branch was "
-            "inventoried. Missing from the first cut — found by the "
-            "completeness scan, not by reading. LIMIT with no ORDER BY."
+            "The unfiltered branch of the same endpoint, unioning canonical "
+            "ProblemConcept with legacy :Problem since #110. Missing from the "
+            "first cut — found by the completeness scan, not by reading. LIMIT "
+            "with no ORDER BY."
         ),
     ),
     ReadPath(
@@ -644,22 +794,6 @@ READ_PATHS: tuple[ReadPath, ...] = (
             "preserved, and its sibling api.graph.include_topics — reading the "
             "same property — was already DECLARED_CHANGE. The row ORDER is "
             "stable here (t.name); it is the payload that changes."
-        ),
-    ),
-    ReadPath(
-        id="api.graph.problem_relations_by_topic",
-        surface="GET /api/graph?topic_id= (problem-problem link leg)",
-        source_file=f"{API}/routers/graph.py",
-        snippet="MATCH (p1:Problem)-[:BELONGS_TO]->(:Topic {id: $topic_id})",
-        labels=("Problem", "Topic"),
-        relationships=("BELONGS_TO", "EXTENDS", "CONTRADICTS", "DEPENDS_ON", "REFRAMES"),
-        properties=("statement", "status"),
-        compat=CompatClass.DECLARED_CHANGE,
-        note=(
-            "The eighth BELONGS_TO site, named by spec §5.2 ('graph.py:39,77,173') "
-            "and missing from the first cut of this inventory — so the original "
-            "31 entries covered 7 of the 8 sites the spec itself lists. Untyped "
-            "second hop, like its unfiltered sibling."
         ),
     ),
     ReadPath(
@@ -906,23 +1040,13 @@ class ScopedOutSurface:
 #: broken. That is deliberate: if someone repairs one, the scope-out stops being
 #: justified and the harness must be widened, so the test going red is the
 #: notification.
+#:
+#: ``write.api.put_problem`` was here until #110 repaired PUT /api/problems/{id}:
+#: the router now fetches a canonical view, writes a ProblemConcept through
+#: ``update_problem_concept`` or a legacy Problem through ``update_problem``,
+#: and no longer makes the positional misbind. The tripwire became the positive
+#: test ``test_put_problem_binds_its_arguments_correctly``.
 SCOPED_OUT_SURFACES: tuple[ScopedOutSurface, ...] = (
-    ScopedOutSurface(
-        id="write.api.put_problem",
-        surface="PUT /api/problems/{id}",
-        source_file=f"{API}/routers/problems.py",
-        call="repo.update_problem(problem_id, problem)",
-        declaration_file=f"{CORE}/knowledge_graph/repository.py",
-        declaration=(
-            "def update_problem(self, problem: Problem, "
-            "regenerate_embedding: bool = False)"
-        ),
-        failure="AttributeError: 'str' object has no attribute 'id' -> uncaught -> HTTP 500",
-        reason=(
-            "The positional call binds problem_id to `problem` and the Problem "
-            "to `regenerate_embedding`."
-        ),
-    ),
     ScopedOutSurface(
         id="write.api.reviews",
         surface="POST /api/reviews/{id}/{assign,unassign,resolve} and GET /api/reviews",
