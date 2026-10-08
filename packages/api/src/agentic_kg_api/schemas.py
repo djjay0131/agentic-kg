@@ -40,6 +40,8 @@ class ProblemSummary(BaseModel):
     canonical_statement: Optional[str] = None
     mention_count: int = 0
     paper_count: int = 0
+    # Provenance: 'extracted' for ingested problems, 'agent:<name>' otherwise.
+    origin: Optional[str] = None
 
 
 class ProblemMentionResponse(BaseModel):
@@ -79,6 +81,8 @@ class ProblemDetail(BaseModel):
     paper_count: int = 0
     mentions: list[ProblemMentionResponse] = Field(default_factory=list)
     papers: list[dict] = Field(default_factory=list)
+    # Provenance: 'extracted' for ingested problems, 'agent:<name>' otherwise.
+    origin: Optional[str] = None
 
 
 class ProblemUpdate(BaseModel):

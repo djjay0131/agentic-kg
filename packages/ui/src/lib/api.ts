@@ -11,6 +11,7 @@ export interface ProblemSummary {
   status: string;
   confidence: number | null;
   created_at: string | null;
+  origin: string | null;
 }
 
 export interface ProblemDetail extends ProblemSummary {

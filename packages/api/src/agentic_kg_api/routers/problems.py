@@ -33,6 +33,7 @@ def _view_to_summary(view: dict) -> ProblemSummary:
         canonical_statement=view.get("canonical_statement"),
         mention_count=view.get("mention_count") or 0,
         paper_count=view.get("paper_count") or 0,
+        origin=view.get("origin"),
     )
 
 
@@ -79,6 +80,7 @@ def _view_to_detail(view: dict) -> ProblemDetail:
             for mention in (view.get("mentions") or [])
         ],
         papers=view.get("papers") or [],
+        origin=view.get("origin"),
     )
 
 
