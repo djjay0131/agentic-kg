@@ -97,11 +97,15 @@ class RelationService:
             rel_type: str,
             props: dict,
         ) -> bool:
-            # Verify both problems exist
+            # Verify both problems exist. Endpoints may be legacy :Problem
+            # nodes or canonical :ProblemConcept nodes — the read model
+            # surfaces both through the same Problem model.
             check = tx.run(
                 """
-                MATCH (from:Problem {id: $from_id})
-                MATCH (to:Problem {id: $to_id})
+                MATCH (from)
+                WHERE from.id = $from_id AND (from:Problem OR from:ProblemConcept)
+                MATCH (to)
+                WHERE to.id = $to_id AND (to:Problem OR to:ProblemConcept)
                 RETURN from.id, to.id
                 """,
                 from_id=from_id,
@@ -113,7 +117,7 @@ class RelationService:
             # Check if relation already exists
             existing = tx.run(
                 f"""
-                MATCH (from:Problem {{id: $from_id}})-[r:{rel_type}]->(to:Problem {{id: $to_id}})
+                MATCH (from {{id: $from_id}})-[r:{rel_type}]->(to {{id: $to_id}})
                 RETURN r
                 """,
                 from_id=from_id,
@@ -127,8 +131,8 @@ class RelationService:
             # Create relation
             tx.run(
                 f"""
-                MATCH (from:Problem {{id: $from_id}})
-                MATCH (to:Problem {{id: $to_id}})
+                MATCH (from {{id: $from_id}})
+                MATCH (to {{id: $to_id}})
                 CREATE (from)-[r:{rel_type}]->(to)
                 SET r = $props
                 """,
@@ -531,6 +535,7 @@ class RelationService:
             "baselines",
             "evidence",
             "extraction_metadata",
+            "derived_from",
         ]:
             if field in data and isinstance(data[field], str):
                 data[field] = json.loads(data[field])
@@ -539,8 +544,8 @@ class RelationService:
             if field in data and isinstance(data[field], str):
                 data[field] = datetime.fromisoformat(data[field])
 
-        if "extraction_metadata" in data:
-            meta = data["extraction_metadata"]
+        meta = data.get("extraction_metadata")
+        if isinstance(meta, dict):
             if "extracted_at" in meta and isinstance(meta["extracted_at"], str):
                 meta["extracted_at"] = datetime.fromisoformat(meta["extracted_at"])
             if meta.get("reviewed_at") and isinstance(meta["reviewed_at"], str):

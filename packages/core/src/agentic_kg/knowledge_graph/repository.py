@@ -469,6 +469,101 @@ class Neo4jRepository:
                 logger.warning("Skipping unreadable Problem node: %s", e)
         return problems
 
+    def set_problem_status(self, problem_id: str, status: ProblemStatus) -> bool:
+        """Set a problem's status on either a legacy ``:Problem`` or a
+        canonical ``:ProblemConcept`` node.
+
+        The agent adapters surface both labels through the same ``Problem``
+        model, so a status write must not assume the legacy label. Returns
+        True when a node was updated.
+        """
+        def _update(tx: ManagedTransaction, pid: str, value: str) -> bool:
+            record = tx.run(
+                """
+                MATCH (n)
+                WHERE n.id = $id AND (n:Problem OR n:ProblemConcept)
+                SET n.status = $status, n.updated_at = $updated_at
+                RETURN n.id AS id
+                """,
+                id=pid,
+                status=value,
+                updated_at=datetime.now(timezone.utc).isoformat(),
+            ).single()
+            return record is not None
+
+        with self.session() as session:
+            return bool(
+                self._execute_with_retry(session, _update, problem_id, status.value)
+            )
+
+    def create_derived_from(
+        self,
+        from_problem_id: str,
+        to_problem_id: str,
+        *,
+        method: Optional[str] = None,
+        workflow_run_id: Optional[str] = None,
+        trace_id: Optional[str] = None,
+    ) -> bool:
+        """Create a ``(from)-[:DERIVED_FROM]->(to)`` provenance edge.
+
+        ``from`` is the agent-derived problem; ``to`` is the source it was
+        derived from and may be a legacy ``:Problem`` or a canonical
+        ``:ProblemConcept``. Returns True when the edge was created or
+        already existed and both endpoints were found.
+        """
+        props: dict[str, Any] = {"created_at": datetime.now(timezone.utc).isoformat()}
+        if method:
+            props["method"] = method
+        if workflow_run_id:
+            props["workflow_run_id"] = workflow_run_id
+        if trace_id:
+            props["trace_id"] = trace_id
+
+        def _create(tx: ManagedTransaction, from_id: str, to_id: str, p: dict) -> bool:
+            record = tx.run(
+                """
+                MATCH (from)
+                WHERE from.id = $from_id AND (from:Problem OR from:ProblemConcept)
+                MATCH (to)
+                WHERE to.id = $to_id AND (to:Problem OR to:ProblemConcept)
+                MERGE (from)-[r:DERIVED_FROM]->(to)
+                SET r += $props
+                RETURN r
+                """,
+                from_id=from_id,
+                to_id=to_id,
+                props=p,
+            ).single()
+            return record is not None
+
+        with self.session() as session:
+            found = self._execute_with_retry(
+                session, _create, from_problem_id, to_problem_id, props
+            )
+        if found:
+            logger.info(
+                f"Created DERIVED_FROM edge: {from_problem_id} -> {to_problem_id}"
+            )
+        return bool(found)
+
+    def get_derived_from(self, problem_id: str) -> list[dict]:
+        """Return the ``DERIVED_FROM`` sources of a problem (id + edge props)."""
+        def _get(tx: ManagedTransaction, pid: str) -> list[dict]:
+            return [
+                {"id": r["id"], "method": r["method"], "trace_id": r["trace_id"]}
+                for r in tx.run(
+                    """
+                    MATCH (from {id: $id})-[r:DERIVED_FROM]->(to)
+                    RETURN to.id AS id, r.method AS method, r.trace_id AS trace_id
+                    """,
+                    id=pid,
+                )
+            ]
+
+        with self.session() as session:
+            return session.execute_read(lambda tx: _get(tx, problem_id))
+
     def _problem_from_neo4j(self, data: dict) -> Problem:
         """Convert Neo4j node data to Problem model."""
         # Parse JSON strings back to objects (tolerates legacy double-encoding)
@@ -481,6 +576,7 @@ class Neo4jRepository:
         data["extraction_metadata"] = decode_json_field(
             data.get("extraction_metadata"), {}
         )
+        data["derived_from"] = decode_json_field(data.get("derived_from"), [])
 
         # Parse datetimes
         if isinstance(data.get("created_at"), str):
@@ -619,6 +715,8 @@ class Neo4jRepository:
             ),
             "paper_count": int(data.get("paper_count") or 0),
             "confidence": confidence,
+            "origin": data.get("origin"),
+            "derived_from": self._as_dict_list(data.get("derived_from")),
             "created_at": self._as_datetime(data.get("created_at")),
             "updated_at": self._as_datetime(data.get("updated_at")),
         }
@@ -647,6 +745,8 @@ class Neo4jRepository:
             "mention_count": 0,
             "paper_count": 0,
             "confidence": confidence,
+            "origin": data.get("origin"),
+            "derived_from": self._as_dict_list(data.get("derived_from")),
             "created_at": self._as_datetime(data.get("created_at")),
             "updated_at": self._as_datetime(data.get("updated_at")),
         }
@@ -697,6 +797,8 @@ class Neo4jRepository:
             baselines=view.get("baselines") or [],
             evidence=evidence,
             extraction_metadata=extraction_metadata,
+            origin=view.get("origin") or "extracted",
+            derived_from=view.get("derived_from") or [],
             created_at=view.get("created_at") or now,
             updated_at=view.get("updated_at") or now,
         )

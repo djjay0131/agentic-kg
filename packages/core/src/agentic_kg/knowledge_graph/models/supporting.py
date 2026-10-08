@@ -88,3 +88,32 @@ class ExtractionMetadata(BaseModel):
     human_reviewed: bool = Field(default=False)
     reviewed_by: Optional[str] = Field(default=None)
     reviewed_at: Optional[datetime] = Field(default=None)
+
+
+class DerivationInput(BaseModel):
+    """A single input to an agent derivation.
+
+    ``kind`` names the input type (e.g. ``problem``, ``paper``, ``evidence``)
+    and ``ref`` is the stable identifier within that kind.
+    """
+
+    kind: str = Field(..., min_length=1, description="Input kind, e.g. 'problem'")
+    ref: str = Field(..., min_length=1, description="Stable identifier of the input")
+
+
+class Derivation(BaseModel):
+    """Provenance of an agent-derived entity.
+
+    Mirrors the ``kg_contracts.Derivation`` shape (method, inputs,
+    implementation_version) so agent-derived nodes map onto KGIS/KGCS
+    once the adopter layer lands. Stored on the node as a JSON string
+    property and linked through ``DERIVED_FROM`` edges.
+    """
+
+    method: str = Field(..., min_length=1, description="How the entity was derived")
+    inputs: list[DerivationInput] = Field(
+        default_factory=list, description="Source inputs the derivation used"
+    )
+    implementation_version: str = Field(
+        default="1.0.0", description="Version of the deriving implementation"
+    )

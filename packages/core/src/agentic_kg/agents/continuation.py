@@ -132,7 +132,7 @@ class ContinuationAgent(BaseAgent):
         if self.relations:
             try:
                 related = self.relations.get_related_problems(
-                    problem_id, direction="both", limit=10
+                    problem_id, direction="both"
                 )
                 for rel in related:
                     context["related_problems"].append(
