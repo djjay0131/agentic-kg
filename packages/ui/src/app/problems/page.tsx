@@ -24,6 +24,15 @@ function ConfidenceBar({ value }: { value: number | null }) {
   );
 }
 
+function AgentBadge({ origin }: { origin?: string | null }) {
+  if (!origin?.startsWith('agent:')) return null;
+  return (
+    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-700 align-middle ml-2">
+      agent-derived
+    </span>
+  );
+}
+
 export default function ProblemsPage() {
   return (
     <Suspense fallback={<div className="text-center py-12 text-gray-500">Loading...</div>}>
@@ -40,6 +49,7 @@ function ProblemsContent() {
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [domainFilter, setDomainFilter] = useState<string>('');
+  const [originFilter, setOriginFilter] = useState<string>('');
 
   // Update search input when URL changes
   useEffect(() => {
@@ -60,10 +70,11 @@ function ProblemsContent() {
 
   // List query (when not searching)
   const { data: listResults, isLoading: listLoading } = useQuery({
-    queryKey: ['problems', 'list', statusFilter, domainFilter],
+    queryKey: ['problems', 'list', statusFilter, domainFilter, originFilter],
     queryFn: () => api.listProblems({
       status: statusFilter || undefined,
       domain: domainFilter || undefined,
+      origin: originFilter || undefined,
       limit: 50,
     }),
     enabled: !isSearchMode,
@@ -126,6 +137,21 @@ function ProblemsContent() {
             </select>
           </div>
 
+          <div className="w-40">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Origin
+            </label>
+            <select
+              value={originFilter}
+              onChange={(e) => setOriginFilter(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
+            >
+              <option value="">All origins</option>
+              <option value="extracted">Extracted</option>
+              <option value="agent:synthesis">Agent-derived</option>
+            </select>
+          </div>
+
           <button
             type="submit"
             className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
@@ -176,6 +202,7 @@ function ProblemsContent() {
                     >
                       {problem.statement}
                     </Link>
+                    <AgentBadge origin={problem.origin} />
                   </td>
                   <td className="text-gray-600">{problem.domain || '-'}</td>
                   <td>

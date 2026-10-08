@@ -129,6 +129,21 @@ class TestListProblems:
         origins = {p["id"]: p["origin"] for p in response.json()["problems"]}
         assert origins == {"synth-1": "agent:synthesis", "p1": "extracted"}
 
+    def test_list_problems_with_origin_filter(self, client, mock_repo):
+        """The origin query param is forwarded to the read model."""
+        mock_repo.list_problem_views.return_value = []
+        response = client.get("/api/problems?origin=agent:synthesis")
+        assert response.status_code == 200
+        call_kwargs = mock_repo.list_problem_views.call_args[1]
+        assert call_kwargs["origin"] == "agent:synthesis"
+
+    def test_list_problems_without_origin_filter_passes_none(self, client, mock_repo):
+        """Omitting origin leaves the read model unfiltered."""
+        mock_repo.list_problem_views.return_value = []
+        response = client.get("/api/problems")
+        assert response.status_code == 200
+        assert mock_repo.list_problem_views.call_args[1]["origin"] is None
+
 
 # =============================================================================
 # GET /api/problems/{problem_id} -- Get Problem Detail

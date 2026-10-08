@@ -86,6 +86,7 @@ def make_problem(**kwargs):
     p.datasets = kwargs.get("datasets", [])
     p.metrics = kwargs.get("metrics", [])
     p.baselines = kwargs.get("baselines", [])
+    p.origin = kwargs.get("origin", None)
     return p
 
 

@@ -178,10 +178,11 @@ export const api = {
   stats: () => fetchAPI<Stats>('/api/stats'),
 
   // Problems
-  listProblems: (params?: { status?: string; domain?: string; limit?: number; offset?: number }) => {
+  listProblems: (params?: { status?: string; domain?: string; origin?: string; limit?: number; offset?: number }) => {
     const searchParams = new URLSearchParams();
     if (params?.status) searchParams.set('status', params.status);
     if (params?.domain) searchParams.set('domain', params.domain);
+    if (params?.origin) searchParams.set('origin', params.origin);
     if (params?.limit) searchParams.set('limit', String(params.limit));
     if (params?.offset) searchParams.set('offset', String(params.offset));
     const query = searchParams.toString();
