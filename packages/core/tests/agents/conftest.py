@@ -16,6 +16,12 @@ from agentic_kg.agents.schemas import (
     RankedProblem,
 )
 from agentic_kg.agents.state import ResearchState, create_initial_state
+from agentic_kg.knowledge_graph.models import (
+    Problem,
+    ProblemRelation,
+    ProblemStatus,
+    RelationType,
+)
 from agentic_kg.knowledge_graph.relations import RelationService
 from agentic_kg.knowledge_graph.repository import Neo4jRepository
 from agentic_kg.knowledge_graph.search import SearchService
@@ -93,11 +99,24 @@ def mock_search(mock_problem):
 
 @pytest.fixture
 def mock_relations():
-    """Mock RelationService, autospecced for signature fidelity."""
+    """Mock RelationService, autospecced for signature fidelity.
+
+    ``get_related_problems`` returns the real shape — a list of
+    ``(Problem, ProblemRelation)`` tuples — so a consumer that treats the
+    entries as dicts fails loudly instead of silently yielding nothing.
+    """
     relations = create_autospec(RelationService, instance=True)
-    relations.get_related_problems.return_value = [
-        {"type": "EXTENDS", "statement": "Related problem statement"},
-    ]
+    related_problem = Problem(
+        id="prob-2",
+        statement="A related problem statement of sufficient length",
+        status=ProblemStatus.OPEN,
+    )
+    relation = ProblemRelation(
+        from_problem_id="prob-1",
+        to_problem_id="prob-2",
+        relation_type=RelationType.EXTENDS,
+    )
+    relations.get_related_problems.return_value = [(related_problem, relation)]
     relations.create_relation.return_value = None
     return relations
 
