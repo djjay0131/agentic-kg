@@ -32,6 +32,16 @@ loosely, so CI stayed green. Fixed:
   integration test `tests/knowledge_graph/test_synthesis_writeback.py` proves
   the real Cypher writes provenance + lineage.
 - API exposes `origin` on problem responses; UI shows an "agent-derived" badge.
+- Review follow-up (PR #115): `get_related_problems` now traverses only
+  `RelationType` members, so the synthesis `DERIVED_FROM` provenance edge no
+  longer raises `ValueError` and bleeds the call for both source and derived;
+  relation endpoints and `get_derived_from` are label-scoped
+  (`:Problem OR :ProblemConcept`); `continuation.py` consumes the real
+  `(Problem, ProblemRelation)` tuples instead of treating them as dicts;
+  the problems list API takes an optional `origin` filter and the list/home
+  views show the badge; `DERIVED_FROM` is deliberately a non-extraction edge,
+  so a re-ingest of a source paper blocks unless `--force-rewrite` (pinned by
+  a test).
 
 Tracked under the KGPS provenance audit (djjay0131/agentic-kgps#1); the
 `kg_contracts.Derivation` shape is the seam for the KGIS/KGCS adoption plan
