@@ -20,9 +20,40 @@ KGIS/KGCS own reusable admission/curation. agentic-kg retains research-domain on
 - agentic-kg currently has a bespoke Neo4j ingestion path in `packages/core/src/agentic_kg/ingestion.py`; its governance delta explicitly records KGIS/KGCS as future dependencies and says there are currently zero `kg_contracts` references.
 - The 8-paper connected ground-truth chain at `packages/core/tests/extraction/fixtures/ground_truth_chain/` was built specifically for live importer validation. It records 10 verified citation edges and recurring concepts. Only `reconciled/` is authoritative; human/Claude files are evidence.
 - Ground truth is incomplete and the segmenter backlog can confound recall. Do not score unreconciled material as negative evidence.
-- Issue #58 is a real legacy defect: current smoke ingestion writes zero `CITES` edges while the other five graph-shape assertions pass.
+- Issue #58 is a real legacy defect: current smoke ingestion writes zero
+  `CITES` edges while the other five graph-shape assertions pass.
 - KGIS and KGCS v1 implementation is merged and their cross-repo E2E includes evidence-driven re-curation.
 - Multiple GCP environments are available; use an isolated development/shadow environment and graph.
+
+## Agent-derived provenance seam (issue #114, 2026-10)
+
+`SynthesisAgent` previously wrote nothing (wrong call signatures, swallowed).
+Its write-back now lands (see `packages/core/src/agentic_kg/agents/synthesis.py`)
+and, importantly for this migration, it already emits the shape Phase 1/3
+needs:
+
+- agent-derived `Problem` nodes carry `origin="agent:synthesis"`,
+  `workflow_run_id`, `trace_id`, stored as node properties;
+- lineage is a `derived_from` property holding a
+  `kg_contracts.Derivation`-shaped payload —
+  `{method, inputs:[{kind, ref}], implementation_version}` — built by
+  `agentic_kg.knowledge_graph.models.Derivation` (a local mirror until
+  `kg_contracts` is a pinned dependency in Phase 3);
+- each source problem is linked with a `DERIVED_FROM` edge
+  (`Neo4jRepository.create_derived_from`, label-agnostic across `:Problem`
+  and `:ProblemConcept`).
+
+Adoption notes:
+
+- Phase 1 mapping: map `Derivation.method`/`implementation_version` onto the
+  KGIS extractor/prompt version axes; `inputs[].kind`/`ref` map onto
+  source-coordinate references.
+- Phase 3: when `kg_contracts` is pinned, replace the local `Derivation`
+  mirror with the real type and assert shape compatibility in the mapping
+  contract tests. Agent output must remain labelled agent-derived after the
+  projection so it never masquerades as extracted evidence.
+- Phase 7: the API exposes `origin` on problem responses; preserve it through
+  the compatibility projection so the agent-derived label survives.
 
 ## Non-negotiable rules
 
