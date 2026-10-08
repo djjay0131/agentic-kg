@@ -554,7 +554,10 @@ class Neo4jRepository:
                 {"id": r["id"], "method": r["method"], "trace_id": r["trace_id"]}
                 for r in tx.run(
                     """
-                    MATCH (from {id: $id})-[r:DERIVED_FROM]->(to)
+                    MATCH (from)-[r:DERIVED_FROM]->(to)
+                    WHERE from.id = $id
+                      AND (from:Problem OR from:ProblemConcept)
+                      AND (to:Problem OR to:ProblemConcept)
                     RETURN to.id AS id, r.method AS method, r.trace_id AS trace_id
                     """,
                     id=pid,
@@ -817,14 +820,22 @@ class Neo4jRepository:
         status: Optional[ProblemStatus] = None,
         limit: int = 100,
         offset: int = 0,
+        origin: Optional[str] = None,
     ) -> list[dict]:
-        """List canonical problems (concepts unioned with legacy Problems)."""
+        """List canonical problems (concepts unioned with legacy Problems).
+
+        ``origin`` filters by provenance. A node without an ``origin``
+        property is treated as ``"extracted"`` (the pre-provenance default),
+        so ``origin="extracted"`` returns both explicitly-extracted and
+        legacy nodes; ``origin="agent:synthesis"`` selects agent-derived ones.
+        """
         status_str = status.value if status else None
         fetch = offset + limit
 
         concept_cypher = """
         MATCH (c:ProblemConcept)
-        WHERE $status IS NULL OR c.status = $status
+        WHERE ($status IS NULL OR c.status = $status)
+          AND ($origin IS NULL OR coalesce(c.origin, 'extracted') = $origin)
         OPTIONAL MATCH (m:ProblemMention)-[:INSTANCE_OF]->(c)
         WITH DISTINCT c, m
         WITH c, count(m) AS mention_count, max(m.match_score) AS confidence
@@ -834,7 +845,8 @@ class Neo4jRepository:
         """
         legacy_cypher = """
         MATCH (p:Problem)
-        WHERE $status IS NULL OR p.status = $status
+        WHERE ($status IS NULL OR p.status = $status)
+          AND ($origin IS NULL OR coalesce(p.origin, 'extracted') = $origin)
         RETURN p
         ORDER BY p.created_at DESC
         LIMIT $lim
@@ -844,12 +856,14 @@ class Neo4jRepository:
             concepts = [
                 (dict(r["c"]), r["mention_count"], r["confidence"])
                 for r in tx.run(
-                    concept_cypher, status=status_str, lim=fetch
+                    concept_cypher, status=status_str, origin=origin, lim=fetch
                 )
             ]
             legacy = [
                 dict(r["p"])
-                for r in tx.run(legacy_cypher, status=status_str, lim=fetch)
+                for r in tx.run(
+                    legacy_cypher, status=status_str, origin=origin, lim=fetch
+                )
             ]
             return concepts, legacy
 

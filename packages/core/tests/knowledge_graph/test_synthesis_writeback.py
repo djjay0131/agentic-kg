@@ -148,3 +148,15 @@ class TestSynthesisWritebackIntegration:
                 id=source_problem.id,
             ).single()["status"]
             assert status == ProblemStatus.IN_PROGRESS.value
+
+        # Review finding #1: the DERIVED_FROM provenance edge shares both
+        # endpoints with a relation-traversal query. get_related_problems must
+        # ignore it (it is not a RelationType) and still return the EXTENDS
+        # neighbour, on both the source and the derived problem.
+        relations = RelationService(repository=neo4j_repository)
+
+        from_source = relations.get_related_problems(source_problem.id)
+        assert [p.id for p, _ in from_source] == [new_id]
+
+        from_derived = relations.get_related_problems(new_id)
+        assert [p.id for p, _ in from_derived] == [source_problem.id]
