@@ -24,18 +24,20 @@ and syntactic: importing this package already pulls `neo4j` and
 guard catches accident and drift, which is what actually happens; it is not a
 sandbox.
 
-**Deployment concern, recorded rather than solved.** `SqliteCandidateLedger` is
-single-writer: SQLite serialises writers, and a WAL database is three files
+**Deployment concern, recorded rather than half-solved.** `SqliteCandidateLedger`
+is single-writer: SQLite serialises writers, and a WAL database is three files
 (`-wal`, `-shm`) that must live on a filesystem with working POSIX advisory
 locks. Cloud Run gives each revision a private, ephemeral filesystem and scales
 to N instances, so N concurrent ingest jobs would each write a *different*
 ledger and all of them would vanish on scale-in; pointing them at a shared GCS
-FUSE mount is worse, because that mount does not honour the locks SQLite needs
-and the failure is corruption rather than an error. ADR-0012 permits a backend
-swap behind the same ports (`CandidateSink` / `LedgerReader`), which is the fix
-— this PR does not make it. Local and dev persistence is what
-:class:`ShadowStores` is for, and :meth:`ShadowStores.deployment_warning` states
-the limitation in the one place an operator will actually read it.
+FUSE mount does not honour the locks SQLite needs. The staging Job now mounts a
+GCS volume for durability and is pinned to a single writer two ways: Cloud Run
+`parallelism = 1` / `task_count = 1` (infra/main.tf) and the directory writer
+lease in `writer_lease.py`, taken by `run.py` around every on-disk run. Those
+make "two writers" detectable rather than silent; they do **not** make FUSE
+POSIX. ADR-0012 permits a backend swap behind the same ports (`CandidateSink` /
+`LedgerReader`), which is the real fix. :meth:`ShadowStores.deployment_warning`
+states the limitation in the one place an operator will actually read it.
 """
 
 from __future__ import annotations
@@ -59,14 +61,16 @@ EVIDENCE_FILENAME = "evidence.db"
 IN_MEMORY = ":memory:"
 
 _DEPLOYMENT_WARNING = (
-    "The shadow ledger is SQLite: single-writer, and a WAL database is three "
-    "files needing working POSIX advisory locks. On Cloud Run each revision has "
-    "a private ephemeral filesystem and scales to N instances, so N ingest jobs "
-    "would write N separate ledgers and lose all of them on scale-in; a shared "
-    "GCS FUSE mount does not honour SQLite's locks and fails as corruption "
-    "rather than as an error. Isolated local/dev persistence only. ADR-0012 "
-    "permits swapping the backend behind CandidateSink/LedgerReader; that swap "
-    "is not part of this PR."
+    "The shadow ledger is SQLite: single-writer, and WAL mode needs working "
+    "POSIX advisory locks and a shared-memory (-shm) file. On Cloud Run each "
+    "revision has a private ephemeral filesystem; the staging ingest Job now "
+    "points INGEST_LEDGER_DIR at a GCS FUSE mount for durability, but Cloud "
+    "Storage FUSE does not provide file locking and is not fully POSIX, so "
+    "SQLite's own locking cannot serialize writers there. The staging Job runs "
+    "with parallelism=1 and task_count=1 (infra/main.tf) and run.py holds a "
+    "directory-level writer lease (writer_lease.py), which together keep it "
+    "single-writer. A backend swap behind CandidateSink/LedgerReader (ADR-0012) "
+    "is the real fix."
 )
 
 

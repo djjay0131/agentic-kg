@@ -103,6 +103,7 @@ REQUIRED_MODULES: tuple[str, ...] = (
     "test_shadow_is_falsifiable.py",
     "test_shadow_run.py",
     "test_structured_locator.py",
+    "test_writer_lease.py",
 )
 
 #: Floor on the number of required tests.
@@ -112,7 +113,7 @@ REQUIRED_MODULES: tuple[str, ...] = (
 #: with it and reports OK. This is the one value that does not move on its own.
 #: Raise it when the suite grows; a *drop* has to be an explicit edit with a
 #: reason, which is exactly the conversation that was missing.
-MINIMUM_REQUIRED_TESTS = 135
+MINIMUM_REQUIRED_TESTS = 143
 
 #: Tests allowed to skip, with the reason each is allowed to. **Empty.**
 #:
