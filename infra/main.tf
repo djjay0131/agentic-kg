@@ -1217,12 +1217,13 @@ resource "google_cloud_run_v2_job" "nightly" {
         }
 
         # KGIS/KGCS opt-in seam, matching the ingest Job (ADR-0004/ADR-0005).
-        dynamic "env" {
-          for_each = var.kgis_kgcs_enabled ? [1] : []
-          content {
-            name  = "INGEST_MODE"
-            value = "kgis_kgcs"
-          }
+        # The nightly backend is chosen independently of the ingest Job's
+        # KGIS/KGCS opt-in: the kgis_kgcs path does not yet select papers from a
+        # query (it replays the committed corpus), so nightly growth runs on the
+        # query-driven legacy path until live KGIS acquisition lands.
+        env {
+          name  = "INGEST_MODE"
+          value = var.nightly_ingest_mode
         }
 
         dynamic "env" {

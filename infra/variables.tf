@@ -292,3 +292,13 @@ variable "nightly_service_account_email" {
   type        = string
   default     = ""
 }
+
+variable "nightly_ingest_mode" {
+  description = "Backend for the nightly pipeline: \"legacy\" (query-driven S2/arXiv acquisition + extraction) or \"kgis_kgcs\" (replays the committed corpus until live KGIS acquisition exists)."
+  type        = string
+  default     = "legacy"
+  validation {
+    condition     = contains(["legacy", "kgis_kgcs"], var.nightly_ingest_mode)
+    error_message = "nightly_ingest_mode must be legacy or kgis_kgcs."
+  }
+}
