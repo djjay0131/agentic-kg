@@ -234,3 +234,61 @@ variable "ingest_ledger_mount_path" {
   type        = string
   default     = "/mnt/ledger"
 }
+
+# =============================================================================
+# Nightly pipeline (nightly-pipeline P1, ADR-0007)
+# =============================================================================
+# The whole nightly stack is gated by nightly_enabled. Default false so a prod
+# apply (or any environment that has not opted in) creates nothing.
+variable "nightly_enabled" {
+  description = "Create the nightly pipeline (runs bucket, SA, Job, Workflow, Scheduler). Default false."
+  type        = bool
+  default     = false
+}
+
+variable "nightly_runs_bucket" {
+  description = "GCS bucket for PipelineRun JSON reports. Empty disables the runs bucket and volume. Staging sets vt-gcp-00042-agentic-kg-runs-staging."
+  type        = string
+  default     = ""
+}
+
+variable "nightly_runs_mount_path" {
+  description = "Mount path for the runs GCS volume inside the nightly Job container."
+  type        = string
+  default     = "/mnt/runs"
+}
+
+variable "nightly_catalog_path" {
+  description = "Path to ingest-queries.yaml inside the Job image."
+  type        = string
+  default     = "/app/config/ingest-queries.yaml"
+}
+
+variable "nightly_max_papers" {
+  description = "Default paper budget for one night (NIGHTLY_MAX_PAPERS)."
+  type        = number
+  default     = 50
+}
+
+variable "nightly_max_llm_usd" {
+  description = "Estimated-USD budget for one night (NIGHTLY_MAX_LLM_USD). <= 0 disables the cap."
+  type        = number
+  default     = 0
+}
+
+variable "nightly_timeout" {
+  description = "Timeout in seconds for the nightly Cloud Run Job."
+  type        = number
+  default     = 3600
+}
+
+variable "nightly_service_account_email" {
+  description = <<-EOT
+    Runtime + OAuth service account for the nightly pipeline. Empty (the
+    default) creates agentic-kg-nightly@. Set this to an existing SA (e.g. the
+    compute runtime SA) when the applying principal cannot create service
+    accounts — the documented ADR-0007 fallback.
+  EOT
+  type        = string
+  default     = ""
+}

@@ -45,3 +45,29 @@ output "cloudbuild_trigger_ui" {
   description = "Cloud Build trigger URL for UI"
   value       = var.enable_build_triggers ? "https://console.cloud.google.com/cloud-build/triggers/edit/${google_cloudbuild_trigger.ui[0].trigger_id}?project=${var.project_id}" : null
 }
+
+# ---- Nightly pipeline (ADR-0007) -----------------------------------------
+output "nightly_job" {
+  description = "Nightly orchestrator Cloud Run Job name (null when disabled)"
+  value       = var.nightly_enabled ? google_cloud_run_v2_job.nightly[0].name : null
+}
+
+output "nightly_workflow" {
+  description = "Nightly Cloud Workflows workflow name (null when disabled)"
+  value       = var.nightly_enabled ? google_workflows_workflow.nightly[0].name : null
+}
+
+output "nightly_scheduler_job" {
+  description = "Nightly Cloud Scheduler job name (null when disabled)"
+  value       = var.nightly_enabled ? google_cloud_scheduler_job.nightly[0].name : null
+}
+
+output "nightly_runs_bucket" {
+  description = "GCS bucket holding PipelineRun JSON reports (null when unset)"
+  value       = var.nightly_enabled && var.nightly_runs_bucket != "" ? google_storage_bucket.runs[0].name : null
+}
+
+output "nightly_service_account" {
+  description = "Runtime/OAuth service account for the nightly pipeline (null when disabled)"
+  value       = var.nightly_enabled ? local.nightly_sa_email : null
+}
