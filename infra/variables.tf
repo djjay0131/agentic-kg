@@ -287,7 +287,7 @@ variable "nightly_service_account_email" {
     Runtime + OAuth service account for the nightly pipeline. Empty (the
     default) creates agentic-kg-nightly@. Set this to an existing SA (e.g. the
     compute runtime SA) when the applying principal cannot create service
-    accounts — the documented ADR-0007 fallback.
+    accounts — the documented ADR-0008 fallback.
   EOT
   type        = string
   default     = ""

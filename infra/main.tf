@@ -10,7 +10,7 @@ resource "google_project_service" "apis" {
     "artifactregistry.googleapis.com",
     "secretmanager.googleapis.com",
     "iam.googleapis.com",
-    # Nightly pipeline (ADR-0007): Cloud Workflows orchestrates the nightly Job
+    # Nightly pipeline (ADR-0008): Cloud Workflows orchestrates the nightly Job
     # and Cloud Scheduler triggers it at 02:30 America/New_York.
     "workflows.googleapis.com",
     "cloudscheduler.googleapis.com",
@@ -1091,7 +1091,7 @@ resource "google_cloudbuild_trigger" "ui" {
 }
 
 # =============================================================================
-# Nightly pipeline (nightly-pipeline P1, ADR-0007)
+# Nightly pipeline (nightly-pipeline P1, ADR-0008)
 # =============================================================================
 # Cloud Scheduler (02:30 America/New_York) -> Cloud Workflows
 # `agentic-kg-nightly-<env>` -> Cloud Run Job `agentic-kg-nightly-<env>`
@@ -1106,7 +1106,7 @@ resource "google_cloudbuild_trigger" "ui" {
 locals {
   # A dedicated SA is created unless the owner supplies one. Reusing an existing
   # SA (e.g. the compute runtime SA) is the documented fallback when the CI
-  # apply principal cannot create service accounts (ADR-0007 §Consequences).
+  # apply principal cannot create service accounts (ADR-0008 §Consequences).
   create_nightly_sa = var.nightly_enabled && var.nightly_service_account_email == ""
   nightly_sa_email = (
     var.nightly_service_account_email != ""
@@ -1121,7 +1121,7 @@ resource "google_service_account" "nightly" {
   project      = var.project_id
   account_id   = "agentic-kg-nightly"
   display_name = "Agentic KG nightly pipeline"
-  description  = "Runtime + OAuth identity for the nightly ingestion pipeline (ADR-0007)."
+  description  = "Runtime + OAuth identity for the nightly ingestion pipeline (ADR-0008)."
 
   depends_on = [google_project_service.apis]
 }
@@ -1443,7 +1443,7 @@ resource "google_workflows_workflow" "nightly" {
   project         = var.project_id
   region          = var.region
   name            = "agentic-kg-nightly-${var.env}"
-  description     = "Runs the nightly ingestion Job and waits for it (ADR-0007)."
+  description     = "Runs the nightly ingestion Job and waits for it (ADR-0008)."
   service_account = local.nightly_sa_email
 
   # `$${...}` escapes Terraform interpolation so the value stays a Workflows
@@ -1535,7 +1535,7 @@ resource "google_cloud_scheduler_job" "nightly" {
   project     = var.project_id
   region      = var.region
   name        = "agentic-kg-nightly-${var.env}"
-  description = "Trigger the nightly ingestion workflow at 02:30 America/New_York (ADR-0007)."
+  description = "Trigger the nightly ingestion workflow at 02:30 America/New_York (ADR-0008)."
   schedule    = "30 2 * * *"
   time_zone   = "America/New_York"
 

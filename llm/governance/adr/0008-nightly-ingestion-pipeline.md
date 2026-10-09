@@ -1,9 +1,9 @@
 ---
-title: "ADR-0007: Nightly ingestion pipeline on Cloud Scheduler + Workflows"
+title: "ADR-0008: Nightly ingestion pipeline on Cloud Scheduler + Workflows"
 nav_exclude: true
 ---
 
-# ADR-0007: Nightly ingestion pipeline on Cloud Scheduler + Workflows
+# ADR-0008: Nightly ingestion pipeline on Cloud Scheduler + Workflows
 
 Status: Proposed
 Date: 2026-10-09

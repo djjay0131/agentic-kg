@@ -178,7 +178,7 @@ jobs:
             --update-labels=environment=staging,commit=${{ github.sha }}
 
       # The nightly orchestrator runs the same `job` image, so it is rolled in
-      # lockstep with the ingest Job. It is created by Terraform (ADR-0007,
+      # lockstep with the ingest Job. It is created by Terraform (ADR-0008,
       # nightly_enabled); if that has not been applied yet the Job is absent and
       # this step is a no-op rather than a deploy failure.
       - name: Deploy nightly Job to staging

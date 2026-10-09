@@ -46,7 +46,7 @@ output "cloudbuild_trigger_ui" {
   value       = var.enable_build_triggers ? "https://console.cloud.google.com/cloud-build/triggers/edit/${google_cloudbuild_trigger.ui[0].trigger_id}?project=${var.project_id}" : null
 }
 
-# ---- Nightly pipeline (ADR-0007) -----------------------------------------
+# ---- Nightly pipeline (ADR-0008) -----------------------------------------
 output "nightly_job" {
   description = "Nightly orchestrator Cloud Run Job name (null when disabled)"
   value       = var.nightly_enabled ? google_cloud_run_v2_job.nightly[0].name : null
