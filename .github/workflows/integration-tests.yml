@@ -44,6 +44,10 @@ concurrency:
   group: integration-tests-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Ephemeral runners: no reaper needed, and its image pull hits Docker Hub limits.
+  TESTCONTAINERS_RYUK_DISABLED: "true"
+
 jobs:
   unit-tests:
     name: Unit Tests
