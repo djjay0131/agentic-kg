@@ -842,7 +842,7 @@ resource "google_cloud_run_v2_job" "rotate_password" {
       service_account = google_service_account.neo4j_rotator.email
 
       containers {
-        image   = "${var.region}-docker.pkg.dev/${var.project_id}/agentic-kg/job:latest"
+        image = "${var.region}-docker.pkg.dev/${var.project_id}/agentic-kg/job:latest"
         # In-GCP generation lives in its own module (ADR-0007): an image that
         # predates it fails with ModuleNotFoundError before touching Neo4j,
         # instead of running the legacy entrypoint against the placeholder.
