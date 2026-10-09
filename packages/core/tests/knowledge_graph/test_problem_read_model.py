@@ -122,6 +122,26 @@ class TestLegacyProblemView:
         assert view["confidence"] == 0.8
         assert view["assumptions"][0]["text"] == "x"
 
+    def test_legacy_view_exposes_agent_origin_and_derivation(self):
+        node = {
+            "id": "synth-1",
+            "statement": "A synthesized research direction of sufficient length",
+            "status": "open",
+            "origin": "agent:synthesis",
+            "derived_from": json.dumps(
+                [
+                    {
+                        "method": "synthesis",
+                        "inputs": [{"kind": "problem", "ref": "p0"}],
+                        "implementation_version": "1.0.0",
+                    }
+                ]
+            ),
+        }
+        view = _repo()._legacy_problem_view(node)
+        assert view["origin"] == "agent:synthesis"
+        assert view["derived_from"][0]["inputs"][0]["ref"] == "p0"
+
 
 class TestProblemViewToProblem:
     def test_concept_view_adapts_to_problem(self):

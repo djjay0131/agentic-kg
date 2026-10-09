@@ -27,6 +27,7 @@ from .supporting import (
     Baseline,
     Constraint,
     Dataset,
+    Derivation,
     Evidence,
     ExtractionMetadata,
     Metric,
@@ -65,6 +66,25 @@ class Problem(BaseModel):
         default=None, description="Extraction details"
     )
 
+    # Agent provenance. Extracted problems default to ``extracted``; problems
+    # synthesized by an agent set ``origin`` (e.g. ``agent:synthesis``) plus
+    # the workflow run/trace ids and a Derivation lineage so agent-invented
+    # problems never look like extracted ones.
+    origin: str = Field(
+        default="extracted",
+        description="How this problem entered the graph: 'extracted' or 'agent:<name>'",
+    )
+    workflow_run_id: Optional[str] = Field(
+        default=None, description="Research workflow run id (agent-derived only)"
+    )
+    trace_id: Optional[str] = Field(
+        default=None, description="Trace id for the deriving run (agent-derived only)"
+    )
+    derived_from: list[Derivation] = Field(
+        default_factory=list,
+        description="Derivation lineage (inputs + method) for agent-derived problems",
+    )
+
     @model_validator(mode='after')
     def validate_resolved_status(self) -> 'Problem':
         """Require evidence with DOI when problem status is RESOLVED or DEPRECATED."""
@@ -101,9 +121,19 @@ class Problem(BaseModel):
         data["datasets"] = json.dumps([d.model_dump() for d in self.datasets])
         data["metrics"] = json.dumps([m.model_dump() for m in self.metrics])
         data["baselines"] = json.dumps([b.model_dump() for b in self.baselines])
-        data["evidence"] = json.dumps(self.evidence.model_dump(), default=str)
+        # Agent-derived problems carry no source evidence; guard the None case.
+        data["evidence"] = json.dumps(
+            self.evidence.model_dump() if self.evidence else None, default=str
+        )
         data["extraction_metadata"] = json.dumps(
-            self.extraction_metadata.model_dump(), default=str
+            self.extraction_metadata.model_dump()
+            if self.extraction_metadata
+            else None,
+            default=str,
+        )
+        # Derivation lineage is a list of maps — Neo4j only stores primitives.
+        data["derived_from"] = json.dumps(
+            [d.model_dump() for d in self.derived_from]
         )
         # Convert datetime to ISO strings
         data["created_at"] = self.created_at.isoformat()

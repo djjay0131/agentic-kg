@@ -291,6 +291,7 @@ class SearchService:
             "baselines": [],
             "evidence": {},
             "extraction_metadata": {},
+            "derived_from": [],
         }
         for field, default in list_defaults.items():
             if field in data:

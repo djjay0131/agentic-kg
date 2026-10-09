@@ -132,11 +132,15 @@ class ContinuationAgent(BaseAgent):
         if self.relations:
             try:
                 related = self.relations.get_related_problems(
-                    problem_id, direction="both", limit=10
+                    problem_id, direction="both"
                 )
-                for rel in related:
+                # ``get_related_problems`` returns (Problem, ProblemRelation)
+                # tuples; the previous code treated each entry as a dict and
+                # silently produced an empty list.
+                for related_problem, relation in related:
                     context["related_problems"].append(
-                        f"[{rel.get('type', 'RELATED')}] {rel.get('statement', 'Unknown')}"
+                        f"[{relation.relation_type.value}] "
+                        f"{related_problem.statement}"
                     )
             except Exception as e:
                 logger.warning(f"Could not load related problems: {e}")

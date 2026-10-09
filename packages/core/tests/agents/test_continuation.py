@@ -94,6 +94,14 @@ class TestContinuationAgent:
 
         mock_relations.get_related_problems.assert_called_once()
 
+    def test_load_problem_context_renders_related_problems(self, agent):
+        """(Problem, ProblemRelation) tuples are rendered, not silently dropped."""
+        context = agent._load_problem_context("prob-1")
+
+        assert context["related_problems"] == [
+            "[EXTENDS] A related problem statement of sufficient length"
+        ]
+
     @pytest.mark.asyncio
     async def test_run_without_relations_service(self, mock_llm, mock_repo, llm_proposal):
         """Works when relation service is None."""

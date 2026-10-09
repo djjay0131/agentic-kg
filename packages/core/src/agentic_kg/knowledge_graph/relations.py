@@ -97,11 +97,15 @@ class RelationService:
             rel_type: str,
             props: dict,
         ) -> bool:
-            # Verify both problems exist
+            # Verify both problems exist. Endpoints may be legacy :Problem
+            # nodes or canonical :ProblemConcept nodes — the read model
+            # surfaces both through the same Problem model.
             check = tx.run(
                 """
-                MATCH (from:Problem {id: $from_id})
-                MATCH (to:Problem {id: $to_id})
+                MATCH (from)
+                WHERE from.id = $from_id AND (from:Problem OR from:ProblemConcept)
+                MATCH (to)
+                WHERE to.id = $to_id AND (to:Problem OR to:ProblemConcept)
                 RETURN from.id, to.id
                 """,
                 from_id=from_id,
@@ -110,10 +114,15 @@ class RelationService:
             if not check.single():
                 return False
 
-            # Check if relation already exists
+            # Check if relation already exists. Endpoints are label-scoped
+            # (see the existence check above) so an id collision between a
+            # :Problem and a :ProblemConcept cannot match the wrong node.
             existing = tx.run(
                 f"""
-                MATCH (from:Problem {{id: $from_id}})-[r:{rel_type}]->(to:Problem {{id: $to_id}})
+                MATCH (from)-[r:{rel_type}]->(to)
+                WHERE from.id = $from_id AND to.id = $to_id
+                  AND (from:Problem OR from:ProblemConcept)
+                  AND (to:Problem OR to:ProblemConcept)
                 RETURN r
                 """,
                 from_id=from_id,
@@ -127,8 +136,10 @@ class RelationService:
             # Create relation
             tx.run(
                 f"""
-                MATCH (from:Problem {{id: $from_id}})
-                MATCH (to:Problem {{id: $to_id}})
+                MATCH (from)
+                WHERE from.id = $from_id AND (from:Problem OR from:ProblemConcept)
+                MATCH (to)
+                WHERE to.id = $to_id AND (to:Problem OR to:ProblemConcept)
                 CREATE (from)-[r:{rel_type}]->(to)
                 SET r = $props
                 """,
@@ -281,21 +292,34 @@ class RelationService:
             rel_type: Optional[str],
             dir: str,
         ) -> list[dict]:
-            rel_pattern = f":{rel_type}" if rel_type else ""
+            # Traverse only the problem-relation enum members. Without this
+            # restriction a provenance edge such as DERIVED_FROM (written by
+            # synthesis) also matches, and decoding it as a RelationType
+            # raises ValueError — the regression from PR #115 review.
+            if rel_type:
+                rel_pattern = f":{rel_type}"
+            else:
+                rel_pattern = ":" + "|".join(rt.value for rt in RelationType)
 
+            # The source may be a legacy :Problem or a canonical
+            # :ProblemConcept (synthesis extends canonical sources); related
+            # problems are legacy :Problem nodes the Problem model reads.
             if dir == "outgoing":
                 query = f"""
-                    MATCH (p:Problem {{id: $id}})-[r{rel_pattern}]->(related:Problem)
+                    MATCH (p)-[r{rel_pattern}]->(related:Problem)
+                    WHERE p.id = $id AND (p:Problem OR p:ProblemConcept)
                     RETURN related, r, type(r) as rel_type, 'outgoing' as direction
                 """
             elif dir == "incoming":
                 query = f"""
-                    MATCH (p:Problem {{id: $id}})<-[r{rel_pattern}]-(related:Problem)
+                    MATCH (p)<-[r{rel_pattern}]-(related:Problem)
+                    WHERE p.id = $id AND (p:Problem OR p:ProblemConcept)
                     RETURN related, r, type(r) as rel_type, 'incoming' as direction
                 """
             else:
                 query = f"""
-                    MATCH (p:Problem {{id: $id}})-[r{rel_pattern}]-(related:Problem)
+                    MATCH (p)-[r{rel_pattern}]-(related:Problem)
+                    WHERE p.id = $id AND (p:Problem OR p:ProblemConcept)
                     RETURN related, r, type(r) as rel_type,
                         CASE WHEN startNode(r).id = $id
                             THEN 'outgoing' ELSE 'incoming' END as direction
@@ -321,6 +345,18 @@ class RelationService:
 
         results = []
         for record in records:
+            try:
+                relation_enum = RelationType(record["rel_type"])
+            except ValueError:
+                # Defensive: a non-enum edge type (e.g. a provenance edge if
+                # one slips past the match restriction) is not a problem
+                # relation. Skip rather than failing the whole call.
+                logger.debug(
+                    "Ignoring non-relation edge type %r on problem %s",
+                    record["rel_type"],
+                    problem_id,
+                )
+                continue
             problem = self._problem_from_neo4j(record["problem"])
             relation = ProblemRelation(
                 from_problem_id=(
@@ -333,7 +369,7 @@ class RelationService:
                     if record["direction"] == "outgoing"
                     else problem_id
                 ),
-                relation_type=RelationType(record["rel_type"]),
+                relation_type=relation_enum,
                 confidence=record["relation"].get("confidence", 0.8),
                 evidence_doi=record["relation"].get("evidence_doi"),
             )
@@ -531,6 +567,7 @@ class RelationService:
             "baselines",
             "evidence",
             "extraction_metadata",
+            "derived_from",
         ]:
             if field in data and isinstance(data[field], str):
                 data[field] = json.loads(data[field])
@@ -539,8 +576,8 @@ class RelationService:
             if field in data and isinstance(data[field], str):
                 data[field] = datetime.fromisoformat(data[field])
 
-        if "extraction_metadata" in data:
-            meta = data["extraction_metadata"]
+        meta = data.get("extraction_metadata")
+        if isinstance(meta, dict):
             if "extracted_at" in meta and isinstance(meta["extracted_at"], str):
                 meta["extracted_at"] = datetime.fromisoformat(meta["extracted_at"])
             if meta.get("reviewed_at") and isinstance(meta["reviewed_at"], str):

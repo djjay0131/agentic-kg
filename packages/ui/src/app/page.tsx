@@ -175,6 +175,11 @@ export default function Dashboard() {
                 <span className={`badge badge-${problem.status}`}>
                   {problem.status.replace('_', ' ')}
                 </span>
+                {problem.origin?.startsWith('agent:') && (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-700">
+                    agent-derived
+                  </span>
+                )}
                 {problem.domain && <span>{problem.domain}</span>}
                 {problem.confidence && (
                   <span>{Math.round(problem.confidence * 100)}% conf.</span>

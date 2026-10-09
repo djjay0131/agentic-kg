@@ -27,6 +27,7 @@ class ResearchState(TypedDict, total=False):
 
     # --- Workflow metadata ---
     run_id: str
+    trace_id: Optional[str]  # Audit trace id; defaults to run_id
     status: str  # WorkflowStatus value
     current_step: str
     created_at: str  # ISO format
@@ -71,8 +72,10 @@ def create_initial_state(
 ) -> ResearchState:
     """Create a fresh workflow state with defaults."""
     now = datetime.now(timezone.utc).isoformat()
+    run_id = str(uuid.uuid4())
     return ResearchState(
-        run_id=str(uuid.uuid4()),
+        run_id=run_id,
+        trace_id=run_id,
         status=WorkflowStatus.PENDING.value,
         current_step="",
         created_at=now,

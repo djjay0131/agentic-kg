@@ -24,6 +24,8 @@ from agentic_kg.knowledge_graph.models import (
     Dataset,
     DependencyType,
     DependsOnRelation,
+    Derivation,
+    DerivationInput,
     Evidence,
     ExtendsRelation,
     ExtractedFromRelation,
@@ -498,6 +500,54 @@ class TestProblem:
             evidence=sample_evidence_data,
         )
         assert problem.extraction_metadata is None
+
+    # Agent provenance tests (#114)
+    def test_origin_defaults_to_extracted(self, sample_problem_data):
+        """Extracted problems default to origin='extracted'."""
+        problem = Problem(**sample_problem_data)
+        assert problem.origin == "extracted"
+        assert problem.derived_from == []
+
+    def test_agent_derived_problem_carries_provenance(self):
+        """Agent-derived problems carry origin, run/trace ids and derivation."""
+        derivation = Derivation(
+            method="synthesis",
+            inputs=[DerivationInput(kind="problem", ref="prob-1")],
+            implementation_version="1.0.0",
+        )
+        problem = Problem(
+            statement="A newly synthesized research direction.",
+            origin="agent:synthesis",
+            workflow_run_id="run-1",
+            trace_id="trace-1",
+            derived_from=[derivation],
+        )
+        assert problem.origin == "agent:synthesis"
+        assert problem.workflow_run_id == "run-1"
+        assert problem.trace_id == "trace-1"
+        assert problem.derived_from[0].method == "synthesis"
+        assert problem.derived_from[0].inputs[0].ref == "prob-1"
+
+    def test_to_neo4j_properties_without_evidence(self):
+        """A problem with no evidence serializes (evidence/derivation -> JSON)."""
+        import json
+
+        problem = Problem(
+            statement="A newly synthesized research direction.",
+            origin="agent:synthesis",
+            derived_from=[
+                Derivation(
+                    method="synthesis",
+                    inputs=[DerivationInput(kind="problem", ref="prob-1")],
+                )
+            ],
+        )
+        props = problem.to_neo4j_properties()
+        assert json.loads(props["evidence"]) is None
+        assert json.loads(props["extraction_metadata"]) is None
+        assert props["origin"] == "agent:synthesis"
+        derivations = json.loads(props["derived_from"])
+        assert derivations[0]["inputs"] == [{"kind": "problem", "ref": "prob-1"}]
 
     # Serialization tests
     def test_to_neo4j_properties(self, sample_problem_data, sample_assumption_data):

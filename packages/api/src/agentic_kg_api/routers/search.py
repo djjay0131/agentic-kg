@@ -45,6 +45,7 @@ def search_problems(
         if r.problem.extraction_metadata:
             confidence = r.problem.extraction_metadata.confidence_score
 
+        origin = getattr(r.problem, "origin", None)
         items.append(SearchResultItem(
             problem=ProblemSummary(
                 id=r.problem.id,
@@ -52,6 +53,7 @@ def search_problems(
                 status=r.problem.status.value if isinstance(r.problem.status, ProblemStatus) else str(r.problem.status),
                 confidence=confidence,
                 created_at=r.problem.created_at,
+                origin=origin if isinstance(origin, str) else None,
             ),
             score=r.score,
             match_type=r.match_type,
