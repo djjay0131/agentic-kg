@@ -3,6 +3,7 @@
 from datetime import datetime
 from typing import Optional
 
+from agentic_kg.knowledge_graph.models.pipeline_run import PipelineTotals
 from pydantic import BaseModel, Field
 
 # =============================================================================
@@ -898,3 +899,34 @@ class PaperCitationCountsResponse(BaseModel):
     citation_count: int = 0
     reference_count: int = 0
     is_stub: bool = False
+
+
+# =============================================================================
+# PipelineRun Schemas (nightly reports)
+# =============================================================================
+#
+# Contract: docs/design/nightly-pipeline-contract.md. The full detail payload
+# is the core ``PipelineRun`` model (returned directly by the router); these
+# schemas cover the list projection and its envelope.
+
+
+class PipelineRunSummary(BaseModel):
+    """A compact PipelineRun row for the ``/api/runs`` list."""
+
+    run_id: str
+    started_at: str
+    finished_at: Optional[str] = None
+    status: str
+    trigger: str
+    namespace: str
+    totals: PipelineTotals = Field(default_factory=PipelineTotals)
+    budget_stopped: bool = False
+    failures_count: int = 0
+    review_queue_size: Optional[int] = None
+
+
+class PipelineRunListResponse(BaseModel):
+    """Response for GET /api/runs: a page of summaries and a cursor."""
+
+    runs: list[PipelineRunSummary] = Field(default_factory=list)
+    next_cursor: Optional[str] = None

@@ -9,6 +9,7 @@ import {
   Upload,
   Network,
   Play,
+  History,
 } from 'lucide-react';
 
 const navItems = [
@@ -18,6 +19,7 @@ const navItems = [
   { href: '/extract', label: 'Extract', icon: Upload },
   { href: '/graph', label: 'Graph', icon: Network },
   { href: '/workflows', label: 'Workflows', icon: Play },
+  { href: '/runs', label: 'Runs', icon: History },
 ];
 
 export default function Sidebar() {
