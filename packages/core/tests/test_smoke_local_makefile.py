@@ -62,7 +62,7 @@ class TestSmokeLocalRecipe:
 
     def test_starts_neo4j_5_26(self, makefile_text):
         block = _target_block(makefile_text, "smoke-local")
-        assert "neo4j:5.26-community" in block
+        assert "mirror.gcr.io/library/neo4j:5.26-community" in block
 
     def test_apoc_plugin_configured(self, makefile_text):
         block = _target_block(makefile_text, "smoke-local")

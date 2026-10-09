@@ -17,6 +17,8 @@ on:
       - '.github/workflows/deploy-*.yml'
 
 env:
+  # Ephemeral runners: no reaper needed, and its image pull hits Docker Hub limits.
+  TESTCONTAINERS_RYUK_DISABLED: "true"
   REGISTRY: us-central1-docker.pkg.dev
   PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
   REGION: us-central1

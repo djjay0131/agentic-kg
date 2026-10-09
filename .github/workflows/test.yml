@@ -15,6 +15,10 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Ephemeral runners: no reaper needed, and its image pull hits Docker Hub limits.
+  TESTCONTAINERS_RYUK_DISABLED: "true"
+
 jobs:
   test:
     runs-on: ubuntu-latest
