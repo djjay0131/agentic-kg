@@ -1,7 +1,7 @@
-project_id        = "vt-gcp-00042"
-region            = "us-central1"
-zone              = "us-central1-a"
-env               = "prod"
+project_id         = "vt-gcp-00042"
+region             = "us-central1"
+zone               = "us-central1-a"
+env                = "prod"
 neo4j_machine_type = "e2-standard-2"
 neo4j_disk_size    = 50
 api_memory         = "2Gi"

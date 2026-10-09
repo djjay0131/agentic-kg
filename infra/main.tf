@@ -3,13 +3,13 @@
 # =============================================================================
 resource "google_project_service" "apis" {
   for_each = toset([
+    "cloudresourcemanager.googleapis.com",
     "compute.googleapis.com",
     "run.googleapis.com",
     "cloudbuild.googleapis.com",
     "artifactregistry.googleapis.com",
     "secretmanager.googleapis.com",
     "iam.googleapis.com",
-    "sourcerepo.googleapis.com",
   ])
 
   project            = var.project_id
@@ -30,12 +30,14 @@ resource "google_artifact_registry_repository" "docker" {
 }
 
 # =============================================================================
-# Neo4j Password
+# Neo4j password
 # =============================================================================
-resource "random_password" "neo4j" {
-  length  = 24
-  special = false
-}
+# The password VALUE is deliberately NOT managed by Terraform any more. The
+# Secret Manager container `google_secret_manager_secret.neo4j_password` is
+# still managed (created/replicated by Terraform); the ENABLED version inside
+# it is owned by `.github/workflows/rotate-neo4j-password.yml` (ADR-0006).
+# Terraform must never write a version back, or it would fight the rotation.
+# See the ADR-0006 consequences and infra/README.md §Neo4j credential ownership.
 
 # =============================================================================
 # Neo4j Compute Engine VM
@@ -71,12 +73,34 @@ resource "google_compute_instance" "neo4j" {
     enable_secure_boot = true
   }
 
+  # Adoption safety (see infra/imports.tf): these attributes either force a new
+  # resource or would mutate a running, already-provisioned VM. They are set on
+  # fresh creates but left as-is on the adopted staging VM.
+  #
+  #   metadata                  — the live VM carries `startup-script` and
+  #                               possibly console-managed ssh-keys; Terraform
+  #                               does not need to reconcile them.
+  #   metadata_startup_script   — provider ForceNew: the live attribute is not
+  #                               returned on import, so Terraform would propose
+  #                               a destroy/recreate to "fix" the drift.
+  #   boot_disk                 — initialize_params image/size/type churn against
+  #                               the live disk (`debian-12` is a family alias).
+  #   shielded_instance_config  — not ForceNew, but changing it requires stopping
+  #                               the VM (provider errors without
+  #                               allow_stopping_for_update). Adoption must not
+  #                               stop Neo4j. Fresh environments still get
+  #                               secure boot from the block below at create.
+  #
+  # network_interface / access_config stay managed: the firewall and ADR-0006
+  # depend on the NIC's network and tag, and the VM NIC stays as-is.
   lifecycle {
     prevent_destroy = true
-  }
-
-  metadata = {
-    neo4j-password = random_password.neo4j.result
+    ignore_changes = [
+      metadata,
+      metadata_startup_script,
+      boot_disk,
+      shielded_instance_config,
+    ]
   }
 
   metadata_startup_script = <<-SCRIPT
@@ -103,8 +127,14 @@ resource "google_compute_instance" "neo4j" {
     dbms.security.procedures.allowlist=apoc.*
     EOF
 
-    # Set password
-    NEO4J_PWD=$(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/attributes/neo4j-password" -H "Metadata-Flavor: Google")
+    # Seed the initial password from Secret Manager. Terraform no longer
+    # generates or writes it; the operator (or the rotation workflow) creates
+    # the first NEO4J_PASSWORD version before the VM is created. The VM's
+    # default compute service account holds roles/secretmanager.secretAccessor.
+    NEO4J_PASSWORD_SECRET="${local.neo4j_password_secret_id}"
+    PROJECT_ID=$(curl -s "http://metadata.google.internal/computeMetadata/v1/project/project-id" -H "Metadata-Flavor: Google")
+    TOKEN=$(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" -H "Metadata-Flavor: Google" | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+    NEO4J_PWD=$(curl -s "https://secretmanager.googleapis.com/v1/projects/$PROJECT_ID/secrets/$NEO4J_PASSWORD_SECRET/versions/latest:access" -H "Authorization: Bearer $TOKEN" | python3 -c 'import base64,json,sys; print(base64.b64decode(json.load(sys.stdin)["payload"]["data"]).decode())')
     neo4j-admin dbms set-initial-password "$NEO4J_PWD"
 
     systemctl enable neo4j
@@ -129,6 +159,12 @@ locals {
   neo4j_source_ranges = length(var.neo4j_allowed_source_ranges) > 0 ? (
     var.neo4j_allowed_source_ranges
   ) : [data.google_compute_subnetwork.neo4j.ip_cidr_range]
+
+  # Secret IDs are env-scoped once, here, and reused by the containers and the
+  # VM bootstrap so prod's `_PROD` suffix cannot drift between them.
+  neo4j_uri_secret_id           = "NEO4J_URI${var.env == "prod" ? "_PROD" : ""}"
+  neo4j_password_secret_id      = "NEO4J_PASSWORD${var.env == "prod" ? "_PROD" : ""}"
+  neo4j_password_next_secret_id = "NEO4J_PASSWORD_NEXT${var.env == "prod" ? "_PROD" : ""}"
 }
 
 # =============================================================================
@@ -173,7 +209,7 @@ resource "google_compute_firewall" "neo4j_iap_ssh" {
 # Secrets
 # =============================================================================
 resource "google_secret_manager_secret" "neo4j_uri" {
-  secret_id = "NEO4J_URI${var.env == "prod" ? "_PROD" : ""}"
+  secret_id = local.neo4j_uri_secret_id
 
   replication {
     auto {}
@@ -182,6 +218,10 @@ resource "google_secret_manager_secret" "neo4j_uri" {
   depends_on = [google_project_service.apis]
 }
 
+# Intentionally a NEW Secret Manager version on each apply: the container is
+# imported (infra/imports.tf) but this version is not, so applying points
+# `latest` at the VM's internal VPC address without replacing the container.
+# See ADR-0006.
 resource "google_secret_manager_secret_version" "neo4j_uri" {
   secret = google_secret_manager_secret.neo4j_uri.id
   # Internal VPC address: Cloud Run reaches it through Direct VPC egress.
@@ -189,19 +229,18 @@ resource "google_secret_manager_secret_version" "neo4j_uri" {
   secret_data = "bolt://${google_compute_instance.neo4j.network_interface[0].network_ip}:7687"
 }
 
+# The CONTAINER is managed; the password VALUE is not. No
+# `google_secret_manager_secret_version.neo4j_password` exists on purpose —
+# the rotation workflow owns the enabled version (ADR-0006). Adding one here
+# would fight the rotation and re-introduce a Terraform-known credential.
 resource "google_secret_manager_secret" "neo4j_password" {
-  secret_id = "NEO4J_PASSWORD${var.env == "prod" ? "_PROD" : ""}"
+  secret_id = local.neo4j_password_secret_id
 
   replication {
     auto {}
   }
 
   depends_on = [google_project_service.apis]
-}
-
-resource "google_secret_manager_secret_version" "neo4j_password" {
-  secret      = google_secret_manager_secret.neo4j_password.id
-  secret_data = random_password.neo4j.result
 }
 
 # =============================================================================
@@ -324,7 +363,38 @@ resource "google_cloud_run_v2_service" "api" {
         name  = "CORS_ORIGINS"
         value = "*"
       }
+
+      # KGIS/KGCS opt-in seam (ADR-0004/ADR-0005, issue #112). Declared here so
+      # the deploy workflows — which now roll the image only — cannot drop them.
+      dynamic "env" {
+        for_each = var.kgis_kgcs_enabled ? [1] : []
+        content {
+          name  = "CANONICAL_API_ENABLED"
+          value = "1"
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.kgis_kgcs_enabled ? [1] : []
+        content {
+          name  = "KGCS_CANONICAL_NAMESPACE"
+          value = var.canonical_namespace
+        }
+      }
     }
+  }
+
+  # The image and the deploy-stamped revision labels/annotations are owned by
+  # `.github/workflows/deploy-*.yml`; Terraform owns everything else. See the
+  # ownership table in infra/README.md.
+  lifecycle {
+    ignore_changes = [
+      client,
+      client_version,
+      template[0].containers[0].image,
+      template[0].labels,
+      template[0].annotations,
+    ]
   }
 
   depends_on = [
@@ -332,7 +402,6 @@ resource "google_cloud_run_v2_service" "api" {
     google_project_iam_member.secret_accessor,
     google_project_iam_member.network_user,
     google_secret_manager_secret_version.neo4j_uri,
-    google_secret_manager_secret_version.neo4j_password,
   ]
 }
 
@@ -403,6 +472,49 @@ resource "google_cloud_run_v2_job" "ingest" {
             }
           }
         }
+
+        # KGIS/KGCS opt-in seam (ADR-0004/ADR-0005, issue #112). These were
+        # applied by hand per the staging runbook and were silently dropped by
+        # the next deploy; Terraform now owns them.
+        dynamic "env" {
+          for_each = var.kgis_kgcs_enabled ? [1] : []
+          content {
+            name  = "INGEST_MODE"
+            value = "kgis_kgcs"
+          }
+        }
+
+        dynamic "env" {
+          for_each = var.kgis_kgcs_enabled ? [1] : []
+          content {
+            name  = "KGIS_INGESTION_ENABLED"
+            value = "1"
+          }
+        }
+
+        dynamic "env" {
+          for_each = var.kgis_kgcs_enabled ? [1] : []
+          content {
+            name  = "KGCS_RESOLUTION_ENABLED"
+            value = "1"
+          }
+        }
+
+        dynamic "env" {
+          for_each = var.kgis_kgcs_enabled ? [1] : []
+          content {
+            name  = "KGCS_CANONICAL_NAMESPACE"
+            value = var.canonical_namespace
+          }
+        }
+
+        dynamic "env" {
+          for_each = var.kgis_kgcs_enabled ? [1] : []
+          content {
+            name  = "INGEST_LEDGER_DIR"
+            value = var.ingest_ledger_dir
+          }
+        }
       }
 
       # Direct VPC egress: same private path to Neo4j as the API. ADR-0006.
@@ -419,12 +531,23 @@ resource "google_cloud_run_v2_job" "ingest" {
     }
   }
 
+  # Image and deploy-stamped labels/annotations are owned by the deploy
+  # workflows (the Job is re-pointed at the freshly-built image there).
+  lifecycle {
+    ignore_changes = [
+      client,
+      client_version,
+      template[0].template[0].containers[0].image,
+      template[0].labels,
+      template[0].annotations,
+    ]
+  }
+
   depends_on = [
     google_project_service.apis,
     google_project_iam_member.secret_accessor,
     google_project_iam_member.network_user,
     google_secret_manager_secret_version.neo4j_uri,
-    google_secret_manager_secret_version.neo4j_password,
   ]
 }
 
@@ -475,6 +598,19 @@ resource "google_cloud_run_v2_service" "ui" {
     }
   }
 
+  # Image and deploy-stamped labels/annotations are owned by the deploy
+  # workflows. The UI declares no secret env; the deploy workflows no longer
+  # set one either (the UI reads only API_URL).
+  lifecycle {
+    ignore_changes = [
+      client,
+      client_version,
+      template[0].containers[0].image,
+      template[0].labels,
+      template[0].annotations,
+    ]
+  }
+
   depends_on = [
     google_project_service.apis,
     google_cloud_run_v2_service.api,
@@ -516,7 +652,7 @@ resource "github_actions_secret" "staging_api_url" {
 # both the current and the next value from Secret Manager.
 
 resource "google_secret_manager_secret" "neo4j_password_next" {
-  secret_id = "NEO4J_PASSWORD_NEXT${var.env == "prod" ? "_PROD" : ""}"
+  secret_id = local.neo4j_password_next_secret_id
 
   replication {
     auto {}
@@ -587,12 +723,23 @@ resource "google_cloud_run_v2_job" "rotate_password" {
     }
   }
 
+  # Image and deploy-stamped labels/annotations are owned by the deploy
+  # workflows (the rotation job runs the same `job` image as ingest).
+  lifecycle {
+    ignore_changes = [
+      client,
+      client_version,
+      template[0].template[0].containers[0].image,
+      template[0].labels,
+      template[0].annotations,
+    ]
+  }
+
   depends_on = [
     google_project_service.apis,
     google_project_iam_member.secret_accessor,
     google_project_iam_member.network_user,
     google_secret_manager_secret_version.neo4j_uri,
-    google_secret_manager_secret_version.neo4j_password,
   ]
 }
 

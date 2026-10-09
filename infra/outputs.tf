@@ -13,11 +13,8 @@ output "neo4j_browser_url" {
   value       = "http://${google_compute_instance.neo4j.network_interface[0].network_ip}:7474"
 }
 
-output "neo4j_password" {
-  description = "Neo4j password"
-  value       = random_password.neo4j.result
-  sensitive   = true
-}
+# No `neo4j_password` output: the value is owned by the rotation workflow
+# (ADR-0006), not Terraform. Read it from Secret Manager when needed.
 
 output "api_url" {
   description = "Cloud Run API URL"

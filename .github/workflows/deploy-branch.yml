@@ -144,51 +144,81 @@ jobs:
           LABEL="$(printf '%s' "$RAW_REF" | tr '/' '-' | tr '[:upper:]' '[:lower:]' | cut -c1-63)"
           echo "label=${LABEL}" >> $GITHUB_OUTPUT
 
+      # For an existing service, roll the image only: Terraform owns env,
+      # secrets, scaling, port and IAM, and the KGIS/KGCS flags must survive a
+      # deploy (#112). A brand-new ad-hoc environment (dev) still needs the
+      # baseline shape, so it is created with a full deploy on first run.
       - name: Deploy API service
         if: steps.parse.outputs.deploy_api == 'true'
         run: |
-          gcloud run deploy agentic-kg-api${{ steps.env.outputs.suffix }} \
-            --image=${{ needs.build.outputs.api_image }} \
-            --region=${{ env.REGION }} \
-            --platform=managed \
-            --port=8000 \
-            --memory=1Gi \
-            --cpu=1 \
-            --min-instances=0 \
-            --max-instances=10 \
-            --set-secrets=NEO4J_URI=NEO4J_URI:latest,NEO4J_PASSWORD=NEO4J_PASSWORD:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest \
-            --allow-unauthenticated \
-            --labels=environment=${{ inputs.environment }},branch=${{ steps.branch_label.outputs.label }}
+          SVC="agentic-kg-api${{ steps.env.outputs.suffix }}"
+          if gcloud run services describe "$SVC" --region="$REGION" >/dev/null 2>&1; then
+            gcloud run services update "$SVC" \
+              --image=${{ needs.build.outputs.api_image }} \
+              --region=${{ env.REGION }} \
+              --update-labels=environment=${{ inputs.environment }},branch=${{ steps.branch_label.outputs.label }}
+          else
+            gcloud run deploy "$SVC" \
+              --image=${{ needs.build.outputs.api_image }} \
+              --region=${{ env.REGION }} \
+              --platform=managed \
+              --port=8000 \
+              --memory=1Gi \
+              --cpu=1 \
+              --min-instances=0 \
+              --max-instances=10 \
+              --set-secrets=NEO4J_URI=NEO4J_URI:latest,NEO4J_PASSWORD=NEO4J_PASSWORD:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest \
+              --allow-unauthenticated \
+              --labels=environment=${{ inputs.environment }},branch=${{ steps.branch_label.outputs.label }}
+          fi
 
       - name: Deploy UI service
         if: steps.parse.outputs.deploy_ui == 'true'
         run: |
-          gcloud run deploy agentic-kg-ui${{ steps.env.outputs.suffix }} \
-            --image=${{ needs.build.outputs.ui_image }} \
-            --region=${{ env.REGION }} \
-            --platform=managed \
-            --port=3000 \
-            --memory=512Mi \
-            --cpu=1 \
-            --min-instances=0 \
-            --max-instances=5 \
-            --set-secrets=OPENAI_API_KEY=OPENAI_API_KEY:latest \
-            --allow-unauthenticated \
-            --labels=environment=${{ inputs.environment }},branch=${{ steps.branch_label.outputs.label }}
+          SVC="agentic-kg-ui${{ steps.env.outputs.suffix }}"
+          if gcloud run services describe "$SVC" --region="$REGION" >/dev/null 2>&1; then
+            gcloud run services update "$SVC" \
+              --image=${{ needs.build.outputs.ui_image }} \
+              --region=${{ env.REGION }} \
+              --update-labels=environment=${{ inputs.environment }},branch=${{ steps.branch_label.outputs.label }}
+          else
+            gcloud run deploy "$SVC" \
+              --image=${{ needs.build.outputs.ui_image }} \
+              --region=${{ env.REGION }} \
+              --platform=managed \
+              --port=3000 \
+              --memory=512Mi \
+              --cpu=1 \
+              --min-instances=0 \
+              --max-instances=5 \
+              --set-secrets=OPENAI_API_KEY=OPENAI_API_KEY:latest \
+              --allow-unauthenticated \
+              --labels=environment=${{ inputs.environment }},branch=${{ steps.branch_label.outputs.label }}
+          fi
 
       # Ingest Cloud Run Job (batch runner — not a service; no port/URL).
-      # `jobs deploy` creates-or-updates, so a fresh -dev job is created on first run.
+      # Same rule as the services: update only the image on an existing Job
+      # (Terraform owns its env, including the KGIS flags); create a fresh -dev
+      # Job with the baseline shape on first run.
       - name: Deploy ingest Job
         if: steps.parse.outputs.deploy_job == 'true'
         run: |
-          gcloud run jobs deploy agentic-kg-ingest${{ steps.env.outputs.suffix }} \
-            --image=${{ needs.build.outputs.job_image }} \
-            --region=${{ env.REGION }} \
-            --memory=2Gi \
-            --cpu=2 \
-            --max-retries=0 \
-            --set-secrets=NEO4J_URI=NEO4J_URI:latest,NEO4J_PASSWORD=NEO4J_PASSWORD:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest \
-            --labels=environment=${{ inputs.environment }},branch=${{ steps.branch_label.outputs.label }}
+          JOB="agentic-kg-ingest${{ steps.env.outputs.suffix }}"
+          if gcloud run jobs describe "$JOB" --region="$REGION" >/dev/null 2>&1; then
+            gcloud run jobs update "$JOB" \
+              --image=${{ needs.build.outputs.job_image }} \
+              --region=${{ env.REGION }} \
+              --update-labels=environment=${{ inputs.environment }},branch=${{ steps.branch_label.outputs.label }}
+          else
+            gcloud run jobs deploy "$JOB" \
+              --image=${{ needs.build.outputs.job_image }} \
+              --region=${{ env.REGION }} \
+              --memory=2Gi \
+              --cpu=2 \
+              --max-retries=0 \
+              --set-secrets=NEO4J_URI=NEO4J_URI:latest,NEO4J_PASSWORD=NEO4J_PASSWORD:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest \
+              --labels=environment=${{ inputs.environment }},branch=${{ steps.branch_label.outputs.label }}
+          fi
 
       - name: Get service URLs
         id: urls

@@ -1,4 +1,12 @@
 .terraform/
 *.tfstate
 *.tfstate.backup
+*.tfstate.*
 .terraform.lock.hcl
+.terraform.tfstate.lock.info
+crash.log
+
+# Operator-local backend config (never commit; the prefix is passed via
+# -backend-config on the command line).
+backend.hcl
+*.tfbackend
