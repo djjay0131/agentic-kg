@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import json
 from datetime import date, timedelta
+from pathlib import Path
 
 import pytest
 from agentic_kg.pipeline.catalog import QueryCatalog
 from agentic_kg.pipeline.plan import main, plan_queries
+
+SHIPPED_CATALOG = Path(__file__).resolve().parents[4] / "config" / "ingest-queries.yaml"
 
 
 def _catalog(*specs) -> QueryCatalog:
@@ -82,7 +85,9 @@ def test_zero_budget_raises():
 
 
 def test_cli_prints_json(capsys):
-    code = main(["--date", "2026-10-09", "--max-papers", "50"])
+    code = main(
+        ["--date", "2026-10-09", "--max-papers", "50", "--catalog", str(SHIPPED_CATALOG)]
+    )
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
     assert isinstance(payload, list)

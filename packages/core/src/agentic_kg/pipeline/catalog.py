@@ -64,12 +64,18 @@ class QueryCatalog(BaseModel):
 def default_catalog_path() -> Path:
     """The catalog to load when no explicit path is given.
 
-    ``NIGHTLY_CATALOG`` wins; otherwise the repo/image-relative default.
+    ``NIGHTLY_CATALOG`` wins. Otherwise the package-relative default is used
+    when it exists (a checkout, or the Job image where ``config/`` sits beside
+    ``packages/``); when the package was installed non-editable (CI's
+    ``pip install ./packages/core``), that path lands in site-packages, so fall
+    back to ``./config/ingest-queries.yaml`` relative to the working directory.
     """
     override = os.environ.get(ENV_CATALOG)
     if override:
         return Path(override)
-    return DEFAULT_CATALOG_PATH
+    if DEFAULT_CATALOG_PATH.is_file():
+        return DEFAULT_CATALOG_PATH
+    return Path.cwd() / "config" / "ingest-queries.yaml"
 
 
 def load_catalog(path: str | Path | None = None) -> QueryCatalog:

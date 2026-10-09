@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from agentic_kg.pipeline.catalog import (
     ENV_CATALOG,
@@ -11,9 +13,14 @@ from agentic_kg.pipeline.catalog import (
     load_catalog,
 )
 
+# The test file lives in the checkout even when the package is installed
+# non-editable, so point at the shipped catalog explicitly rather than relying
+# on default_catalog_path (which resolves relative to the installed package).
+SHIPPED_CATALOG = Path(__file__).resolve().parents[4] / "config" / "ingest-queries.yaml"
+
 
 def test_shipped_catalog_is_valid_and_seeded():
-    catalog = load_catalog()
+    catalog = load_catalog(SHIPPED_CATALOG)
     assert 6 <= len(catalog.queries) <= 10
     ids = [spec.id for spec in catalog.queries]
     assert len(ids) == len(set(ids))

@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 
 from agentic_kg.pipeline.catalog import QueryCatalog
 from agentic_kg.pipeline.ingest import QueryOutcome
 from agentic_kg.pipeline.nightly import main, run_nightly
+
+SHIPPED_CATALOG = Path(__file__).resolve().parents[4] / "config" / "ingest-queries.yaml"
 
 NOW = datetime(2026, 10, 9, 2, 30, 0, tzinfo=timezone.utc)
 
@@ -201,7 +204,7 @@ def test_neo4j_write_failure_is_a_partial(tmp_path):
 
 
 def test_cli_plan_only_does_not_ingest(capsys):
-    code = main(["--plan-only"])
+    code = main(["--plan-only", "--catalog", str(SHIPPED_CATALOG)])
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
     assert isinstance(payload, list)
