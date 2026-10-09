@@ -7,6 +7,46 @@ Last updated: 2026-09-17
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
 
+## Synthesis write-back + agent provenance (2026-10-08, #114)
+
+`SynthesisAgent` had never written anything to the graph. It called
+`repo.create_problem(id=, statement=, status=)` and
+`relations.create_relation(source_id=, target_id=, relation_type="EXTENDS")`,
+neither of which matches the real signature; both raised `TypeError`, which
+the agent caught and logged at WARN. The unit tests `MagicMock`ed both methods
+loosely, so CI stayed green. Fixed:
+
+- writes a real `Problem` model; uses `RelationType.EXTENDS` / `RELATED_TO`
+  (new enum member). The status write was also wrong
+  (`update_problem(id, status=...)`) and now goes through the label-agnostic
+  `repo.set_problem_status`.
+- agent-derived problems are marked `origin="agent:synthesis"`, carry
+  `workflow_run_id` and `trace_id`, hold a `derived_from` property shaped like
+  `kg_contracts.Derivation {method, inputs[{kind, ref}], implementation_version}`,
+  and get a `DERIVED_FROM` edge to each source problem. They can no longer be
+  mistaken for extracted problems.
+- relation endpoints resolve both `:Problem` and `:ProblemConcept` so
+  synthesis can extend a canonical source.
+- agent test mocks are now `create_autospec(Neo4jRepository/RelationService/
+  SearchService)` — signature drift fails tests. New testcontainers
+  integration test `tests/knowledge_graph/test_synthesis_writeback.py` proves
+  the real Cypher writes provenance + lineage.
+- API exposes `origin` on problem responses; UI shows an "agent-derived" badge.
+- Review follow-up (PR #115): `get_related_problems` now traverses only
+  `RelationType` members, so the synthesis `DERIVED_FROM` provenance edge no
+  longer raises `ValueError` and bleeds the call for both source and derived;
+  relation endpoints and `get_derived_from` are label-scoped
+  (`:Problem OR :ProblemConcept`); `continuation.py` consumes the real
+  `(Problem, ProblemRelation)` tuples instead of treating them as dicts;
+  the problems list API takes an optional `origin` filter and the list/home
+  views show the badge; `DERIVED_FROM` is deliberately a non-extraction edge,
+  so a re-ingest of a source paper blocks unless `--force-rewrite` (pinned by
+  a test).
+
+Tracked under the KGPS provenance audit (djjay0131/agentic-kgps#1); the
+`kg_contracts.Derivation` shape is the seam for the KGIS/KGCS adoption plan
+(`llm/plans/2026-09-17-kgis-kgcs-adoption-migration.md`).
+
 ## Bounded-adviser adjudication + KGCS v2.0.0 re-pin (2026-10-05)
 
 Phase-5 A3: the `new` arm is now **gradable**. The deterministic policy defers

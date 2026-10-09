@@ -209,6 +209,32 @@ class TestPurgeHappyPath:
         # dead vocabulary — nothing writes it
         assert "HAS_TOPIC" not in _EXTRACTION_EDGE_TYPES
 
+    def test_derived_from_is_not_extraction_footprint(self, mock_repo):
+        """DERIVED_FROM is provenance, not extraction footprint.
+
+        Synthesis writes ``(:Problem)-[:DERIVED_FROM]->(source)`` to record
+        agent lineage. It is deliberately left out of
+        ``_EXTRACTION_EDGE_TYPES`` so the guardrail treats it as a foreign
+        edge and refuses a non-forced re-ingest — a forced rewrite reports it
+        as collateral loss instead of silently destroying the lineage.
+        """
+        from agentic_kg.extraction.re_ingestion import (
+            _EXTRACTION_EDGE_TYPES,
+            _find_non_extraction_edges,
+        )
+
+        assert "DERIVED_FROM" not in _EXTRACTION_EDGE_TYPES
+
+        session = mock_repo.session.return_value
+        empty = MagicMock()
+        empty.__iter__ = lambda self: iter([])
+        session.run.return_value = empty
+
+        _find_non_extraction_edges(mock_repo, "10.1/abc")
+
+        passed = session.run.call_args.kwargs["extraction_edges"]
+        assert "DERIVED_FROM" not in passed
+
     def test_shared_topic_and_concept_nodes_not_deleted(self, mock_repo):
         """AC-13 critical: shared Topic and ResearchConcept nodes must NOT
         be deleted — they may be referenced by other papers."""

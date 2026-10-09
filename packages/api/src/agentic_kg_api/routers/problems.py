@@ -33,6 +33,7 @@ def _view_to_summary(view: dict) -> ProblemSummary:
         canonical_statement=view.get("canonical_statement"),
         mention_count=view.get("mention_count") or 0,
         paper_count=view.get("paper_count") or 0,
+        origin=view.get("origin"),
     )
 
 
@@ -79,12 +80,21 @@ def _view_to_detail(view: dict) -> ProblemDetail:
             for mention in (view.get("mentions") or [])
         ],
         papers=view.get("papers") or [],
+        origin=view.get("origin"),
     )
 
 
 @router.get("", response_model=ProblemListResponse)
 def list_problems(
     status: Optional[str] = Query(default=None, description="Filter by status"),
+    origin: Optional[str] = Query(
+        default=None,
+        description=(
+            "Filter by provenance: 'extracted' for ingested problems, "
+            "or 'agent:<name>' (e.g. 'agent:synthesis') for agent-derived "
+            "ones. A missing origin property is treated as 'extracted'."
+        ),
+    ),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     repo: Neo4jRepository = Depends(get_repo),
@@ -101,6 +111,7 @@ def list_problems(
         status=problem_status,
         limit=limit,
         offset=offset,
+        origin=origin,
     )
     return ProblemListResponse(
         problems=[_view_to_summary(view) for view in views],

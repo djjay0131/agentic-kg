@@ -97,3 +97,12 @@ class TestSearchProblems:
         response = client.post("/api/search", json={"query": "test"})
         data = response.json()
         assert data["results"][0]["problem"]["confidence"] == 0.88
+
+    def test_search_result_includes_origin(self, client, mock_search_service):
+        """Search summaries carry provenance so agent output is labelled."""
+        mock_search_service.hybrid_search.return_value = [
+            make_search_result(problem=make_problem(id="synth-1", origin="agent:synthesis")),
+        ]
+        response = client.post("/api/search", json={"query": "test"})
+        data = response.json()
+        assert data["results"][0]["problem"]["origin"] == "agent:synthesis"

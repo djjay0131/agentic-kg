@@ -13,15 +13,18 @@ the two planes rule means the ADR is authoritative and this page is the
 derived runbook.
 
 **Project:** `vt-gcp-00042` (staging) · **Region:** `us-central1`
-**Terraform state:** local (`infra/terraform.tfstate`) — the owner applies;
-CI never does.
+**Terraform state:** remote — `gs://vt-gcp-00042-tfstate`, prefix
+`agentic-kg/staging`. The normal path is: merge → `terraform.yml` plan on the
+PR → dispatch apply (`infra/README.md` §The normal flow). The owner applies; no
+agent session or CI job applies on its own.
 
 ---
 
 ## Preconditions
 
 - `gcloud` authenticated to the **`vt-gcp-00042`** VT (non-prod) project.
-- Terraform `>= 1.5` on `PATH`, run from `infra/`.
+- Terraform `>= 1.7` on `PATH`, run from `infra/` (1.7 is required for the
+  `for_each` import blocks in `infra/imports.tf`).
 - `roles/owner`-class access to the project (firewall, IAM, Secret Manager,
   Cloud Run).
 - The `job` image has been rebuilt since the last core change (the rotation
@@ -41,17 +44,24 @@ gcloud secrets versions list NEO4J_PASSWORD \
 
 ---
 
-## Part 1 — Make Neo4j private (staged apply, zero downtime)
+## Part 1 — Adopt staging, then make Neo4j private
 
 The order matters: **egress first, then the internal address, then close the
 firewall.** Each stage is verified before the next.
 
-### Step 1 — Add VPC egress and rotation infrastructure (firewall still open)
+The preferred path is now the workflow: merge → `terraform.yml` plan on the PR
+→ dispatch `apply` (`infra/README.md` §The normal flow). The staged `-target`
+sequence below is the fallback if you must converge in a maintenance window.
+Either way the first apply is an **adoption**: `infra/imports.tf` imports the
+existing staging resources so nothing is recreated. `imports.tf` is one-shot —
+delete it after the first successful apply.
+
+### Step 1 — Adopt resources and add VPC egress / rotation infrastructure (firewall still open)
 
 ```bash
 cd infra
-terraform init -backend=false        # provider only; never against real state from CI
-terraform plan -var-file=envs/staging.tfvars
+terraform init -backend-config="prefix=agentic-kg/staging"   # GCS remote state
+terraform plan -var-file=envs/staging.tfvars -lock=false
 ```
 
 Confirm the plan shows **no replacement** of `google_compute_instance.neo4j`
@@ -139,7 +149,12 @@ override), rotate the credential immediately afterwards.
 
 ### After Part 1 (the designed path)
 
-Dispatch the workflow (it never runs on its own):
+The workflow now runs **quarterly on a schedule**
+(`cron: '17 9 1 */3 *'`) and **on demand**. A concurrency group serializes runs
+so two rotations can never overlap; a queued run waits rather than cancelling
+one that is mid-cutover. Nothing triggers it on push or PR.
+
+Run it manually when you need a rotation outside the schedule:
 
 ```bash
 gh workflow run rotate-neo4j-password.yml \

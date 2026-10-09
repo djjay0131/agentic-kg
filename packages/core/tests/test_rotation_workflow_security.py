@@ -3,7 +3,8 @@
 Parses ``.github/workflows/rotate-neo4j-password.yml`` on disk (no network,
 no Docker) and fails if the security properties regress:
 
-- dispatch-only: never push/PR/schedule
+- scheduled quarterly + dispatchable, but never push/PR
+- a single concurrency group so two rotations never overlap
 - least privilege: top-level ``contents: read``; only the job escalates
   ``id-token: write`` for WIF
 - ``environment: staging``
@@ -46,9 +47,21 @@ def _triggers(workflow: dict) -> dict:
     return workflow.get("on") or workflow.get(True)
 
 
-def test_is_workflow_dispatch_only(workflow: dict) -> None:
+def test_is_scheduled_and_dispatchable(workflow: dict) -> None:
+    """Owner decision 2026-10-06: rotation is automated, not remembered."""
     triggers = _triggers(workflow)
-    assert set(triggers) == {"workflow_dispatch"}
+    assert set(triggers) == {"schedule", "workflow_dispatch"}
+    schedule = triggers["schedule"]
+    assert isinstance(schedule, list) and len(schedule) == 1
+    # Quarterly: 09:17 UTC on the 1st of Jan/Apr/Jul/Oct.
+    assert schedule[0]["cron"] == "17 9 1 */3 *"
+
+
+def test_rotations_never_overlap(workflow: dict) -> None:
+    concurrency = workflow["concurrency"]
+    assert concurrency["group"] == "rotate-neo4j-password"
+    # A queued rotation waits; it must not cancel one that is mid-cutover.
+    assert concurrency["cancel-in-progress"] is False
 
 
 def test_permissions_are_minimal(workflow: dict) -> None:

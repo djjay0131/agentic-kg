@@ -40,6 +40,16 @@ class ProblemSummary(BaseModel):
     canonical_statement: Optional[str] = None
     mention_count: int = 0
     paper_count: int = 0
+    # Provenance: 'extracted' for ingested problems, 'agent:<name>' for
+    # agent-derived ones. ``None`` means the origin property is absent —
+    # i.e. an extracted/legacy problem written before provenance existed.
+    origin: Optional[str] = Field(
+        default=None,
+        description=(
+            "'extracted' for ingested problems, 'agent:<name>' otherwise. "
+            "Null is treated as extracted/legacy."
+        ),
+    )
 
 
 class ProblemMentionResponse(BaseModel):
@@ -79,6 +89,9 @@ class ProblemDetail(BaseModel):
     paper_count: int = 0
     mentions: list[ProblemMentionResponse] = Field(default_factory=list)
     papers: list[dict] = Field(default_factory=list)
+    # Provenance: 'extracted' for ingested problems, 'agent:<name>' otherwise.
+    # ``None`` means the property is absent — extracted/legacy.
+    origin: Optional[str] = None
 
 
 class ProblemUpdate(BaseModel):

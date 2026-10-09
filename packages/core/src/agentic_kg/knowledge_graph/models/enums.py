@@ -32,6 +32,9 @@ class RelationType(str, Enum):
     CONTRADICTS = "CONTRADICTS"
     DEPENDS_ON = "DEPENDS_ON"
     REFRAMES = "REFRAMES"
+    # Generic association. Synthesis emits this when the LLM reports a
+    # relation without a more specific type.
+    RELATED_TO = "RELATED_TO"
 
 
 class ContradictionType(str, Enum):

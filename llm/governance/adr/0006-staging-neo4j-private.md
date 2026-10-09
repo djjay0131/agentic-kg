@@ -31,14 +31,17 @@ The consumers of Neo4j are all GCP-side today:
 - **GitHub-hosted CI runners** (`integration-tests.yml`) that connect
   directly to the database using the GitHub secrets
   `STAGING_NEO4J_URI` / `STAGING_NEO4J_PASSWORD`.
-- The `random_password.neo4j` resource is the single origin of the
-  password; Terraform writes it to Secret Manager and, when
-  `sync_github_secrets = true`, to GitHub. That duplication is the
-  reason a rotation today would leave one of the copies stale.
+- The `random_password.neo4j` resource *was* the single origin of the
+  password, with Terraform writing it to Secret Manager; the resource and
+  its `google_secret_manager_secret_version` are removed when this ADR is
+  applied (see Consequences), because a Terraform-owned value cannot be
+  rotated by a workflow without the two fighting.
 
-Terraform state is **local** (`infra/terraform.tfstate`, location not
-recorded). No apply can be run by an agent; this ADR ships code and a
-runbook for the owner to apply deliberately.
+Terraform state now lives in GCS (`gs://vt-gcp-00042-tfstate`, prefix
+`agentic-kg/<env>`), and applies flow through
+`.github/workflows/terraform.yml` (PR plan → dispatch apply). No apply is
+run by an agent; this ADR ships code and a runbook for the owner to apply
+deliberately.
 
 ## Decision
 
@@ -81,14 +84,18 @@ runbook for the owner to apply deliberately.
      GitHub secrets and their `github_actions_secret` resources are
      deleted. No VPC connector or Cloud Run Job test runner is built
      for CI.
-5. **Rotation.** A `workflow_dispatch`-only workflow
+5. **Rotation.** A workflow
    (`.github/workflows/rotate-neo4j-password.yml`, `environment:
    staging`, WIF) generates a strong password, masks it, stages it in a
    dedicated transport secret, runs an in-VPC rotation Cloud Run Job
    that executes `ALTER CURRENT USER SET PASSWORD FROM … TO …` and
    verifies a read with the new credential, promotes the new value to
    `NEO4J_PASSWORD`, rolls the API service and ingest Job, verifies via
-   the API, and only then disables the superseded secret version.
+   the API, and only then disables the superseded secret version. The
+   owner asked for rotation to be automated rather than remembered
+   (2026-10-06), so the workflow runs **quarterly on a schedule**
+   (`cron: '17 9 1 */3 *'`) *and* on demand; a single concurrency group
+   serializes runs so two rotations can never overlap.
 6. **No destructive change.** `lifecycle { prevent_destroy = true }` is
    added to the Neo4j VM. The ephemeral public IP is retained for now so
    that applying this ADR cannot replace the instance; with the firewall
@@ -147,10 +154,23 @@ Rejected as superseded.
 - Neo4j bolt/http are no longer reachable from the internet; the leaked
   address is inert.
 - Cloud Run reaches Neo4j privately; public-API traffic is unchanged.
-- Rotation has a single source of truth and an auditable, dispatch-only
-  workflow that never logs the password.
+- Rotation has a single source of truth and an auditable, scheduled +
+  on-demand workflow that never logs the password.
 - The `prevent_destroy` guard plus staged applies make an accidental
   instance replacement impossible to apply silently.
+- **The password value has exactly one owner.** Removing
+  `random_password.neo4j` and
+  `google_secret_manager_secret_version.neo4j_password` from Terraform
+  means the rotation workflow's version is never fought by an apply, and
+  no credential is stored in state, plan output or the repository. The
+  Secret Manager *container* stays Terraform-managed.
+- **Adoption is non-destructive.** `infra/imports.tf` imports the live
+  staging resources; `ignore_changes` on the VM's creation-only
+  attributes (`metadata`, `metadata_startup_script`, `boot_disk`,
+  `shielded_instance_config`) and on deploy-owned Cloud Run attributes
+  (image, revision labels/annotations) keeps the adoption plan at zero
+  destroy/replace. Cloud Run env, secrets, scaling and IAM are Terraform's
+  so the KGIS/KGCS opt-in flags (#112) cannot be dropped by a deploy.
 
 ### Negative / Tradeoffs
 
@@ -161,6 +181,11 @@ Rejected as superseded.
   testcontainer.
 - Rotation runs through a Cloud Run Job, so it depends on the job image
   being current (the `job` image is rebuilt on core changes).
+- **Terraform can no longer produce the password.** `terraform output
+  neo4j_password` is gone; the value is read from Secret Manager
+  (version `latest`) when needed. A fresh environment must seed the first
+  version out-of-band before the VM bootstraps (the VM reads it from
+  Secret Manager in its startup script).
 
 ### Risks
 

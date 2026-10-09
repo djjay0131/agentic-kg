@@ -209,6 +209,23 @@ class TestGetTopicProblems:
         response = client.get("/api/topics/missing/problems")
         assert response.status_code == 404
 
+    def test_returns_problem_origin(self, client, mock_repo):
+        """The topic-problems summary carries the provenance origin."""
+        from tests.conftest import make_problem_view
+
+        mock_repo.get_topic.return_value = _make_topic()
+        mock_repo.list_problem_views_for_topic.return_value = [
+            make_problem_view(
+                id="synth-1",
+                statement="Agent-derived topic problem",
+                origin="agent:synthesis",
+            )
+        ]
+
+        response = client.get("/api/topics/topic-uuid-1/problems")
+        assert response.status_code == 200
+        assert response.json()["problems"][0]["origin"] == "agent:synthesis"
+
 
 class TestAssignTopic:
     def test_assign_created(self, client, mock_repo):

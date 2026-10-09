@@ -230,6 +230,7 @@ def get_topic_problems(
             canonical_statement=view.get("canonical_statement"),
             mention_count=view.get("mention_count") or 0,
             paper_count=view.get("paper_count") or 0,
+            origin=view.get("origin"),
         )
         for view in views
     ]
