@@ -365,10 +365,16 @@ class LiveOpenAICompletionClient:
         messages.append({"role": "user", "content": prompt})
 
         async def _call() -> str:
-            response = await client.chat.completions.create(
-                model=model, messages=messages, temperature=self._temperature
-            )
-            return response.choices[0].message.content or ""
+            # One client per call, closed in the same event loop: the async
+            # transport binds to the loop, and `complete` drives a fresh
+            # `asyncio.run` each time, so a shared client would cross loops.
+            try:
+                response = await client.chat.completions.create(
+                    model=model, messages=messages, temperature=self._temperature
+                )
+                return response.choices[0].message.content or ""
+            finally:
+                await client.close()
 
         try:
             return asyncio.run(_call())
