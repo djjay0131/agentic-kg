@@ -1,4 +1,4 @@
-"""The three surfaces this harness excludes, and the proof they are still broken.
+"""The one surface this harness still excludes, plus the repaired ones's proofs.
 
 Excluding something from a compatibility contract is a claim, and an unchecked
 claim rots. Each entry in
@@ -7,16 +7,22 @@ code does not reach the graph", and every one of those is asserted here against
 the real call signatures.
 
 Why assert that a defect is *present*? Because the exclusion is only justified
-while it is. If someone repairs the ``ContinuationAgent`` related-problem
-lookup or the review queue, the surface becomes testable and the harness must
-grow to cover it — and the way to make that decision happen rather than be
-forgotten is for this file to go red on the day of the fix. Each assertion says
-so in its message.
+while it is. If someone repairs the remaining ``ReviewQueueService`` surface,
+the harness must grow to cover it -- and the way to make that decision happen
+rather than be forgotten is for this file to go red on the day of the fix. Each
+assertion says so in its message.
 
-``PUT /api/problems/{id}`` used to be the first of these. #110 repaired it (the
-router resolves a canonical view, then writes through ``update_problem_concept``
-for a concept or ``update_problem(problem)`` for a legacy row), so its tripwire
-is now the positive test ``test_put_problem_binds_its_arguments_correctly``.
+Two earlier members of that set have been repaired and their tripwires
+inverted:
+
+* ``PUT /api/problems/{id}`` -- #110 repaired it (the router resolves a
+  canonical view, then writes through ``update_problem_concept`` for a concept
+  or ``update_problem(problem)`` for a legacy row). Its test is now
+  ``test_put_problem_binds_its_arguments_correctly``.
+* ``SynthesisAgent``'s write-back and ``ContinuationAgent``'s related-problem
+  read -- #115 repaired both (real ``Problem``/relation writes; the continuation
+  read now binds and consumes ``(Problem, ProblemRelation)`` tuples). Their
+  tripwires are now the positive tests below.
 
 Signature-level throughout: no HTTP client, no Neo4j, no LLM. The defects are
 argument-binding errors, and ``inspect.signature`` sees them without running
@@ -38,8 +44,10 @@ REPO_ROOT = Path(__file__).resolve().parents[5]
 
 
 def test_the_scoped_out_set_is_not_empty() -> None:
-    assert len(SCOPED_OUT_SURFACES) == 3
-    assert len({s.id for s in SCOPED_OUT_SURFACES}) == 3
+    # One surface remains: /api/reviews/*. The synthesis write-back and the
+    # continuation related-problem read were repaired by #115 and retired here.
+    assert len(SCOPED_OUT_SURFACES) == 1
+    assert len({s.id for s in SCOPED_OUT_SURFACES}) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -120,53 +128,94 @@ def test_the_review_queue_calls_repository_methods_that_do_not_exist() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 3. SynthesisAgent's four writes
+# 3. SynthesisAgent's writes -- repaired by #115, now positive tests
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("target", "kwargs"),
-    (
-        ("create_problem", {"id": "x", "statement": "y", "status": "open"}),
-        ("update_problem", {"status": "in_progress"}),
-    ),
-)
-def test_synthesis_agent_calls_the_repository_with_parameters_it_has_not_got(
-    target: str, kwargs: dict[str, str]
-) -> None:
-    """``SynthesisAgent._apply_graph_updates`` passes keyword arguments that do
-    not exist on the methods it calls. Every one raises TypeError, and every one
-    is swallowed by ``logger.warning``, so the agent reports "Applied 0 graph
-    updates" and nothing is written.
+def test_synthesis_agent_binds_its_repository_writes_correctly() -> None:
+    """The former tripwire, inverted because #115 fixed the write-back.
 
-    ``Signature.bind`` is the check: it resolves the exact same way the
-    interpreter does, so this cannot drift from real call behaviour.
+    Before #115 ``_apply_graph_updates`` called
+    ``repo.create_problem(id=, statement=, status=)`` against
+    ``create_problem(problem: Problem, ...)`` and updated the source status via
+    ``repo.update_problem(id, status=)``. Both raised ``TypeError``, swallowed
+    by ``logger.warning``, so no synthesis output ever reached the graph. The
+    agent now builds a real ``Problem`` and uses the label-agnostic
+    ``set_problem_status``; this pins that the arguments bind.
     """
+    from agentic_kg.knowledge_graph.models import Problem, ProblemStatus
     from agentic_kg.knowledge_graph.repository import Neo4jRepository
 
-    signature = inspect.signature(getattr(Neo4jRepository, target))
-    with pytest.raises(TypeError):
-        signature.bind(object(), **kwargs)
+    create_params = list(inspect.signature(Neo4jRepository.create_problem).parameters)
+    assert create_params[1] == "problem", (
+        f"create_problem's first parameter is {create_params[1]!r}, not "
+        f"'problem'; re-check SynthesisAgent._apply_graph_updates."
+    )
+    # A real Problem now binds positionally.
+    inspect.signature(Neo4jRepository.create_problem).bind(
+        object(),
+        Problem(
+            id="x",
+            statement="A synthesized candidate problem statement.",
+            status=ProblemStatus.OPEN,
+        ),
+    )
+    # Status goes through the label-agnostic setter, not update_problem(id, status=).
+    inspect.signature(Neo4jRepository.set_problem_status).bind(
+        object(), "x", ProblemStatus.IN_PROGRESS
+    )
+
+    source = (REPO_ROOT / "packages/core/src/agentic_kg/agents/synthesis.py").read_text(
+        encoding="utf-8"
+    )
+    assert "self.repo.create_problem(new_problem)" in source, (
+        "SynthesisAgent no longer creates a real Problem through "
+        "create_problem(problem); re-check _apply_graph_updates."
+    )
+    assert "self.repo.set_problem_status(" in source, (
+        "SynthesisAgent no longer writes source status through "
+        "set_problem_status; re-check _apply_graph_updates."
+    )
 
 
-def test_synthesis_agent_calls_create_relation_with_parameters_it_has_not_got() -> None:
-    """The relation half: ``source_id`` / ``target_id`` against
-    ``from_problem_id`` / ``to_problem_id``.
+def test_synthesis_agent_binds_its_create_relation_call_correctly() -> None:
+    """The relation half: ``from_problem_id`` / ``to_problem_id`` / ``RelationType``.
+
+    Before #115 the agent passed ``source_id=`` / ``target_id=`` /
+    ``relation_type="EXTENDS"`` against
+    ``create_relation(from_problem_id, to_problem_id, relation_type, ...)`` --
+    another swallowed ``TypeError``. The real signature now accepts the call,
+    and the old keyword names still would not.
     """
+    from agentic_kg.knowledge_graph.models import RelationType
     from agentic_kg.knowledge_graph.relations import RelationService
 
     signature = inspect.signature(RelationService.create_relation)
+    params = list(signature.parameters)
+    assert params[1:4] == ["from_problem_id", "to_problem_id", "relation_type"], params
+    signature.bind(object(), "a", "b", RelationType.EXTENDS)
     with pytest.raises(TypeError):
-        signature.bind(object(), source_id="a", target_id="b", relation_type="EXTENDS")
+        signature.bind(
+            object(), source_id="a", target_id="b", relation_type=RelationType.EXTENDS
+        )
+
+    source = (REPO_ROOT / "packages/core/src/agentic_kg/agents/synthesis.py").read_text(
+        encoding="utf-8"
+    )
+    assert "source_id=" not in source, (
+        "the old create_relation(source_id=...) misbind has been reintroduced; "
+        "re-check SynthesisAgent._apply_graph_updates."
+    )
 
 
-def test_the_synthesis_failures_are_swallowed_rather_than_surfaced() -> None:
-    """Why this is invisible in production rather than merely broken.
+def test_synthesis_write_handlers_report_failures_without_raising() -> None:
+    """Why a write failure is still safe, now that the writes bind.
 
-    Each write sits in its own ``try`` whose handler is ``logger.warning``, so
-    the workflow completes successfully having written nothing. The AST walk
-    asserts the handlers are there, because "the writes fail" and "the failures
-    are reported" are different facts and only the first is obvious.
+    #115 kept a per-write ``try`` around the graph updates, so one bad relation
+    cannot drop the rest of the report. Those handlers must downgrade to a log
+    line rather than raise. The writes they guard now go through the real API
+    (asserted above), so this is defence -- not the old silent no-op where every
+    call failed and "Applied 0 graph updates" was the only signal.
     """
     source = (REPO_ROOT / "packages/core/src/agentic_kg/agents/synthesis.py").read_text(
         encoding="utf-8"
@@ -177,13 +226,27 @@ def test_the_synthesis_failures_are_swallowed_rather_than_surfaced() -> None:
         for node in ast.walk(tree)
         if isinstance(node, ast.AsyncFunctionDef) and node.name == "_apply_graph_updates"
     )
+
+    # The writes now name real repository / relation methods.
+    called = {
+        node.func.attr
+        for node in ast.walk(apply_updates)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+    assert {
+        "create_problem",
+        "create_derived_from",
+        "create_relation",
+        "set_problem_status",
+    } <= called, f"a real write-back method is no longer called: {sorted(called)}"
+
     handlers = [
         handler
         for node in ast.walk(apply_updates)
         if isinstance(node, ast.Try)
         for handler in node.handlers
     ]
-    assert len(handlers) == 3, f"expected three swallowing handlers, found {len(handlers)}"
+    assert len(handlers) == 4, f"expected four write handlers, found {len(handlers)}"
     for handler in handlers:
         calls = [
             n
@@ -201,62 +264,73 @@ def test_the_synthesis_failures_are_swallowed_rather_than_surfaced() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 4. ContinuationAgent's related-problem context — NEW DEFECT D-1
+# 4. ContinuationAgent's related-problem context -- repaired by #115
 # ---------------------------------------------------------------------------
 
 
-def test_continuation_agent_passes_a_limit_that_the_relation_service_rejects() -> None:
-    """D-1. ``continuation.py:128`` calls
-    ``get_related_problems(problem_id, direction='both', limit=10)``;
-    ``relations.py:261`` declares ``(self, problem_id, relation_type=None,
-    direction='both')``. TypeError, swallowed by ``logger.warning``, so the
-    related-problem leg of the continuation prompt is unconditionally empty.
+def test_continuation_agent_binds_its_relation_context_call() -> None:
+    """D-1, repaired by #115.
 
-    Found by this phase. Masked in the existing unit tests by a MagicMock
-    (``packages/core/tests/agents/conftest.py:100``), which accepts any keyword
-    and returns dicts.
+    ``continuation.py`` used to call
+    ``get_related_problems(problem_id, direction='both', limit=10)`` against a
+    method declaring ``(self, problem_id, relation_type=None, direction='both')``.
+    The ``TypeError`` was swallowed by ``logger.warning``, so the
+    related-problem leg of the continuation prompt was unconditionally empty.
+    The accepted call now binds.
     """
     from agentic_kg.knowledge_graph.relations import RelationService
 
     signature = inspect.signature(RelationService.get_related_problems)
     assert "limit" not in signature.parameters, (
-        "get_related_problems now accepts `limit`, so defect D-1 is fixed. "
-        "Reclassify 'agent.continuation.related_problems' out of SCOPED_OUT and "
-        "add a probe for it."
+        "get_related_problems now accepts `limit`; revisit the continuation "
+        "call site and the probe for 'agent.continuation.related_problems'."
     )
+    # The real call binds...
+    signature.bind(object(), "problem-id", direction="both")
+    # ...and the old misbind would still raise.
     with pytest.raises(TypeError):
         signature.bind(object(), "problem-id", direction="both", limit=10)
 
     source = (REPO_ROOT / "packages/core/src/agentic_kg/agents/continuation.py").read_text(
         encoding="utf-8"
     )
-    assert "limit=10" in source, "the offending call site changed; re-verify D-1"
+    assert "limit=10" not in source, "the D-1 misbind has been reintroduced"
+    assert 'direction="both"' in source, (
+        "the continuation call no longer requests both directions; re-check "
+        "_load_problem_context."
+    )
 
 
-def test_the_relation_service_returns_tuples_the_continuation_agent_cannot_read() -> None:
-    """D-2, the defect waiting behind D-1.
+def test_continuation_agent_reads_the_relation_service_tuples() -> None:
+    """D-2, repaired by #115.
 
     ``get_related_problems`` returns ``list[tuple[Problem, ProblemRelation]]``.
-    ``ContinuationAgent`` does ``rel.get('type', 'RELATED')``. Fixing the
-    ``limit`` keyword alone converts a silent TypeError into a silent
-    AttributeError — the prompt stays empty and the logged message changes.
-    Recorded so the two are fixed together.
+    Before #115 the caller did ``rel.get('type', 'RELATED')`` on each entry; the
+    ``AttributeError`` was swallowed and the prompt stayed empty. The caller now
+    unpacks the tuples.
     """
     from agentic_kg.knowledge_graph.relations import RelationService
 
     returns = inspect.signature(RelationService.get_related_problems).return_annotation
     assert "tuple" in str(returns), (
         f"return annotation is now {returns!r}; re-check whether the "
-        f"ContinuationAgent's rel.get(...) access is still wrong"
+        f"ContinuationAgent's tuple unpacking is still correct"
     )
+
     source = (REPO_ROOT / "packages/core/src/agentic_kg/agents/continuation.py").read_text(
         encoding="utf-8"
     )
-    assert 'rel.get("type", "RELATED")' in source or "rel.get('type', 'RELATED')" in source
+    assert "for related_problem, relation in related" in source, (
+        "continuation no longer unpacks the (Problem, ProblemRelation) tuples "
+        "returned by get_related_problems; re-check _load_problem_context."
+    )
+    assert "relation.relation_type.value" in source
+    assert 'rel.get("type", "RELATED")' not in source
+    assert "rel.get('type', 'RELATED')" not in source
 
 
 # ---------------------------------------------------------------------------
-# The exclusions are documented where a reader will find them
+# The remaining exclusion is documented where a reader will find it
 # ---------------------------------------------------------------------------
 
 

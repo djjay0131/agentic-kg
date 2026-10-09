@@ -16,24 +16,23 @@ Nothing here writes. Nothing here imports the canonical store, the projector,
 
 What this package does **not** cover, and why
 ---------------------------------------------
-Four application surfaces are excluded by
-:data:`~agentic_kg.migration.compat.read_paths.SCOPED_OUT_SURFACES` because they
-do not reach the graph at all today:
+One application surface is excluded by
+:data:`~agentic_kg.migration.compat.read_paths.SCOPED_OUT_SURFACES` because it
+does not reach the graph at all today:
 
-1. ``PUT /api/problems/{id}`` — positional-argument mismatch, uncaught, 500.
-2. all of ``/api/reviews/*`` — ``ReviewQueueService`` calls repository methods
+1. all of ``/api/reviews/*`` — ``ReviewQueueService`` calls repository methods
    that do not exist.
-3. all four ``SynthesisAgent`` writes — wrong keyword arguments, swallowed by
-   ``logger.warning``.
-4. ``ContinuationAgent``'s related-problem context — ``limit=`` passed to a
-   method that has no such parameter, swallowed by ``logger.warning``. Found by
-   this phase; see the note on that entry.
 
-A compatibility test built on any of these would be quantifying over a set that
-is empty because the code raises before it queries — exactly the vacuous shape
-mapping spec §9.0 names. Repairing any of them should widen this harness, and
-``test_scoped_out_write_surfaces.py`` turns red when one is repaired so the
+A compatibility test built on it would be quantifying over a set that is empty
+because the code raises before it queries — exactly the vacuous shape mapping
+spec §9.0 names. Repairing it should widen this harness, and
+``test_scoped_out_write_surfaces.py`` turns red when it is repaired so the
 decision is forced rather than forgotten.
+
+Three earlier members of that set have been retired as they were repaired:
+``PUT /api/problems/{id}`` in #110, and ``SynthesisAgent``'s write-back plus
+``ContinuationAgent``'s related-problem read in #115. Each retirement replaced
+its tripwire with a positive test.
 """
 
 from agentic_kg.migration.compat.probes import (

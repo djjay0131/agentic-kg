@@ -272,6 +272,24 @@ CYPHER_PROBES: tuple[CypherProbe, ...] = (
         ),
         needs=("problem_id",),
     ),
+    CypherProbe(
+        id="continuation.related_problems",
+        informative=("related_id", "rel_type"),
+        read_path_ids=("agent.continuation.related_problems",),
+        # The app's "both" direction, with the source label union #115 added.
+        # The relation alternation mirrors relations.get_related_problems'
+        # pattern, which is built from every RelationType member (so it also
+        # matches RELATED_TO, a synthesis-only association the projection does
+        # not define -- recorded on the read-path entry, not hidden).
+        cypher=(
+            "MATCH (p)-[r:EXTENDS|CONTRADICTS|DEPENDS_ON|REFRAMES|RELATED_TO]-"
+            "(related:Problem) "
+            "WHERE p.id = $problem_id AND (p:Problem OR p:ProblemConcept) "
+            "RETURN related.id AS related_id, type(r) AS rel_type "
+            "ORDER BY related_id, rel_type"
+        ),
+        needs=("problem_id",),
+    ),
     # --- retrieval ----------------------------------------------------
     CypherProbe(
         id="search.hybrid_topic_leg",

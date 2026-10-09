@@ -46,12 +46,13 @@ Four things make this registry more than a transcription:
    one tomorrow. They are marked ``DECLARED_CHANGE`` and are held to a
    *reachability* contract instead of a parity one.
 
-3. **Two write surfaces are recorded as ``SCOPED_OUT``** with the reason. They
-   are non-functional today (see :mod:`agentic_kg.migration.compat` docstring),
-   so a compatibility test that depended on them would be asserting over a code
-   path that raises before it reaches the graph. A third, PUT
-   ``/api/problems/{id}``, was scoped out on the same grounds and removed in
-   #110 when the route was repaired.
+3. **One write surface is recorded as ``SCOPED_OUT``** with the reason. It is
+   non-functional today (see :mod:`agentic_kg.migration.compat` docstring), so a
+   compatibility test that depended on it would be asserting over a code path
+   that raises before it reaches the graph. Sibling surfaces have been retired
+   from this set as they were repaired: PUT ``/api/problems/{id}`` in #110, and
+   ``SynthesisAgent``'s write-back plus ``ContinuationAgent``'s related-problem
+   read in #115 (see :data:`SCOPED_OUT_SURFACES`).
 
 Read-only: nothing in this module opens a driver or mutates anything.
 """
@@ -236,21 +237,32 @@ READ_PATHS: tuple[ReadPath, ...] = (
         id="agent.continuation.related_problems",
         surface="ContinuationAgent._load_problem_context -> RelationService",
         source_file=f"{CORE}/knowledge_graph/relations.py",
-        snippet="MATCH (p:Problem {{id: $id}})-[r{rel_pattern}]-(related:Problem)",
+        snippet="MATCH (p)-[r{rel_pattern}]->(related:Problem)",
         also=(
-            "MATCH (p:Problem {{id: $id}})-[r{rel_pattern}]->(related:Problem)",
-            "MATCH (p:Problem {{id: $id}})<-[r{rel_pattern}]-(related:Problem)",
+            "MATCH (p)<-[r{rel_pattern}]-(related:Problem)",
+            "MATCH (p)-[r{rel_pattern}]-(related:Problem)",
         ),
-        labels=("Problem",),
+        labels=("Problem", "ProblemConcept"),
         relationships=("EXTENDS", "CONTRADICTS", "DEPENDS_ON", "REFRAMES"),
         properties=("id", "statement", "confidence", "evidence_doi"),
-        compat=CompatClass.SCOPED_OUT,
+        via=("get_related_problems",),
+        compat=CompatClass.DECLARED_CHANGE,
         note=(
-            "DEFECT D-1: continuation.py:128 calls get_related_problems(..., "
-            "limit=10) but relations.py:261 declares no `limit` parameter. The "
-            "TypeError is swallowed by `logger.warning`, so related_problems is "
-            "unconditionally empty in production. Cannot be held to a "
-            "compatibility contract until the call is fixed."
+            "REPAIRED in #115. continuation.py used to call "
+            "``get_related_problems(..., limit=10)`` against a method with no "
+            "``limit`` parameter; the TypeError was swallowed and the "
+            "related-problem leg of the prompt was unconditionally empty (D-1). "
+            "It now passes only ``direction='both'`` and consumes the real "
+            "``(Problem, ProblemRelation)`` tuples (D-2). This entry's "
+            "``relationships`` field lists the four projected problem-relation "
+            "types; the traversal pattern is actually built from every "
+            "``RelationType`` member, so it also matches ``RELATED_TO``, a "
+            "synthesis-only generic association that §4.4 does not project "
+            "(same recorded-gap shape as api.graph.problem_relations' untyped "
+            "pattern). The source endpoint resolves canonical "
+            "``ProblemConcept`` as well as legacy ``:Problem`` since #115, so a "
+            "canonical source can seed the traversal for the first time — a "
+            "declared change, not a regression."
         ),
     ),
     ReadPath(
@@ -274,8 +286,11 @@ READ_PATHS: tuple[ReadPath, ...] = (
         properties=("id", "statement"),
         compat=CompatClass.PARITY,
         note=(
-            "The read half of SynthesisAgent works. Its four writes do not — see "
-            "SCOPED_OUT_SURFACES."
+            "The read half of SynthesisAgent works. Its writes were repaired in "
+            "#115 (a real ``Problem`` through ``create_problem``, an "
+            "``EXTENDS``/``RELATED_TO`` relation through ``create_relation``, a "
+            "label-agnostic ``set_problem_status``, and a ``DERIVED_FROM`` "
+            "provenance edge), so they are no longer scoped out."
         ),
     ),
     # ------------------------------------------------------------------
@@ -410,7 +425,7 @@ READ_PATHS: tuple[ReadPath, ...] = (
         source_file=f"{CORE}/knowledge_graph/repository.py",
         snippet=(
             "        MATCH (c:ProblemConcept)\n"
-            "        WHERE $status IS NULL OR c.status = $status"
+            "        WHERE ($status IS NULL OR c.status = $status)"
         ),
         labels=("Problem", "ProblemConcept", "ProblemMention"),
         relationships=("INSTANCE_OF",),
@@ -422,7 +437,9 @@ READ_PATHS: tuple[ReadPath, ...] = (
             "canonical ProblemConcept nodes with legacy :Problem nodes, and the "
             "router surfaces serve that union. The legacy half is unchanged on a "
             "legacy graph; the concept half is empty there, so the deterministic "
-            "baseline records legacy only."
+            "baseline records legacy only. Since #115 both legs also take an "
+            "optional ``origin`` filter (a missing property is treated as "
+            "``extracted``); with no filter the row set is unchanged."
         ),
     ),
     ReadPath(
@@ -958,9 +975,12 @@ READ_PATHS: tuple[ReadPath, ...] = (
         id="relations.create_relation.guard",
         surface="RelationService.create_relation (existence + duplicate guard)",
         source_file=f"{CORE}/knowledge_graph/relations.py",
-        snippet="MATCH (from:Problem {id: $from_id})",
-        also=("MATCH (from:Problem {{id: $from_id}})-[r:{rel_type}]->(to:Problem {{id: $to_id}})",),
-        labels=("Problem",),
+        snippet=(
+            "MATCH (from)\n"
+            "                WHERE from.id = $from_id AND (from:Problem OR from:ProblemConcept)"
+        ),
+        also=("MATCH (from)-[r:{rel_type}]->(to)",),
+        labels=("Problem", "ProblemConcept"),
         relationships=("EXTENDS", "CONTRADICTS", "DEPENDS_ON", "REFRAMES"),
         properties=("id",),
         compat=CompatClass.SCOPED_OUT,
@@ -969,9 +989,11 @@ READ_PATHS: tuple[ReadPath, ...] = (
             "endpoints exist and that the edge is not already present. Scoped "
             "out with the write they guard: §4.5 turns every mutation endpoint "
             "into a curation request, so the guard has no post-cutover "
-            "equivalent. Inventoried rather than ignored because it is a read "
-            "in a scanned module, and an un-inventoried read is how the "
-            "completeness check gets hollowed out."
+            "equivalent. #115 label-scoped both matches to "
+            "``(n:Problem OR n:ProblemConcept)``; the read is recorded with that "
+            "shape but stays scoped out. Inventoried rather than ignored because "
+            "it is a read in a scanned module, and an un-inventoried read is how "
+            "the completeness check gets hollowed out."
         ),
     ),
     ReadPath(
@@ -990,6 +1012,27 @@ READ_PATHS: tuple[ReadPath, ...] = (
             "api.graph.problems_papers and search.structured.by_year. Recorded "
             "so the scan has an entry to match rather than a gap to ignore; "
             "delete the method and this entry together."
+        ),
+    ),
+    ReadPath(
+        id="agent.synthesis.derived_from_lineage",
+        surface="Neo4jRepository.get_derived_from (synthesis provenance lineage)",
+        source_file=f"{CORE}/knowledge_graph/repository.py",
+        snippet="MATCH (from)-[r:DERIVED_FROM]->(to)",
+        labels=("Problem", "ProblemConcept"),
+        relationships=(),
+        properties=("id",),
+        compat=CompatClass.SCOPED_OUT,
+        note=(
+            "New in #115. Returns the ``DERIVED_FROM`` sources of an "
+            "agent-derived problem (id + edge props). ``DERIVED_FROM`` is a "
+            "provenance edge, not an extracted or projected relation — §4.4 "
+            "projects fifteen relation types and this is not one of them — so "
+            "it is held out of the parity contract rather than listed in "
+            "``relationships`` (listing it would widen the "
+            "only-REVIEWS-outside-the-contract invariant). Label-scoped to "
+            "``(n:Problem OR n:ProblemConcept)`` on both endpoints. No router "
+            "reaches it today; it is consumed by the synthesis write-back path."
         ),
     ),
     ReadPath(
@@ -1036,16 +1079,28 @@ class ScopedOutSurface:
 #: on any of these would be asserting over a code path that raises first —
 #: precisely the "quantify over an empty set" shape §9.0 forbids.
 #:
-#: ``test_scoped_out_write_surfaces.py`` asserts each of these is *still*
-#: broken. That is deliberate: if someone repairs one, the scope-out stops being
+#: ``test_scoped_out_write_surfaces.py`` asserts each remaining surface is
+#: *still* broken, and asserts the repaired ones now bind correctly. That is
+#: deliberate: if someone repairs a remaining one, the scope-out stops being
 #: justified and the harness must be widened, so the test going red is the
 #: notification.
 #:
-#: ``write.api.put_problem`` was here until #110 repaired PUT /api/problems/{id}:
-#: the router now fetches a canonical view, writes a ProblemConcept through
-#: ``update_problem_concept`` or a legacy Problem through ``update_problem``,
-#: and no longer makes the positional misbind. The tripwire became the positive
-#: test ``test_put_problem_binds_its_arguments_correctly``.
+#: Two surfaces were retired here as they were repaired:
+#:
+#: * ``write.api.put_problem`` — removed in #110; the router now fetches a
+#:   canonical view, writes a ProblemConcept through ``update_problem_concept``
+#:   or a legacy Problem through ``update_problem``, and no longer makes the
+#:   positional misbind. Its tripwire became the positive test
+#:   ``test_put_problem_binds_its_arguments_correctly``.
+#: * ``write.agent.synthesis`` and ``read.agent.continuation_related`` —
+#:   removed in #115. ``SynthesisAgent`` now writes a real ``Problem`` and
+#:   relations through the real signatures, and ``ContinuationAgent`` calls
+#:   ``get_related_problems`` with accepted arguments and consumes the returned
+#:   ``(Problem, ProblemRelation)`` tuples. Their tripwires became the positive
+#:   tests ``test_synthesis_agent_binds_its_repository_writes_correctly`` /
+#:   ``test_synthesis_agent_binds_its_create_relation_call_correctly`` and
+#:   ``test_continuation_agent_binds_its_relation_context_call`` /
+#:   ``test_continuation_agent_reads_the_relation_service_tuples``.
 SCOPED_OUT_SURFACES: tuple[ScopedOutSurface, ...] = (
     ScopedOutSurface(
         id="write.api.reviews",
@@ -1058,56 +1113,6 @@ SCOPED_OUT_SURFACES: tuple[ScopedOutSurface, ...] = (
         reason=(
             "The whole human-review surface is unreachable; PendingReview and "
             "REVIEWS are dead vocabulary."
-        ),
-    ),
-    ScopedOutSurface(
-        id="write.agent.synthesis",
-        surface="SynthesisAgent._apply_graph_updates (4 writes)",
-        source_file=f"{CORE}/agents/synthesis.py",
-        call=(
-            "repo.create_problem(id=, statement=, status=); "
-            "relations.create_relation(source_id=, target_id=, relation_type=); "
-            "repo.update_problem(id, status=)"
-        ),
-        declaration_file=f"{CORE}/knowledge_graph/repository.py",
-        declaration=(
-            "create_problem(problem: Problem, ...); "
-            "create_relation(from_problem_id, to_problem_id, relation_type, ...); "
-            "update_problem(problem: Problem, ...)"
-        ),
-        failure="TypeError on every call, swallowed by `logger.warning`",
-        reason=(
-            "SynthesisAgent has never written to Neo4j. Its *read* half is in "
-            "the contract; its writes are not."
-        ),
-    ),
-    ScopedOutSurface(
-        id="read.agent.continuation_related",
-        surface="ContinuationAgent related-problem context",
-        source_file=f"{CORE}/agents/continuation.py",
-        call="self.relations.get_related_problems(problem_id, direction='both', limit=10)",
-        declaration_file=f"{CORE}/knowledge_graph/relations.py",
-        declaration=(
-            "def get_related_problems(self, problem_id, relation_type=None, "
-            "direction='both')"
-        ),
-        failure="TypeError: unexpected keyword argument 'limit', swallowed by logger.warning",
-        reason=(
-            "NEW DEFECT found by this phase (D-1). The related-problem leg of "
-            "the continuation prompt is unconditionally empty in production, "
-            "and a second defect (D-2) waits behind it: the method returns "
-            "list[tuple[Problem, ProblemRelation]] while the caller does "
-            "rel.get('type') / rel.get('statement'). Correction to the first "
-            "report of D-2 — a naive 'return the dicts instead' fix does NOT "
-            "repair it either: the internal dicts (relations.py:306-311) are "
-            "keyed 'problem' / 'relation' / 'rel_type' / 'direction', so "
-            "rel.get('type') still misses (the key is 'rel_type') and "
-            "rel.get('statement') still misses (the statement is nested inside "
-            "'problem'). A D-1 + naive-D-2 fix therefore still renders every "
-            "entry as '[RELATED] Unknown'. Both are masked by a MagicMock in "
-            "packages/core/tests/agents/conftest.py:100 that returns "
-            "{'type': ..., 'statement': ...} — a shape the real service has "
-            "never produced."
         ),
     ),
 )

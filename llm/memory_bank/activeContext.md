@@ -7,6 +7,34 @@ Last updated: 2026-09-17
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
 
+## Compat tripwires re-pointed after #115 (2026-10-09, #117)
+
+Master's #114/#115 (synthesis write-back + agent provenance) repaired the
+synthesis and continuation defects that the Phase-7 compatibility harness
+(`packages/core/tests/migration/compat/`) had pinned as **scoped out** on the
+integration line. The merge of master into integration (#117) therefore turned
+five tripwires red; they are now re-pointed at the fixed code:
+
+- `read_paths.py`: `agent.continuation.related_problems` moved
+  `SCOPED_OUT` → `DECLARED_CHANGE` (its source endpoint is now label-scoped
+  `:Problem OR :ProblemConcept`); `relations.create_relation.guard` and
+  `repo.list_problems` snippets re-pointed at the #115 label-scoped /
+  origin-filtered queries; new `agent.synthesis.derived_from_lineage` entry for
+  `get_derived_from` (SCOPED_OUT — `DERIVED_FROM` is provenance, not a §4.4
+  projected relation).
+- `SCOPED_OUT_SURFACES` now holds one surface (`write.api.reviews`); the
+  synthesis write-back and continuation related-problem read were retired.
+- `probes.py` + `baseline/legacy_pre_llm_context.json`: a deterministic
+  `continuation.related_problems` probe and its legacy baseline row.
+- `test_scoped_out_write_surfaces.py`: the synthesis and continuation tripwires
+  inverted into positive tests; the `/api/reviews/*` tripwire retained.
+
+**Recorded gap, not hidden:** `get_related_problems` builds its relation
+pattern from every `RelationType` member, so it also traverses `RELATED_TO`,
+which §4.4 does not project; the read-path entry lists the four projected types
+and names the `RELATED_TO` gap in its note (same shape as
+`api.graph.problem_relations`' untyped pattern).
+
 ## Synthesis write-back + agent provenance (2026-10-08, #114)
 
 `SynthesisAgent` had never written anything to the graph. It called

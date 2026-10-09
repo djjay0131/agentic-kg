@@ -286,6 +286,12 @@
         "status": "open"
       }
     ],
+    "continuation.related_problems": [
+      {
+        "related_id": "<T>_problem_2",
+        "rel_type": "EXTENDS"
+      }
+    ],
     "continuation.topic_name": [
       {
         "name": "<T> natural language processing"
