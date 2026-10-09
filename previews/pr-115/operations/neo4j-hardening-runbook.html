@@ -7,8 +7,10 @@ the two planes rule means the ADR is authoritative and this page is the
 derived runbook.</p>
 
 <p><strong>Project:</strong> <code class="language-plaintext highlighter-rouge">vt-gcp-00042</code> (staging) · <strong>Region:</strong> <code class="language-plaintext highlighter-rouge">us-central1</code>
-<strong>Terraform state:</strong> local (<code class="language-plaintext highlighter-rouge">infra/terraform.tfstate</code>) — the owner applies;
-CI never does.</p>
+<strong>Terraform state:</strong> remote — <code class="language-plaintext highlighter-rouge">gs://vt-gcp-00042-tfstate</code>, prefix
+<code class="language-plaintext highlighter-rouge">agentic-kg/staging</code>. The normal path is: merge → <code class="language-plaintext highlighter-rouge">terraform.yml</code> plan on the
+PR → dispatch apply (<code class="language-plaintext highlighter-rouge">infra/README.md</code> §The normal flow). The owner applies; no
+agent session or CI job applies on its own.</p>
 
 <hr />
 
@@ -16,7 +18,8 @@ CI never does.</p>
 
 <ul>
   <li><code class="language-plaintext highlighter-rouge">gcloud</code> authenticated to the <strong><code class="language-plaintext highlighter-rouge">vt-gcp-00042</code></strong> VT (non-prod) project.</li>
-  <li>Terraform <code class="language-plaintext highlighter-rouge">&gt;= 1.5</code> on <code class="language-plaintext highlighter-rouge">PATH</code>, run from <code class="language-plaintext highlighter-rouge">infra/</code>.</li>
+  <li>Terraform <code class="language-plaintext highlighter-rouge">&gt;= 1.7</code> on <code class="language-plaintext highlighter-rouge">PATH</code>, run from <code class="language-plaintext highlighter-rouge">infra/</code> (1.7 is required for the
+<code class="language-plaintext highlighter-rouge">for_each</code> import blocks in <code class="language-plaintext highlighter-rouge">infra/imports.tf</code>).</li>
   <li><code class="language-plaintext highlighter-rouge">roles/owner</code>-class access to the project (firewall, IAM, Secret Manager,
 Cloud Run).</li>
   <li>The <code class="language-plaintext highlighter-rouge">job</code> image has been rebuilt since the last core change (the rotation
@@ -36,16 +39,23 @@ gcloud secrets versions list NEO4J_PASSWORD <span class="se">\</span>
 
 <hr />
 
-<h2 id="part-1--make-neo4j-private-staged-apply-zero-downtime">Part 1 — Make Neo4j private (staged apply, zero downtime)</h2>
+<h2 id="part-1--adopt-staging-then-make-neo4j-private">Part 1 — Adopt staging, then make Neo4j private</h2>
 
 <p>The order matters: <strong>egress first, then the internal address, then close the
 firewall.</strong> Each stage is verified before the next.</p>
 
-<h3 id="step-1--add-vpc-egress-and-rotation-infrastructure-firewall-still-open">Step 1 — Add VPC egress and rotation infrastructure (firewall still open)</h3>
+<p>The preferred path is now the workflow: merge → <code class="language-plaintext highlighter-rouge">terraform.yml</code> plan on the PR
+→ dispatch <code class="language-plaintext highlighter-rouge">apply</code> (<code class="language-plaintext highlighter-rouge">infra/README.md</code> §The normal flow). The staged <code class="language-plaintext highlighter-rouge">-target</code>
+sequence below is the fallback if you must converge in a maintenance window.
+Either way the first apply is an <strong>adoption</strong>: <code class="language-plaintext highlighter-rouge">infra/imports.tf</code> imports the
+existing staging resources so nothing is recreated. <code class="language-plaintext highlighter-rouge">imports.tf</code> is one-shot —
+delete it after the first successful apply.</p>
+
+<h3 id="step-1--adopt-resources-and-add-vpc-egress--rotation-infrastructure-firewall-still-open">Step 1 — Adopt resources and add VPC egress / rotation infrastructure (firewall still open)</h3>
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">cd </span>infra
-terraform init <span class="nt">-backend</span><span class="o">=</span><span class="nb">false</span>        <span class="c"># provider only; never against real state from CI</span>
-terraform plan <span class="nt">-var-file</span><span class="o">=</span>envs/staging.tfvars
+terraform init <span class="nt">-backend-config</span><span class="o">=</span><span class="s2">"prefix=agentic-kg/staging"</span>   <span class="c"># GCS remote state</span>
+terraform plan <span class="nt">-var-file</span><span class="o">=</span>envs/staging.tfvars <span class="nt">-lock</span><span class="o">=</span><span class="nb">false</span>
 </code></pre></div></div>
 
 <p>Confirm the plan shows <strong>no replacement</strong> of <code class="language-plaintext highlighter-rouge">google_compute_instance.neo4j</code>
@@ -126,7 +136,12 @@ override), rotate the credential immediately afterwards.</p>
 
 <h3 id="after-part-1-the-designed-path">After Part 1 (the designed path)</h3>
 
-<p>Dispatch the workflow (it never runs on its own):</p>
+<p>The workflow now runs <strong>quarterly on a schedule</strong>
+(<code class="language-plaintext highlighter-rouge">cron: '17 9 1 */3 *'</code>) and <strong>on demand</strong>. A concurrency group serializes runs
+so two rotations can never overlap; a queued run waits rather than cancelling
+one that is mid-cutover. Nothing triggers it on push or PR.</p>
+
+<p>Run it manually when you need a rotation outside the schedule:</p>
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gh workflow run rotate-neo4j-password.yml <span class="se">\</span>
   <span class="nt">--repo</span> djjay0131/agentic-kg <span class="se">\</span>
