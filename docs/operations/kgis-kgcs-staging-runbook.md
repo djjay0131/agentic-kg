@@ -40,10 +40,12 @@ two resources (these are `gcloud` mutations — the orchestrator runs them, not 
 implementation agent):
 
 ```bash
-# Job: opt in to the migration path and keep its ledger job-local.
+# Job: opt in to the migration path and write the ledger to its durable GCS
+# mount. Terraform now owns these (see infra/README.md §Durable KGIS ledger);
+# the command below is the out-of-band form if you must set them by hand.
 gcloud run jobs update agentic-kg-ingest-staging \
   --region=us-central1 \
-  --update-env-vars=INGEST_MODE=kgis_kgcs,KGIS_INGESTION_ENABLED=1,KGCS_RESOLUTION_ENABLED=1,KGCS_CANONICAL_NAMESPACE=staging,INGEST_LEDGER_DIR=/tmp/kgis-shadow
+  --update-env-vars=INGEST_MODE=kgis_kgcs,KGIS_INGESTION_ENABLED=1,KGCS_RESOLUTION_ENABLED=1,KGCS_CANONICAL_NAMESPACE=staging,INGEST_LEDGER_DIR=/mnt/ledger/staging
 
 # API: expose the read-only canonical projection.
 gcloud run services update agentic-kg-api-staging \
@@ -139,10 +141,66 @@ namespace, publish an epoch, and report all of it as JSON.
 - **The replay client reproduces the committed importer output, not a live
   model.** `extraction_quality` is `not_measured` in the summary for exactly
   this reason.
-- **The KGIS ledger/evidence is job-local SQLite** (`/tmp/kgis-shadow`, or
-  in-memory if unset) and is lost when the Job's instance scales in. The durable,
-  observable artifact is the canonical epoch in Neo4j. A durable ledger backend
-  is deferred (ADR-0003 / ADR-0012).
+- **The KGIS ledger/evidence is single-writer SQLite.** As of the durable-ledger
+  change (nightly-pipeline design P0-2) the ingest Job mounts a GCS volume and
+  writes it to `/mnt/ledger/staging`, so it survives scale-in; see
+  [Durable ledger](#durable-ledger) for the caveats that go with that. The
+  canonical epoch in Neo4j remains the durable, observable artifact.
+
+## Durable ledger
+
+The KGIS candidate ledger and evidence registry are SQLite. Cloud Run gives
+every Job execution a private, ephemeral filesystem, so the pre-P0-2 ledger
+(`/tmp/kgis-shadow`) vanished when the instance scaled in. The staging stack now
+mounts a GCS bucket into the ingest Job and points `INGEST_LEDGER_DIR` at a
+namespaced subdirectory:
+
+| Piece | Value | Owner |
+|---|---|---|
+| Bucket | `vt-gcp-00042-agentic-kg-ledger-staging` | Terraform (`google_storage_bucket.ledger`) |
+| Mount path | `/mnt/ledger` | Terraform (Cloud Run GCS volume) |
+| Ledger dir | `/mnt/ledger/staging` | Terraform (`ingest_ledger_dir`) |
+| Bucket IAM | `roles/storage.objectAdmin` for the Job's runtime SA, on that bucket only | Terraform (`google_storage_bucket_iam_member.ingest_ledger`) |
+
+The bucket is uniform-access, public-access-prevention enforced, versioned, and
+deletes noncurrent versions after 30 days.
+
+### Single-writer, and what the mount does not give you
+
+SQLite is single-writer, and its WAL journal needs POSIX advisory locks and a
+shared-memory (`-shm`) file. Google documents that Cloud Storage FUSE
+[does not provide file locking](https://cloud.google.com/run/docs/configuring/jobs/cloud-storage-volume-mounts)
+and is not fully POSIX. The GCS mount therefore does **not** give SQLite the
+locking it expects. Two layers keep the ledger single-writer anyway:
+
+1. **Cloud Run**: the ingest Job is pinned to `parallelism = 1` and
+   `task_count = 1` in `infra/main.tf`. This is the hard barrier.
+2. **Code**: `execute_migration` takes a directory writer lease
+   (`packages/core/src/agentic_kg/migration/ingestion/writer_lease.py`) — an
+   `O_CREAT | O_EXCL` `writer.lease` file in the ledger directory, reclaimed if
+   older than six hours. A second cooperating writer is refused rather than
+   silently racing.
+
+**Honest gap, not hidden:** the lease and `parallelism = 1` make a second writer
+detectable; they do not make the FUSE filesystem POSIX, and SQLite-on-FUSE was
+**not** exercised against a live mount when this change was written (no
+`gcloud`/Docker on the authoring host, and CI cannot mount gcsfuse). Validate a
+real staging execution before treating the on-FUSE ledger as durable. The
+architectural fix remains ADR-0012's backend swap behind
+`CandidateSink` / `LedgerReader`, which would remove SQLite from the mount
+entirely.
+
+### Validating a run
+
+After executing the Job (§2), confirm the ledger landed in the bucket:
+
+```bash
+gcloud storage ls -r "gs://vt-gcp-00042-agentic-kg-ledger-staging/staging/"
+```
+
+Expect `ledger.db` and `evidence.db` (plus any SQLite `-wal`/`-shm` siblings).
+A missing `ledger.db` after a run that reported a non-zero candidate count is
+the failure this change exists to prevent — stop and report it.
 
 ## 5. Rollback
 
