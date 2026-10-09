@@ -41,7 +41,7 @@ jobs:
 
     services:
       neo4j:
-        image: neo4j:5.26-community
+        image: mirror.gcr.io/library/neo4j:5.26-community
         ports: ['7687:7687', '7474:7474']
         env:
           NEO4J_AUTH: neo4j/testpassword
