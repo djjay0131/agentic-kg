@@ -247,6 +247,40 @@ Nature SD:    (no "Abstract" label at all — it is the lead paragraph)
 <p><strong>Fix:</strong> allow a run-in delimiter (<code class="language-plaintext highlighter-rouge">[—\-–.:]</code> or whitespace) after the keyword,
 and handle the letter-spaced <code class="language-plaintext highlighter-rouge">A B S T R A C T</code> form that Elsevier PDFs produce.</p>
 
+<blockquote>
+  <p><strong>PARTIALLY FIXED — SEG-3, 2026-09-18.</strong> Four of the five conventions now
+match. Measured on the committed corpus
+(<code class="language-plaintext highlighter-rouge">scripts/measure_segmentation.py --corpus committed</code>): <strong>abstracts found
+1/8 → 7/8</strong>, <strong>+9,347 chars</strong> of extractor input — <code class="language-plaintext highlighter-rouge">empire</code> +1,917,
+<code class="language-plaintext highlighter-rouge">hypothesis_generation</code> +1,635, <code class="language-plaintext highlighter-rouge">llm_ontology_gen</code> +1,626, <code class="language-plaintext highlighter-rouge">cskg</code> +1,420,
+<code class="language-plaintext highlighter-rouge">kg_validation_hitl</code> +1,397, <code class="language-plaintext highlighter-rouge">fact_completion</code> +1,352,
+<code class="language-plaintext highlighter-rouge">kg_construction_survey</code> +0. <code class="language-plaintext highlighter-rouge">cskg2</code> is byte-identical.</p>
+
+  <p>Each recovered abstract keeps the body text sharing its label’s line, so it
+begins at a sentence boundary rather than mid-clause; the length guard now
+tests the label rather than the whole line, so <code class="language-plaintext highlighter-rouge">fact_completion</code>’s 96-of-100
+character run-in line is no longer four characters from silently
+disappearing on a re-extraction.</p>
+
+  <p><del><strong>Still open: the no-label case.</strong></del> <strong>CLOSED by SEG-4 PR-3, same day.</strong>
+Nature <em>Scientific Data</em> prints no <code class="language-plaintext highlighter-rouge">Abstract</code> label — <code class="language-plaintext highlighter-rouge">cskg2</code>’s abstract is
+the lead paragraph. Catching it needed a positional rule, and a positional
+rule needed a terminator that only cause (4)’s vocabulary provides; with that
+in place the rule finds <strong>1,210 characters, matching the hand-verified gold
+boundary exactly</strong>. <strong>Cause (3) is fixed on the committed corpus: 8/8
+abstracts.</strong></p>
+
+  <p><em>Read that 1,210 with care.</em> <code class="language-plaintext highlighter-rouge">segment_ground_truth.py</code> cut the title page
+away, so <code class="language-plaintext highlighter-rouge">paper_cskg2.txt</code> begins at character 0 with the abstract and the
+gold span is exactly <code class="language-plaintext highlighter-rouge">[0, first recognized heading)</code>. <strong>Any rule returning
+“the prefix before the first heading” scores 1,210 on this fixture</strong> — the
+match shows the rule does not <em>undershoot</em> on pre-trimmed input, and nothing
+more. The positional rule’s real risk surface is running backwards <em>into</em>
+title-page furniture, and that surface <strong>cannot exist in this corpus</strong>. It is
+covered by synthetic guards tests and by a reconstruction of cskg2’s recorded
+title-page line widths, not by a measurement of the PDF.</p>
+</blockquote>
+
 <h3 id="4-an-unrecognized-heading-lets-the-previous-section-swallow-the-rest">4. An unrecognized heading lets the previous section swallow the rest</h3>
 
 <p>Section spans run from one recognized heading to the next, so a journal whose
@@ -265,6 +299,93 @@ name appears in <code class="language-plaintext highlighter-rouge">SECTION_PATTE
 <p><strong>Fix:</strong> add the Nature/<code class="language-plaintext highlighter-rouge">Scientific Data</code> heading vocabulary, and consider a
 sanity check that flags any single section exceeding some word count as
 probable under-segmentation rather than passing it downstream.</p>
+
+<blockquote>
+  <p><strong>FIXED — SEG-4, 2026-09-18.</strong> Four patterns for the Nature <em>Scientific Data</em>
+vocabulary, plus a positional abstract and a standing under-segmentation
+detector.</p>
+
+  <p>Measured on the committed corpus:</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th><code class="language-plaintext highlighter-rouge">cskg2</code></th>
+        <th style="text-align: right">before</th>
+        <th style="text-align: right">after</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>extractor input</td>
+        <td style="text-align: right">23,317</td>
+        <td style="text-align: right"><strong>35,435</strong></td>
+      </tr>
+      <tr>
+        <td>sections</td>
+        <td style="text-align: right">1</td>
+        <td style="text-align: right"><strong>4</strong></td>
+      </tr>
+      <tr>
+        <td>gold entity groups visible</td>
+        <td style="text-align: right">23</td>
+        <td style="text-align: right"><strong>25</strong> of 25 reachable</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>The two recovered groups are the ones the spec predicted:
+<code class="language-plaintext highlighter-rouge">scientific knowledge graph</code> — the citation chain’s spine concept — and
+<code class="language-plaintext highlighter-rouge">knowledge-centric paradigm</code>. Both live in <code class="language-plaintext highlighter-rouge">Background &amp; Summary</code>, which was
+previously absorbed into <code class="language-plaintext highlighter-rouge">Methods</code> and invisible.</p>
+
+  <p><strong>The mapping is the argument, not the patterns.</strong> <code class="language-plaintext highlighter-rouge">Background &amp; Summary</code> →
+<code class="language-plaintext highlighter-rouge">introduction</code> (mapping it to <code class="language-plaintext highlighter-rouge">background</code> reads the name literally and costs
+−15,932 chars, because <code class="language-plaintext highlighter-rouge">background</code> is not in the keep-list);
+<code class="language-plaintext highlighter-rouge">Technical Validation</code> → <code class="language-plaintext highlighter-rouge">experiments</code>; <code class="language-plaintext highlighter-rouge">Data Records</code> → <code class="language-plaintext highlighter-rouge">results</code> — <em>not</em>
+<code class="language-plaintext highlighter-rouge">methods</code>, which measures +6,138 chars but is a false label chosen to game
+the keep-list; <code class="language-plaintext highlighter-rouge">Usage Notes</code> → <code class="language-plaintext highlighter-rouge">discussion</code>.</p>
+
+  <p><strong>Direction of the char delta differs by corpus, and the naive reading is
+wrong.</strong> On the PDF corpus SEG-4 is a <em>reduction</em> — the SEG-4 spec records
+39,226 → 34,223 with the vocabulary alone — because <code class="language-plaintext highlighter-rouge">Data Records</code> and
+<code class="language-plaintext highlighter-rouge">Usage Notes</code> stop being mislabelled as <code class="language-plaintext highlighter-rouge">methods</code> and are correctly excluded.
+On the committed gold corpus it is an increase, 23,317 → 34,223 with the
+vocabulary alone and 35,435 once PR-3’s abstract is added, because gold never
+contained those two sections. The <code class="language-plaintext highlighter-rouge">--entities</code> metric added to
+<code class="language-plaintext highlighter-rouge">scripts/measure_segmentation.py</code> is what lets the PDF arm’s reduction be
+scored as the improvement it is; a char-count-only guard would have blocked
+the correct change.</p>
+
+  <p><strong>A corroboration claim made here earlier is WITHDRAWN.</strong> An earlier revision
+of this note said “both arms land on the same 34,223 for the four wanted
+types”. Two things were wrong with it, and the adversarial review of PR #69
+caught both:</p>
+
+  <ol>
+    <li><strong>Stage mismatch.</strong> 34,223 is the committed corpus’s <em>vocabulary-only,
+no-abstract</em> total (introduction 10,925 + methods 15,472 + experiments
+7,822 + 2 separators). Its post-PR-3 total is <strong>35,435</strong>, stated in a
+table in <code class="language-plaintext highlighter-rouge">corpus-readiness.md</code>. Pairing the committed arm’s final figure
+with the PDF arm’s intermediate one was an error.</li>
+    <li><strong>It was never independent.</strong> Even paired correctly the two agree by
+construction: the committed fixtures are <em>derived from the PDFs by gold
+boundaries</em>, so if the segmenter reproduces gold the wanted spans are the
+same text by definition. That is a restatement of the recall metric, not a
+second witness — and the PDF figures are quoted from the SEG-4 spec, not
+measured by this work, which has no access to the gitignored PDFs.</li>
+  </ol>
+
+  <p><strong>What follows for the headline.</strong> “8/8 abstracts” is verified <strong>on the
+committed corpus only</strong>. The positional rule’s behaviour on real PDF text —
+which carries the title page the fixtures had cut away — rests on the SEG-4
+spec’s own measurement and is <strong>not re-verified here</strong>. The closest available
+substitute is <code class="language-plaintext highlighter-rouge">TestReconstructedPdfPreamble</code>, which rebuilds cskg2’s title
+page from the line widths that spec recorded (76/29/34/25/86/15) and confirms
+the abstract still comes back at exactly 1,210 characters. That is a
+reconstruction, not a measurement. <strong>Re-running the PDF arm after PR-3 is an
+open obligation before any production-pipeline claim is made.</strong></p>
+</blockquote>
 
 <h3 id="5-methods-and-experiments-sections-are-usually-not-named-methods-or-experiments">5. Methods and experiments sections are usually not named “Methods” or “Experiments”</h3>
 
@@ -403,11 +524,80 @@ machinery than this probably warrants.</li>
 methods heading doesn’t error, it just quietly removes the paper’s core
 technical content from every extractor’s input.</p>
 
+<blockquote>
+  <p><strong>SEG-5(d) — “relax the anchors” — MEASURED AND REJECTED, 2026-09-18.</strong>
+The cheap-win framing does not survive measurement. <strong>Variant measured,
+stated precisely so the figure reproduces:</strong> every line of the eight
+committed fixtures that is non-empty, at most <code class="language-plaintext highlighter-rouge">max_heading_length</code> (100)
+characters, and currently classifies as <code class="language-plaintext highlighter-rouge">UNKNOWN</code>, tested for a
+word-boundary, case-insensitive match against any of eight keywords —
+<code class="language-plaintext highlighter-rouge">method(s|ology)</code>, <code class="language-plaintext highlighter-rouge">approach</code>, <code class="language-plaintext highlighter-rouge">framework</code>, <code class="language-plaintext highlighter-rouge">model</code>, <code class="language-plaintext highlighter-rouge">algorithm</code>,
+<code class="language-plaintext highlighter-rouge">experiment(s|al)</code>, <code class="language-plaintext highlighter-rouge">evaluation</code>, <code class="language-plaintext highlighter-rouge">setup</code>. That mints <strong>166 new headings, of
+which 2 are wanted — a 2:164 ratio.</strong> The two it
+recovers are <code class="language-plaintext highlighter-rouge">IV. RESEARCH APPROACH</code> and
+<code class="language-plaintext highlighter-rouge">5. Experiment design and implementation</code>; the 164 it invents are body
+sentences containing the word <em>method</em>, <em>model</em>, <em>approach</em> or <em>evaluation</em>,
+and every one of them also <em>splits</em> the real section that contained the line.</p>
+
+  <p><strong>The figure is variant-sensitive; the conclusion is not.</strong> Three
+independent runs: this one at <strong>2:164</strong> (8 keywords, committed corpus), an
+earlier PDF-corpus run at <strong>2:108</strong>, and the PR #69 reviewer’s at <strong>1:13</strong>
+(5 anchors, committed corpus). The ratio moves with how many keywords the
+relaxation admits — which is the point: every variant is dominated by false
+positives, and every one is worse than the <code class="language-plaintext highlighter-rouge">[A-Z]</code> variant SEG-1 rejected for
+costing 13,137 characters on <code class="language-plaintext highlighter-rouge">fact_completion</code>. Cite the conclusion, and name
+the variant if you cite a number.</p>
+
+  <p>It is viable only as a rider on <strong>SEG-11</strong> (the heading-context heuristic),
+which is what would suppress the false positives. Deliberately <strong>not built</strong> here.</p>
+
+  <p><strong>Two stale figures in this section, corrected.</strong> “7 of 12 wanted sections
+unmatched” was already stale at 6 of 12 post-SEG-1; post-SEG-3 and SEG-4 the
+hand-labelled heading table in <code class="language-plaintext highlighter-rouge">scripts/segment_ground_truth.py</code> scores
+<strong>38 of 48 = 79%</strong>, up from <strong>27 of 48 = 56%</strong> at <code class="language-plaintext highlighter-rouge">7108c7d</code> — measured by
+replaying that table through <code class="language-plaintext highlighter-rouge">_classify_heading</code>, <code class="language-plaintext highlighter-rouge">_match_run_in</code> and the
+positional rule. The residue is 10 headings: 5 named after the paper’s
+contribution or written as descriptive sentences (SEG-5 a/c, which no
+name-based method can classify), 3 over-strict anchors (SEG-5 d, rejected
+above), and 2 that gold labels but the importer’s vocabulary has no type for
+(<code class="language-plaintext highlighter-rouge">use_case</code>, <code class="language-plaintext highlighter-rouge">statistics</code>).</p>
+</blockquote>
+
 <h3 id="6-unbounded-section-length-reaches-the-llm-call">6. Unbounded section length reaches the LLM call</h3>
 
-<p>Independent of the above: 244,748 chars would be sent as a single extractor
+<p>Independent of the above: 244,742 chars would be sent as a single extractor
 prompt. There is no length guard between <code class="language-plaintext highlighter-rouge">_build_extractor_section_text</code> and
 the extractor calls, only <code class="language-plaintext highlighter-rouge">MIN_USABLE_CHARS = 250</code> on the lower end.</p>
+
+<p><em>(Figure corrected 2026-09-18: the committed baseline records <strong>244,742</strong>, not
+244,748. Re-measured from <code class="language-plaintext highlighter-rouge">scripts/seg_baseline.json</code>.)</em></p>
+
+<blockquote>
+  <p><strong>FIXED — SEG-6, 2026-09-18.</strong> <code class="language-plaintext highlighter-rouge">MAX_EXTRACTOR_CHARS = 120_000</code> in
+<code class="language-plaintext highlighter-rouge">_build_extractor_section_text</code>, cutting at the last paragraph boundary at or
+before the cap, else the last word boundary, else a hard slice — every step a
+pure function of the input, so the result is byte-stable. Truncation logs a
+WARNING naming the paper, the original size, the cap and the characters
+dropped.</p>
+
+  <p><strong>The number is 34.2× that paper’s hand-verified gold</strong> (244,742 vs 7,152),
+and 4.9× the next largest paper in the set. The cap is 2.4× the largest
+<em>correctly</em> segmented extractor input in the corpus (49,511,
+<code class="language-plaintext highlighter-rouge">hypothesis_generation</code>), so it cannot fire on a healthy paper — asserted
+against <code class="language-plaintext highlighter-rouge">scripts/seg_baseline.json</code> and against every frozen committed-corpus
+fixture, none of which changed.</p>
+
+  <p><strong>What this does not fix.</strong> The survey is oversized because causes (5) and
+(8) let <code class="language-plaintext highlighter-rouge">introduction</code> run for 94 pages. SEG-6 bounds the blast radius and
+makes the event loud; the cause stays with SEG-5 / SEG-11, and whether the
+paper belongs in the set at all stays with SEG-10.</p>
+
+  <p><strong>Why it matters beyond cost.</strong> Two arms of a legacy-vs-new comparison can be
+fed inputs differing by 30× with no signal that anything is wrong: the
+oversized arm is scored on a haystack, the other on a needle, and the
+difference is attributed to the extractor. An input with no upper bound is
+not a reproducible experimental condition.</p>
+</blockquote>
 
 <h3 id="7-the-four-section-keep-list-loses-content-even-when-boundaries-are-perfect">7. The four-section keep-list loses content even when boundaries are perfect</h3>
 
