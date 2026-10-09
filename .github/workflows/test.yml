@@ -14,9 +14,6 @@ concurrency:
 
 permissions:
   contents: read
-  # Codecov authenticates with GitHub's OIDC token instead of a stored
-  # CODECOV_TOKEN (ADR-0007 rule 1: keyless first).
-  id-token: write
 
 env:
   # Ephemeral runners: no reaper needed, and its image pull hits Docker Hub limits.
@@ -24,6 +21,12 @@ env:
 
 jobs:
   test:
+    # Codecov authenticates with GitHub's OIDC token instead of a stored
+    # CODECOV_TOKEN (ADR-0007 rule 1: keyless first). Job-scoped: the
+    # workflow-level block stays contents: read (test_workflow_security.py).
+    permissions:
+      contents: read
+      id-token: write
     runs-on: ubuntu-latest
     strategy:
       matrix:
