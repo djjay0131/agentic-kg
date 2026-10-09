@@ -63,6 +63,15 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
+      # The google provider resolves projects/services through Cloud Resource
+      # Manager; it was disabled in vt-gcp-00042, which made every
+      # google_project_service read 403. Idempotent and cheap.
+      - name: Enable bootstrap APIs
+        run: >-
+          gcloud services enable
+          cloudresourcemanager.googleapis.com serviceusage.googleapis.com
+          --project vt-gcp-00042
+
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -126,6 +135,15 @@ jobs:
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      # The google provider resolves projects/services through Cloud Resource
+      # Manager; it was disabled in vt-gcp-00042, which made every
+      # google_project_service read 403. Idempotent and cheap.
+      - name: Enable bootstrap APIs
+        run: >-
+          gcloud services enable
+          cloudresourcemanager.googleapis.com serviceusage.googleapis.com
+          --project vt-gcp-00042
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3

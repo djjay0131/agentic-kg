@@ -3,6 +3,7 @@
 # =============================================================================
 resource "google_project_service" "apis" {
   for_each = toset([
+    "cloudresourcemanager.googleapis.com",
     "compute.googleapis.com",
     "run.googleapis.com",
     "cloudbuild.googleapis.com",
