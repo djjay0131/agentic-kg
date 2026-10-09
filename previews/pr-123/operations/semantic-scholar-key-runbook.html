@@ -1,0 +1,169 @@
+<h1 id="semantic-scholar-api-key-runbook">Semantic Scholar API key runbook</h1>
+
+<p><strong>Applies to:</strong> the staging stack in GCP project <code class="language-plaintext highlighter-rouge">vt-gcp-00042</code>. The
+<code class="language-plaintext highlighter-rouge">agentic-kg-ingest-staging</code> Cloud Run Job reads
+<code class="language-plaintext highlighter-rouge">SEMANTIC_SCHOLAR_API_KEY</code> from Secret Manager so live Semantic Scholar (S2)
+calls are authenticated. Before this, the Job drew on the shared anonymous
+rate-limit pool and its citation lookups failed under 429s (nightly-pipeline
+P0-4).</p>
+
+<p><strong>Ownership split</strong> — the same shape ADR-0006 uses for the Neo4j password:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Piece</th>
+      <th>Owner</th>
+      <th>Mechanism</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Secret Manager <strong>container</strong> <code class="language-plaintext highlighter-rouge">SEMANTIC_SCHOLAR_API_KEY</code></td>
+      <td>Terraform</td>
+      <td><code class="language-plaintext highlighter-rouge">infra/main.tf</code></td>
+    </tr>
+    <tr>
+      <td>Placeholder <strong>seed version</strong> (version 1)</td>
+      <td>Terraform</td>
+      <td><code class="language-plaintext highlighter-rouge">google_secret_manager_secret_version.semantic_scholar_api_key_seed</code>, <code class="language-plaintext highlighter-rouge">deletion_policy = ABANDON</code>, <code class="language-plaintext highlighter-rouge">ignore_changes = [secret_data, enabled]</code></td>
+    </tr>
+    <tr>
+      <td>The <strong>enabled value</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">.github/workflows/sync-s2-key.yml</code></td>
+      <td><code class="language-plaintext highlighter-rouge">gcloud secrets versions add</code>, then disable superseded</td>
+    </tr>
+    <tr>
+      <td><strong>Source of truth</strong> for the value</td>
+      <td>the repo GitHub Actions secret <code class="language-plaintext highlighter-rouge">SEMANTIC_SCHOLAR_API_KEY</code></td>
+      <td> </td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Terraform never writes the real key, so no credential enters state. The seed
+placeholder (<code class="language-plaintext highlighter-rouge">unset-seed-not-an-api-key</code>) exists only so Cloud Run can create
+the Job while the secret has no real version; the S2 client treats that exact
+value as “no key” and sends no <code class="language-plaintext highlighter-rouge">x-api-key</code> header
+(<code class="language-plaintext highlighter-rouge">packages/core/src/agentic_kg/data_acquisition/config.py</code>).</p>
+
+<hr />
+
+<h2 id="preconditions">Preconditions</h2>
+
+<ul>
+  <li>The GitHub environment <code class="language-plaintext highlighter-rouge">staging</code> has <code class="language-plaintext highlighter-rouge">GCP_WORKLOAD_IDENTITY_PROVIDER</code> and
+<code class="language-plaintext highlighter-rouge">GCP_SERVICE_ACCOUNT</code> set, exactly as <code class="language-plaintext highlighter-rouge">deploy-master.yml</code> uses them.</li>
+  <li>The repo GitHub Actions secret <code class="language-plaintext highlighter-rouge">SEMANTIC_SCHOLAR_API_KEY</code> holds a real key
+(<code class="language-plaintext highlighter-rouge">gh secret list --repo djjay0131/agentic-kg</code>). This is the same secret the
+smoke and integration workflows use.</li>
+  <li>The Terraform change that creates the container, the seed version and the
+Job env has been applied (<strong>dispatch the <code class="language-plaintext highlighter-rouge">Terraform</code> workflow</strong>, not a local
+apply — <code class="language-plaintext highlighter-rouge">infra/README.md</code> §The normal flow). Applying is the owner’s action,
+never an agent session.</li>
+</ul>
+
+<p>Capture the current state first:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud secrets versions list SEMANTIC_SCHOLAR_API_KEY <span class="se">\</span>
+  <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042 <span class="nt">--format</span><span class="o">=</span><span class="s1">'table(name,state,createTime)'</span>
+</code></pre></div></div>
+
+<hr />
+
+<h2 id="1-push-the-key-into-secret-manager">1. Push the key into Secret Manager</h2>
+
+<p>Dispatch the workflow by hand; it never runs on push, PR or schedule:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gh workflow run sync-s2-key.yml <span class="se">\</span>
+  <span class="nt">--repo</span> djjay0131/agentic-kg <span class="se">\</span>
+  <span class="nt">-f</span> <span class="nv">reason</span><span class="o">=</span><span class="s2">"initial staging key"</span> <span class="se">\</span>
+  <span class="nt">--ref</span> master
+gh run watch <span class="nt">--repo</span> djjay0131/agentic-kg
+</code></pre></div></div>
+
+<p>What it does, in order:</p>
+
+<ol>
+  <li>reads the GitHub secret into the step’s shell environment (never argv);</li>
+  <li><code class="language-plaintext highlighter-rouge">::add-mask::</code>s it before it can reach a log;</li>
+  <li>streams it from stdin into a <strong>new</strong> Secret Manager version
+(<code class="language-plaintext highlighter-rouge">printf '%s' "$S2_API_KEY" | gcloud secrets versions add ... --data-file=-</code>);</li>
+  <li>rolls <code class="language-plaintext highlighter-rouge">agentic-kg-ingest-staging</code> onto <code class="language-plaintext highlighter-rouge">latest</code> and stamps the
+<code class="language-plaintext highlighter-rouge">s2-key-synced</code> label, forcing a fresh revision that resolves the new
+version;</li>
+  <li><strong>only then</strong> disables the superseded versions (including the Terraform
+seed).</li>
+</ol>
+
+<p>The key is never printed, never written to a file, and never placed in
+<code class="language-plaintext highlighter-rouge">GITHUB_OUTPUT</code> / <code class="language-plaintext highlighter-rouge">GITHUB_ENV</code> / the step summary.</p>
+
+<p><strong>Verify</strong> independently — exactly one enabled version, and the Job points at
+<code class="language-plaintext highlighter-rouge">latest</code>:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud secrets versions list SEMANTIC_SCHOLAR_API_KEY <span class="se">\</span>
+  <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042 <span class="nt">--format</span><span class="o">=</span><span class="s1">'table(name,state,createTime)'</span>
+
+gcloud run <span class="nb">jobs </span>describe agentic-kg-ingest-staging <span class="se">\</span>
+  <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042 <span class="se">\</span>
+  <span class="nt">--format</span><span class="o">=</span><span class="s1">'value(spec.template.spec.template.spec.containers[0].env)'</span>
+</code></pre></div></div>
+
+<hr />
+
+<h2 id="2-run-the-job-and-confirm-s2-is-authenticated">2. Run the Job and confirm S2 is authenticated</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud run <span class="nb">jobs </span>execute agentic-kg-ingest-staging <span class="se">\</span>
+  <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042 <span class="nt">--wait</span>
+</code></pre></div></div>
+
+<p>The run’s log stream should no longer show the <code class="language-plaintext highlighter-rouge">[semantic_scholar] Rate limit
+exceeded</code> search error, and a citation-populated paper should land <code class="language-plaintext highlighter-rouge">CITES</code>
+edges. Read the summary with:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud logging <span class="nb">read</span> <span class="se">\</span>
+  <span class="s1">'resource.type="cloud_run_job" AND resource.labels.job_name="agentic-kg-ingest-staging"'</span> <span class="se">\</span>
+  <span class="nt">--limit</span><span class="o">=</span>50 <span class="nt">--format</span><span class="o">=</span><span class="s1">'value(textPayload)'</span>
+</code></pre></div></div>
+
+<hr />
+
+<h2 id="3-rotating-or-replacing-the-key">3. Rotating or replacing the key</h2>
+
+<p>Re-run the same workflow whenever the S2 key changes (new key, suspected
+leak). It mints a new version and disables the old one; nothing else changes.
+There is no scheduled rotation — S2 keys do not expire on a fixed cadence.</p>
+
+<hr />
+
+<h2 id="rollback">Rollback</h2>
+
+<p>The previous version is disabled, not destroyed. To go back:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Re-enable the version you want (find its number in the versions list).</span>
+gcloud secrets versions <span class="nb">enable</span> &lt;version&gt; <span class="se">\</span>
+  <span class="nt">--secret</span><span class="o">=</span>SEMANTIC_SCHOLAR_API_KEY <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042
+
+<span class="c"># Point the Job back at it and force a revision.</span>
+gcloud run <span class="nb">jobs </span>update agentic-kg-ingest-staging <span class="se">\</span>
+  <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042 <span class="se">\</span>
+  <span class="nt">--update-secrets</span><span class="o">=</span><span class="nv">SEMANTIC_SCHOLAR_API_KEY</span><span class="o">=</span>SEMANTIC_SCHOLAR_API_KEY:&lt;version&gt; <span class="se">\</span>
+  <span class="nt">--update-labels</span><span class="o">=</span>s2-key-rolled-back<span class="o">=</span><span class="si">$(</span><span class="nb">date</span> +%s<span class="si">)</span>
+</code></pre></div></div>
+
+<p>To run the Job <strong>without</strong> a key (anonymous pool) deliberately, disable every
+version and re-run; the client treats an absent value as “no key”. Do not
+point the Job back at the Terraform seed version in normal operation — it is
+a placeholder.</p>
+
+<hr />
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li><a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/governance/adr/0006-staging-neo4j-private.md"><code class="language-plaintext highlighter-rouge">ADR-0006</code></a> — the credential-ownership split this mirrors</li>
+  <li><code class="language-plaintext highlighter-rouge">infra/main.tf</code> — the container, seed version and Job env</li>
+  <li><code class="language-plaintext highlighter-rouge">.github/workflows/sync-s2-key.yml</code> — the value owner</li>
+  <li><code class="language-plaintext highlighter-rouge">packages/core/src/agentic_kg/data_acquisition/config.py</code> — placeholder handling</li>
+</ul>
