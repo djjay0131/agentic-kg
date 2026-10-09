@@ -216,6 +216,11 @@ def run_kgis_kgcs_job() -> int:
             logger.error("cannot read INGEST_DOIS_FILE %r: %s", dois_file, e)
             return 2
 
+    # `MIGRATION_SOURCE` (default `corpus`) selects the paper source. Live
+    # discovery consumes `INGEST_QUERY` / `INGEST_LIMIT` / `INGEST_SOURCES`;
+    # the corpus path ignores them and is unchanged.
+    source = os.environ.get("MIGRATION_SOURCE") or None
+    limit_raw = os.environ.get("INGEST_LIMIT")
     try:
         summary = execute_migration(
             config=config,
@@ -224,6 +229,10 @@ def run_kgis_kgcs_job() -> int:
             namespace=os.environ.get("INGEST_NAMESPACE") or None,
             ledger_dir=os.environ.get("INGEST_LEDGER_DIR") or None,
             run_id=os.environ.get("INGEST_RUN_ID") or DEFAULT_RUN_ID,
+            source=source,
+            query=os.environ.get("INGEST_QUERY") or None,
+            limit=int(limit_raw) if limit_raw else None,
+            sources=_env_list("INGEST_SOURCES") or None,
         )
     except Exception as e:  # noqa: BLE001 - the exit code is the signal
         logger.exception("KGIS/KGCS migration run failed: %s", e)
