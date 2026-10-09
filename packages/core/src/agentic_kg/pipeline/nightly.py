@@ -25,6 +25,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from agentic_kg.knowledge_graph.models.pipeline_run import (
+    PipelineBudget,
+    PipelineFailure,
+    PipelineQueryResult,
+    PipelineRun,
+    PipelineTotals,
+)
+from agentic_kg.knowledge_graph.pipeline_runs import save_pipeline_run
 from agentic_kg.pipeline.catalog import QueryCatalog, load_catalog
 from agentic_kg.pipeline.ingest import QueryOutcome, run_query_ingest
 from agentic_kg.pipeline.plan import (
@@ -33,15 +41,9 @@ from agentic_kg.pipeline.plan import (
     plan_queries,
 )
 from agentic_kg.pipeline.report import (
-    Budget,
-    Failure,
-    PipelineRunReport,
-    QueryEntry,
-    Totals,
     iso,
     new_run_id,
     utc_now,
-    write_pipeline_run_node,
     write_report_json,
 )
 
@@ -62,7 +64,7 @@ Runner = Callable[..., QueryOutcome]
 class NightlyResult:
     """The outcome of one :func:`run_nightly` call."""
 
-    def __init__(self, report: PipelineRunReport, url: str | None, exit_code: int):
+    def __init__(self, report: PipelineRun, url: str | None, exit_code: int):
         self.report = report
         self.url = url
         self.exit_code = exit_code
@@ -88,9 +90,15 @@ def _run_one(planned: PlannedQuery, *, run_id: str, namespace: str, runner: Runn
         return QueryOutcome(error=f"{type(exc).__name__}: {exc}")
 
 
-def _merge_honest_nulls(target: dict[str, str], source: dict[str, str]) -> None:
-    for key, value in source.items():
-        target.setdefault(key, value)
+def _collect_honest_nulls(target: set[str], source: dict[str, str]) -> None:
+    """Accumulate the distinct honest-null *reasons* across queries.
+
+    The shared ``PipelineTotals`` records ``honest_nulls`` as a count (the API
+    and Runs page show it as a number); the per-reason messages live on the
+    ingest outcome. Collecting the reasons makes the count honest rather than a
+    hard-coded constant.
+    """
+    target.update(source)
 
 
 def run_nightly(
@@ -123,15 +131,15 @@ def run_nightly(
     try:
         planned = plan_queries(catalog, day=started.date(), max_papers=max_papers)
     except ValueError as exc:
-        report = PipelineRunReport(
+        report = PipelineRun(
             run_id=run_id,
             started_at=iso(started),
             finished_at=iso(utc_now()),
             status="failed",
             trigger=trigger,
             namespace=namespace,
-            budget=Budget(max_papers=max_papers, max_llm_usd=max_llm_usd),
-            failures=[Failure(step="plan", message=str(exc))],
+            budget=PipelineBudget(max_papers=max_papers, max_llm_usd=max_llm_usd),
+            failures=[PipelineFailure(step="plan", message=str(exc))],
             git_sha=git_sha,
             image=image,
         )
@@ -139,29 +147,30 @@ def run_nightly(
                          runs_dir=runs_dir, runs_bucket=runs_bucket, repo=repo)
 
     entries = [
-        QueryEntry(
+        PipelineQueryResult(
             query_id=item.query_id,
             query=item.query,
             topic=item.topic,
             limit=item.limit,
+            status="pending",
         )
         for item in planned
     ]
-    report = PipelineRunReport(
+    report = PipelineRun(
         run_id=run_id,
         started_at=iso(started),
         status="running",
         trigger=trigger,
         namespace=namespace,
         queries=entries,
-        totals=Totals(),
-        budget=Budget(max_papers=max_papers, max_llm_usd=max_llm_usd),
+        totals=PipelineTotals(),
+        budget=PipelineBudget(max_papers=max_papers, max_llm_usd=max_llm_usd),
         git_sha=git_sha,
         image=image,
     )
 
     if not planned:
-        report.failures.append(Failure(step="plan", message="no queries were planned"))
+        report.failures.append(PipelineFailure(step="plan", message="no queries were planned"))
         report.status = "failed"
         report.finished_at = iso(utc_now())
         return _finalize(report, url=None, write_json=write_json, write_neo4j=write_neo4j,
@@ -174,6 +183,7 @@ def run_nightly(
     papers_used = 0
     runtime_stopped = False
     usd_stopped = False
+    honest_null_reasons: set[str] = set()
     for planned_q, entry in zip(planned, entries):
         if papers_used + planned_q.limit > max_papers:
             runtime_stopped = True
@@ -187,7 +197,7 @@ def run_nightly(
             entry.status = "failed"
             entry.error = outcome.error
             report.failures.append(
-                Failure(step=f"ingest:{planned_q.query_id}", message=outcome.error)
+                PipelineFailure(step=f"ingest:{planned_q.query_id}", message=outcome.error)
             )
         else:
             entry.status = "succeeded"
@@ -196,7 +206,7 @@ def run_nightly(
         report.totals.papers_new += outcome.papers_new
         report.totals.committed_operations += outcome.committed_operations
         report.totals.deferred_candidates += outcome.deferred_candidates
-        _merge_honest_nulls(report.totals.honest_nulls, outcome.honest_nulls)
+        _collect_honest_nulls(honest_null_reasons, outcome.honest_nulls)
         for reason, count in outcome.deferral_reasons.items():
             report.deferral_reasons[reason] = (
                 report.deferral_reasons.get(reason, 0) + count
@@ -208,6 +218,8 @@ def run_nightly(
             usd_stopped = True
             entry.error = entry.error or "estimated LLM budget exhausted"
             break
+
+    report.totals.honest_nulls = len(honest_null_reasons)
 
     # ``stopped_by_budget`` is honest about both ways the budget bound the run:
     # the planner leaving enabled queries out of tonight's rotation, and the
@@ -236,7 +248,7 @@ def run_nightly(
 
 
 def _finalize(
-    report: PipelineRunReport,
+    report: PipelineRun,
     *,
     url: str | None,
     write_json: bool,
@@ -265,7 +277,7 @@ def _finalize(
 
     if write_neo4j:
         try:
-            write_pipeline_run_node(report, repo=repo)
+            save_pipeline_run(report, repository=repo)
         except Exception as exc:  # noqa: BLE001 - logged, affects exit code
             logger.exception("failed to write the PipelineRun Neo4j node")
             write_errors.append(("neo4j", str(exc)))

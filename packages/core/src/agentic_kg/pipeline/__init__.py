@@ -8,8 +8,10 @@ The pieces:
   planner and its CLI (``python -m agentic_kg.pipeline.plan``).
 * :mod:`agentic_kg.pipeline.ingest` — the in-process bridge to the same
   ingestion entrypoint the staging ingest Job uses.
-* :mod:`agentic_kg.pipeline.report` — the ``PipelineRun`` report model and its
-  two writers (GCS-mounted JSON and the ``(:PipelineRun)`` Neo4j node).
+* :mod:`agentic_kg.pipeline.report` — the run-id/time helpers and the
+  GCS-mounted JSON writer for the shared ``PipelineRun`` model (the Neo4j node
+  is written through
+  ``agentic_kg.knowledge_graph.pipeline_runs.save_pipeline_run``).
 * :mod:`agentic_kg.pipeline.nightly` — the orchestrator and its CLI
   (``python -m agentic_kg.pipeline.nightly``), the nightly Cloud Run Job's
   entrypoint.

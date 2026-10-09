@@ -19,14 +19,22 @@ class FakeSession:
     def __init__(self, store):
         self._store = store
 
-    def run(self, query, **params):
-        self._store.append((query, params))
+    def execute_write(self, work):
+        return work(FakeTx(self._store))
 
     def __enter__(self):
         return self
 
     def __exit__(self, *exc):
         return False
+
+
+class FakeTx:
+    def __init__(self, store):
+        self._store = store
+
+    def run(self, query, **params):
+        self._store.append((query, params))
 
 
 class FakeRepo:
@@ -96,6 +104,7 @@ def test_success_path_aggregates_and_persists(tmp_path):
     assert report.totals.papers_new == 3
     assert report.totals.committed_operations == 3
     assert report.totals.deferred_candidates == 8
+    assert report.totals.honest_nulls == 1  # one distinct reason across queries
     assert report.deferral_reasons == {"unresolved_identity_no_entity_resolution": 3}
     assert report.budget.est_llm_usd == 0.25
     assert not report.budget.stopped_by_budget

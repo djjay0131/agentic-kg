@@ -55,11 +55,15 @@ Terraform-managed and gated by `nightly_enabled`.**
    no `gcloud` shell-out), enforces `NIGHTLY_MAX_PAPERS` / `NIGHTLY_MAX_LLM_USD`
    as graceful stops, and writes the report.
 4. **Report.** One `PipelineRun` per execution, stored twice from one object
-   (see `docs/design/nightly-pipeline-contract.md`):
+   (the shared `agentic_kg.knowledge_graph.models.pipeline_run.PipelineRun`,
+   which is also the API contract; see
+   `docs/design/nightly-pipeline-contract.md`):
    (a) JSON at `gs://vt-gcp-00042-agentic-kg-runs-staging/nightly/<run_id>.json`
    (written through a GCS volume mount, no GCS client dependency), and
-   (b) a `(:PipelineRun {run_id})` Neo4j node, label **not** under `Canon__*`.
-   The API reads Neo4j; it needs no GCS access.
+   (b) a `(:PipelineRun {run_id})` Neo4j node, label **not** under `Canon__*`,
+   written through the shared
+   `agentic_kg.knowledge_graph.pipeline_runs.save_pipeline_run` so the Job and
+   the API cannot drift. The API reads Neo4j; it needs no GCS access.
 5. **Notification.** The Job logs exactly one structured JSON line
    (`pipeline_run_completed` | `pipeline_run_failed`, `run_id`, `status`,
    `totals`, `url`). P1 stops at the log line; the email channel is a Cloud
