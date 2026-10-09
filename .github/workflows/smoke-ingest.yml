@@ -32,6 +32,7 @@ concurrency:
 
 permissions:
   contents: read
+  id-token: write  # WIF: read vendor keys from Secret Manager (ADR-0007)
 
 jobs:
   smoke:
@@ -91,6 +92,25 @@ jobs:
         # OpenAI TPM budget.
         run: agentic-kg load-taxonomy --skip-embeddings
 
+      - name: Authenticate as the CI vendor-key reader
+        # ADR-0007 rule 3: vendor keys live only in Secret Manager. This
+        # identity can read exactly those keys and nothing else.
+        # Fork PRs get no OIDC token and run without keys, as before.
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: gh-ci-vendor-keys-staging@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+
+      - name: Fetch vendor keys (masked, step outputs only)
+        id: vendor
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: google-github-actions/get-secretmanager-secrets@v2
+        with:
+          secrets: |-
+            OPENAI_API_KEY:${{ vars.GCP_PROJECT_ID }}/OPENAI_API_KEY
+            SEMANTIC_SCHOLAR_API_KEY:${{ vars.GCP_PROJECT_ID }}/SEMANTIC_SCHOLAR_API_KEY
+
       - name: Ingest (with single retry)
         # API keys are scoped to this step only; checkout, install and
         # artifact steps never see them. Unauthenticated S2 draws on a rate
@@ -101,8 +121,8 @@ jobs:
         # tier. config.py reads this env var and sends it as the `x-api-key`
         # header.
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          SEMANTIC_SCHOLAR_API_KEY: ${{ secrets.SEMANTIC_SCHOLAR_API_KEY }}
+          OPENAI_API_KEY: ${{ steps.vendor.outputs.OPENAI_API_KEY }}
+          SEMANTIC_SCHOLAR_API_KEY: ${{ steps.vendor.outputs.SEMANTIC_SCHOLAR_API_KEY }}
         run: |
           set +e
           ATTEMPT=1

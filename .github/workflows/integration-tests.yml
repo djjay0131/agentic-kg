@@ -405,6 +405,9 @@ jobs:
     if: |
       (github.event_name == 'push' && github.ref == 'refs/heads/master')
       || (github.event_name == 'workflow_dispatch' && inputs.run_e2e)
+    permissions:
+      contents: read
+      id-token: write  # WIF: read the S2 key from Secret Manager (ADR-0007)
     steps:
       - uses: actions/checkout@v4
 
@@ -443,16 +446,31 @@ jobs:
             -v --tb=short \
             --junitxml=test-results/api-e2e-tests.xml
 
+      - name: Authenticate as the CI vendor-key reader
+        # ADR-0007 rule 3: vendor keys live only in Secret Manager. This
+        # identity can read exactly those keys and nothing else.
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: gh-ci-vendor-keys-staging@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+
+      - name: Fetch vendor keys (masked, step outputs only)
+        id: vendor
+        uses: google-github-actions/get-secretmanager-secrets@v2
+        with:
+          secrets: |-
+            SEMANTIC_SCHOLAR_API_KEY:${{ vars.GCP_PROJECT_ID }}/SEMANTIC_SCHOLAR_API_KEY
+
       - name: Run live-source E2E tests
         env:
           STAGING_API_URL: ${{ secrets.STAGING_API_URL }}
           # #80 finding 5: these tests hit the live Semantic Scholar API;
           # unauthenticated callers share one anonymous pool and flake on 429s.
           # Step-scoped, never job-wide (#80).
-          SEMANTIC_SCHOLAR_API_KEY: ${{ secrets.SEMANTIC_SCHOLAR_API_KEY }}
+          SEMANTIC_SCHOLAR_API_KEY: ${{ steps.vendor.outputs.SEMANTIC_SCHOLAR_API_KEY }}
         run: |
           : "${STAGING_API_URL:?STAGING_API_URL secret is not set}"
-          : "${SEMANTIC_SCHOLAR_API_KEY:?SEMANTIC_SCHOLAR_API_KEY secret is not set}"
+          : "${SEMANTIC_SCHOLAR_API_KEY:?SEMANTIC_SCHOLAR_API_KEY is not in Secret Manager}"
 
           # `not requires_db` explicitly deselects the graph-content e2e tests
           # (test_kg_population.py) that need direct Neo4j access; they run only

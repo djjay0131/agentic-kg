@@ -101,7 +101,7 @@ deliberate:
 | KGIS/KGCS opt-in flags | **Terraform** | `kgis_kgcs_enabled` + `canonical_namespace` in `envs/staging.tfvars` |
 | Durable KGIS **ledger bucket / volume / IAM** | **Terraform** | `ingest_ledger_bucket` + `ingest_ledger_dir` in `envs/staging.tfvars`; see §Durable KGIS ledger |
 | Neo4j **password value** | rotation workflow | `.github/workflows/rotate-neo4j-password.yml` |
-| Semantic Scholar **API key value** | sync workflow | `.github/workflows/sync-s2-key.yml` |
+| Semantic Scholar / OpenAI **API key values** | owner, in Secret Manager only (ADR-0007) | rolled by `.github/workflows/roll-vendor-keys.yml` |
 
 The deploy workflows were reduced to an image roll for exactly this reason:
 `gcloud run deploy` with its own flags (and `--set-secrets`, which clears
@@ -177,10 +177,11 @@ The Secret Manager **container** `SEMANTIC_SCHOLAR_API_KEY` and a placeholder
 exists only so the ingest Job's `:latest` secret reference is valid at create
 time (Cloud Run refuses a secret ref with no versions) — its value
 (`unset-seed-not-an-api-key`) is treated as "no key" by the S2 client, so a
-run before the first sync simply goes unauthenticated. The enabled value is
-written by `.github/workflows/sync-s2-key.yml`, which mints a new version from
-the repo GitHub Actions secret `SEMANTIC_SCHOLAR_API_KEY` and then disables the
-superseded ones (the seed included). Operator procedure:
+run before the first key simply goes unauthenticated. The vendor issues the
+value, so the owner adds it directly as a new Secret Manager version (its only
+home, ADR-0007); `.github/workflows/roll-vendor-keys.yml` then rolls the
+consumers onto it and disables the superseded versions without ever reading
+it. CI reads it at run time as `gh-ci-vendor-keys-staging` via WIF. Operator procedure:
 [`docs/operations/semantic-scholar-key-runbook.md`](../docs/operations/semantic-scholar-key-runbook.md).
 
 ## Resources managed
