@@ -7,6 +7,34 @@ Last updated: 2026-09-17
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
 
+## Compat tripwires re-pointed after #115 (2026-10-09, #117)
+
+Master's #114/#115 (synthesis write-back + agent provenance) repaired the
+synthesis and continuation defects that the Phase-7 compatibility harness
+(`packages/core/tests/migration/compat/`) had pinned as **scoped out** on the
+integration line. The merge of master into integration (#117) therefore turned
+five tripwires red; they are now re-pointed at the fixed code:
+
+- `read_paths.py`: `agent.continuation.related_problems` moved
+  `SCOPED_OUT` → `DECLARED_CHANGE` (its source endpoint is now label-scoped
+  `:Problem OR :ProblemConcept`); `relations.create_relation.guard` and
+  `repo.list_problems` snippets re-pointed at the #115 label-scoped /
+  origin-filtered queries; new `agent.synthesis.derived_from_lineage` entry for
+  `get_derived_from` (SCOPED_OUT — `DERIVED_FROM` is provenance, not a §4.4
+  projected relation).
+- `SCOPED_OUT_SURFACES` now holds one surface (`write.api.reviews`); the
+  synthesis write-back and continuation related-problem read were retired.
+- `probes.py` + `baseline/legacy_pre_llm_context.json`: a deterministic
+  `continuation.related_problems` probe and its legacy baseline row.
+- `test_scoped_out_write_surfaces.py`: the synthesis and continuation tripwires
+  inverted into positive tests; the `/api/reviews/*` tripwire retained.
+
+**Recorded gap, not hidden:** `get_related_problems` builds its relation
+pattern from every `RelationType` member, so it also traverses `RELATED_TO`,
+which §4.4 does not project; the read-path entry lists the four projected types
+and names the `RELATED_TO` gap in its note (same shape as
+`api.graph.problem_relations`' untyped pattern).
+
 ## Synthesis write-back + agent provenance (2026-10-08, #114)
 
 `SynthesisAgent` had never written anything to the graph. It called
@@ -46,6 +74,34 @@ loosely, so CI stayed green. Fixed:
 Tracked under the KGPS provenance audit (djjay0131/agentic-kgps#1); the
 `kg_contracts.Derivation` shape is the seam for the KGIS/KGCS adoption plan
 (`llm/plans/2026-09-17-kgis-kgcs-adoption-migration.md`).
+
+## Bounded-adviser adjudication + KGCS v2.0.0 re-pin (2026-10-05)
+
+Phase-5 A3: the `new` arm is now **gradable**. The deterministic policy defers
+the LLM extractor's `Method`/`Model`/`ResearchConcept` candidates to
+`LLM_ASSESS` (`extraction_confidence=0.8 < auto_min_extraction=0.95`), so the
+arm was an honest null. A new, OFF-by-default stage
+(`MigrationConfig.use_kgcs_adjudication`, env `KGCS_ADJUDICATION_ENABLED`)
+consults a bounded KGCS adviser over those candidates and folds the advice
+through a declared deterministic gate; admitted candidates are planned by KGCS's
+own `CurationPlanner` into one plan with the deterministic `Paper` identities.
+
+- **Upstream gap, stated not worked around (adoption rule 7).** The brief
+  proposed the `CurationOrchestrator`, but that adjudicates an ER *pair*, not a
+  candidate admission, and KGCS v2.0.0 ships no adviser→promotion router. The
+  gate is adopter-side and contributes a decision; the operation is KGCS's.
+- **Laws held by test.** law 1 (failing/timeout/malformed adviser → plan
+  byte-identical to flag-off), law 13 (a rejected candidate is never consulted,
+  however loudly advice admits), law 16 (advisers return only
+  `AdviserAssessment`; AST guard), replay determinism, flag-off identity.
+- **SYNTHETIC recordings.** CI replays committed fixtures built by a scripted
+  deterministic oracle (`scripts/record_admission_fixtures.py`), clearly labelled
+  SYNTHETIC. They validate wiring, not model quality; the second report
+  `docs/ground-truth/adoption-phase5-three-way-eval-adviser-synthetic.md` grades
+  the arm and says so in its header. Live-model numbers await a staging run
+  (`OpenAICompletionClient`). The deterministic-only report is unchanged.
+- **Pins:** KGCS re-pinned to `e2c24fca` (tag v2.0.0), a metadata-only release
+  over `727df56` (diff touches only CHANGELOG/memory-bank/pyproject version).
 
 ## Current State (2026-09-17)
 

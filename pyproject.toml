@@ -15,12 +15,93 @@ dependencies = [
     # transitively hard-pins openai==1.99.9 (via cmbagent-autogen), which
     # conflicts with instructor>=1.14's openai>=2.0 and breaks entity
     # extraction. See llm/features/extraction-dep-pinning.md.
-    "neo4j>=5.0.0",
+    # Bounded deliberately. ">=5.0.0" alone resolved to driver 6.3.1 against a
+    # 5.26 server in this repo's own test runs - it happened to work, but a
+    # major-version bump arriving silently on a fresh resolve is exactly the
+    # kind of breakage nothing here would catch until runtime. <7.0.0 keeps
+    # 6.x (what is actually exercised) and excludes the next major, which must
+    # be adopted deliberately.
+    "neo4j>=5.0.0,<7.0.0",
     "pydantic>=2.0.0",
     "openai>=2.0",
 ]
 
 [project.optional-dependencies]
+# The PINS here must match the `migration` extra in packages/core/pyproject.toml
+# exactly. This distribution ships the same agentic_kg package (see
+# [tool.hatch.build.targets.wheel] below), so both install paths must opt in to
+# the same commits. Re-pin both together; `pin_gate.check()` rejects the two
+# files naming different revisions for the same package, and CI runs it.
+#
+# The surrounding *commentary* is a summary here and the long form in
+# packages/core/pyproject.toml, which is where an adopter of the library reads
+# it. Only the requirement lines are duplicated.
+#
+# OPT-IN: not installed by default, so today's install and CI are unaffected.
+# Exact commit SHAs, not version specifiers — neither repo is on PyPI,
+# agentic-kgis has zero tags, and its version sat at 0.2.0 for 122 commits
+# (it is 0.3.0 at the pin below, but still untagged).
+migration = [
+    # agentic-kgis @ d5bab8f6 = version 0.3.0 (up from de48639a, also 0.3.0).
+    # kg_contracts CONTRACT_VERSION is "2.0.0". Ships kg_contracts, kgis,
+    # kg_eval. Changes this repo had to act on:
+    #  (a) ADR-0026 (agentic-kgis #54, issues #49/#50) - a revoked identity
+    #      shields its ASSERTIONS from default reads (read-layer, statuses
+    #      untouched); a batch applies operations in order so create-then-revoke
+    #      in one batch commits a tombstone; a second revoke commits nothing and
+    #      consumes no epoch. FOUR new tests join GraphMutationStoreContract
+    #      (14 total); this adapter implements all three in Cypher.
+    #  (b) CARRIED FROM de48639a - ADR-0024's `IdentityDisposition` on
+    #      `ConfidencePolicy.route()`, and ADR-0025's `REVOKE_IDENTITY` (eighth
+    #      CurationOperationType, CREATE_IDENTITY inverse) with `include_revoked`
+    #      hiding REVOKED records from every default read at any epoch.
+    "agentic-kgis @ git+https://github.com/djjay0131/agentic-kgis@d5bab8f6d6207ce554ee5f687d37938f747eaa79",
+    # agentic-kgcs @ e2c24fca = the v2.0.0 release commit (agentic-kgcs #45),
+    # up from 727df56 (the merge of #44). The release is METADATA-ONLY over
+    # 727df56: verified, `git diff --stat 727df56 e2c24fca` touches only
+    # CHANGELOG.md, llm/memory_bank/* and pyproject.toml (version 1.0.0 ->
+    # 2.0.0). No source moves. The version is still not what CI keys on -
+    # packages/core/tests/migration/neo4j/pin_gate.py checks the resolved commit.
+    #
+    # New at 727df56 (agentic-kgcs #44, ADR-0022): the identity disposition is
+    # derived BEFORE routing, so entity candidates are NEW_IDENTITY and an
+    # absent `identity_confidence` no longer blocks AUTO. Measured over the
+    # committed corpus at published thresholds: the contract default now routes
+    # 8 of 252 AUTO (the DOI-keyed structured Papers), defers 244, and still
+    # reaches no graded entity. Consequence acted on here: the registered-
+    # identifier guard in migration/curation/pipeline.py no longer short-circuits
+    # on the identity-gate field.
+    #
+    # Carried forward from earlier pins and still true:
+    #   - after #30, `orcid` is no longer a default strong namespace, so Author
+    #     entity resolution must pass it explicitly;
+    #   - after #34, `Compensator.compensate()` takes a required keyword-only
+    #     `against_snapshot`, `snapshot_guarded` is gone, and `reversal_data`
+    #     nests the inverse payload under INVERSE_PAYLOAD_KEY. ADR-0018 imposes
+    #     a STORE OBLIGATION this adapter honours: a compensating
+    #     ATTACH_ASSERTION is an upsert by `assertion_id`, replacing in place.
+    #     See packages/core/src/agentic_kg/migration/neo4j/store.py.
+    #
+    # New at f68d1d7:
+    #   - `assertion_id` is minted from `record_seed(fact_id, object,
+    #     valid_period, evidence_refs, provenance)` - CLOCK-FREE. A true replay
+    #     collides onto the record it already minted; the same fact carrying new
+    #     evidence mints a new one. This is the evidence-evolution fix.
+    #   - DEPLOYMENT PREREQUISITE, from that: KGIS's structured reader stamps
+    #     `@snapshot=<version>` into the locator by default, and the locator is
+    #     part of the record seed. Any source read on a SCHEDULE must set
+    #     `include_snapshot_in_locator=False` or it mints a fresh ACTIVE record
+    #     per run for unchanged data (measured: 30 re-syncs -> 30 records
+    #     vs 1). Enforced by migration/ingestion/structured.py; operator
+    #     runbook at docs/operations/structured-resync-runbook.md.
+    #   - `CREATE_IDENTITY` now carries a working inverse (REVOKE_IDENTITY), and
+    #     `ATTACH_ASSERTION` carries a per-subject `assertion_absent` guard, so a
+    #     re-planned replay comes back STALE instead of appending a duplicate.
+    #   - `Compensator._invert`'s legacy reversal_data fallback now RAISES by
+    #     default (opt in with `allow_legacy_reversal_data=True`); a malformed
+    #     INVERSE_PAYLOAD_KEY raises unconditionally.
+    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@e2c24fca8533af79e520a2ea5fddadd0668baa07",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio",
@@ -32,6 +113,11 @@ dev = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+# Required for the `migration` extra — hatchling rejects PEP 508 direct
+# references (`name @ git+https://...`) at metadata time unless this is set.
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["packages/core/src/agentic_kg"]

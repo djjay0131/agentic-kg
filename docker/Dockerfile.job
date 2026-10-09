@@ -15,8 +15,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Install build dependencies
+# git + ca-certificates are needed to resolve the commit-pinned KGIS/KGCS
+# direct references in the opt-in `migration` extra (ADR-0004).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    git \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy source code for installation
@@ -27,9 +31,12 @@ COPY packages/core/ packages/core/
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install only the core package (no API dependencies)
+# Install the core package WITH the opt-in `migration` extra. The migration
+# path is opt-in at the *code* level (both flags default off), but the Cloud Run
+# Job image must carry the extra so INGEST_MODE=kgis_kgcs can run; the default
+# INGEST_MODE=legacy path is unchanged.
 RUN pip install --upgrade pip \
-    && pip install ./packages/core
+    && pip install "./packages/core[migration]"
 
 # Runtime stage
 FROM python:3.12-slim AS runtime
@@ -50,6 +57,23 @@ COPY --from=builder /opt/venv /opt/venv
 
 # Copy application source (core only)
 COPY packages/core/src/ packages/core/src/
+
+# The frozen corpus the INGEST_MODE=kgis_kgcs path runs over. It lives under
+# packages/core/tests/ and docs/, which are not part of packages/core/src, so
+# without this the Job exits 2 with
+#   CorpusError: corpus text missing for 'cskg': /app/packages/.../paper_cskg.txt
+# The layout under KGIS_CORPUS_DIR mirrors the repo, because corpus.py resolves
+# its two directories repo-relatively; only the root moves.
+#
+# Issue #82: this text is verbatim published-paper body text already committed
+# to the public repo. Copying it into the private Artifact Registry image does
+# not increase its exposure, and this change deliberately does not attempt to
+# solve #82 — see the PR body.
+COPY packages/core/tests/extraction/fixtures/ground_truth_chain/ \
+    /app/corpus/packages/core/tests/extraction/fixtures/ground_truth_chain/
+COPY docs/ground-truth/importer-output/ \
+    /app/corpus/docs/ground-truth/importer-output/
+ENV KGIS_CORPUS_DIR=/app/corpus
 
 # Change ownership
 RUN chown -R appuser:appgroup /app

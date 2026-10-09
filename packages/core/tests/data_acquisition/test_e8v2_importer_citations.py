@@ -187,7 +187,15 @@ class TestPopulateCitationsExceptionAbsorbed:
 
         assert result.created is True
         assert result.paper is not None
-        assert result.citation_population is None
+        # I-58 (BLOCKING-1): the isolation contract is unchanged — the
+        # import still succeeds and the error is logged — but the crash is
+        # now RECORDED as an attempted infrastructure failure instead of
+        # leaving citation_population None. None classifies as
+        # "not_attempted", which kept status="completed" and let the smoke
+        # gate pass on any non-empty graph.
+        assert result.citation_population is not None
+        assert result.citation_population.populate_raised is True
+        assert "simulated" in result.citation_population.errors[0]
         assert any(
             "populate_citations unexpectedly raised" in r.message
             and "10.1/abc" in r.message

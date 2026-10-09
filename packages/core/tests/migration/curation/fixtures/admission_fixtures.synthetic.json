@@ -1,0 +1,541 @@
+{
+  "adviser_type": "candidate_admission",
+  "adviser_version": "candidate_admission/1",
+  "fixtures": {
+    "023b8e8a60a52b2d483d9f727a6bc3a5c60ba22a57fb9d09bf35112d55326d93": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "02b1465941243b0324a2d9a26df5ee8f328eb1c49516fe3d3b8c70fdd7f1b571": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_2HH24HPT98KC8WQCPCZ45N2104\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "031a1920eb46a93f3e3ea93993d6cdc8dd145d66b0cfe1a93a878adfe1e077c8": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1VPKHJVMNXEXRS5YDNSJ938V56\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "033ba9efda0eb8ef0e50e7cef258624c79312dacada7e2c3ada0edf120270713": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_4SEF3PQDEE01G04XNW3RB2SKQ0\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "04e8eedf99e5e0f6b20299e888cbb2ff3910e1cac17fecac2939c5ab1e89a750": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_4SEF3PQDEE01G04XNW3RB2SKQ0\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "0505a46c9a8c99836f91d91d5c6ff8e7b31157a5f59f8ff51df9264e88dd0f8a": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_7E9QCE40AEXM6B6S60DZPNMAN3\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "063d601d2088fa553969a336e7a94491ddc81e662e3ae539c67219a960ad939b": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1VPKHJVMNXEXRS5YDNSJ938V56\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "06d012d0abcd2bd202e2af721c49035fc5fbe4765b88da119069d7f41435bb41": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_7E9QCE40AEXM6B6S60DZPNMAN3\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "07e69f4ce1776c761b19941c0c9680a79a6363458a5328644701706dc21a608a": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_66KBHTF4GZ3M6QK7CFTJFG6SCZ\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "09807ed6eab4ababf309b05ce4b30ad075478eed90c4732ff2acd9d239db534f": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_4APR75Z9RKR1E0GNN7Y3CCNJGQ\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "09d7fd666f048897c296e342cdca011041cacada3183d65d06ade7ad5d0e0d31": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_42DJHPYSG0X7JMGWHVKACVXJE6\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "0a934e150a5f6830e0712764fd26424bd267778d8d853a711176f73901624376": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_2HH24HPT98KC8WQCPCZ45N2104\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "0bc0a0e5dead7134777e77deecedd193aae3288d5fdf21fed044eedb4b68240c": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "0c47d9e2034c249d3a15138a90044006495b62d01f8d349fa662ac83cd4044a0": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "0cfe649ebc6cd5f64588821ad54ab7ad7b0701e50d3f0e5807c9991524978dd9": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_2HH24HPT98KC8WQCPCZ45N2104\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "120c2fa871b54f74811e20091b643d0f69e0fea0967a1a6e63efc277cbd6eace": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1VPKHJVMNXEXRS5YDNSJ938V56\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "128c1a257927548fbfe87ea2570e9b75e969a1a18cfcfb0418aabdc0877f4ef1": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_4APR75Z9RKR1E0GNN7Y3CCNJGQ\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "1357c9ba136931d46fbd0b4e6c2a8fb18264821e4bbd3b7462f71c0ea534d5dd": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_2HH24HPT98KC8WQCPCZ45N2104\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "219921a1a09d67a6da2e80ee89f8018c7dedbe1659f92fa1eed5ef77f05c0682": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "256ea9a8d6a2458dd6e2fee2fafc5d189fad2499229496dafb7a99298addf377": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_66KBHTF4GZ3M6QK7CFTJFG6SCZ\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "27c8633e42e1f07e4674cb1eab9c244e0e04c0c98ca81a6920c5d15986696521": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1VPKHJVMNXEXRS5YDNSJ938V56\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "2b06a58e77af6ab2bfcefcaa3781fd8e3a0e10bcd0757c50545cf58c7513b0fd": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1VPKHJVMNXEXRS5YDNSJ938V56\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "2c81d37a9110c9a91ed132220665f271d0b8ebb3fe68220b8790d03819395570": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_66KBHTF4GZ3M6QK7CFTJFG6SCZ\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "31e581282bb5bc078a6a595c274501a30fb29f4c3f1ffab48a978d5048ccf7e7": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_2HH24HPT98KC8WQCPCZ45N2104\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "324a0e1911e0e28fe36562d2cf66a26d11c728d9b125136d32ab2f5dff3b2a2b": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "33cc704810a0ad2c27c776fe88f8cad0370b4935d76bfaf196da640cd200cc37": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_2HH24HPT98KC8WQCPCZ45N2104\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "38b7a98be4d2c027cb1ace2c6dbe07462deeb5ecd2dcb0b2b1c71ac3f7e271c7": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_3H57Z9X0VF90EMTQXFTN6J76FC\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "3e2fbdd0e077c3f00923a7d0e8560a96c0f7c99ca227c8f31ba3949af9fa1a27": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1VPKHJVMNXEXRS5YDNSJ938V56\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "41b26350181a956675cd9dcbe05d96cf8c6c67877f19a7c3882be35898de61b6": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_6KWFAYYPXV2HWYKRXHMXWD3PZ5\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "447a569a59381b3db8b10abdf13c7bd02a863cd66f61af69a3b1ddbf761acf91": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_66KBHTF4GZ3M6QK7CFTJFG6SCZ\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "470d316fe1282d55dd7f9e36ededacb00fb3201e72abaaba7b193f1c35b85c41": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_4SEF3PQDEE01G04XNW3RB2SKQ0\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "4b0557623c6258b3faf5d8bb61961bd9520c9154beb495250b39f0085bf0eae1": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1VPKHJVMNXEXRS5YDNSJ938V56\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "4bdc187e709b47eb39d4f8229e58245e846532bf712007042414168459af70a2": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_2HH24HPT98KC8WQCPCZ45N2104\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "4d6e96569de31621e7f45b80eb72483e3785b424249584dc59d626dea4eb70bc": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_42DJHPYSG0X7JMGWHVKACVXJE6\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "4d86824fc12fe8da36cceeca2561cba1e7a36e48cdfe66a723de9888d8975123": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_14CYW7XRTNKPTQKW25N8P790D0\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "557e24f232ab17bcba7e8db4e483c4e493bffc07e8b2617d1289adfebdaf0df3": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_66KBHTF4GZ3M6QK7CFTJFG6SCZ\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "56e5efa03d63532fd641b85abed871bec0481584d1f591f4eceffdec896403e9": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "5bb60d7c167f43f285ec9e654919fe6cec6e7d5bdf7fb526179a9be446876b72": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_4SEF3PQDEE01G04XNW3RB2SKQ0\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "624a9dba6a2bd902b139c197dcc702b21f333e060fa6dabf6ca276d2be9cc1c7": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_6KWFAYYPXV2HWYKRXHMXWD3PZ5\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "67e0e694c61d7027f3f11f489c341676907d0a1775c2acbcc68f00b1721c5108": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_4APR75Z9RKR1E0GNN7Y3CCNJGQ\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "6878e1ee273eda7a9b61d0b2e899893066c835433dd466dfd9df24fe8bbc12e2": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_66KBHTF4GZ3M6QK7CFTJFG6SCZ\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "6c8f6441038c31bf587d8b64c5e5b25e5008b4e0182943afe084ebc558e1339d": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_66KBHTF4GZ3M6QK7CFTJFG6SCZ\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "702c86c231628447a5e91f432634ff8888889c85da55c6feb3472b5867b68c70": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_6KWFAYYPXV2HWYKRXHMXWD3PZ5\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "70e354e89a48c5a775d11537c74666114c6c26dcdc3363c3a8631c0f30ece95e": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1VPKHJVMNXEXRS5YDNSJ938V56\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "71a9b8d7ba81ce25be65619418f9b750412420e2f78a0b2b8b1b91092c6c128d": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "71d090b00b2bdc0678050cf6703942a3d7175b82babbe9a32c9da3fda18c03bc": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1VPKHJVMNXEXRS5YDNSJ938V56\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "73fd25219f07a08cf4283498d890070c9983476e0c79cd1ebc1272dfc2a7004a": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1VPKHJVMNXEXRS5YDNSJ938V56\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "748538a10804ffe119b4d48949aace0ca233871666cb0598d30fe470c200f3eb": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "759f8ff2e479ace153fafa1fa0f7a09c8cb589720eb6cd11226b362ae8049361": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_4APR75Z9RKR1E0GNN7Y3CCNJGQ\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "7745df0ceb38b8e6779ae7d903fe914e44491c4ff15c1f868348dc81cc9d7178": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "7bc8927f2368b40d937ff90ca5b8139fc736d181371636fef0854bf9519a0de1": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "7ce3c477b85a313f1274f6ebb9d1f3995d7b6a1343c490a83851c1ec9f32b275": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_42DJHPYSG0X7JMGWHVKACVXJE6\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "7d63efe434c4f5bdf0928d8b1daeb024f8f71dea0a62a3dcd67396f8955b3dae": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_42DJHPYSG0X7JMGWHVKACVXJE6\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "7deeddd8f20fda8eb769b5b08f3c1c300017739ec195c677ff9583780df497f5": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_4APR75Z9RKR1E0GNN7Y3CCNJGQ\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "84d183cbc7362f06325c1d45a8cef76cb49820b4e96bb7ec32fe9e753111706a": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_3H57Z9X0VF90EMTQXFTN6J76FC\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "85686377f519c637b1626951499fe20424a27b54e335e116b4efea02a0eb67cd": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "8d077873e4f7f766b606c818f1a0fbafa72d25ffe6df00ee58a7630be7f6c249": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_5VM4WXPY6YJY6K825RKKXHV0J4\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "8dc00b72e8e4569a326869a0910ad0cabeb5dfadf7457135836e2ca740fab393": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "8ed3a320068ff8ceade4437a5be246d0330d69ed1bb02a684d46c77a42421974": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1VPKHJVMNXEXRS5YDNSJ938V56\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "943ad293f2c7dfa1973f73cf1090ce2eb1a8e8f1dedcf9cc89f37baab1dba4c1": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_2HH24HPT98KC8WQCPCZ45N2104\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "9449fefb70dd5f7212c93937a30f5858eeb641cfaf3b24cd743dccf429648f08": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "9944ecaad65eceb7cda9712d6a9fd3fc13524db64e565c685b9489219f3a4974": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "9bb9f5c6aabadbcbd9494f93091a16513c830a081bc894f5585d4206363b531b": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_3H57Z9X0VF90EMTQXFTN6J76FC\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "9bed765d84861f95c39dac085c8b314e207363137e399f70208080a34130dc0a": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "9e78aa6e4335172324ebef694eef9765850d17924929af831f012d3173c0a921": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "a0c0d33995ff3ab8572e3f060eab9de5ae956f8dd25649cb38ec12530c3b3583": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1VPKHJVMNXEXRS5YDNSJ938V56\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "a582ce114e58fc51f624656ba0efbbac9e0640e0dd7f171a90aa34edf662b519": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "a82199f6de02e1ba35484296c289309624133884800fd4e16a7c5ac8ca146663": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1VPKHJVMNXEXRS5YDNSJ938V56\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "a86b38a1514b6102d9a9af4d4fba974f0ee7ef67830b346b71f192425246c1eb": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_4SEF3PQDEE01G04XNW3RB2SKQ0\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "aa1be963b5e410a4ea16488e2b1d3f7b7e02c5dc594c6ea8a22bde4faf5ac9b1": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "ab73ae0eb87eb8ea0736a0f0845a4717eb0898fb99138a9cd79da562dcea852e": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_66KBHTF4GZ3M6QK7CFTJFG6SCZ\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "acf50dcd26d0569455c891aa4d4b5eb072f04078879565ca4a1394aea90ebffd": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_2HH24HPT98KC8WQCPCZ45N2104\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "ae08d650cba902c83ada94ec1a0c23cab349ff47b28d7f7d9c41a9fa6ec7f304": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_66KBHTF4GZ3M6QK7CFTJFG6SCZ\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "afbfc8588130062db904d78c14646ce89ce11241c76bc2f508d620f2c4fb1c26": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_0G6YST36RT5K3707A7221N7Q3G\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "afc69a1eca5d2d11f5852555b97abd8db9d7d01108c3dcbe08c0b7ed1d16979e": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "b30c0aa1b00f7a6dd2a2f4036f3bbed20b9c236cbbe7eb892192af461db5204a": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_6KWFAYYPXV2HWYKRXHMXWD3PZ5\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "b42f9092d9656cf84db246e58e862787708f491add02a03a395ae741c21186c2": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "b488cc15e148c876e73b6e117f7a5bc10dd7d23ae1a48a86024903b319e334d3": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "b70b7cdafb48c21b1b5f4d55d3f1b90e976b8651219f8284053cc3b0ba40d05b": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_2HH24HPT98KC8WQCPCZ45N2104\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "b98e16e419b3849498036cbdc2c488a61cd10d72191d1b3a7d70a7e48c6a0c1d": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_42DJHPYSG0X7JMGWHVKACVXJE6\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "bce70a02082b79132553fa636d4f970e8e6dc111a7a90247d922f907ba50fd66": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_42DJHPYSG0X7JMGWHVKACVXJE6\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "bf012a34310090af13d47d4ff17ffd3ec0959958ddc572a12e92bba1a50d4bad": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "c032012aed313241b286e49c9244faba29adc2e1f0214776d213a7834e420330": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "c28b605587320bd53ed84443fd655daecda98853bed0c005daeca329699e0aad": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "c6826e673a3cd7bdfc3f53dd0b37fedab00044d548efef1c7616a51d62302eca": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "c82eef9c4f7169a14fc870abbd5cf97a96f069b099a8a4f333a8a8a522b9ae82": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "c847189b4c609a3c792d8e131b8109bf2bc0c18e71317fd3c29557c6a9409dfc": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_2P51WK54H52DSM962VCHD41ETS\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "ccf5306c48738625c0c403f95585eafd9da8a123656529fa049689b5b2a19d6b": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "cf7ccfbf0a3f4a62216bacee32f0da8631d1412960d0f7d1b51ea672edde367d": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_3H57Z9X0VF90EMTQXFTN6J76FC\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "d834b9e8e0e23877f1d30c3dc8fcf603803333cf41d300bc44604275747d7f0a": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_7E9QCE40AEXM6B6S60DZPNMAN3\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "d987256ff3506be2156ed3b12b68b37b5e6b872475a96cabb55d972d4c1e89d3": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_4APR75Z9RKR1E0GNN7Y3CCNJGQ\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "dd446a11997dd644fb399b8b9b32d75e3e35b44d10bfaba56cdd3827451273e2": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_0G6YST36RT5K3707A7221N7Q3G\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "dd5de04012e96854adc96297f3b9789a51264af5c1bb1ee3e84bc7deb97217fe": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "e24d4108e672076af27a86f5a2497e4d2396ad261fc4e658922bf4577ecc4c1a": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_42DJHPYSG0X7JMGWHVKACVXJE6\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "e2e85ed437e9b554398edef810ba7748e2aa890cd0a5b3f193bfa852acb35933": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_4APR75Z9RKR1E0GNN7Y3CCNJGQ\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "e73716c9102704a45704c7b52b3999ac912478378eef37dd0251831e8d042e16": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_66KBHTF4GZ3M6QK7CFTJFG6SCZ\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "eb28c5431ee9957d61cd6652504d5fee732f5979d6d3312e772db7d7a4d9a8eb": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_0G6YST36RT5K3707A7221N7Q3G\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "edb4a8e814bb1a31afcb3ca28a5c8463a4a2570b58f8e5164ebaf58833a84267": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_2HH24HPT98KC8WQCPCZ45N2104\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "ee7c8d31934d9aa8c02e31eb72a4836ce5c67e64c71e489e28fb0a088ff8cbaa": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_1YCW853VSVH1460P91920X9QZD\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "f2edf76b3bec58040f5f73908899116f92ca557dcc856714a8d8850f335679cc": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_2P51WK54H52DSM962VCHD41ETS\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "f467424d3269c40a3f966ba3f0f3287a5da021f4110d4426b81254b784df0432": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_4APR75Z9RKR1E0GNN7Y3CCNJGQ\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "f6eefc55b28544354d2bf93c6fe1a13e6b2f43313179203e9d2acd0719aeb1c1": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_66KBHTF4GZ3M6QK7CFTJFG6SCZ\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "f7b13bd6d5de279bc3758365f1a14d1d9dd295b1ab1b77b608005b5e6df769d5": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_3H57Z9X0VF90EMTQXFTN6J76FC\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "f7d72940e1afd7a5869258733299dbb05e70ebc478e4653b3e0e326f28ed3069": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_2HH24HPT98KC8WQCPCZ45N2104\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "f9630347e7f9342e0931bcf9384c7b844794000c0aa2c0d1b1b23e9e3d4e1607": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_3H57Z9X0VF90EMTQXFTN6J76FC\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    },
+    "fb4fb20eab88b28cd2e111d4c1a481db9391f6279edeb4252be5f0ab7624fafd": {
+      "model_id": "SYNTHETIC-oracle",
+      "model_version": "1",
+      "text": "{\"confidence\": 0.99, \"evidence_ids\": [\"ev_2HH24HPT98KC8WQCPCZ45N2104\"], \"rationale\": \"SYNTHETIC oracle: admits every candidate to validate wiring; this is not a model judgement and no quality metric may be read from it.\", \"recommendation\": \"admit\"}"
+    }
+  },
+  "format": "agentic-kg.admission-recordings/1",
+  "label": "SYNTHETIC",
+  "note": "Generated by SyntheticAdmissionOracle (deterministic, no model, no network). These recordings validate the adjudication wiring; any metric produced through them is not a measurement of model quality.",
+  "prompt_version": "1",
+  "synthetic": true
+}

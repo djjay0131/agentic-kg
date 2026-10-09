@@ -9,20 +9,29 @@ name: Governance Checks
 # It is cloned OUTSIDE the workspace ($RUNNER_TEMP) so the script's own file
 # scan (rooted at `git rev-parse --show-toplevel`) does not walk into it.
 #
-# `--base origin/master` is required: this repo's default branch is master, and
-# the script defaults to origin/main. `--layout` asserts that every path declared
+# `--base` must be the PR's REAL base, not always master. The script defaults to
+# origin/main; this repo's default branch is master, and migration PRs target
+# `integration/**`. Diffing an integration PR against master would score it on
+# every commit the integration branch carries, not on what the PR changes — a
+# growing error as that branch diverges. `--layout` asserts that every path declared
 # in llm/governance/governance-delta.md §Repository Layout exists, that every
 # canonical slot directory holding content is declared (added in canon v0.8.0),
 # and that no source-of-truth document sits under the declared artifacts directory.
 
 on:
   pull_request:
-    branches: [master]
+    branches: [master, 'integration/**']
   push:
-    branches: [master]
+    branches: [master, 'integration/**']
 
 permissions:
   contents: read
+
+# A merge into a long-lived integration branch fires both the PR-close and the
+# push event; without a group they race and burn double the runner minutes.
+concurrency:
+  group: governance-checks-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   governance-checks:
@@ -39,8 +48,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Ensure origin/master ref is present
-        run: git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
+      - name: Resolve and fetch the base ref
+        id: base
+        run: |
+          # pull_request -> the branch being merged into; push -> master.
+          BASE="${{ github.base_ref }}"
+          BASE="${BASE:-master}"
+          git fetch --no-tags origin "+refs/heads/${BASE}:refs/remotes/origin/${BASE}"
+          echo "ref=origin/${BASE}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -54,4 +69,4 @@ jobs:
           git -C "${RUNNER_TEMP}/governance-src" checkout --quiet "${GOVERNANCE_REF}"
 
       - name: Run governance checks
-        run: node "${RUNNER_TEMP}/governance-src/plugin/scripts/governance-checks.mjs" --base origin/master --layout
+        run: node "${RUNNER_TEMP}/governance-src/plugin/scripts/governance-checks.mjs" --base ${{ steps.base.outputs.ref }} --layout

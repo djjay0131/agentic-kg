@@ -186,6 +186,38 @@ Five distinct conventions across eight papers, and the pattern matches none.
 **Fix:** allow a run-in delimiter (`[—\-–.:]` or whitespace) after the keyword,
 and handle the letter-spaced `A B S T R A C T` form that Elsevier PDFs produce.
 
+> **PARTIALLY FIXED — SEG-3, 2026-09-18.** Four of the five conventions now
+> match. Measured on the committed corpus
+> (`scripts/measure_segmentation.py --corpus committed`): **abstracts found
+> 1/8 → 7/8**, **+9,347 chars** of extractor input — `empire` +1,917,
+> `hypothesis_generation` +1,635, `llm_ontology_gen` +1,626, `cskg` +1,420,
+> `kg_validation_hitl` +1,397, `fact_completion` +1,352,
+> `kg_construction_survey` +0. `cskg2` is byte-identical.
+>
+> Each recovered abstract keeps the body text sharing its label's line, so it
+> begins at a sentence boundary rather than mid-clause; the length guard now
+> tests the label rather than the whole line, so `fact_completion`'s 96-of-100
+> character run-in line is no longer four characters from silently
+> disappearing on a re-extraction.
+>
+> ~~**Still open: the no-label case.**~~ **CLOSED by SEG-4 PR-3, same day.**
+> Nature *Scientific Data* prints no `Abstract` label — `cskg2`'s abstract is
+> the lead paragraph. Catching it needed a positional rule, and a positional
+> rule needed a terminator that only cause (4)'s vocabulary provides; with that
+> in place the rule finds **1,210 characters, matching the hand-verified gold
+> boundary exactly**. **Cause (3) is fixed on the committed corpus: 8/8
+> abstracts.**
+>
+> *Read that 1,210 with care.* `segment_ground_truth.py` cut the title page
+> away, so `paper_cskg2.txt` begins at character 0 with the abstract and the
+> gold span is exactly `[0, first recognized heading)`. **Any rule returning
+> "the prefix before the first heading" scores 1,210 on this fixture** — the
+> match shows the rule does not *undershoot* on pre-trimmed input, and nothing
+> more. The positional rule's real risk surface is running backwards *into*
+> title-page furniture, and that surface **cannot exist in this corpus**. It is
+> covered by synthetic guards tests and by a reconstruction of cskg2's recorded
+> title-page line widths, not by a measurement of the PDF.
+
 ### 4. An unrecognized heading lets the previous section swallow the rest
 
 Section spans run from one recognized heading to the next, so a journal whose
@@ -204,6 +236,69 @@ name appears in `SECTION_PATTERNS`.
 **Fix:** add the Nature/`Scientific Data` heading vocabulary, and consider a
 sanity check that flags any single section exceeding some word count as
 probable under-segmentation rather than passing it downstream.
+
+
+> **FIXED — SEG-4, 2026-09-18.** Four patterns for the Nature *Scientific Data*
+> vocabulary, plus a positional abstract and a standing under-segmentation
+> detector.
+>
+> Measured on the committed corpus:
+>
+> | `cskg2` | before | after |
+> |---|---:|---:|
+> | extractor input | 23,317 | **35,435** |
+> | sections | 1 | **4** |
+> | gold entity groups visible | 23 | **25** of 25 reachable |
+>
+> The two recovered groups are the ones the spec predicted:
+> `scientific knowledge graph` — the citation chain's spine concept — and
+> `knowledge-centric paradigm`. Both live in `Background & Summary`, which was
+> previously absorbed into `Methods` and invisible.
+>
+> **The mapping is the argument, not the patterns.** `Background & Summary` →
+> `introduction` (mapping it to `background` reads the name literally and costs
+> −15,932 chars, because `background` is not in the keep-list);
+> `Technical Validation` → `experiments`; `Data Records` → `results` — *not*
+> `methods`, which measures +6,138 chars but is a false label chosen to game
+> the keep-list; `Usage Notes` → `discussion`.
+>
+> **Direction of the char delta differs by corpus, and the naive reading is
+> wrong.** On the PDF corpus SEG-4 is a *reduction* — the SEG-4 spec records
+> 39,226 → 34,223 with the vocabulary alone — because `Data Records` and
+> `Usage Notes` stop being mislabelled as `methods` and are correctly excluded.
+> On the committed gold corpus it is an increase, 23,317 → 34,223 with the
+> vocabulary alone and 35,435 once PR-3's abstract is added, because gold never
+> contained those two sections. The `--entities` metric added to
+> `scripts/measure_segmentation.py` is what lets the PDF arm's reduction be
+> scored as the improvement it is; a char-count-only guard would have blocked
+> the correct change.
+>
+> **A corroboration claim made here earlier is WITHDRAWN.** An earlier revision
+> of this note said "both arms land on the same 34,223 for the four wanted
+> types". Two things were wrong with it, and the adversarial review of PR #69
+> caught both:
+>
+> 1. **Stage mismatch.** 34,223 is the committed corpus's *vocabulary-only,
+>    no-abstract* total (introduction 10,925 + methods 15,472 + experiments
+>    7,822 + 2 separators). Its post-PR-3 total is **35,435**, stated in a
+>    table in `corpus-readiness.md`. Pairing the committed arm's final figure
+>    with the PDF arm's intermediate one was an error.
+> 2. **It was never independent.** Even paired correctly the two agree by
+>    construction: the committed fixtures are *derived from the PDFs by gold
+>    boundaries*, so if the segmenter reproduces gold the wanted spans are the
+>    same text by definition. That is a restatement of the recall metric, not a
+>    second witness — and the PDF figures are quoted from the SEG-4 spec, not
+>    measured by this work, which has no access to the gitignored PDFs.
+>
+> **What follows for the headline.** "8/8 abstracts" is verified **on the
+> committed corpus only**. The positional rule's behaviour on real PDF text —
+> which carries the title page the fixtures had cut away — rests on the SEG-4
+> spec's own measurement and is **not re-verified here**. The closest available
+> substitute is `TestReconstructedPdfPreamble`, which rebuilds cskg2's title
+> page from the line widths that spec recorded (76/29/34/25/86/15) and confirms
+> the abstract still comes back at exactly 1,210 characters. That is a
+> reconstruction, not a measurement. **Re-running the PDF arm after PR-3 is an
+> open obligation before any production-pipeline claim is made.**
 
 ### 5. Methods and experiments sections are usually not named "Methods" or "Experiments"
 
@@ -268,11 +363,77 @@ Whatever is chosen, note that the current failure is silent: an unmatched
 methods heading doesn't error, it just quietly removes the paper's core
 technical content from every extractor's input.
 
+
+> **SEG-5(d) — "relax the anchors" — MEASURED AND REJECTED, 2026-09-18.**
+> The cheap-win framing does not survive measurement. **Variant measured,
+> stated precisely so the figure reproduces:** every line of the eight
+> committed fixtures that is non-empty, at most `max_heading_length` (100)
+> characters, and currently classifies as `UNKNOWN`, tested for a
+> word-boundary, case-insensitive match against any of eight keywords —
+> `method(s|ology)`, `approach`, `framework`, `model`, `algorithm`,
+> `experiment(s|al)`, `evaluation`, `setup`. That mints **166 new headings, of
+> which 2 are wanted — a 2:164 ratio.** The two it
+> recovers are `IV. RESEARCH APPROACH` and
+> `5. Experiment design and implementation`; the 164 it invents are body
+> sentences containing the word *method*, *model*, *approach* or *evaluation*,
+> and every one of them also *splits* the real section that contained the line.
+>
+> **The figure is variant-sensitive; the conclusion is not.** Three
+> independent runs: this one at **2:164** (8 keywords, committed corpus), an
+> earlier PDF-corpus run at **2:108**, and the PR #69 reviewer's at **1:13**
+> (5 anchors, committed corpus). The ratio moves with how many keywords the
+> relaxation admits — which is the point: every variant is dominated by false
+> positives, and every one is worse than the `[A-Z]` variant SEG-1 rejected for
+> costing 13,137 characters on `fact_completion`. Cite the conclusion, and name
+> the variant if you cite a number.
+>
+> It is viable only as a rider on **SEG-11** (the heading-context heuristic),
+> which is what would suppress the false positives. Deliberately **not built** here.
+>
+> **Two stale figures in this section, corrected.** "7 of 12 wanted sections
+> unmatched" was already stale at 6 of 12 post-SEG-1; post-SEG-3 and SEG-4 the
+> hand-labelled heading table in `scripts/segment_ground_truth.py` scores
+> **38 of 48 = 79%**, up from **27 of 48 = 56%** at `7108c7d` — measured by
+> replaying that table through `_classify_heading`, `_match_run_in` and the
+> positional rule. The residue is 10 headings: 5 named after the paper's
+> contribution or written as descriptive sentences (SEG-5 a/c, which no
+> name-based method can classify), 3 over-strict anchors (SEG-5 d, rejected
+> above), and 2 that gold labels but the importer's vocabulary has no type for
+> (`use_case`, `statistics`).
+
 ### 6. Unbounded section length reaches the LLM call
 
-Independent of the above: 244,748 chars would be sent as a single extractor
+Independent of the above: 244,742 chars would be sent as a single extractor
 prompt. There is no length guard between `_build_extractor_section_text` and
 the extractor calls, only `MIN_USABLE_CHARS = 250` on the lower end.
+
+*(Figure corrected 2026-09-18: the committed baseline records **244,742**, not
+244,748. Re-measured from `scripts/seg_baseline.json`.)*
+
+> **FIXED — SEG-6, 2026-09-18.** `MAX_EXTRACTOR_CHARS = 120_000` in
+> `_build_extractor_section_text`, cutting at the last paragraph boundary at or
+> before the cap, else the last word boundary, else a hard slice — every step a
+> pure function of the input, so the result is byte-stable. Truncation logs a
+> WARNING naming the paper, the original size, the cap and the characters
+> dropped.
+>
+> **The number is 34.2× that paper's hand-verified gold** (244,742 vs 7,152),
+> and 4.9× the next largest paper in the set. The cap is 2.4× the largest
+> *correctly* segmented extractor input in the corpus (49,511,
+> `hypothesis_generation`), so it cannot fire on a healthy paper — asserted
+> against `scripts/seg_baseline.json` and against every frozen committed-corpus
+> fixture, none of which changed.
+>
+> **What this does not fix.** The survey is oversized because causes (5) and
+> (8) let `introduction` run for 94 pages. SEG-6 bounds the blast radius and
+> makes the event loud; the cause stays with SEG-5 / SEG-11, and whether the
+> paper belongs in the set at all stays with SEG-10.
+>
+> **Why it matters beyond cost.** Two arms of a legacy-vs-new comparison can be
+> fed inputs differing by 30× with no signal that anything is wrong: the
+> oversized arm is scored on a haystack, the other on a needle, and the
+> difference is attributed to the extractor. An input with no upper bound is
+> not a reproducible experimental condition.
 
 ### 7. The four-section keep-list loses content even when boundaries are perfect
 

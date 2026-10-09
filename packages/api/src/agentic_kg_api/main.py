@@ -17,6 +17,7 @@ from agentic_kg_api.config import get_api_config
 from agentic_kg_api.dependencies import get_relations, get_repo, get_search, reset_dependencies
 from agentic_kg_api.routers import (
     agents,
+    canonical,
     concepts,
     extract,
     graph,
@@ -141,6 +142,7 @@ app.include_router(topics.router)
 app.include_router(concepts.router)
 app.include_router(models_router.router)
 app.include_router(methods_router.router)
+app.include_router(canonical.router)
 
 
 # Health and stats endpoints

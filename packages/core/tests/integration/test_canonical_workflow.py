@@ -26,38 +26,25 @@ from agentic_kg.knowledge_graph.repository import Neo4jRepository
 from agentic_kg.knowledge_graph.schema import initialize_schema, SCHEMA_VERSION
 
 
-# Check if Neo4j is available
-NEO4J_AVAILABLE = all([
-    os.getenv("NEO4J_URI"),
-    os.getenv("NEO4J_USER"),
-    os.getenv("NEO4J_PASSWORD"),
-])
-
-# Skip all tests if Neo4j not available
-pytestmark = pytest.mark.skipif(
-    not NEO4J_AVAILABLE,
-    reason="Neo4j not available (set NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)",
-)
+# Issue #78. This module used to gate on the presence of NEO4J_* credentials,
+# which *enabled* it rather than restraining it, and then built a bare
+# Neo4jRepository() from them and ran initialize_schema(force=True) against
+# whatever NEO4J_URI named. It carried no `integration` marker, so `make test`
+# and the README's "unit tests" line both ran it. Now marked and routed through
+# the ownership-guarded `neo4j_repository` fixture.
+pytestmark = pytest.mark.integration
 
 
-@pytest.fixture(scope="module")
-def neo4j_repo():
-    """Create Neo4j repository for testing."""
-    if not NEO4J_AVAILABLE:
-        pytest.skip("Neo4j not available")
-
-    repo = Neo4jRepository()
-    yield repo
-    # Cleanup after all tests
+@pytest.fixture
+def neo4j_repo(neo4j_repository):
+    """Repository for testing -- an owned, throwaway database (issue #78)."""
+    return neo4j_repository
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def setup_schema(neo4j_repo):
-    """Initialize schema before tests."""
-    # Initialize schema (idempotent)
-    initialize_schema(force=True)
+    """Schema is already initialised by ``neo4j_repository``."""
     yield
-    # No teardown - keep schema for inspection
 
 
 @pytest.fixture
@@ -146,7 +133,13 @@ class TestSchemaIntegration:
 
             # Check for property indexes
             assert "mention_paper_idx" in indexes
-            assert "concept_domain_idx" in indexes
+            # `concept_domain_idx` used to be asserted here. ProblemConcept has
+            # no `domain` field any more -- the v3 Topic migration moved domain
+            # onto Topic nodes (models/entities.py:205) -- so the schema
+            # correctly stops creating an index for it. Stale expectation, not a
+            # missing index. Assert what ProblemConcept actually indexes instead.
+            assert "concept_status_idx" in indexes
+            assert "concept_mention_count_idx" in indexes
 
 
 class TestConceptMatcherIntegration:

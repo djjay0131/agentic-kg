@@ -1,0 +1,70 @@
+# Job Image Corpus Guard
+#
+# The Cloud Run Job image (docker/Dockerfile.job) must carry the frozen corpus
+# the INGEST_MODE=kgis_kgcs path runs over. It did not: the corpus lives under
+# packages/core/tests/ and docs/, which the image does not otherwise contain, so
+# the first staging run exited 2 with
+#   CorpusError: corpus text missing for 'cskg': /app/packages/.../paper_cskg.txt
+#
+# This builds the real Job image and asserts, from inside it, that the corpus
+# loads and the migration CLI is wired. No secrets and no network writes: the
+# image is built and run locally on the runner. The build does reach the network
+# to resolve the commit-pinned KGIS/KGCS direct references in the `migration`
+# extra, exactly as the deploy build does.
+
+name: Job Image Corpus
+
+on:
+  pull_request:
+    branches: [master, 'integration/**']
+    paths:
+      - 'docker/Dockerfile.job'
+      - 'docker/Dockerfile.base'
+      - 'packages/core/src/agentic_kg/migration/**'
+      - 'packages/core/tests/extraction/fixtures/ground_truth_chain/**'
+      - 'docs/ground-truth/importer-output/**'
+      - 'packages/core/pyproject.toml'
+      - 'pyproject.toml'
+      - '.gcloudignore'
+      - '.github/workflows/job-image-corpus.yml'
+  push:
+    branches: [master, 'integration/**']
+    paths:
+      - 'docker/Dockerfile.job'
+      - 'docker/Dockerfile.base'
+      - 'packages/core/src/agentic_kg/migration/**'
+      - 'packages/core/tests/extraction/fixtures/ground_truth_chain/**'
+      - 'docs/ground-truth/importer-output/**'
+      - 'packages/core/pyproject.toml'
+      - 'pyproject.toml'
+      - '.gcloudignore'
+      - '.github/workflows/job-image-corpus.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: job-image-corpus-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  job-image-corpus:
+    name: Job image carries the frozen corpus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the Job image
+        run: docker build -f docker/Dockerfile.job -t agentic-kg-job:ci .
+
+      - name: Assert the image loads the full frozen corpus
+        # Lose KGIS_CORPUS_DIR, the Dockerfile COPY, or the fixture directory and
+        # load_corpus raises CorpusError or returns fewer than eight papers;
+        # either fails this step.
+        run: |
+          docker run --rm agentic-kg-job:ci python -c \
+            "from agentic_kg.migration.ingestion.corpus import load_corpus; papers = load_corpus(); assert len(papers) == 8, f'expected 8 corpus papers, got {len(papers)}'; print('corpus papers loaded:', len(papers))"
+
+      - name: Assert the migration CLI is present in the image
+        run: docker run --rm agentic-kg-job:ci agentic-kg migrate run --help

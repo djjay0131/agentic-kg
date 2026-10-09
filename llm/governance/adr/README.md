@@ -23,4 +23,7 @@ individually numbered here.
 |---|---|---|
 | [0001](0001-adopt-agentic-governance-v0.2.md) | Adopt agentic-governance v0.2 and declare interim design authority | Accepted |
 | [0002](0002-migrate-to-llm-control-plane.md) | Migrate governance content to the `llm/` control plane | Accepted | 2026-08-31 |
+| [0003](0003-kgis-kgcs-ontology-mapping.md) | KGIS/KGCS ontology mapping and the canonical/projection split | Accepted |
+| [0004](0004-kgis-kgcs-adoption-opt-in-seam.md) | Adopt KGIS/KGCS behind an opt-in, commit-pinned migration seam | Accepted |
+| [0005](0005-kgis-kgcs-staging-isolation.md) | Isolate the KGIS ledger and KGCS canonical graph inside the staging Neo4j | Accepted |
 | [0006](0006-staging-neo4j-private.md) | Staging Neo4j is private (VPC-only) with a repeatable password rotation | Proposed |

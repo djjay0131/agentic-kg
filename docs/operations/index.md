@@ -12,4 +12,5 @@ production — the concrete steps to take when a run misbehaves, and the knobs
 that change its behavior.
 
 - [Extraction throughput (OpenAI rate limits)](extraction-throughput-runbook.html)
+- [Structured re-sync (`@snapshot=` locators)](structured-resync-runbook.html)
 - [Neo4j hardening (private staging + password rotation)](neo4j-hardening-runbook.html)

@@ -9,19 +9,23 @@ the API integration test in
 import json
 from datetime import datetime, timezone
 
-from agentic_kg.config import Neo4jConfig
 from agentic_kg.knowledge_graph.models import ProblemStatus
 from agentic_kg.knowledge_graph.repository import Neo4jRepository
 
 
 def _repo() -> Neo4jRepository:
-    return Neo4jRepository(
-        config=Neo4jConfig(
-            uri="bolt://localhost:7687",
-            username="neo4j",
-            password="unused",
-        )
-    )
+    """A bare instance for the pure view-mapping helpers.
+
+    None of ``_concept_view`` / ``_legacy_problem_view`` /
+    ``problem_view_to_problem`` / ``_sort_views`` touches the driver, so no
+    repository needs constructing -- and constructing one is refused by the
+    ownership seam (#87: ``tests/conftest.py`` wraps
+    ``Neo4jRepository.__init__`` and refuses any database this session has not
+    declared). ``__new__`` skips ``__init__`` entirely, which is the same
+    sanctioned fake ``test_aresolve_description.py`` and
+    ``test_description_generation_sync_guard.py`` use for pure methods.
+    """
+    return Neo4jRepository.__new__(Neo4jRepository)
 
 
 def _concept_node(**overrides) -> dict:
