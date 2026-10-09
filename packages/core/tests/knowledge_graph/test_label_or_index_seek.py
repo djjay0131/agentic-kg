@@ -72,7 +72,10 @@ def operator_types(plan) -> list[str]:
     walk handles both that mapping and an object with ``operator_type``.
     Neo4j 5.26 qualifies operator names with the database
     (``NodeUniqueIndexSeek@neo4j``), so the ``@<database>`` suffix is removed
-    to keep the operator vocabulary stable across server versions.
+    to keep the operator vocabulary stable across server versions. Write
+    queries plan their seeks with a lock (``NodeUniqueIndexSeek(Locking)``);
+    that suffix is a locking mode, not a different access path, so it is
+    removed too.
     """
     types: list[str] = []
     stack = [plan] if plan is not None else []
@@ -85,7 +88,8 @@ def operator_types(plan) -> list[str]:
             operator = getattr(node, "operator_type", None)
             children = getattr(node, "children", None) or []
         if operator:
-            types.append(operator.split("@", 1)[0])
+            name = operator.split("@", 1)[0]
+            types.append(name.removesuffix("(Locking)"))
         stack.extend(children)
     return types
 

@@ -27,7 +27,8 @@ rewrite**, and none was made. Pinned by a testcontainers test
 queries and asserts no `AllNodesScan`/`NodeByLabelScan` and at least one index
 seek) and a Docker-free plan-walker unit test. Note for future work: Neo4j
 5.26 qualifies plan operators with `@<database>` (`NodeUniqueIndexSeek@neo4j`),
-which the walker strips.
+and write queries plan seeks with a lock (`NodeUniqueIndexSeek(Locking)`, as
+CI showed for `create_relation` / `create_derived_from`); the walker strips both.
 
 ## Compat tripwires re-pointed after #115 (2026-10-09, #117)
 

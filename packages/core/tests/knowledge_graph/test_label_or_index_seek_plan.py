@@ -69,6 +69,15 @@ class TestOperatorTypes:
         assert operator_types(plan) == ["NodeUniqueIndexSeek", "AllNodesScan"]
 
 
+    def test_locking_mode_is_stripped(self):
+        """Write queries plan ``NodeUniqueIndexSeek(Locking)`` (CI, Neo4j 5.26)."""
+        plan = {
+            "operatorType": "Union@neo4j",
+            "children": [{"operatorType": "NodeUniqueIndexSeek(Locking)@neo4j"}],
+        }
+        assert operator_types(plan) == ["Union", "NodeUniqueIndexSeek"]
+
+
 class TestOperatorSets:
     def test_scan_and_seek_sets_are_disjoint(self):
         assert not SCAN_OPERATORS & SEEK_OPERATORS
