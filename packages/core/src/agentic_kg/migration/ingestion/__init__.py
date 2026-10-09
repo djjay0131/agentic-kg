@@ -70,6 +70,11 @@ from agentic_kg.migration.ingestion.structured import (
     structured_config,
     structured_reader,
 )
+from agentic_kg.migration.ingestion.writer_lease import (
+    ConcurrentWriterError,
+    WriterLease,
+    acquire_writer_lease,
+)
 
 __all__ = [
     "GRADED_SLUGS",
@@ -79,6 +84,7 @@ __all__ = [
     "RESEARCH_ONTOLOGY",
     "SNAPSHOT_LOCATOR_MARKER",
     "UNAVAILABLE_REASON",
+    "ConcurrentWriterError",
     "CorpusError",
     "CorpusPaper",
     "Fragment",
@@ -92,6 +98,8 @@ __all__ = [
     "ShadowRunResult",
     "ShadowStores",
     "SnapshotLocatorRefused",
+    "WriterLease",
+    "acquire_writer_lease",
     "as_arm_payload",
     "assert_no_live_provider",
     "build_shadow_pipeline",
