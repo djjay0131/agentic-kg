@@ -21,7 +21,7 @@
 #
 #   IMPORTED (already live)                  NOT IMPORTED (created by apply)
 #   ------------------------------           ------------------------------
-#   google_project_service.apis (x7)         google_compute_firewall.neo4j_iap_ssh
+#   google_project_service.apis (x6)         google_compute_firewall.neo4j_iap_ssh
 #   google_artifact_registry_repository       google_project_iam_member.network_user
 #   google_compute_instance.neo4j            google_secret_manager_secret
 #   google_compute_firewall.neo4j              .neo4j_password_next
@@ -44,7 +44,6 @@ import {
     "artifactregistry.googleapis.com",
     "secretmanager.googleapis.com",
     "iam.googleapis.com",
-    "sourcerepo.googleapis.com",
   ])
 
   to = google_project_service.apis[each.key]

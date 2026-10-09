@@ -10,7 +10,6 @@ resource "google_project_service" "apis" {
     "artifactregistry.googleapis.com",
     "secretmanager.googleapis.com",
     "iam.googleapis.com",
-    "sourcerepo.googleapis.com",
   ])
 
   project            = var.project_id
