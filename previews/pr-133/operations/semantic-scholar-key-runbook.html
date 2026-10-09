@@ -90,9 +90,11 @@ session.</p>
 gh run watch <span class="nt">--repo</span> djjay0131/agentic-kg
 </code></pre></div></div>
 
-<p>It refuses to roll if the newest enabled version is still the Terraform seed,
-rolls <code class="language-plaintext highlighter-rouge">agentic-kg-ingest-staging</code> onto <code class="language-plaintext highlighter-rouge">latest</code> with a label stamp, and only
-then disables the superseded versions. CI picks the key up automatically on
+<p>It refuses to roll if the newest enabled version is still the Terraform seed
+and rolls <code class="language-plaintext highlighter-rouge">agentic-kg-ingest-staging</code> onto <code class="language-plaintext highlighter-rouge">latest</code> with a label stamp. It
+does <strong>not</strong> disable the old version by default: once a real call has
+succeeded on the new key (the next smoke-ingest run, or an ingest Job run),
+run it again with <code class="language-plaintext highlighter-rouge">-f disable_superseded=true</code>. CI picks the key up automatically on
 its next run (it reads <code class="language-plaintext highlighter-rouge">latest</code> through the reader identity).</p>
 
 <p><strong>Verify</strong> — exactly one enabled version, and the Job points at <code class="language-plaintext highlighter-rouge">latest</code>:</p>
