@@ -32,10 +32,12 @@ behaviour is unchanged.</p>
 two resources (these are <code class="language-plaintext highlighter-rouge">gcloud</code> mutations — the orchestrator runs them, not the
 implementation agent):</p>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Job: opt in to the migration path and keep its ledger job-local.</span>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Job: opt in to the migration path and write the ledger to its durable GCS</span>
+<span class="c"># mount. Terraform now owns these (see infra/README.md §Durable KGIS ledger);</span>
+<span class="c"># the command below is the out-of-band form if you must set them by hand.</span>
 gcloud run <span class="nb">jobs </span>update agentic-kg-ingest-staging <span class="se">\</span>
   <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="se">\</span>
-  <span class="nt">--update-env-vars</span><span class="o">=</span><span class="nv">INGEST_MODE</span><span class="o">=</span>kgis_kgcs,KGIS_INGESTION_ENABLED<span class="o">=</span>1,KGCS_RESOLUTION_ENABLED<span class="o">=</span>1,KGCS_CANONICAL_NAMESPACE<span class="o">=</span>staging,INGEST_LEDGER_DIR<span class="o">=</span>/tmp/kgis-shadow
+  <span class="nt">--update-env-vars</span><span class="o">=</span><span class="nv">INGEST_MODE</span><span class="o">=</span>kgis_kgcs,KGIS_INGESTION_ENABLED<span class="o">=</span>1,KGCS_RESOLUTION_ENABLED<span class="o">=</span>1,KGCS_CANONICAL_NAMESPACE<span class="o">=</span>staging,INGEST_LEDGER_DIR<span class="o">=</span>/mnt/ledger/staging
 
 <span class="c"># API: expose the read-only canonical projection.</span>
 gcloud run services update agentic-kg-api-staging <span class="se">\</span>
@@ -157,11 +159,93 @@ summary.</li>
   <li><strong>The replay client reproduces the committed importer output, not a live
 model.</strong> <code class="language-plaintext highlighter-rouge">extraction_quality</code> is <code class="language-plaintext highlighter-rouge">not_measured</code> in the summary for exactly
 this reason.</li>
-  <li><strong>The KGIS ledger/evidence is job-local SQLite</strong> (<code class="language-plaintext highlighter-rouge">/tmp/kgis-shadow</code>, or
-in-memory if unset) and is lost when the Job’s instance scales in. The durable,
-observable artifact is the canonical epoch in Neo4j. A durable ledger backend
-is deferred (ADR-0003 / ADR-0012).</li>
+  <li><strong>The KGIS ledger/evidence is single-writer SQLite.</strong> As of the durable-ledger
+change (nightly-pipeline design P0-2) the ingest Job mounts a GCS volume and
+writes it to <code class="language-plaintext highlighter-rouge">/mnt/ledger/staging</code>, so it survives scale-in; see
+<a href="#durable-ledger">Durable ledger</a> for the caveats that go with that. The
+canonical epoch in Neo4j remains the durable, observable artifact.</li>
 </ul>
+
+<h2 id="durable-ledger">Durable ledger</h2>
+
+<p>The KGIS candidate ledger and evidence registry are SQLite. Cloud Run gives
+every Job execution a private, ephemeral filesystem, so the pre-P0-2 ledger
+(<code class="language-plaintext highlighter-rouge">/tmp/kgis-shadow</code>) vanished when the instance scaled in. The staging stack now
+mounts a GCS bucket into the ingest Job and points <code class="language-plaintext highlighter-rouge">INGEST_LEDGER_DIR</code> at a
+namespaced subdirectory:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Piece</th>
+      <th>Value</th>
+      <th>Owner</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Bucket</td>
+      <td><code class="language-plaintext highlighter-rouge">vt-gcp-00042-agentic-kg-ledger-staging</code></td>
+      <td>Terraform (<code class="language-plaintext highlighter-rouge">google_storage_bucket.ledger</code>)</td>
+    </tr>
+    <tr>
+      <td>Mount path</td>
+      <td><code class="language-plaintext highlighter-rouge">/mnt/ledger</code></td>
+      <td>Terraform (Cloud Run GCS volume)</td>
+    </tr>
+    <tr>
+      <td>Ledger dir</td>
+      <td><code class="language-plaintext highlighter-rouge">/mnt/ledger/staging</code></td>
+      <td>Terraform (<code class="language-plaintext highlighter-rouge">ingest_ledger_dir</code>)</td>
+    </tr>
+    <tr>
+      <td>Bucket IAM</td>
+      <td><code class="language-plaintext highlighter-rouge">roles/storage.objectAdmin</code> for the Job’s runtime SA, on that bucket only</td>
+      <td>Terraform (<code class="language-plaintext highlighter-rouge">google_storage_bucket_iam_member.ingest_ledger</code>)</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The bucket is uniform-access, public-access-prevention enforced, versioned, and
+deletes noncurrent versions after 30 days.</p>
+
+<h3 id="single-writer-and-what-the-mount-does-not-give-you">Single-writer, and what the mount does not give you</h3>
+
+<p>SQLite is single-writer, and its WAL journal needs POSIX advisory locks and a
+shared-memory (<code class="language-plaintext highlighter-rouge">-shm</code>) file. Google documents that Cloud Storage FUSE
+<a href="https://cloud.google.com/run/docs/configuring/jobs/cloud-storage-volume-mounts">does not provide file locking</a>
+and is not fully POSIX. The GCS mount therefore does <strong>not</strong> give SQLite the
+locking it expects. Two layers keep the ledger single-writer anyway:</p>
+
+<ol>
+  <li><strong>Cloud Run</strong>: the ingest Job is pinned to <code class="language-plaintext highlighter-rouge">parallelism = 1</code> and
+<code class="language-plaintext highlighter-rouge">task_count = 1</code> in <code class="language-plaintext highlighter-rouge">infra/main.tf</code>. This is the hard barrier.</li>
+  <li><strong>Code</strong>: <code class="language-plaintext highlighter-rouge">execute_migration</code> takes a directory writer lease
+(<code class="language-plaintext highlighter-rouge">packages/core/src/agentic_kg/migration/ingestion/writer_lease.py</code>) — an
+<code class="language-plaintext highlighter-rouge">O_CREAT | O_EXCL</code> <code class="language-plaintext highlighter-rouge">writer.lease</code> file in the ledger directory, reclaimed if
+older than six hours. A second cooperating writer is refused rather than
+silently racing.</li>
+</ol>
+
+<p><strong>Honest gap, not hidden:</strong> the lease and <code class="language-plaintext highlighter-rouge">parallelism = 1</code> make a second writer
+detectable; they do not make the FUSE filesystem POSIX, and SQLite-on-FUSE was
+<strong>not</strong> exercised against a live mount when this change was written (no
+<code class="language-plaintext highlighter-rouge">gcloud</code>/Docker on the authoring host, and CI cannot mount gcsfuse). Validate a
+real staging execution before treating the on-FUSE ledger as durable. The
+architectural fix remains ADR-0012’s backend swap behind
+<code class="language-plaintext highlighter-rouge">CandidateSink</code> / <code class="language-plaintext highlighter-rouge">LedgerReader</code>, which would remove SQLite from the mount
+entirely.</p>
+
+<h3 id="validating-a-run">Validating a run</h3>
+
+<p>After executing the Job (§2), confirm the ledger landed in the bucket:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud storage <span class="nb">ls</span> <span class="nt">-r</span> <span class="s2">"gs://vt-gcp-00042-agentic-kg-ledger-staging/staging/"</span>
+</code></pre></div></div>
+
+<p>Expect <code class="language-plaintext highlighter-rouge">ledger.db</code> and <code class="language-plaintext highlighter-rouge">evidence.db</code> (plus any SQLite <code class="language-plaintext highlighter-rouge">-wal</code>/<code class="language-plaintext highlighter-rouge">-shm</code> siblings).
+A missing <code class="language-plaintext highlighter-rouge">ledger.db</code> after a run that reported a non-zero candidate count is
+the failure this change exists to prevent — stop and report it.</p>
 
 <h2 id="5-rollback">5. Rollback</h2>
 
