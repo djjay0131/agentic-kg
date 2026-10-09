@@ -60,6 +60,14 @@ class TestOperatorTypes:
             "NodeByLabelScan"
         ]
 
+    def test_database_qualifier_is_stripped(self):
+        """Neo4j 5.26 names operators ``NodeUniqueIndexSeek@neo4j``."""
+        plan = {
+            "operatorType": "NodeUniqueIndexSeek@neo4j",
+            "children": [{"operatorType": "AllNodesScan@neo4j"}],
+        }
+        assert operator_types(plan) == ["NodeUniqueIndexSeek", "AllNodesScan"]
+
 
 class TestOperatorSets:
     def test_scan_and_seek_sets_are_disjoint(self):

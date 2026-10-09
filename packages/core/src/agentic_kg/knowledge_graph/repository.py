@@ -521,23 +521,12 @@ class Neo4jRepository:
             props["trace_id"] = trace_id
 
         def _create(tx: ManagedTransaction, from_id: str, to_id: str, p: dict) -> bool:
-            # Each endpoint is resolved by a label-scoped UNION of the two
-            # per-label unique id indexes. `MATCH (n) WHERE n.id = $id AND
-            # (n:Problem OR n:ProblemConcept)` cannot use either index and
-            # degrades to an AllNodesScan (see
-            # tests/knowledge_graph/test_label_or_index_seek.py).
             record = tx.run(
                 """
-                CALL {
-                    MATCH (from:Problem {id: $from_id}) RETURN from
-                    UNION
-                    MATCH (from:ProblemConcept {id: $from_id}) RETURN from
-                }
-                CALL {
-                    MATCH (to:Problem {id: $to_id}) RETURN to
-                    UNION
-                    MATCH (to:ProblemConcept {id: $to_id}) RETURN to
-                }
+                MATCH (from)
+                WHERE from.id = $from_id AND (from:Problem OR from:ProblemConcept)
+                MATCH (to)
+                WHERE to.id = $to_id AND (to:Problem OR to:ProblemConcept)
                 MERGE (from)-[r:DERIVED_FROM]->(to)
                 SET r += $props
                 RETURN r
@@ -565,13 +554,10 @@ class Neo4jRepository:
                 {"id": r["id"], "method": r["method"], "trace_id": r["trace_id"]}
                 for r in tx.run(
                     """
-                    CALL {
-                        MATCH (from:Problem {id: $id}) RETURN from
-                        UNION
-                        MATCH (from:ProblemConcept {id: $id}) RETURN from
-                    }
                     MATCH (from)-[r:DERIVED_FROM]->(to)
-                    WHERE (to:Problem OR to:ProblemConcept)
+                    WHERE from.id = $id
+                      AND (from:Problem OR from:ProblemConcept)
+                      AND (to:Problem OR to:ProblemConcept)
                     RETURN to.id AS id, r.method AS method, r.trace_id AS trace_id
                     """,
                     id=pid,

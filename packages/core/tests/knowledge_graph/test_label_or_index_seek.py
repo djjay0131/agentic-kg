@@ -1,24 +1,26 @@
-"""Integration test (testcontainers): label-OR endpoint lookups must seek.
+"""Integration test (testcontainers): dual-label problem lookups must seek.
 
-Follow-up to #115. Relation endpoints (``RelationService.create_relation``)
-and the synthesis provenance lineage (``Neo4jRepository.get_derived_from`` /
-``create_derived_from``) resolve a problem id across both ``:Problem`` and
-``:ProblemConcept``. The #115 predicate
+Follow-up to the #115 review. That review flagged relation endpoints
+(``RelationService.create_relation``) and the synthesis provenance lineage
+(``Neo4jRepository.get_derived_from`` / ``create_derived_from``), which resolve
+a problem id across both ``:Problem`` and ``:ProblemConcept`` with
 
     MATCH (n) WHERE n.id = $id AND (n:Problem OR n:ProblemConcept)
 
-cannot use either label's per-label unique id index: the label is an
-expression inside ``WHERE``, not a node pattern, so the planner falls back to
-an ``AllNodesScan`` and filters. On the real graph that is a full scan per
-lookup.
+as a possible full scan: a label predicate inside ``WHERE`` is an expression,
+not a node pattern, so it *looks* like neither per-label unique id index
+(``problem_id_unique`` / ``problem_concept_id_unique``) can be used.
 
-The fix is a label-scoped UNION — a ``CALL { ... UNION ... }`` whose branches
-are node patterns carrying the label, so each is a ``NodeUniqueIndexSeek``.
+**Investigation result (measured here, not assumed):** it does not scan. The
+planner splits the label disjunction and emits a ``Union`` of two
+``NodeUniqueIndexSeek`` operators, one per label, using the unique indexes. So
+the shipped queries already seek; no rewrite is required on the server the
+suite runs against. This module pins that, so a future server (or a query
+edit) that regresses to ``AllNodesScan`` / ``NodeByLabelScan`` fails here.
 
-This module runs ``EXPLAIN`` on the *actual* query strings the production
-methods issue (captured by wrapping the managed-transaction ``run``) and
-asserts the plan seeks an index instead of scanning. It also proves the
-rewrite preserves behaviour for a canonical ``:ProblemConcept`` endpoint.
+The test works on the *actual* query strings the production methods issue —
+captured by wrapping the managed-transaction ``run`` — rather than a copy
+pasted into the test, so it checks the shipped Cypher.
 
 Runs only under the ``integration`` marker; skips cleanly without Docker /
 ``NEO4J_URI`` (see ``tests/conftest.py``).
@@ -54,13 +56,23 @@ SEEK_OPERATORS = frozenset(
     }
 )
 
+#: The pre-existing label-OR predicate this suite was written to investigate.
+LABEL_OR_PREDICATE = (
+    "MATCH (n) "
+    "WHERE n.id = $id AND (n:Problem OR n:ProblemConcept) "
+    "RETURN n"
+)
+
 
 def operator_types(plan) -> list[str]:
-    """Every ``operatorType`` in a plan tree, depth-first.
+    """Every ``operatorType`` in a plan tree, depth-first, database-stripped.
 
     The driver exposes ``ResultSummary.plan`` as the server's plan map
     (``operatorType`` / ``children`` / ...) rather than a typed object, so the
     walk handles both that mapping and an object with ``operator_type``.
+    Neo4j 5.26 qualifies operator names with the database
+    (``NodeUniqueIndexSeek@neo4j``), so the ``@<database>`` suffix is removed
+    to keep the operator vocabulary stable across server versions.
     """
     types: list[str] = []
     stack = [plan] if plan is not None else []
@@ -73,7 +85,7 @@ def operator_types(plan) -> list[str]:
             operator = getattr(node, "operator_type", None)
             children = getattr(node, "children", None) or []
         if operator:
-            types.append(operator)
+            types.append(operator.split("@", 1)[0])
         stack.extend(children)
     return types
 
@@ -150,6 +162,26 @@ def endpoints(neo4j_repository):
     return problem, concept
 
 
+class TestInvestigationResult:
+    def test_label_or_predicate_seeks_on_this_server(self, neo4j_repository):
+        """The measured finding: the #115 predicate does not full-scan.
+
+        The planner splits ``(n:Problem OR n:ProblemConcept)`` and seeks each
+        per-label unique id index, so the shipped relation-create and lineage
+        queries already resolve by index. If this ever becomes a scan, either
+        the server regressed or the query was edited — both worth failing on.
+        """
+        ops = explain_operator_types(
+            neo4j_repository, LABEL_OR_PREDICATE, id="TEST_SEEK_absent"
+        )
+        assert not SCAN_OPERATORS.intersection(ops), (
+            f"the label-OR predicate now scans the graph: {ops}"
+        )
+        assert SEEK_OPERATORS.intersection(ops), (
+            f"the label-OR predicate does not seek an index: {ops}"
+        )
+
+
 class TestRelationEndpointPlan:
     def test_create_relation_queries_seek_indexes(self, neo4j_repository, endpoints):
         problem, concept = endpoints
@@ -158,33 +190,16 @@ class TestRelationEndpointPlan:
         with capture_transaction_queries() as captured:
             service.create_extends_relation(problem.id, concept.id)
 
-        queries = [q for q in captured if "UNION" in q]
-        assert queries, "no label-scoped UNION query was issued for the relation"
+        queries = [
+            q for q in captured if "(from:Problem OR from:ProblemConcept)" in q
+        ]
+        assert len(queries) == 3, (
+            f"expected the guard, duplicate-check and create queries; got {queries}"
+        )
 
         params = {"from_id": problem.id, "to_id": concept.id, "props": {}}
         for query in queries:
             assert_index_seeked(neo4j_repository, query, **params)
-
-
-class TestLegacyShapeScans:
-    def test_the_legacy_label_or_predicate_scans(self, neo4j_repository):
-        """Control for the fix: the pre-#115-followup shape has no index to seek.
-
-        A label predicate in ``WHERE`` is an expression, so neither
-        ``problem_id_unique`` nor ``problem_concept_id_unique`` can be used.
-        This is the regression the label-scoped UNION removes; if the planner
-        ever learns to handle the predicate this test alerts us that the
-        rewrite can be revisited.
-        """
-        legacy = (
-            "MATCH (n) "
-            "WHERE n.id = $id AND (n:Problem OR n:ProblemConcept) "
-            "RETURN n"
-        )
-        ops = explain_operator_types(neo4j_repository, legacy, id="TEST_SEEK_absent")
-        assert SCAN_OPERATORS.intersection(ops), (
-            f"expected the legacy label-OR predicate to scan the graph; got {ops}"
-        )
 
 
 class TestDerivedFromPlan:
@@ -221,7 +236,7 @@ class TestBehaviourPreserved:
     def test_relation_to_canonical_concept_still_created(
         self, neo4j_repository, endpoints
     ):
-        """The UNION rewrite must not lose the canonical ProblemConcept arm."""
+        """The label-OR resolution must reach a canonical ProblemConcept."""
         problem, concept = endpoints
         service = RelationService(repository=neo4j_repository)
 
@@ -233,7 +248,7 @@ class TestBehaviourPreserved:
     def test_derived_from_canonical_concept_round_trips(
         self, neo4j_repository, endpoints
     ):
-        """get_derived_from must still surface a canonical source."""
+        """get_derived_from must surface a canonical source."""
         problem, concept = endpoints
         assert neo4j_repository.create_derived_from(
             problem.id, concept.id, method="synthesis"
