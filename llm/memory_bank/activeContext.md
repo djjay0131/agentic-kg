@@ -1,11 +1,33 @@
 # Active Context
 
-Last updated: 2026-09-17
+Last updated: 2026-10-09
 
 > Newest entries at the top. History through 2026-07 lives in
 > [`archive/activeContext-through-2026-07.md`](archive/activeContext-through-2026-07.md)
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
+
+## Label-OR problem lookups now seek per-label indexes (2026-10-09)
+
+Follow-up to the #115 review. #115 label-scoped relation endpoints and the
+synthesis provenance lineage with
+
+`MATCH (n) WHERE n.id = $id AND (n:Problem OR n:ProblemConcept)`.
+
+A label predicate in `WHERE` is an expression, not a node pattern, so the
+planner cannot use `problem_id_unique` / `problem_concept_id_unique` and does
+an `AllNodesScan`. Rewritten as a label-scoped
+`CALL { MATCH (n:Problem {id: $id}) RETURN n UNION MATCH
+(n:ProblemConcept {id: $id}) RETURN n }`, making each endpoint a
+`NodeUniqueIndexSeek`. Touches `relations.create_relation` (existence,
+duplicate, create), `repository.create_derived_from`, and
+`repository.get_derived_from`; behaviour is unchanged (both labels resolve, id
+collisions still return both nodes). Pinned by a testcontainers `EXPLAIN`
+test (`tests/knowledge_graph/test_label_or_index_seek.py`), a Docker-free
+plan-walker unit test, and a re-pointed compat inventory
+(`migration/compat/read_paths.py`). **Not fixed, noted:** the same predicate
+survives in `set_problem_status` and the `list_problem_views` /
+`get_problem_stats` reads — a separate pass.
 
 ## Compat tripwires re-pointed after #115 (2026-10-09, #117)
 
