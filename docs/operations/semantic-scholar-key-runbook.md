@@ -19,8 +19,12 @@ P0-4).
 |---|---|---|
 | Secret Manager **container** `SEMANTIC_SCHOLAR_API_KEY` | Terraform | `infra/main.tf` |
 | Placeholder **seed version** (version 1) | Terraform | `google_secret_manager_secret_version.semantic_scholar_api_key_seed`, `deletion_policy = ABANDON`, `ignore_changes = [secret_data, enabled]` |
-| The **enabled value** | `.github/workflows/sync-s2-key.yml` | `gcloud secrets versions add`, then disable superseded |
-| **Source of truth** for the value | the repo GitHub Actions secret `SEMANTIC_SCHOLAR_API_KEY` | |
+| The **enabled value** | the owner, directly in Secret Manager (ADR-0007) | one new version per key the vendor issues |
+| Rolling consumers onto it | `.github/workflows/roll-vendor-keys.yml` | label-stamped `:latest` roll, then disable superseded (never reads the value) |
+| CI access | `gh-ci-vendor-keys-staging` via WIF | `get-secretmanager-secrets` in `smoke-ingest.yml` / `integration-tests.yml` |
+
+**ADR-0007:** Secret Manager is the key's only home. There is no GitHub-secret
+copy and no workflow that copies the value; no agent ever handles it.
 
 Terraform never writes the real key, so no credential enters state. The seed
 placeholder (`unset-seed-not-an-api-key`) exists only so Cloud Run can create
@@ -34,60 +38,47 @@ value as "no key" and sends no `x-api-key` header
 
 - The GitHub environment `staging` has `GCP_WORKLOAD_IDENTITY_PROVIDER` and
   `GCP_SERVICE_ACCOUNT` set, exactly as `deploy-master.yml` uses them.
-- The repo GitHub Actions secret `SEMANTIC_SCHOLAR_API_KEY` holds a real key
-  (`gh secret list --repo djjay0131/agentic-kg`). This is the same secret the
-  smoke and integration workflows use.
-- The Terraform change that creates the container, the seed version and the
-  Job env has been applied (**dispatch the `Terraform` workflow**, not a local
-  apply — `infra/README.md` §The normal flow). Applying is the owner's action,
-  never an agent session.
-
-Capture the current state first:
-
-```bash
-gcloud secrets versions list SEMANTIC_SCHOLAR_API_KEY \
-  --project=vt-gcp-00042 --format='table(name,state,createTime)'
-```
+- The Terraform changes that create the container, the seed version, the Job
+  env and the `gh-ci-vendor-keys-staging` reader have been applied (dispatch
+  the `Terraform` workflow; applying is the owner's approval).
 
 ---
 
-## 1. Push the key into Secret Manager
+## 1. Add the key (owner, once per key the vendor issues)
 
-Dispatch the workflow by hand; it never runs on push, PR or schedule:
+Semantic Scholar issues the key, so no workflow can generate it. Add it
+**directly in Secret Manager** — the GCP console (*Security → Secret Manager →
+SEMANTIC_SCHOLAR_API_KEY → New version*), or from your own terminal with the
+value read from stdin so it never lands in shell history or argv:
 
 ```bash
-gh workflow run sync-s2-key.yml \
-  --repo djjay0131/agentic-kg \
-  -f reason="initial staging key" \
-  --ref master
+gcloud secrets versions add SEMANTIC_SCHOLAR_API_KEY \
+  --project=vt-gcp-00042 --data-file=-   # paste, then Ctrl-D
+```
+
+Never paste the key into a chat, an issue, a PR, a GitHub secret or an agent
+session.
+
+Then roll the consumers onto it — this workflow never reads the value:
+
+```bash
+gh workflow run roll-vendor-keys.yml --repo djjay0131/agentic-kg --ref master \
+  -f secret=SEMANTIC_SCHOLAR_API_KEY -f reason="new S2 key"
 gh run watch --repo djjay0131/agentic-kg
 ```
 
-What it does, in order:
+It refuses to roll if the newest enabled version is still the Terraform seed
+and rolls `agentic-kg-ingest-staging` onto `latest` with a label stamp. It
+does **not** disable the old version by default: once a real call has
+succeeded on the new key (the next smoke-ingest run, or an ingest Job run),
+run it again with `-f disable_superseded=true`. CI picks the key up automatically on
+its next run (it reads `latest` through the reader identity).
 
-1. reads the GitHub secret into the step's shell environment (never argv);
-2. `::add-mask::`s it before it can reach a log;
-3. streams it from stdin into a **new** Secret Manager version
-   (`printf '%s' "$S2_API_KEY" | gcloud secrets versions add ... --data-file=-`);
-4. rolls `agentic-kg-ingest-staging` onto `latest` and stamps the
-   `s2-key-synced` label, forcing a fresh revision that resolves the new
-   version;
-5. **only then** disables the superseded versions (including the Terraform
-   seed).
-
-The key is never printed, never written to a file, and never placed in
-`GITHUB_OUTPUT` / `GITHUB_ENV` / the step summary.
-
-**Verify** independently — exactly one enabled version, and the Job points at
-`latest`:
+**Verify** — exactly one enabled version, and the Job points at `latest`:
 
 ```bash
 gcloud secrets versions list SEMANTIC_SCHOLAR_API_KEY \
   --project=vt-gcp-00042 --format='table(name,state,createTime)'
-
-gcloud run jobs describe agentic-kg-ingest-staging \
-  --region=us-central1 --project=vt-gcp-00042 \
-  --format='value(spec.template.spec.template.spec.containers[0].env)'
 ```
 
 ---
@@ -113,9 +104,10 @@ gcloud logging read \
 
 ## 3. Rotating or replacing the key
 
-Re-run the same workflow whenever the S2 key changes (new key, suspected
-leak). It mints a new version and disables the old one; nothing else changes.
-There is no scheduled rotation — S2 keys do not expire on a fixed cadence.
+Repeat §1 whenever the S2 key changes (new key, suspected leak): add the new
+version in Secret Manager, then run `roll-vendor-keys.yml`. There is no
+scheduled rotation — S2 issues keys by request and they do not expire on a
+fixed cadence, so automation cannot mint one (ADR-0007, vendor-issued keys).
 
 ---
 
@@ -146,5 +138,6 @@ a placeholder.
 
 - [`ADR-0006`](https://github.com/djjay0131/agentic-kg/blob/master/llm/governance/adr/0006-staging-neo4j-private.md) — the credential-ownership split this mirrors
 - `infra/main.tf` — the container, seed version and Job env
-- `.github/workflows/sync-s2-key.yml` — the value owner
+- [`ADR-0007`](https://github.com/djjay0131/agentic-kg/blob/master/llm/governance/adr/0007-machine-only-secrets.md) — secrets are machine-generated and never seen; vendor keys live only in Secret Manager
+- `.github/workflows/roll-vendor-keys.yml` — rolls consumers onto a new version without reading it
 - `packages/core/src/agentic_kg/data_acquisition/config.py` — placeholder handling

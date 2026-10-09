@@ -251,10 +251,10 @@ resource "google_secret_manager_secret" "neo4j_password" {
   depends_on = [google_project_service.apis]
 }
 
-# Semantic Scholar API key. Same ownership split as NEO4J_PASSWORD: Terraform
-# creates the CONTAINER only. `.github/workflows/sync-s2-key.yml` writes the
-# value as a new version (the GitHub Actions secret
-# SEMANTIC_SCHOLAR_API_KEY is the source), so no credential enters state.
+# Semantic Scholar API key. Terraform creates the CONTAINER only. The vendor
+# issues the value, so the owner adds it directly as a new version in Secret
+# Manager — its only home (ADR-0007) — and roll-vendor-keys.yml rolls the
+# consumers onto it without reading it. No credential enters state.
 resource "google_secret_manager_secret" "semantic_scholar_api_key" {
   secret_id = local.semantic_scholar_api_key_secret_id
 
@@ -612,7 +612,7 @@ resource "google_cloud_run_v2_job" "ingest" {
 
         # Nightly-pipeline P0-4: live Semantic Scholar calls from the Job were
         # unauthenticated and hit the shared anonymous rate-limit pool. The
-        # value is owned by `.github/workflows/sync-s2-key.yml`; Terraform
+        # value is added in Secret Manager by the owner (ADR-0007); Terraform
         # declares where the Job reads it from.
         env {
           name = "SEMANTIC_SCHOLAR_API_KEY"
