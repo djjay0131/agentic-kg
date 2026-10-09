@@ -135,7 +135,7 @@ class TestPathFilter:
 class TestNeo4jService:
     def test_service_uses_5_26_community(self, workflow):
         neo4j = _smoke_job(workflow)["services"]["neo4j"]
-        assert neo4j["image"] == "neo4j:5.26-community"
+        assert neo4j["image"] == "mirror.gcr.io/library/neo4j:5.26-community"
 
     def test_apoc_plugin_enabled(self, workflow):
         neo4j = _smoke_job(workflow)["services"]["neo4j"]

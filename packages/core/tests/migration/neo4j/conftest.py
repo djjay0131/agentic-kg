@@ -43,7 +43,7 @@ pytest.importorskip(
     ),
 )
 
-NEO4J_IMAGE = "neo4j:5.26-community"
+NEO4J_IMAGE = "mirror.gcr.io/library/neo4j:5.26-community"
 NEO4J_TEST_PASSWORD = "testpassword"
 
 

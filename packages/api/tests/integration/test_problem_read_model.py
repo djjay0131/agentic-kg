@@ -48,7 +48,7 @@ def neo4j_container():
         pytest.skip("Docker not available")
         return
 
-    container = Neo4jContainer("neo4j:5.26-community", password="testpassword")
+    container = Neo4jContainer("mirror.gcr.io/library/neo4j:5.26-community", password="testpassword")
     try:
         container.start()
         yield container
