@@ -1,0 +1,186 @@
+# Daily Terraform drift detection for staging (issue #112 follow-up).
+#
+# On 2026-10-09 something outside Terraform stripped the API's env flags and
+# reset scaling on staging; it was only found by accident. This workflow plans
+# staging on a schedule and keeps a single `infra-drift` issue in sync with the
+# result: opened/updated when the plan reports changes, closed when it is clean.
+#
+# It NEVER applies. It shares auth/init with terraform.yml (WIF, GCS backend,
+# `agentic-kg/<env>` prefix) and only ever reads state (`-lock=false`).
+#
+# Only resource ADDRESSES and planned ACTIONS are posted — attribute values are
+# deliberately withheld (they can contain secrets or internal URIs). The
+# extraction lives in scripts/terraform_drift_summary.jq and is unit-tested
+# against scripts/fixtures/terraform_plan.sample.json.
+
+name: Terraform Drift
+
+on:
+  schedule:
+    # 11:23 UTC daily — off the hour to avoid the cron stampede.
+    - cron: '23 11 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Two overlapping runs could each see "no open issue" and create a duplicate.
+# Queue them instead of cancelling: a cancelled run could miss drift.
+concurrency:
+  group: terraform-drift
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_ENV: staging
+  REGION: us-central1
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+
+jobs:
+  drift:
+    name: Detect staging drift
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      issues: write
+    defaults:
+      run:
+        working-directory: infra
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      # The google provider resolves projects/services through Cloud Resource
+      # Manager; it was disabled in vt-gcp-00042, which made every
+      # google_project_service read 403. Idempotent and cheap.
+      - name: Enable bootstrap APIs
+        run: >-
+          gcloud services enable
+          cloudresourcemanager.googleapis.com serviceusage.googleapis.com
+          --project vt-gcp-00042
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          # >= 1.7 for `for_each` in import blocks (infra/imports.tf).
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+
+      - name: Terraform init
+        run: terraform init -backend-config="prefix=agentic-kg/$TF_ENV"
+
+      - name: Terraform plan (drift check)
+        id: plan
+        # Exit 0 = no changes; 2 = changes (drift); 1 = error. `-detailed-exitcode`
+        # is what turns a plan into a detectable signal.
+        run: |
+          set +e
+          terraform plan \
+            -var-file="envs/$TF_ENV.tfvars" \
+            -lock=false \
+            -detailed-exitcode \
+            -input=false \
+            -no-color \
+            -out=tfplan
+          code=$?
+          set -e
+          echo "exitcode=$code" >> "$GITHUB_OUTPUT"
+          case "$code" in
+            0) echo "No drift: plan is clean." ;;
+            2) echo "Drift detected: plan reports changes." ;;
+            *)
+              echo "::error::terraform plan failed with exit code $code"
+              exit 1
+              ;;
+          esac
+
+      - name: Summarize drift (addresses + actions only)
+        if: steps.plan.outputs.exitcode == '2'
+        run: |
+          terraform show -json tfplan > plan.json
+          {
+            echo "## Terraform drift (\`$TF_ENV\`)"
+            echo ""
+            echo '```'
+            jq -r -f "$GITHUB_WORKSPACE/scripts/terraform_drift_summary.jq" plan.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: File or update the drift issue
+        if: steps.plan.outputs.exitcode == '2'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          terraform show -json tfplan > plan.json
+          body="$(mktemp)"
+          {
+            echo "## Staging infrastructure drift detected"
+            echo ""
+            echo "A scheduled \`terraform plan\` on \`${TF_ENV}\` reports changes that the"
+            echo "committed configuration does not produce — something changed this"
+            echo "infrastructure out of band. Terraform is the single owner of these"
+            echo "resources (ADR-0006); this issue closes itself on the next clean plan."
+            echo ""
+            echo "**Resource addresses and planned actions only.** Attribute values are"
+            echo "deliberately withheld — they can contain secrets or internal URIs."
+            echo ""
+            echo '```'
+            jq -r -f "$GITHUB_WORKSPACE/scripts/terraform_drift_summary.jq" plan.json
+            echo '```'
+            echo ""
+            echo "- Detected: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "- Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } > "$body"
+
+          # The label may not exist yet; create-or-update it idempotently.
+          gh label create infra-drift \
+            --description "Out-of-band staging infrastructure change detected" \
+            --color BFD4F2 --force
+
+          numbers="$(gh issue list \
+            --label infra-drift --state open \
+            --json number --jq '.[].number')"
+          first="$(printf '%s\n' "$numbers" | grep -m1 . || true)"
+
+          if [ -n "$first" ]; then
+            gh issue edit "$first" \
+              --title "Staging infra drift detected" \
+              --body-file "$body"
+            # Guarantee at most ONE open tracking issue.
+            printf '%s\n' "$numbers" | tail -n +2 | while IFS= read -r n; do
+              [ -n "$n" ] || continue
+              gh issue comment "$n" \
+                --body "Superseded by #${first}; drift is tracked in a single issue."
+              gh issue close "$n" --reason "not planned"
+            done
+          else
+            gh issue create \
+              --title "Staging infra drift detected" \
+              --label infra-drift \
+              --body-file "$body"
+          fi
+
+      - name: Close the drift issue (no drift)
+        if: steps.plan.outputs.exitcode == '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create infra-drift \
+            --description "Out-of-band staging infrastructure change detected" \
+            --color BFD4F2 --force
+          numbers="$(gh issue list \
+            --label infra-drift --state open \
+            --json number --jq '.[].number')"
+          printf '%s\n' "$numbers" | while IFS= read -r n; do
+            [ -n "$n" ] || continue
+            gh issue comment "$n" \
+              --body "No drift detected by the scheduled plan on $(date -u +%Y-%m-%dT%H:%M:%SZ) (${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}). Closing."
+            gh issue close "$n" --reason completed
+          done

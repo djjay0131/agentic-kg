@@ -1,0 +1,90 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.8",
+  "resource_changes": [
+    {
+      "address": "module.api.google_cloud_run_v2_service.api",
+      "mode": "managed",
+      "type": "google_cloud_run_v2_service",
+      "name": "api",
+      "change": {
+        "actions": ["update"],
+        "before": {
+          "template": [
+            {
+              "containers": [
+                {
+                  "env": [
+                    {"name": "KGIS_KGCS_ENABLED", "value": "true"},
+                    {"name": "CANONICAL_NAMESPACE", "value": "staging"}
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "after": {"template": [{"containers": [{"env": []}]}]},
+        "after_unknown": false
+      }
+    },
+    {
+      "address": "module.db.google_sql_database.main",
+      "mode": "managed",
+      "type": "google_sql_database",
+      "name": "main",
+      "change": {
+        "actions": ["delete", "create"],
+        "before": {"instance": "neo4j", "name": "neo4j"},
+        "after": {"instance": "neo4j", "name": "neo4j"},
+        "replace_paths": [["name"]]
+      }
+    },
+    {
+      "address": "module.ingest.google_cloud_run_v2_job.ingest",
+      "mode": "managed",
+      "type": "google_cloud_run_v2_job",
+      "name": "ingest",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "template": [
+            {
+              "containers": [
+                {
+                  "env": [
+                    {"name": "NEO4J_URI", "value": "bolt://10.0.0.2:7687"},
+                    {"name": "API_KEY", "value": "super-secret-token"}
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "after_unknown": true
+      }
+    },
+    {
+      "address": "module.api.google_cloud_run_v2_service.unrelated",
+      "mode": "managed",
+      "type": "google_cloud_run_v2_service",
+      "name": "unrelated",
+      "change": {
+        "actions": ["no-op"],
+        "before": {"uri": "https://internal.example.invalid"},
+        "after": {"uri": "https://internal.example.invalid"}
+      }
+    },
+    {
+      "address": "data.google_project.current",
+      "mode": "data",
+      "type": "google_project",
+      "name": "current",
+      "change": {
+        "actions": ["read"],
+        "before": null,
+        "after": {"number": "542888988741"}
+      }
+    }
+  ]
+}
