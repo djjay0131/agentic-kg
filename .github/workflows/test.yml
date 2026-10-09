@@ -14,6 +14,9 @@ concurrency:
 
 permissions:
   contents: read
+  # Codecov authenticates with GitHub's OIDC token instead of a stored
+  # CODECOV_TOKEN (ADR-0007 rule 1: keyless first).
+  id-token: write
 
 jobs:
   test:
@@ -60,12 +63,12 @@ jobs:
           pytest packages/api/tests -v --tb=short
 
       - name: Upload coverage reports
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         if: always()
         with:
-          file: ./coverage.xml
+          files: ./coverage.xml
           fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
 
       - name: Test Summary
         if: always()
