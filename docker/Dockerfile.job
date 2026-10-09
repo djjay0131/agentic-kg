@@ -75,6 +75,14 @@ COPY docs/ground-truth/importer-output/ \
     /app/corpus/docs/ground-truth/importer-output/
 ENV KGIS_CORPUS_DIR=/app/corpus
 
+# The nightly pipeline's query catalog. The nightly Cloud Run Job runs this
+# same image with `python -m agentic_kg.pipeline.nightly`, which reads the
+# catalog from NIGHTLY_CATALOG (default /app/config/ingest-queries.yaml). The
+# layout mirrors the repo, because agentic_kg.pipeline.catalog resolves the
+# default path repo-relatively (see its DEFAULT_CATALOG_PATH).
+COPY config/ /app/config/
+ENV NIGHTLY_CATALOG=/app/config/ingest-queries.yaml
+
 # Change ownership
 RUN chown -R appuser:appgroup /app
 

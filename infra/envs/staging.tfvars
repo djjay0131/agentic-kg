@@ -39,3 +39,13 @@ canonical_namespace = "staging"
 # /tmp. See infra/README.md §Durable KGIS ledger.
 ingest_ledger_bucket = "vt-gcp-00042-agentic-kg-ledger-staging"
 ingest_ledger_dir    = "/mnt/ledger/staging"
+
+# Nightly pipeline (nightly-pipeline P1, ADR-0008). Enabled for staging only;
+# creates the runs bucket, the nightly SA, the nightly Cloud Run Job, the
+# Cloud Workflows workflow and the 02:30 America/New_York Cloud Scheduler job.
+# See docs/design/nightly-pipeline-contract.md.
+nightly_enabled     = true
+nightly_runs_bucket = "vt-gcp-00042-agentic-kg-runs-staging"
+nightly_max_papers  = 50
+nightly_max_llm_usd = 0
+nightly_timeout     = 3600

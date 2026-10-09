@@ -10,6 +10,10 @@ resource "google_project_service" "apis" {
     "artifactregistry.googleapis.com",
     "secretmanager.googleapis.com",
     "iam.googleapis.com",
+    # Nightly pipeline (ADR-0008): Cloud Workflows orchestrates the nightly Job
+    # and Cloud Scheduler triggers it at 02:30 America/New_York.
+    "workflows.googleapis.com",
+    "cloudscheduler.googleapis.com",
   ])
 
   project            = var.project_id
@@ -1081,6 +1085,472 @@ resource "google_cloudbuild_trigger" "ui" {
   substitutions = {
     _SERVICE = "ui"
     _REGION  = var.region
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+# =============================================================================
+# Nightly pipeline (nightly-pipeline P1, ADR-0008)
+# =============================================================================
+# Cloud Scheduler (02:30 America/New_York) -> Cloud Workflows
+# `agentic-kg-nightly-<env>` -> Cloud Run Job `agentic-kg-nightly-<env>`
+# (`python -m agentic_kg.pipeline.nightly`). The Job plans tonight's queries,
+# runs the configured ingest path in-process, and writes a PipelineRun report
+# to the runs bucket and to a (:PipelineRun) Neo4j node. The report contract is
+# docs/design/nightly-pipeline-contract.md.
+#
+# Everything here is gated by var.nightly_enabled (default false; staging sets
+# true), so a prod apply without the flag creates nothing.
+
+locals {
+  # A dedicated SA is created unless the owner supplies one. Reusing an existing
+  # SA (e.g. the compute runtime SA) is the documented fallback when the CI
+  # apply principal cannot create service accounts (ADR-0008 §Consequences).
+  create_nightly_sa = var.nightly_enabled && var.nightly_service_account_email == ""
+  nightly_sa_email = (
+    var.nightly_service_account_email != ""
+    ? var.nightly_service_account_email
+    : "agentic-kg-nightly@${var.project_id}.iam.gserviceaccount.com"
+  )
+}
+
+resource "google_service_account" "nightly" {
+  count = local.create_nightly_sa ? 1 : 0
+
+  project      = var.project_id
+  account_id   = "agentic-kg-nightly"
+  display_name = "Agentic KG nightly pipeline"
+  description  = "Runtime + OAuth identity for the nightly ingestion pipeline (ADR-0008)."
+
+  depends_on = [google_project_service.apis]
+}
+
+# The runs bucket holds one JSON PipelineRun report per execution at
+# nightly/<run_id>.json (the contract's GCS object). Uniform access, public
+# access prevention, and a 90-day lifecycle: reports are operational history,
+# not a system of record.
+resource "google_storage_bucket" "runs" {
+  count = var.nightly_enabled && var.nightly_runs_bucket != "" ? 1 : 0
+
+  name                        = var.nightly_runs_bucket
+  location                    = var.region
+  storage_class               = "STANDARD"
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+  force_destroy               = false
+
+  lifecycle_rule {
+    condition {
+      age = 90
+    }
+    action {
+      type = "Delete"
+    }
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+# Least privilege: the nightly SA writes the runs bucket only. The Job also
+# mounts the durable ledger bucket (same as the ingest Job), so it gets object
+# admin on that bucket too, and never a project-wide storage role.
+resource "google_storage_bucket_iam_member" "nightly_runs" {
+  count = var.nightly_enabled && var.nightly_runs_bucket != "" ? 1 : 0
+
+  bucket = var.nightly_runs_bucket
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${local.nightly_sa_email}"
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_storage_bucket_iam_member" "nightly_ledger" {
+  count = var.nightly_enabled && var.ingest_ledger_bucket != "" ? 1 : 0
+
+  bucket = var.ingest_ledger_bucket
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${local.nightly_sa_email}"
+
+  depends_on = [google_project_service.apis]
+}
+
+# The nightly SA reads the same secrets the ingest Job does (Neo4j, OpenAI,
+# Anthropic, Semantic Scholar). Project-level, matching the compute SA's grant;
+# narrowing to per-secret accessors is a follow-up once the unmanaged secrets
+# (OPENAI_API_KEY / ANTHROPIC_API_KEY) are declared here.
+resource "google_project_iam_member" "nightly_secret_accessor" {
+  count = var.nightly_enabled ? 1 : 0
+
+  project = var.project_id
+  role    = "roles/secretmanager.secretAccessor"
+  member  = "serviceAccount:${local.nightly_sa_email}"
+
+  depends_on = [google_project_service.apis]
+}
+
+# Direct VPC egress to the private Neo4j VM (ADR-0006).
+resource "google_project_iam_member" "nightly_network_user" {
+  count = var.nightly_enabled ? 1 : 0
+
+  project = var.project_id
+  role    = "roles/compute.networkUser"
+  member  = "serviceAccount:${local.nightly_sa_email}"
+
+  depends_on = [google_project_service.apis]
+}
+
+# ---- Cloud Run Job: nightly orchestrator --------------------------------
+resource "google_cloud_run_v2_job" "nightly" {
+  provider = google-beta
+  count    = var.nightly_enabled ? 1 : 0
+
+  name         = "agentic-kg-nightly-${var.env}"
+  location     = var.region
+  launch_stage = "BETA"
+
+  template {
+    # One task, no parallelism: the nightly Job walks its plan serially, and
+    # reuses the single-writer KGIS ledger (parallelism must be 1 for it).
+    parallelism = 1
+    task_count  = 1
+
+    template {
+      service_account = local.nightly_sa_email
+
+      dynamic "volumes" {
+        for_each = var.ingest_ledger_bucket != "" ? [1] : []
+        content {
+          name = "ledger"
+          gcs {
+            bucket    = var.ingest_ledger_bucket
+            read_only = false
+          }
+        }
+      }
+
+      dynamic "volumes" {
+        for_each = var.nightly_runs_bucket != "" ? [1] : []
+        content {
+          name = "runs"
+          gcs {
+            bucket    = var.nightly_runs_bucket
+            read_only = false
+          }
+        }
+      }
+
+      containers {
+        image = "${var.region}-docker.pkg.dev/${var.project_id}/agentic-kg/job:latest"
+
+        command = ["python", "-m", "agentic_kg.pipeline.nightly"]
+
+        dynamic "volume_mounts" {
+          for_each = var.ingest_ledger_bucket != "" ? [1] : []
+          content {
+            name       = "ledger"
+            mount_path = var.ingest_ledger_mount_path
+          }
+        }
+
+        dynamic "volume_mounts" {
+          for_each = var.nightly_runs_bucket != "" ? [1] : []
+          content {
+            name       = "runs"
+            mount_path = var.nightly_runs_mount_path
+          }
+        }
+
+        resources {
+          limits = {
+            memory = var.ingest_job_memory
+            cpu    = var.ingest_job_cpu
+          }
+        }
+
+        # Same secrets as the ingest Job: the nightly path imports and runs the
+        # same in-process ingest code.
+        env {
+          name = "NEO4J_URI"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.neo4j_uri.secret_id
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "NEO4J_PASSWORD"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.neo4j_password.secret_id
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "OPENAI_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = "OPENAI_API_KEY"
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "ANTHROPIC_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = "ANTHROPIC_API_KEY"
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "SEMANTIC_SCHOLAR_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.semantic_scholar_api_key.secret_id
+              version = "latest"
+            }
+          }
+        }
+
+        # KGIS/KGCS opt-in seam, matching the ingest Job (ADR-0004/ADR-0005).
+        # The nightly backend is chosen independently of the ingest Job's
+        # KGIS/KGCS opt-in: the kgis_kgcs path does not yet select papers from a
+        # query (it replays the committed corpus), so nightly growth runs on the
+        # query-driven legacy path until live KGIS acquisition lands.
+        env {
+          name  = "INGEST_MODE"
+          value = var.nightly_ingest_mode
+        }
+
+        dynamic "env" {
+          for_each = var.kgis_kgcs_enabled ? [1] : []
+          content {
+            name  = "KGIS_INGESTION_ENABLED"
+            value = "1"
+          }
+        }
+
+        dynamic "env" {
+          for_each = var.kgis_kgcs_enabled ? [1] : []
+          content {
+            name  = "KGCS_RESOLUTION_ENABLED"
+            value = "1"
+          }
+        }
+
+        dynamic "env" {
+          for_each = var.kgis_kgcs_enabled ? [1] : []
+          content {
+            name  = "KGCS_CANONICAL_NAMESPACE"
+            value = var.canonical_namespace
+          }
+        }
+
+        dynamic "env" {
+          for_each = var.kgis_kgcs_enabled ? [1] : []
+          content {
+            name  = "INGEST_LEDGER_DIR"
+            value = var.ingest_ledger_dir
+          }
+        }
+
+        # Nightly-specific configuration.
+        env {
+          name  = "NIGHTLY_CATALOG"
+          value = var.nightly_catalog_path
+        }
+
+        env {
+          name  = "NIGHTLY_MAX_PAPERS"
+          value = tostring(var.nightly_max_papers)
+        }
+
+        env {
+          name  = "NIGHTLY_MAX_LLM_USD"
+          value = tostring(var.nightly_max_llm_usd)
+        }
+
+        env {
+          name  = "NIGHTLY_NAMESPACE"
+          value = var.canonical_namespace
+        }
+
+        env {
+          name  = "NIGHTLY_RUNS_DIR"
+          value = var.nightly_runs_mount_path
+        }
+
+        env {
+          name  = "NIGHTLY_RUNS_BUCKET"
+          value = var.nightly_runs_bucket
+        }
+      }
+
+      vpc_access {
+        network_interfaces {
+          network    = var.network
+          subnetwork = data.google_compute_subnetwork.neo4j.id
+        }
+        egress = var.neo4j_vpc_egress
+      }
+
+      timeout     = "${var.nightly_timeout}s"
+      max_retries = 0
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [
+      client,
+      client_version,
+      template[0].template[0].containers[0].image,
+      template[0].labels,
+      template[0].annotations,
+    ]
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_project_iam_member.nightly_secret_accessor,
+    google_project_iam_member.nightly_network_user,
+    google_secret_manager_secret_version.neo4j_uri,
+    google_secret_manager_secret_version.semantic_scholar_api_key_seed,
+  ]
+}
+
+# The workflow's SA (also the Job's runtime SA) may invoke the nightly Job.
+resource "google_cloud_run_v2_job_iam_member" "nightly_runner" {
+  count = var.nightly_enabled ? 1 : 0
+
+  name     = google_cloud_run_v2_job.nightly[0].name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${local.nightly_sa_email}"
+}
+
+# ---- Cloud Workflows: run the Job and wait -------------------------------
+resource "google_workflows_workflow" "nightly" {
+  count = var.nightly_enabled ? 1 : 0
+
+  project         = var.project_id
+  region          = var.region
+  name            = "agentic-kg-nightly-${var.env}"
+  description     = "Runs the nightly ingestion Job and waits for it (ADR-0008)."
+  service_account = local.nightly_sa_email
+
+  # `$${...}` escapes Terraform interpolation so the value stays a Workflows
+  # expression; `${...}` is filled in by Terraform.
+  source_contents = <<-YAML
+    main:
+      params: [args]
+      steps:
+        - init:
+            assign:
+              - trigger: $${default(args.trigger, "schedule")}
+        - runJob:
+            try:
+              call: googleapis.run.v2.projects.locations.jobs.run
+              args:
+                name: ${google_cloud_run_v2_job.nightly[0].id}
+                body:
+                  overrides:
+                    containerOverrides:
+                      - env:
+                          - name: NIGHTLY_TRIGGER
+                            value: $${trigger}
+              result: operation
+            except:
+              as: error
+              steps:
+                - logFailure:
+                    call: sys.log
+                    args:
+                      severity: ERROR
+                      text: $${"pipeline_run_failed " + json.encode_to_string(error)}
+                - fail:
+                    raise: $${error}
+        - poll:
+            call: googleapis.run.v2.projects.locations.operations.get
+            args:
+              name: $${operation.name}
+            result: status
+        - checkDone:
+            switch:
+              - condition: $${status.done != true}
+                next: wait
+            next: checkResult
+        - wait:
+            call: sys.sleep
+            args:
+              seconds: 30
+            next: poll
+        - checkResult:
+            switch:
+              - condition: $${status.error != null}
+                next: failed
+            next: succeeded
+        - succeeded:
+            return: $${operation.name}
+        - failed:
+            raise: $${status.error}
+  YAML
+
+  depends_on = [google_project_service.apis]
+}
+
+# The scheduler (and the manual GHA run) invoke the workflow. The google
+# provider has no workflow-scoped IAM resource, so this is a project-level
+# binder; workflows.invoker is the only workflow permission the SA holds.
+resource "google_project_iam_member" "nightly_workflow_invoker" {
+  count = var.nightly_enabled ? 1 : 0
+
+  project = var.project_id
+  role    = "roles/workflows.invoker"
+  member  = "serviceAccount:${local.nightly_sa_email}"
+
+  depends_on = [google_project_service.apis]
+}
+
+# Cloud Scheduler needs to mint an OAuth token for the workflow-invoking SA.
+resource "google_service_account_iam_member" "scheduler_token_creator" {
+  count = local.create_nightly_sa ? 1 : 0
+
+  service_account_id = google_service_account.nightly[0].name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-cloudscheduler.iam.gserviceaccount.com"
+}
+
+# ---- Cloud Scheduler: 02:30 America/New_York -----------------------------
+resource "google_cloud_scheduler_job" "nightly" {
+  count = var.nightly_enabled ? 1 : 0
+
+  project     = var.project_id
+  region      = var.region
+  name        = "agentic-kg-nightly-${var.env}"
+  description = "Trigger the nightly ingestion workflow at 02:30 America/New_York (ADR-0008)."
+  schedule    = "30 2 * * *"
+  time_zone   = "America/New_York"
+
+  http_target {
+    http_method = "POST"
+    uri         = "https://workflowexecutions.googleapis.com/v1/projects/${var.project_id}/locations/${var.region}/workflows/${google_workflows_workflow.nightly[0].name}/executions"
+    headers = {
+      "Content-Type" = "application/json"
+    }
+    body = base64encode(jsonencode({
+      argument = jsonencode({ trigger = "schedule" })
+    }))
+    oauth_token {
+      service_account_email = local.nightly_sa_email
+    }
   }
 
   depends_on = [google_project_service.apis]

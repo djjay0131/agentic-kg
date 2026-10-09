@@ -1,0 +1,74 @@
+# Nightly ingest query catalog (nightly-pipeline P1).
+#
+# The planner (agentic_kg.pipeline.plan) reads this file and deterministically
+# rotates a budget-bounded subset of the enabled queries each night, so every
+# enabled query is covered over a few nights without exceeding NIGHTLY_MAX_PAPERS.
+#
+# Schema (validated by agentic_kg.pipeline.catalog.QueryCatalog):
+#   queries:
+#     - id:      stable slug, unique, [a-z0-9][a-z0-9_-]*
+#       query:   free-text discovery query passed to the ingest backend
+#       topic:   short human label for the report/UI
+#       limit:   1..50 papers to request for this query
+#       weight:  > 0; higher weight sorts earlier when the budget is tight
+#       enabled: bool; disabled entries are kept here but never planned
+#
+# This file ships in the `job` image at /app/config/ingest-queries.yaml (see
+# docker/Dockerfile.job). The nightly Job reads it via NIGHTLY_CATALOG.
+
+queries:
+  - id: llm-kg-construction
+    query: "large language models for knowledge graph construction"
+    topic: knowledge-graphs
+    limit: 5
+    weight: 2.0
+    enabled: true
+
+  - id: rag-retrieval
+    query: "retrieval-augmented generation"
+    topic: retrieval
+    limit: 6
+    weight: 2.0
+    enabled: true
+
+  - id: scientific-claim-extraction
+    query: "scientific claim extraction from research papers"
+    topic: extraction
+    limit: 5
+    weight: 1.5
+    enabled: true
+
+  - id: entity-resolution
+    query: "entity resolution and record linkage"
+    topic: entity-resolution
+    limit: 4
+    weight: 1.5
+    enabled: true
+
+  - id: research-problem-mining
+    query: "research problem mining and scientific gap detection"
+    topic: research-problems
+    limit: 5
+    weight: 1.5
+    enabled: true
+
+  - id: knowledge-graph-completion
+    query: "knowledge graph completion and link prediction"
+    topic: knowledge-graphs
+    limit: 5
+    weight: 1.0
+    enabled: true
+
+  - id: graph-rag
+    query: "graph retrieval augmented generation over knowledge graphs"
+    topic: retrieval
+    limit: 3
+    weight: 1.0
+    enabled: true
+
+  - id: llm-scientific-evaluation
+    query: "evaluating large language models on scientific reasoning"
+    topic: evaluation
+    limit: 4
+    weight: 1.0
+    enabled: true
