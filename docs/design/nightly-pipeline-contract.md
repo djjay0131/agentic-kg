@@ -1,6 +1,7 @@
 ---
 title: Nightly pipeline contract
-nav_order: 6
+parent: Design
+nav_order: 14
 ---
 
 # Nightly Pipeline Report Contract

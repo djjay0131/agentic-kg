@@ -236,7 +236,7 @@ variable "ingest_ledger_mount_path" {
 }
 
 # =============================================================================
-# Nightly pipeline (nightly-pipeline P1, ADR-0007)
+# Nightly pipeline (nightly-pipeline P1, ADR-0008)
 # =============================================================================
 # The whole nightly stack is gated by nightly_enabled. Default false so a prod
 # apply (or any environment that has not opted in) creates nothing.
@@ -301,4 +301,24 @@ variable "nightly_ingest_mode" {
     condition     = contains(["legacy", "kgis_kgcs"], var.nightly_ingest_mode)
     error_message = "nightly_ingest_mode must be legacy or kgis_kgcs."
   }
+}
+
+# ADR-0007: identities for secret handling ---------------------------------------
+
+variable "wif_pool_id" {
+  description = "Workload Identity Pool that GitHub Actions authenticates through (scripts/setup_wif_deploy.sh)"
+  type        = string
+  default     = "github"
+}
+
+variable "wif_repository" {
+  description = "owner/name of the repository whose workflows may impersonate the CI vendor-key reader"
+  type        = string
+  default     = "djjay0131/agentic-kg"
+}
+
+variable "deploy_service_account_email" {
+  description = "Service account the GitHub workflows deploy as (needs actAs on job identities)"
+  type        = string
+  default     = ""
 }

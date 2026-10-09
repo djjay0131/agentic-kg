@@ -3,6 +3,7 @@
 import logging
 from typing import Optional
 
+from agentic_kg.knowledge_graph.pipeline_runs import PipelineRunRepository
 from agentic_kg.knowledge_graph.relations import RelationService, get_relation_service
 from agentic_kg.knowledge_graph.repository import Neo4jRepository, get_repository
 from agentic_kg.knowledge_graph.review_queue import (
@@ -57,6 +58,18 @@ def get_review_queue() -> ReviewQueueService:
         repo = get_repo()
         _review_queue_service = get_review_queue_service(repo)
     return _review_queue_service
+
+
+def get_pipeline_runs(
+    repo: Neo4jRepository = Depends(get_repo),
+) -> PipelineRunRepository:
+    """A PipelineRunRepository bound to the request's Neo4j repository.
+
+    Deliberately not a module singleton: the object only holds a reference to
+    the repository, so building one per request is free and it always reflects
+    a dependency override in tests.
+    """
+    return PipelineRunRepository(repo)
 
 
 def reset_dependencies() -> None:
