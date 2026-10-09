@@ -10,10 +10,16 @@
 # This workflow never reads, pipes or prints a key. It only:
 #   1. checks the newest ENABLED version is not the Terraform placeholder seed
 #      (by comparing version NUMBERS: the seed is version 1)
-#   2. rolls the consumers onto `:latest` with a label stamp (`:latest` alone is
-#      not a config change, so the label forces a fresh revision)
-#   3. verifies the API is healthy (for OPENAI_API_KEY)
-#   4. only then disables the superseded versions
+#   2. rolls every consumer onto `:latest` with a label stamp (`:latest` alone
+#      is not a config change, so the label forces a fresh revision)
+#   3. checks the services come back healthy
+#   4. disables superseded versions ONLY when asked (`disable_superseded`).
+#      /health does not exercise a vendor key, so a roll is not proof the new
+#      key works (ADR-0007 rule 5). Run once without it, confirm a real call
+#      succeeded (smoke-ingest, an ingest run), then run again with it.
+#
+# Consumers: S2 -> ingest Job. OpenAI and Anthropic -> API service, UI
+# service (where it reads the key) and ingest Job.
 
 name: Roll Vendor API Keys
 
@@ -27,6 +33,12 @@ on:
         options:
           - SEMANTIC_SCHOLAR_API_KEY
           - OPENAI_API_KEY
+          - ANTHROPIC_API_KEY
+      disable_superseded:
+        description: 'Disable older versions (only after a real call proved the new key works)'
+        required: true
+        type: boolean
+        default: false
       reason:
         description: 'Why (recorded in the summary)'
         required: false
@@ -68,7 +80,7 @@ jobs:
         run: |
           set -euo pipefail
           NEWEST="$(gcloud secrets versions list "$SECRET" --project="$PROJECT_ID" \
-            --filter='state=ENABLED' --sort-by='~createTime' --format='value(name)' | head -n1)"
+            --filter='state=ENABLED' --sort-by='~createTime' --format='value(name.basename())' | head -n1)"
           if [ -z "$NEWEST" ] || [ "$NEWEST" = "1" ]; then
             echo "::error::$SECRET has no version newer than the Terraform seed. Add the key in Secret Manager first."
             exit 1
@@ -82,16 +94,27 @@ jobs:
             --update-secrets="$SECRET=$SECRET:latest" \
             --update-labels=vendor-key-rolled=${{ github.run_id }}
 
-      - name: Roll the API service (OpenAI only)
-        if: github.event.inputs.secret == 'OPENAI_API_KEY'
+      - name: Roll the services that read this key
+        if: github.event.inputs.secret != 'SEMANTIC_SCHOLAR_API_KEY'
+        # Only services whose current revision already references the secret
+        # are touched (metadata check, never the value).
         run: |
-          gcloud run services update "agentic-kg-api-$ENVIRONMENT" \
-            --region="$REGION" --project="$PROJECT_ID" \
-            --update-secrets="$SECRET=$SECRET:latest" \
-            --update-labels=vendor-key-rolled=${{ github.run_id }}
+          set -euo pipefail
+          for SVC in "agentic-kg-api-$ENVIRONMENT" "agentic-kg-ui-$ENVIRONMENT"; do
+            if gcloud run services describe "$SVC" --region="$REGION" --project="$PROJECT_ID" \
+                 --format=json 2>/dev/null | grep -q "\"$SECRET\""; then
+              gcloud run services update "$SVC" \
+                --region="$REGION" --project="$PROJECT_ID" \
+                --update-secrets="$SECRET=$SECRET:latest" \
+                --update-labels=vendor-key-rolled=${{ github.run_id }}
+              echo "Rolled $SVC."
+            else
+              echo "$SVC does not read $SECRET; skipped."
+            fi
+          done
 
-      - name: Verify the API is healthy
-        if: github.event.inputs.secret == 'OPENAI_API_KEY'
+      - name: Check the services are healthy
+        if: github.event.inputs.secret != 'SEMANTIC_SCHOLAR_API_KEY'
         run: |
           set -euo pipefail
           API_URL="$(gcloud run services describe "agentic-kg-api-$ENVIRONMENT" \
@@ -104,10 +127,11 @@ jobs:
           exit 1
 
       - name: Disable superseded versions
+        if: github.event.inputs.disable_superseded == 'true'
         run: |
           set -euo pipefail
           gcloud secrets versions list "$SECRET" --project="$PROJECT_ID" \
-            --filter='state=ENABLED' --sort-by='~createTime' --format='value(name)' \
+            --filter='state=ENABLED' --sort-by='~createTime' --format='value(name.basename())' \
           | tail -n +2 \
           | while read -r version; do
               gcloud secrets versions disable "$version" --secret="$SECRET" --project="$PROJECT_ID"
@@ -124,4 +148,5 @@ jobs:
             echo "- Secret: \`$SECRET\` (values never read by this workflow)"
             echo "- Environment: \`$ENVIRONMENT\`"
             echo "- Reason: $REASON"
+            echo "- Superseded versions disabled: ${{ github.event.inputs.disable_superseded }}"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -67,9 +67,11 @@ gh workflow run roll-vendor-keys.yml --repo djjay0131/agentic-kg --ref master \
 gh run watch --repo djjay0131/agentic-kg
 ```
 
-It refuses to roll if the newest enabled version is still the Terraform seed,
-rolls `agentic-kg-ingest-staging` onto `latest` with a label stamp, and only
-then disables the superseded versions. CI picks the key up automatically on
+It refuses to roll if the newest enabled version is still the Terraform seed
+and rolls `agentic-kg-ingest-staging` onto `latest` with a label stamp. It
+does **not** disable the old version by default: once a real call has
+succeeded on the new key (the next smoke-ingest run, or an ingest Job run),
+run it again with `-f disable_superseded=true`. CI picks the key up automatically on
 its next run (it reads `latest` through the reader identity).
 
 **Verify** — exactly one enabled version, and the Job points at `latest`:
