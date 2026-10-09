@@ -661,6 +661,22 @@ resource "google_secret_manager_secret" "neo4j_password_next" {
   depends_on = [google_project_service.apis]
 }
 
+# Cloud Run refuses to create a Job whose env references `<secret>:latest`
+# when the secret has no versions. Seed one placeholder version so
+# google_cloud_run_v2_job.rotate_password can be created. The value is never
+# used: rotate-neo4j-password.yml writes a fresh NEXT version before every
+# execution. ignore_changes keeps Terraform from ever touching it again, and
+# ABANDON means a destroy never deletes real rotation material.
+resource "google_secret_manager_secret_version" "neo4j_password_next_seed" {
+  secret          = google_secret_manager_secret.neo4j_password_next.id
+  secret_data     = "unset-seed-not-a-password"
+  deletion_policy = "ABANDON"
+
+  lifecycle {
+    ignore_changes = [secret_data, enabled]
+  }
+}
+
 resource "google_cloud_run_v2_job" "rotate_password" {
   name     = "agentic-kg-rotate-neo4j-${var.env}"
   location = var.region
@@ -740,6 +756,7 @@ resource "google_cloud_run_v2_job" "rotate_password" {
     google_project_iam_member.secret_accessor,
     google_project_iam_member.network_user,
     google_secret_manager_secret_version.neo4j_uri,
+    google_secret_manager_secret_version.neo4j_password_next_seed,
   ]
 }
 
