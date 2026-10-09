@@ -976,8 +976,8 @@ READ_PATHS: tuple[ReadPath, ...] = (
         surface="RelationService.create_relation (existence + duplicate guard)",
         source_file=f"{CORE}/knowledge_graph/relations.py",
         snippet=(
-            "MATCH (from)\n"
-            "                WHERE from.id = $from_id AND (from:Problem OR from:ProblemConcept)"
+            "CALL {\n"
+            "                    MATCH (from:Problem {id: $from_id}) RETURN from"
         ),
         also=("MATCH (from)-[r:{rel_type}]->(to)",),
         labels=("Problem", "ProblemConcept"),
@@ -990,7 +990,11 @@ READ_PATHS: tuple[ReadPath, ...] = (
             "out with the write they guard: §4.5 turns every mutation endpoint "
             "into a curation request, so the guard has no post-cutover "
             "equivalent. #115 label-scoped both matches to "
-            "``(n:Problem OR n:ProblemConcept)``; the read is recorded with that "
+            "``(n:Problem OR n:ProblemConcept)``; a follow-up found that a "
+            "label predicate in ``WHERE`` cannot use either per-label unique id "
+            "index, so the shape is now a ``CALL { ... UNION ... }`` of two "
+            "label-scoped ``NodeUniqueIndexSeek`` lookups per endpoint "
+            "(``test_label_or_index_seek.py``). The read is recorded with that "
             "shape but stays scoped out. Inventoried rather than ignored because "
             "it is a read in a scanned module, and an un-inventoried read is how "
             "the completeness check gets hollowed out."
@@ -1030,9 +1034,14 @@ READ_PATHS: tuple[ReadPath, ...] = (
             "projects fifteen relation types and this is not one of them — so "
             "it is held out of the parity contract rather than listed in "
             "``relationships`` (listing it would widen the "
-            "only-REVIEWS-outside-the-contract invariant). Label-scoped to "
-            "``(n:Problem OR n:ProblemConcept)`` on both endpoints. No router "
-            "reaches it today; it is consumed by the synthesis write-back path."
+            "only-REVIEWS-outside-the-contract invariant). A follow-up found "
+            "that the #115 label predicate in ``WHERE`` cannot use either "
+            "per-label unique id index; the source endpoint is now resolved by "
+            "a ``CALL { ... UNION ... }`` of the two label-scoped "
+            "``NodeUniqueIndexSeek`` lookups and the ``:Problem`` / "
+            "``:ProblemConcept`` filter stays on the traversed target "
+            "(``test_label_or_index_seek.py``). No router reaches it today; it "
+            "is consumed by the synthesis write-back path."
         ),
     ),
     ReadPath(

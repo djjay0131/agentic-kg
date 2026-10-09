@@ -99,13 +99,23 @@ class RelationService:
         ) -> bool:
             # Verify both problems exist. Endpoints may be legacy :Problem
             # nodes or canonical :ProblemConcept nodes — the read model
-            # surfaces both through the same Problem model.
+            # surfaces both through the same Problem model. Each endpoint is
+            # resolved by a label-scoped UNION of the two per-label unique id
+            # indexes; a single `MATCH (n) WHERE n.id = $id AND (n:Problem OR
+            # n:ProblemConcept)` cannot use either index and degrades to an
+            # AllNodesScan (see tests/knowledge_graph/test_label_or_index_seek.py).
             check = tx.run(
                 """
-                MATCH (from)
-                WHERE from.id = $from_id AND (from:Problem OR from:ProblemConcept)
-                MATCH (to)
-                WHERE to.id = $to_id AND (to:Problem OR to:ProblemConcept)
+                CALL {
+                    MATCH (from:Problem {id: $from_id}) RETURN from
+                    UNION
+                    MATCH (from:ProblemConcept {id: $from_id}) RETURN from
+                }
+                CALL {
+                    MATCH (to:Problem {id: $to_id}) RETURN to
+                    UNION
+                    MATCH (to:ProblemConcept {id: $to_id}) RETURN to
+                }
                 RETURN from.id, to.id
                 """,
                 from_id=from_id,
@@ -119,10 +129,17 @@ class RelationService:
             # :Problem and a :ProblemConcept cannot match the wrong node.
             existing = tx.run(
                 f"""
+                CALL {{
+                    MATCH (from:Problem {{id: $from_id}}) RETURN from
+                    UNION
+                    MATCH (from:ProblemConcept {{id: $from_id}}) RETURN from
+                }}
+                CALL {{
+                    MATCH (to:Problem {{id: $to_id}}) RETURN to
+                    UNION
+                    MATCH (to:ProblemConcept {{id: $to_id}}) RETURN to
+                }}
                 MATCH (from)-[r:{rel_type}]->(to)
-                WHERE from.id = $from_id AND to.id = $to_id
-                  AND (from:Problem OR from:ProblemConcept)
-                  AND (to:Problem OR to:ProblemConcept)
                 RETURN r
                 """,
                 from_id=from_id,
@@ -136,10 +153,16 @@ class RelationService:
             # Create relation
             tx.run(
                 f"""
-                MATCH (from)
-                WHERE from.id = $from_id AND (from:Problem OR from:ProblemConcept)
-                MATCH (to)
-                WHERE to.id = $to_id AND (to:Problem OR to:ProblemConcept)
+                CALL {{
+                    MATCH (from:Problem {{id: $from_id}}) RETURN from
+                    UNION
+                    MATCH (from:ProblemConcept {{id: $from_id}}) RETURN from
+                }}
+                CALL {{
+                    MATCH (to:Problem {{id: $to_id}}) RETURN to
+                    UNION
+                    MATCH (to:ProblemConcept {{id: $to_id}}) RETURN to
+                }}
                 CREATE (from)-[r:{rel_type}]->(to)
                 SET r = $props
                 """,
