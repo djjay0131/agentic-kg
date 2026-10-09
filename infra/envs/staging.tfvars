@@ -29,4 +29,10 @@ enable_build_triggers = false
 # same value on the API and the ingest Job — it is the isolation boundary.
 kgis_kgcs_enabled   = true
 canonical_namespace = "staging"
-ingest_ledger_dir   = "/tmp/kgis-shadow"
+
+# Durable KGIS ledger (nightly-pipeline design P0-2). The ingest Job mounts this
+# bucket with a Cloud Run GCS volume and writes the ledger/evidence under the
+# namespace subdirectory, so it survives scale-in instead of vanishing with
+# /tmp. See infra/README.md §Durable KGIS ledger.
+ingest_ledger_bucket = "vt-gcp-00042-agentic-kg-ledger-staging"
+ingest_ledger_dir    = "/mnt/ledger/staging"

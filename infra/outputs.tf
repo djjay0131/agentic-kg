@@ -31,6 +31,11 @@ output "artifact_registry" {
   value       = "${var.region}-docker.pkg.dev/${var.project_id}/agentic-kg"
 }
 
+output "ingest_ledger_bucket" {
+  description = "GCS bucket holding the durable KGIS ledger (null when unset)"
+  value       = var.ingest_ledger_bucket != "" ? google_storage_bucket.ledger[0].name : null
+}
+
 output "cloudbuild_trigger_api" {
   description = "Cloud Build trigger URL for API"
   value       = var.enable_build_triggers ? "https://console.cloud.google.com/cloud-build/triggers/edit/${google_cloudbuild_trigger.api[0].trigger_id}?project=${var.project_id}" : null

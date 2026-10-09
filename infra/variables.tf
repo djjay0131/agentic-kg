@@ -206,7 +206,31 @@ variable "canonical_namespace" {
 }
 
 variable "ingest_ledger_dir" {
-  description = "Job-local directory for the KGIS ledger (ADR-0005; not durable)"
+  description = <<-EOT
+    Directory the KGIS ledger/evidence writes to. The default
+    "/tmp/kgis-shadow" is job-local and lost on scale-in. When
+    var.ingest_ledger_bucket is set, point this at a namespaced subdirectory of
+    var.ingest_ledger_mount_path (e.g. "/mnt/ledger/staging") so the ledger is
+    durable in GCS.
+  EOT
   type        = string
   default     = "/tmp/kgis-shadow"
+}
+
+# Durable KGIS ledger (nightly-pipeline design P0-2). Empty (the default)
+# mounts no volume and keeps the ledger job-local in var.ingest_ledger_dir.
+variable "ingest_ledger_bucket" {
+  description = <<-EOT
+    GCS bucket mounted into the ingest Job as a Cloud Run GCS volume (gcsfuse)
+    for the durable KGIS ledger/evidence. Empty (the default) mounts nothing.
+    Staging sets "vt-gcp-00042-agentic-kg-ledger-staging".
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "ingest_ledger_mount_path" {
+  description = "Mount path for the ledger GCS volume inside the ingest Job container"
+  type        = string
+  default     = "/mnt/ledger"
 }

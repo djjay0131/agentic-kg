@@ -57,6 +57,8 @@ from agentic_kg.migration.ingestion import (
     CorpusError,
     CorpusPaper,
     ShadowStores,
+    WriterLease,
+    acquire_writer_lease,
     importer_replay_client,
     load_corpus,
     normalize_doi,
@@ -218,8 +220,11 @@ def _honest_nulls(*, deterministic_client: bool, stores: ShadowStores) -> dict[s
         nulls["ledger_persistence"] = "in_memory: nothing was persisted for this run"
     else:
         nulls["ledger_persistence"] = (
-            f"sqlite at {stores.root}: ephemeral on Cloud Run; ADR-0003/ADR-0012 "
-            "defer a durable backend behind CandidateSink/LedgerReader"
+            f"sqlite at {stores.root}: single-writer; on the staging GCS FUSE "
+            "mount the filesystem does not provide the locking SQLite expects, "
+            "so durability is guarded by Cloud Run parallelism=1 and a "
+            "directory writer lease, not by SQLite locking. ADR-0012's backend "
+            "swap behind CandidateSink/LedgerReader remains the real fix."
         )
     return nulls
 
@@ -312,15 +317,30 @@ def execute_migration(
     resolved_ledger = ledger_dir or os.getenv(ENV_LEDGER_DIR) or None
     neo = get_config().neo4j
 
-    stores = ShadowStores.at(resolved_ledger) if resolved_ledger else ShadowStores.in_memory()
-    store = canonical_store_from_config(
-        config,
-        uri=neo.uri,
-        auth=(neo.username, neo.password),
-        namespace=resolved_namespace,
-        database=neo.database,
-    )
+    # The on-disk ledger is single-writer SQLite. The staging Job mounts its
+    # ledger directory from GCS, whose FUSE semantics the runbook documents as
+    # not providing the file locking SQLite expects, so take the directory
+    # writer lease before opening the stores. Terraform's `parallelism = 1` is
+    # the hard barrier; this is the code-level backstop.
+    lease: WriterLease | None = None
+    if resolved_ledger:
+        lease = acquire_writer_lease(resolved_ledger, owner=f"{run_id}:{os.getpid()}")
+
+    stores: ShadowStores | None = None
+    store: Any = None
     try:
+        stores = (
+            ShadowStores.at(resolved_ledger)
+            if resolved_ledger
+            else ShadowStores.in_memory()
+        )
+        store = canonical_store_from_config(
+            config,
+            uri=neo.uri,
+            auth=(neo.username, neo.password),
+            namespace=resolved_namespace,
+            database=neo.database,
+        )
         papers = select_papers(slugs=slugs, dois=dois)
         return run_migration(
             config=config,
@@ -333,8 +353,14 @@ def execute_migration(
             supported_operations=SUPPORTED_OPERATIONS,
         )
     finally:
-        stores.close()
-        store.close()
+        # Release the lease only after the stores are closed, so the ledger files
+        # are flushed while this run still holds the directory.
+        if stores is not None:
+            stores.close()
+        if lease is not None:
+            lease.release()
+        if store is not None:
+            store.close()
 
 
 __all__ = [

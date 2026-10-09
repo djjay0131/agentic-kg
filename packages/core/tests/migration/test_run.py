@@ -184,3 +184,49 @@ class TestSelectPapers:
 
     def test_no_selector_is_the_whole_corpus(self):
         assert len(select_papers()) == 8
+
+
+def test_execute_migration_holds_and_releases_the_writer_lease(tmp_path, monkeypatch):
+    """The on-disk path takes the single-writer lease for the whole run.
+
+    ``execute_migration`` is the CLI/Job entry point that points the ledger at a
+    directory. It must hold the lease while the pipeline runs and release it
+    afterwards, so a second run can proceed. Neo4j and the pipeline are stubbed:
+    this is a wiring check, not an integration test.
+    """
+    from types import SimpleNamespace
+
+    from agentic_kg.migration import run as run_mod
+    from agentic_kg.migration.ingestion.writer_lease import LEASE_FILENAME
+
+    monkeypatch.setattr(
+        "agentic_kg.config.get_config",
+        lambda: SimpleNamespace(
+            neo4j=SimpleNamespace(
+                uri="bolt://unused", username="u", password="p", database=None
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "agentic_kg.migration.neo4j.canonical_store_from_config",
+        lambda *args, **kwargs: SimpleNamespace(close=lambda: None),
+    )
+    monkeypatch.setattr(run_mod, "select_papers", lambda **kwargs: ())
+    monkeypatch.setattr(run_mod, "importer_replay_client", lambda papers: None)
+
+    observed: dict[str, bool] = {}
+
+    def fake_run_migration(**kwargs):
+        root = kwargs["stores"].root
+        observed["held"] = (root / LEASE_FILENAME).exists()
+        return SimpleNamespace(to_dict=lambda: {})
+
+    monkeypatch.setattr(run_mod, "run_migration", fake_run_migration)
+
+    run_mod.execute_migration(
+        config=MigrationConfig(use_kgis_ingestion=True, use_kgcs_resolution=True),
+        ledger_dir=str(tmp_path),
+    )
+
+    assert observed["held"] is True
+    assert not (tmp_path / LEASE_FILENAME).exists()

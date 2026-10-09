@@ -99,6 +99,7 @@ deliberate:
 | Revision **labels / annotations** (`commit`, `environment`, rotation stamp) | deploy / rotation workflows | `--update-labels`, `lifecycle.ignore_changes` |
 | **env / secrets / scaling / port / IAM / VPC** | **Terraform** | declared in `main.tf` |
 | KGIS/KGCS opt-in flags | **Terraform** | `kgis_kgcs_enabled` + `canonical_namespace` in `envs/staging.tfvars` |
+| Durable KGIS **ledger bucket / volume / IAM** | **Terraform** | `ingest_ledger_bucket` + `ingest_ledger_dir` in `envs/staging.tfvars`; see §Durable KGIS ledger |
 | Neo4j **password value** | rotation workflow | `.github/workflows/rotate-neo4j-password.yml` |
 | Semantic Scholar **API key value** | sync workflow | `.github/workflows/sync-s2-key.yml` |
 
@@ -132,9 +133,10 @@ procedure: [`docs/operations/deploy-runbook.md`](../docs/operations/deploy-runbo
 `envs/staging.tfvars` sets:
 
 ```hcl
-kgis_kgcs_enabled   = true
-canonical_namespace = "staging"
-ingest_ledger_dir   = "/tmp/kgis-shadow"
+kgis_kgcs_enabled    = true
+canonical_namespace  = "staging"
+ingest_ledger_bucket = "vt-gcp-00042-agentic-kg-ledger-staging"
+ingest_ledger_dir    = "/mnt/ledger/staging"
 ```
 
 `kgis_kgcs_enabled = true` sets `CANONICAL_API_ENABLED=1` and
@@ -143,6 +145,35 @@ ingest_ledger_dir   = "/tmp/kgis-shadow"
 `KGCS_CANONICAL_NAMESPACE` and `INGEST_LEDGER_DIR` on the ingest Job. The
 namespace must be the same value on both (ADR-0005 isolation boundary). Set the
 flag to `false` to remove them cleanly.
+
+### Durable KGIS ledger
+
+The KGIS shadow ledger and evidence registry are SQLite files. A Job's local
+filesystem is ephemeral, so the ledger used to live in `/tmp/kgis-shadow` and was
+lost on scale-in (nightly-pipeline design P0-2). Setting
+`ingest_ledger_bucket` mounts that bucket into the ingest Job with a Cloud Run
+GCS volume (`gcs` on `google_cloud_run_v2_job`, a preview feature — hence the
+`google-beta` provider and `launch_stage = "BETA"` on the Job), and
+`ingest_ledger_dir` names the namespaced subdirectory inside the mount.
+Environments that leave `ingest_ledger_bucket` empty get no bucket and no volume;
+`/tmp/kgis-shadow` stays the default.
+
+| Piece | Owner | Notes |
+|---|---|---|
+| Bucket `vt-gcp-00042-agentic-kg-ledger-staging` | Terraform | uniform access, public-access-prevention enforced, versioning on, noncurrent versions deleted after 30 days |
+| Bucket IAM (`objectAdmin`, Job runtime SA) | Terraform | **bucket-scoped only** — no project-wide storage role |
+| GCS volume + mount (`/mnt/ledger`) | Terraform | `provider = google-beta`, `launch_stage = "BETA"` on the Job |
+| `parallelism = 1` / `task_count = 1` | Terraform | hard single-writer barrier (FUSE has no file locking) |
+
+The Cloud Run GCS mount is gcsfuse, which (per Google's docs) does not provide
+file locking and is not fully POSIX. SQLite's WAL mode therefore cannot rely on
+the mount for locking; the single writer is guaranteed by the Job's
+`parallelism = 1` plus a directory writer lease in
+`packages/core/src/agentic_kg/migration/ingestion/writer_lease.py`. This is a
+guard, not a FUSE fix — ADR-0012's backend swap behind
+`CandidateSink` / `LedgerReader` is the real long-term fix. The operator caveats
+and a validation step are in
+[`docs/operations/kgis-kgcs-staging-runbook.md` §Durable ledger](../docs/operations/kgis-kgcs-staging-runbook.md).
 
 ## Neo4j credential ownership
 
@@ -181,6 +212,8 @@ superseded ones (the seed included). Operator procedure:
 - Secret Manager containers (NEO4J_URI, NEO4J_PASSWORD, NEO4J_PASSWORD_NEXT,
   SEMANTIC_SCHOLAR_API_KEY)
 - Artifact Registry Docker repository
+- GCS bucket for the durable KGIS ledger (staging only; versioned, PAP enforced,
+  30-day noncurrent lifecycle) and its bucket-scoped IAM
 - Cloud Run API/UI services and ingest/rotate Jobs
 - IAM bindings for secret access and VPC egress
 
