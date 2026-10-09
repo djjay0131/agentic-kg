@@ -1,0 +1,46 @@
+_note: IMPORTER OUTPUT — machine extraction to diff against the human answer key; NOT the reconciled ground
+  truth.
+_caveats:
+- Topic (BELONGS_TO) not populated — known bug (topics_linked counter increments but no edge persists).
+- Concepts/Models/Methods store name+aliases only; no per-paper quoted_text/confidence retained (only
+  Problems do).
+paper:
+  n: '1'
+  title: 'CS-KG: A Large-Scale Knowledge Graph of Research Entities and Claims in Computer Science'
+  doi: 10.1007/978-3-031-19433-7_39
+  year: 2022
+  venue: Lecture notes in computer science
+  s2_paper_id: null
+  status: extracted
+topic:
+  domain: null
+  area: null
+  subtopic: null
+  _note: empty — BELONGS_TO bug
+research_concepts:
+- name: Knowledge Graph
+  aliases:
+  - KG
+  description: A structured representation of knowledge in the form of entities and their interrelations.
+- name: RDF Triples
+  aliases: []
+  description: A standard model for data interchange on the web, used in knowledge graphs.
+- name: Semantic Relations
+  aliases: []
+  description: Relationships that capture the meaning between entities in a knowledge graph.
+models: []
+methods:
+- name: Information Extraction Pipeline
+  aliases: []
+  method_type: data_processing
+problems:
+- statement: A common limitation of existing knowledge graph solutions is that they address a low number
+    of articles, either because they rely on human experts to summarize information from the literature
+    or because they focus on specific research areas.
+  quoted_text: A common limitation of these solutions is that they address a low number of articles, either
+    because they rely on human experts to summarize information from the literature or because they focus
+    on specific research areas.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+cites_within_set: []

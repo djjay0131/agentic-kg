@@ -1,0 +1,187 @@
+<h1 id="kgiskgcs-staging-runbook">KGIS/KGCS staging runbook</h1>
+
+<p><strong>Applies to:</strong> the non-production staging stack in GCP project <code class="language-plaintext highlighter-rouge">vt-gcp-00042</code>,
+for the adoption plan’s Phase 8 first slice — making the
+<code class="language-plaintext highlighter-rouge">KGIS -&gt; KGCS -&gt; canonical graph</code> path runnable and observable end to end.</p>
+
+<p>Nothing in this runbook is run by the agent that wrote it. It is the operator’s
+procedure; the orchestrator deploys after merge.</p>
+
+<p>Isolation is decided in <strong>ADR-0005</strong>: the canonical graph shares the one
+staging Community Neo4j database but lives under the <code class="language-plaintext highlighter-rouge">Canon__*</code> labels, scoped to
+a dedicated namespace. Nothing here can reach the legacy <code class="language-plaintext highlighter-rouge">Paper</code> / <code class="language-plaintext highlighter-rouge">Topic</code> /
+<code class="language-plaintext highlighter-rouge">RESEARCHES</code> graph.</p>
+
+<hr />
+
+<h2 id="1-deploy-the-integration-branch-to-staging">1. Deploy the integration branch to staging</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gh workflow run deploy-branch.yml <span class="se">\</span>
+  <span class="nt">--ref</span> integration/kgis-kgcs-adoption <span class="se">\</span>
+  <span class="nt">-f</span> <span class="nv">services</span><span class="o">=</span>all <span class="se">\</span>
+  <span class="nt">-f</span> <span class="nv">environment</span><span class="o">=</span>staging
+</code></pre></div></div>
+
+<p>This builds and deploys <code class="language-plaintext highlighter-rouge">agentic-kg-api-staging</code>, <code class="language-plaintext highlighter-rouge">agentic-kg-ui-staging</code> and the
+<code class="language-plaintext highlighter-rouge">agentic-kg-ingest-staging</code> Cloud Run Job. Both images now install the opt-in
+<code class="language-plaintext highlighter-rouge">migration</code> extra (<code class="language-plaintext highlighter-rouge">docker/Dockerfile.api</code>, <code class="language-plaintext highlighter-rouge">docker/Dockerfile.job</code>); the code
+path is still opt-in at the flag level, so the default <code class="language-plaintext highlighter-rouge">INGEST_MODE=legacy</code>
+behaviour is unchanged.</p>
+
+<p>The workflow does <strong>not</strong> set the migration flags. Enable them explicitly on the
+two resources (these are <code class="language-plaintext highlighter-rouge">gcloud</code> mutations — the orchestrator runs them, not the
+implementation agent):</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Job: opt in to the migration path and keep its ledger job-local.</span>
+gcloud run <span class="nb">jobs </span>update agentic-kg-ingest-staging <span class="se">\</span>
+  <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="se">\</span>
+  <span class="nt">--update-env-vars</span><span class="o">=</span><span class="nv">INGEST_MODE</span><span class="o">=</span>kgis_kgcs,KGIS_INGESTION_ENABLED<span class="o">=</span>1,KGCS_RESOLUTION_ENABLED<span class="o">=</span>1,KGCS_CANONICAL_NAMESPACE<span class="o">=</span>staging,INGEST_LEDGER_DIR<span class="o">=</span>/tmp/kgis-shadow
+
+<span class="c"># API: expose the read-only canonical projection.</span>
+gcloud run services update agentic-kg-api-staging <span class="se">\</span>
+  <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="se">\</span>
+  <span class="nt">--update-env-vars</span><span class="o">=</span><span class="nv">CANONICAL_API_ENABLED</span><span class="o">=</span>1,KGCS_CANONICAL_NAMESPACE<span class="o">=</span>staging
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">KGCS_CANONICAL_NAMESPACE</code> must be the <strong>same value</strong> on both resources; it is
+the isolation boundary.</p>
+
+<h2 id="2-execute-the-job-in-kgis_kgcs-mode">2. Execute the Job in <code class="language-plaintext highlighter-rouge">kgis_kgcs</code> mode</h2>
+
+<p>Leave <code class="language-plaintext highlighter-rouge">INGEST_DOIS</code> unset to run the whole frozen eight-paper corpus (the corpus
+is the eight committed ground-truth papers; there is no live PDF acquisition in
+this slice):</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud run <span class="nb">jobs </span>execute agentic-kg-ingest-staging <span class="se">\</span>
+  <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="se">\</span>
+  <span class="nt">--wait</span>
+</code></pre></div></div>
+
+<p>To run a subset, pass comma-separated DOIs or slugs as an execution override
+(unknown values are refused, not silently ignored):</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud run <span class="nb">jobs </span>execute agentic-kg-ingest-staging <span class="se">\</span>
+  <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="se">\</span>
+  <span class="nt">--update-env-vars</span><span class="o">=</span><span class="nv">INGEST_DOIS</span><span class="o">=</span>10.1007/978-3-031-19433-7_39,10.1038/s41597-025-05200-8 <span class="se">\</span>
+  <span class="nt">--wait</span>
+</code></pre></div></div>
+
+<p>The Job prints a JSON summary to stdout (Cloud Logging). Read it with:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud logging <span class="nb">read</span> <span class="se">\</span>
+  <span class="s1">'resource.type="cloud_run_job" AND resource.labels.job_name="agentic-kg-ingest-staging"'</span> <span class="se">\</span>
+  <span class="nt">--limit</span><span class="o">=</span>50 <span class="nt">--format</span><span class="o">=</span><span class="s1">'value(textPayload)'</span>
+</code></pre></div></div>
+
+<p>The summary’s fields:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">candidates_by_kind</code></td>
+      <td>KGIS candidates submitted, by kind</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">routes</code></td>
+      <td><code class="language-plaintext highlighter-rouge">AUTO</code> / <code class="language-plaintext highlighter-rouge">LLM_ASSESS</code> / <code class="language-plaintext highlighter-rouge">HUMAN</code> over validated candidates</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">committed_operations</code></td>
+      <td>KGCS operations the executor actually applied</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">deferred_candidates</code> / <code class="language-plaintext highlighter-rouge">deferral_reasons</code></td>
+      <td>validated-but-not-committed, classified</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">epoch</code></td>
+      <td>latest published canonical epoch</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">committed</code></td>
+      <td>whether <strong>this</strong> run advanced the epoch</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">honest_nulls</code></td>
+      <td>the stages that are deliberately not wired</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="idempotency-check-required">Idempotency check (required)</h3>
+
+<p>Run the Job a second time with the same flags. The expected result is
+<code class="language-plaintext highlighter-rouge">"committed": false</code> with the same <code class="language-plaintext highlighter-rouge">epoch</code> and no change to the entity count —
+the deterministic candidate ids re-plan the same operations and the store
+refuses them rather than duplicating canonical state. A second run that reports
+<code class="language-plaintext highlighter-rouge">"committed": true</code> with <code class="language-plaintext highlighter-rouge">CREATE_IDENTITY</code> operations is a defect: stop and
+report it.</p>
+
+<h2 id="3-query-the-read-only-canonical-api">3. Query the read-only canonical API</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">API_URL</span><span class="o">=</span><span class="si">$(</span>gcloud run services describe agentic-kg-api-staging <span class="se">\</span>
+  <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="nt">--format</span><span class="o">=</span><span class="s1">'value(status.url)'</span><span class="si">)</span>
+
+curl <span class="nt">-s</span> <span class="s2">"</span><span class="nv">$API_URL</span><span class="s2">/api/canonical/summary"</span>
+curl <span class="nt">-s</span> <span class="s2">"</span><span class="nv">$API_URL</span><span class="s2">/api/canonical/entities?type=Paper&amp;q=cskg"</span>
+curl <span class="nt">-s</span> <span class="s2">"</span><span class="nv">$API_URL</span><span class="s2">/api/canonical/entities/&lt;identity_id&gt;"</span>   <span class="c"># assertions + evidence_refs</span>
+</code></pre></div></div>
+
+<p>All three are <code class="language-plaintext highlighter-rouge">GET</code>-only. With <code class="language-plaintext highlighter-rouge">CANONICAL_API_ENABLED</code> unset they return 404;
+with it set but the <code class="language-plaintext highlighter-rouge">migration</code> extra missing from the image they return 503.
+The endpoints read the canonical graph at the latest epoch through a reader that
+is structurally not a <code class="language-plaintext highlighter-rouge">GraphMutationStore</code> — there is no canonical write surface
+on this path.</p>
+
+<h2 id="4-what-the-first-slice-does-and-does-not-do">4. What the first slice does and does not do</h2>
+
+<p><strong>Does:</strong> acquire from the committed corpus, run KGIS shadow ingestion, run KGCS
+curation, commit DOI-keyed <code class="language-plaintext highlighter-rouge">Paper</code> identities into the isolated canonical
+namespace, publish an epoch, and report all of it as JSON.</p>
+
+<p><strong>Does not (honest nulls, carried in the summary):</strong></p>
+
+<ul>
+  <li><strong>Entity resolution is not wired.</strong> Every assertion whose subject is still an
+alias is <em>deferred</em>, not committed — so the canonical graph holds identities
+but no attribute assertions yet. The deferred count and reasons are in the
+summary.</li>
+  <li><strong>The LLM adviser and human review queue are not wired</strong>, so <code class="language-plaintext highlighter-rouge">LLM_ASSESS</code> and
+<code class="language-plaintext highlighter-rouge">HUMAN</code> routes are deferred by name rather than adjudicated.</li>
+  <li><strong>The replay client reproduces the committed importer output, not a live
+model.</strong> <code class="language-plaintext highlighter-rouge">extraction_quality</code> is <code class="language-plaintext highlighter-rouge">not_measured</code> in the summary for exactly
+this reason.</li>
+  <li><strong>The KGIS ledger/evidence is job-local SQLite</strong> (<code class="language-plaintext highlighter-rouge">/tmp/kgis-shadow</code>, or
+in-memory if unset) and is lost when the Job’s instance scales in. The durable,
+observable artifact is the canonical epoch in Neo4j. A durable ledger backend
+is deferred (ADR-0003 / ADR-0012).</li>
+</ul>
+
+<h2 id="5-rollback">5. Rollback</h2>
+
+<p>The legacy path is untouched. To return the stack to it:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud run <span class="nb">jobs </span>update agentic-kg-ingest-staging <span class="se">\</span>
+  <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="nt">--remove-env-vars</span><span class="o">=</span>INGEST_MODE
+gcloud run services update agentic-kg-api-staging <span class="se">\</span>
+  <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="nt">--remove-env-vars</span><span class="o">=</span>CANONICAL_API_ENABLED
+</code></pre></div></div>
+
+<p>The canonical labels and namespace can be left in place; they are invisible to
+every legacy read path.</p>
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">llm/governance/adr/0005-kgis-kgcs-staging-isolation.md</code> — the isolation decision</li>
+  <li><code class="language-plaintext highlighter-rouge">llm/governance/adr/0004-kgis-kgcs-adoption-opt-in-seam.md</code> — the opt-in flags</li>
+  <li><code class="language-plaintext highlighter-rouge">packages/core/src/agentic_kg/migration/run.py</code> — the run orchestration</li>
+  <li><code class="language-plaintext highlighter-rouge">packages/core/src/agentic_kg/migration/canonical_read.py</code> — the read facade</li>
+  <li><code class="language-plaintext highlighter-rouge">packages/api/src/agentic_kg_api/routers/canonical.py</code> — the endpoints</li>
+</ul>
