@@ -13,7 +13,10 @@ from agentic_kg.data_acquisition.semantic_scholar import (
     get_semantic_scholar_client,
     reset_semantic_scholar_client,
 )
-from agentic_kg.data_acquisition.config import SemanticScholarConfig
+from agentic_kg.data_acquisition.config import (
+    SEMANTIC_SCHOLAR_API_KEY_PLACEHOLDER,
+    SemanticScholarConfig,
+)
 from agentic_kg.data_acquisition.exceptions import RateLimitError
 from agentic_kg.data_acquisition.cache import ResponseCache
 from agentic_kg.data_acquisition.rate_limiter import TokenBucketRateLimiter
@@ -378,6 +381,35 @@ class TestRateLimitCeiling:
 
         assert a is b
         assert a.capacity == 1.0
+
+
+class TestApiKeyPlaceholder:
+    """The Terraform seed value must behave as "no key".
+
+    Terraform writes a placeholder first version of SEMANTIC_SCHOLAR_API_KEY so
+    the ingest Job can be created before the sync workflow runs. Sending that
+    literal to S2 as an API key would be worse than sending none.
+    """
+
+    def test_seed_placeholder_is_treated_as_unset(self, monkeypatch):
+        monkeypatch.setenv(
+            "SEMANTIC_SCHOLAR_API_KEY", SEMANTIC_SCHOLAR_API_KEY_PLACEHOLDER
+        )
+        cfg = SemanticScholarConfig()
+        assert cfg.api_key == ""
+        assert cfg.is_authenticated is False
+        assert "x-api-key" not in cfg.headers
+
+    def test_real_key_is_sent(self, monkeypatch):
+        monkeypatch.setenv("SEMANTIC_SCHOLAR_API_KEY", "s2-real-key")
+        cfg = SemanticScholarConfig()
+        assert cfg.api_key == "s2-real-key"
+        assert cfg.is_authenticated is True
+        assert cfg.headers["x-api-key"] == "s2-real-key"
+
+    def test_explicit_key_argument_is_not_placeholder_scrubbed(self):
+        cfg = SemanticScholarConfig(api_key="explicit-key")
+        assert cfg.api_key == "explicit-key"
 
 
 class TestGetSemanticScholarClient:
