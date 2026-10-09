@@ -21,6 +21,12 @@ env:
 
 jobs:
   test:
+    # Codecov authenticates with GitHub's OIDC token instead of a stored
+    # CODECOV_TOKEN (ADR-0007 rule 1: keyless first). Job-scoped: the
+    # workflow-level block stays contents: read (test_workflow_security.py).
+    permissions:
+      contents: read
+      id-token: write
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -64,12 +70,12 @@ jobs:
           pytest packages/api/tests -v --tb=short
 
       - name: Upload coverage reports
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         if: always()
         with:
-          file: ./coverage.xml
+          files: ./coverage.xml
           fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
 
       - name: Test Summary
         if: always()
