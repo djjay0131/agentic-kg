@@ -678,8 +678,6 @@ resource "google_secret_manager_secret_version" "neo4j_password_next_seed" {
 }
 
 resource "google_cloud_run_v2_job" "rotate_password" {
-  depends_on = [google_secret_manager_secret_version.neo4j_password_next_seed]
-
   name     = "agentic-kg-rotate-neo4j-${var.env}"
   location = var.region
 
@@ -758,6 +756,7 @@ resource "google_cloud_run_v2_job" "rotate_password" {
     google_project_iam_member.secret_accessor,
     google_project_iam_member.network_user,
     google_secret_manager_secret_version.neo4j_uri,
+    google_secret_manager_secret_version.neo4j_password_next_seed,
   ]
 }
 
