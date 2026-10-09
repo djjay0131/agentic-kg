@@ -835,6 +835,11 @@ resource "google_cloud_run_v2_job" "rotate_password" {
 
   template {
     template {
+      # Dedicated identity (ADR-0007): the only principal allowed to add
+      # NEO4J_PASSWORD versions, so the password is generated and stored
+      # inside GCP and never transits a GitHub runner.
+      service_account = google_service_account.neo4j_rotator.email
+
       containers {
         image   = "${var.region}-docker.pkg.dev/${var.project_id}/agentic-kg/job:latest"
         command = ["python", "-m", "agentic_kg.rotate_password"]
@@ -875,6 +880,20 @@ resource "google_cloud_run_v2_job" "rotate_password" {
             }
           }
         }
+
+        # Where the job writes what it generates (ADR-0007). Names, not values.
+        env {
+          name  = "GOOGLE_CLOUD_PROJECT"
+          value = var.project_id
+        }
+        env {
+          name  = "NEO4J_PASSWORD_SECRET_ID"
+          value = google_secret_manager_secret.neo4j_password.secret_id
+        }
+        env {
+          name  = "NEO4J_PASSWORD_NEXT_SECRET_ID"
+          value = google_secret_manager_secret.neo4j_password_next.secret_id
+        }
       }
 
       # Same private path to Neo4j as the other workloads.
@@ -909,7 +928,86 @@ resource "google_cloud_run_v2_job" "rotate_password" {
     google_project_iam_member.network_user,
     google_secret_manager_secret_version.neo4j_uri,
     google_secret_manager_secret_version.neo4j_password_next_seed,
+    google_secret_manager_secret_iam_member.rotator_version_adder,
+    google_project_iam_member.rotator_network_user,
   ]
+}
+
+# =============================================================================
+# ADR-0007: narrow identities for secret handling
+# =============================================================================
+# 1. neo4j_rotator runs the rotation Job. It may read the Neo4j secrets and
+#    ADD versions to NEO4J_PASSWORD / NEO4J_PASSWORD_NEXT — nothing else. The
+#    API and ingest workloads keep the default compute identity, which can read
+#    but not write.
+# 2. ci_vendor_keys is what GitHub workflows impersonate to READ the vendor
+#    keys (Semantic Scholar, OpenAI) at run time. It replaces the GitHub-secret
+#    copies; it can read exactly those two secrets and nothing else, so a PR
+#    workflow never holds the deployer's broad roles just to get an API key.
+
+resource "google_service_account" "neo4j_rotator" {
+  account_id   = "neo4j-rotator-${var.env}"
+  display_name = "Neo4j password rotation job (${var.env})"
+  description  = "ADR-0007: generates the Neo4j password inside GCP and stores it; never exposed."
+}
+
+resource "google_secret_manager_secret_iam_member" "rotator_accessor" {
+  for_each = {
+    uri      = google_secret_manager_secret.neo4j_uri.id
+    password = google_secret_manager_secret.neo4j_password.id
+    next     = google_secret_manager_secret.neo4j_password_next.id
+  }
+  secret_id = each.value
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.neo4j_rotator.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "rotator_version_adder" {
+  for_each = {
+    password = google_secret_manager_secret.neo4j_password.id
+    next     = google_secret_manager_secret.neo4j_password_next.id
+  }
+  secret_id = each.value
+  role      = "roles/secretmanager.secretVersionAdder"
+  member    = "serviceAccount:${google_service_account.neo4j_rotator.email}"
+}
+
+# Direct VPC egress runs as the job's service account (ADR-0006).
+resource "google_project_iam_member" "rotator_network_user" {
+  project = var.project_id
+  role    = "roles/compute.networkUser"
+  member  = "serviceAccount:${google_service_account.neo4j_rotator.email}"
+}
+
+# The deploy identity must be able to act as the rotator to update/execute
+# the Job.
+resource "google_service_account_iam_member" "deployer_acts_as_rotator" {
+  count              = var.deploy_service_account_email == "" ? 0 : 1
+  service_account_id = google_service_account.neo4j_rotator.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${var.deploy_service_account_email}"
+}
+
+resource "google_service_account" "ci_vendor_keys" {
+  account_id   = "gh-ci-vendor-keys-${var.env}"
+  display_name = "GitHub CI vendor-key reader (${var.env})"
+  description  = "ADR-0007: read-only access to vendor API keys for CI; impersonated via WIF."
+}
+
+resource "google_secret_manager_secret_iam_member" "ci_vendor_keys_accessor" {
+  for_each = {
+    semantic_scholar = google_secret_manager_secret.semantic_scholar_api_key.id
+    openai           = "projects/${var.project_id}/secrets/OPENAI_API_KEY${var.env == "prod" ? "_PROD" : ""}"
+  }
+  secret_id = each.value
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.ci_vendor_keys.email}"
+}
+
+resource "google_service_account_iam_member" "ci_vendor_keys_wif" {
+  service_account_id = google_service_account.ci_vendor_keys.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "principalSet://iam.googleapis.com/projects/${data.google_project.current.number}/locations/global/workloadIdentityPools/${var.wif_pool_id}/attribute.repository/${var.wif_repository}"
 }
 
 # =============================================================================
