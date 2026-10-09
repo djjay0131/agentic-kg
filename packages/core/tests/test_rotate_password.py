@@ -146,3 +146,166 @@ def test_main_exits_1_on_failure_and_logs_no_password(monkeypatch, caplog) -> No
     assert exc.value.code == 1
     assert "CURRENT-ultra-secret" not in caplog.text
     assert "NEXT-ultra-secret" not in caplog.text
+
+
+# -- ADR-0007: in-GCP generation ------------------------------------------------
+
+
+class _Store:
+    def __init__(self) -> None:
+        self.added: list[tuple[str, str]] = []
+
+    def add_version(self, secret_id: str, value: str) -> str:
+        self.added.append((secret_id, value))
+        return f"projects/p/secrets/{secret_id}/versions/{len(self.added)}"
+
+
+class _AuthFactory(_Factory):
+    """Only ``valid`` authenticates; ALTER switches the valid password."""
+
+    def __init__(self, valid: str) -> None:
+        super().__init__()
+        self.valid = valid
+
+    def __call__(self, uri, auth):
+        factory = self
+        driver = _Driver(uri, auth)
+
+        def verify() -> None:
+            if auth[1] != factory.valid:
+                from neo4j.exceptions import AuthError
+
+                raise AuthError("bad credentials")
+
+        driver.verify_connectivity = verify
+        original_session = driver.session
+
+        def session():
+            s = original_session()
+            run = s.run
+
+            def run_and_apply(query, **params):
+                if query == rotate_password._ALTER_PASSWORD:
+                    factory.valid = params["nextPassword"]
+                return run(query, **params)
+
+            s.run = run_and_apply
+            return s
+
+        driver.session = session
+        self.drivers.append(driver)
+        return driver
+
+
+def _gcp(factory, store, current, staged=None):
+    rotate_password.rotate_in_gcp(
+        uri="bolt://10.0.0.2:7687", username="neo4j", current_password=current,
+        staged_password=staged, store=store, password_secret_id="NEO4J_PASSWORD",
+        next_secret_id="NEO4J_PASSWORD_NEXT", driver_factory=factory,
+        generate=lambda: "GENERATED-in-gcp",
+    )
+
+
+def test_gcp_mode_generates_stages_first_then_stores_after_verify() -> None:
+    factory, store = _AuthFactory("OLD"), _Store()
+    _gcp(factory, store, "OLD", staged=rotate_password.PLACEHOLDER)
+    assert store.added == [
+        ("NEO4J_PASSWORD_NEXT", "GENERATED-in-gcp"),  # staged before ALTER
+        ("NEO4J_PASSWORD", "GENERATED-in-gcp"),  # promoted after the probe
+    ]
+    assert factory.valid == "GENERATED-in-gcp"
+
+
+def test_gcp_mode_recovers_an_interrupted_rotation() -> None:
+    # ALTER happened last time but NEO4J_PASSWORD was never updated.
+    factory, store = _AuthFactory("STAGED"), _Store()
+    _gcp(factory, store, "OLD", staged="STAGED")
+    assert store.added[0] == ("NEO4J_PASSWORD", "STAGED")
+    assert store.added[-1] == ("NEO4J_PASSWORD", "GENERATED-in-gcp")
+    assert factory.valid == "GENERATED-in-gcp"
+
+
+def test_gcp_mode_refuses_when_nothing_authenticates() -> None:
+    factory, store = _AuthFactory("SOMETHING-ELSE"), _Store()
+    with pytest.raises(RuntimeError):
+        _gcp(factory, store, "OLD", staged=rotate_password.PLACEHOLDER)
+    assert store.added == []
+
+
+def test_gcp_mode_never_stages_if_the_store_write_fails() -> None:
+    factory = _AuthFactory("OLD")
+
+    class FailingStore(_Store):
+        def add_version(self, secret_id, value):
+            raise OSError("secret manager down")
+
+    with pytest.raises(OSError):
+        _gcp(factory, FailingStore(), "OLD")
+    assert factory.valid == "OLD"  # Neo4j untouched when staging fails
+
+
+def test_secret_store_posts_base64_and_logs_only_the_version_name(caplog) -> None:
+    import base64
+    import json
+
+    calls = []
+
+    def http(url, *, method="GET", headers=None, body=None):
+        calls.append((url, method, headers, body))
+        if "metadata" in url:
+            return json.dumps({"access_token": "tok"}).encode()
+        return json.dumps({"name": "projects/p/secrets/S/versions/7"}).encode()
+
+    with caplog.at_level("DEBUG"):
+        name = rotate_password.SecretStore("p", http).add_version("S", "VALUE-xyz")
+    assert name.endswith("/versions/7")
+    url, method, headers, body = calls[-1]
+    assert url.endswith("/projects/p/secrets/S:addVersion") and method == "POST"
+    assert headers["Authorization"] == "Bearer tok"
+    assert base64.b64decode(json.loads(body)["payload"]["data"]) == b"VALUE-xyz"
+    assert "VALUE-xyz" not in caplog.text
+
+
+def test_main_gcp_wires_the_store_and_logs_no_password(monkeypatch, caplog) -> None:
+    monkeypatch.setenv("NEO4J_URI", "bolt://10.0.0.2:7687")
+    monkeypatch.setenv("NEO4J_PASSWORD", "CURRENT-ultra-secret")
+    monkeypatch.delenv("NEO4J_PASSWORD_NEXT", raising=False)
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "p")
+    monkeypatch.setenv("NEO4J_PASSWORD_SECRET_ID", "NEO4J_PASSWORD")
+    monkeypatch.setenv("NEO4J_PASSWORD_NEXT_SECRET_ID", "NEO4J_PASSWORD_NEXT")
+    seen = {}
+    monkeypatch.setattr(rotate_password, "rotate_in_gcp", lambda **k: seen.update(k))
+    with caplog.at_level("DEBUG"):
+        with pytest.raises(SystemExit) as exc:
+            rotate_password.main_gcp()
+    assert exc.value.code == 0
+    assert seen["password_secret_id"] == "NEO4J_PASSWORD" and seen["staged_password"] is None
+    assert "CURRENT-ultra-secret" not in caplog.text
+
+
+def test_main_gcp_requires_the_secret_ids(monkeypatch) -> None:
+    monkeypatch.setenv("NEO4J_URI", "bolt://x:7687")
+    monkeypatch.setenv("NEO4J_PASSWORD", "c")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "p")
+    monkeypatch.delenv("NEO4J_PASSWORD_SECRET_ID", raising=False)
+    with pytest.raises(SystemExit) as exc:
+        rotate_password.main_gcp()
+    assert exc.value.code == 2
+
+
+def test_legacy_main_refuses_the_placeholder(monkeypatch) -> None:
+    monkeypatch.setenv("NEO4J_URI", "bolt://x:7687")
+    monkeypatch.setenv("NEO4J_PASSWORD", "c")
+    monkeypatch.setenv("NEO4J_PASSWORD_NEXT", rotate_password.PLACEHOLDER)
+    called = []
+    monkeypatch.setattr(rotate_password, "_rotate", lambda *a, **k: called.append(1))
+    with pytest.raises(SystemExit) as exc:
+        rotate_password.main()
+    assert exc.value.code == 2 and called == []
+
+
+def test_gcp_entrypoint_module_exists() -> None:
+    import importlib
+
+    mod = importlib.import_module("agentic_kg.rotate_password_gcp")
+    assert mod.main_gcp is rotate_password.main_gcp
