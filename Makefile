@@ -43,7 +43,7 @@ smoke-local:
 		-e NEO4J_AUTH=neo4j/testpassword \
 		-e NEO4J_PLUGINS='["apoc"]' \
 		-p 7687:7687 -p 7474:7474 \
-		neo4j:5.26-community
+		mirror.gcr.io/library/neo4j:5.26-community
 	@echo "Waiting for Neo4j..."
 	@until curl -sf http://localhost:7474 >/dev/null 2>&1; do sleep 2; done
 	@NEO4J_URI=bolt://localhost:7687 NEO4J_USERNAME=neo4j NEO4J_PASSWORD=testpassword \
