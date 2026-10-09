@@ -414,17 +414,104 @@ resource "google_cloud_run_v2_service_iam_member" "api_public" {
 }
 
 # =============================================================================
+# KGIS ledger bucket — durable shadow ledger/evidence for the ingest Job
+# =============================================================================
+# The KGIS shadow ledger and evidence registry are SQLite files. Cloud Run gives
+# each revision a private, ephemeral filesystem, so staging held them in
+# /tmp/kgis-shadow and lost them on scale-in (nightly-pipeline design P0-2).
+# This bucket is mounted into the ingest Job with a Cloud Run GCS volume
+# (gcsfuse) and INGEST_LEDGER_DIR points at a namespaced subdirectory, so the
+# ledger survives the Job's instance scaling in.
+#
+# Created only when var.ingest_ledger_bucket names it: environments that keep
+# the job-local /tmp ledger get no bucket and no volume.
+resource "google_storage_bucket" "ledger" {
+  count = var.ingest_ledger_bucket != "" ? 1 : 0
+
+  name                        = var.ingest_ledger_bucket
+  location                    = var.region
+  storage_class               = "STANDARD"
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+  force_destroy               = false
+
+  versioning {
+    enabled = true
+  }
+
+  # Keep the live object; delete superseded (noncurrent) generations after 30
+  # days. The ledger is written in place, so an operator recovering a corrupted
+  # write has a month of generations to fall back to.
+  lifecycle_rule {
+    condition {
+      days_since_noncurrent_time = 30
+    }
+    action {
+      type = "Delete"
+    }
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+# The ingest Job's runtime SA writes the ledger, so it gets object admin on THIS
+# bucket only — never a project-wide storage role.
+resource "google_storage_bucket_iam_member" "ingest_ledger" {
+  count = var.ingest_ledger_bucket != "" ? 1 : 0
+
+  bucket = google_storage_bucket.ledger[0].name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+
+  depends_on = [google_project_service.apis]
+}
+
+# =============================================================================
 # Cloud Run Job — Ingestion (long-running paper ingestion)
 # =============================================================================
 resource "google_cloud_run_v2_job" "ingest" {
+  provider = google-beta
+
   name     = "agentic-kg-ingest-${var.env}"
   location = var.region
 
+  # The GCS ledger volume (`gcs` below) is a Cloud Run preview feature, so the
+  # Job opts into a preview launch stage. This is an in-place update to the
+  # existing Job, not a replacement.
+  launch_stage = "BETA"
+
   template {
+    # The durable ledger is single-writer SQLite. One task, no intra-execution
+    # parallelism: Cloud Storage FUSE does not provide file locking, so two
+    # concurrent tasks sharing the mount would corrupt the ledger (see
+    # docs/operations/kgis-kgcs-staging-runbook.md §Durable ledger). This is also
+    # enforced in code by the writer lease in migration/ingestion/writer_lease.py.
+    parallelism = 1
+    task_count  = 1
+
     template {
+      dynamic "volumes" {
+        for_each = var.ingest_ledger_bucket != "" ? [1] : []
+        content {
+          name = "ledger"
+          gcs {
+            bucket    = var.ingest_ledger_bucket
+            read_only = false
+          }
+        }
+      }
+
       containers {
         image   = "${var.region}-docker.pkg.dev/${var.project_id}/agentic-kg/job:latest"
         command = ["python", "-m", "agentic_kg.job_runner"]
+
+        dynamic "volume_mounts" {
+          for_each = var.ingest_ledger_bucket != "" ? [1] : []
+          content {
+            name       = "ledger"
+            mount_path = var.ingest_ledger_mount_path
+          }
+        }
 
         resources {
           limits = {
