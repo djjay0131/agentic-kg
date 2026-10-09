@@ -65,7 +65,10 @@ def _snippet_offenders(paths: tuple[ReadPath, ...]) -> list[str]:
 def test_the_inventory_is_not_empty() -> None:
     """§9.0 obligation 1 for every quantified assertion in this module."""
     assert len(READ_PATHS) >= 25, f"expected the full read-path inventory, got {len(READ_PATHS)}"
-    assert len(SCOPED_OUT_SURFACES) >= 3
+    # One surface remains scoped out: /api/reviews/*. PUT /api/problems/{id}
+    # (#110) and the synthesis write-back + continuation related-problem read
+    # (#115) were repaired and their entries retired.
+    assert len(SCOPED_OUT_SURFACES) >= 1
     assert len({p.id for p in READ_PATHS}) == len(READ_PATHS), "duplicate read-path id"
 
 

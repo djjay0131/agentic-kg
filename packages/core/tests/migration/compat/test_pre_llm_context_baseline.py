@@ -264,11 +264,13 @@ def test_continuation_agent_assembles_the_baseline_context(
 ) -> None:
     """The real ContinuationAgent context load, no model call.
 
-    Also pins the two topic facts that matter for the cutover: the topic name
-    is reachable today only because the fixture wrote BELONGS_TO by hand, and
-    ``related_problems`` is empty despite an EXTENDS edge existing in the graph
-    — defect D-1, asserted here so the fix is detected when it lands rather
-    than assumed.
+    Pins the topic fact that matters for the cutover: the topic name is
+    reachable today only because the fixture wrote BELONGS_TO by hand. It also
+    asserts the related-problem leg, repaired by #115: the fixture's EXTENDS
+    edge now surfaces in the context instead of the read being swallowed by a
+    bad ``limit`` keyword (D-1) and a dict-vs-tuple access (D-2). The probe
+    below still proves the edge is really in the graph, so a regression to an
+    empty context fails for the right reason.
     """
     from agentic_kg.agents.continuation import ContinuationAgent
     from agentic_kg.knowledge_graph.relations import RelationService
@@ -291,20 +293,25 @@ def test_continuation_agent_assembles_the_baseline_context(
     assert context["metrics"], "metric context is empty"
     assert context["constraints"], "constraint context is empty"
 
-    # D-1. The EXTENDS edge exists -- the probe below proves it -- and the agent
-    # still sees nothing, because get_related_problems is called with a `limit`
-    # keyword it does not accept and the TypeError is swallowed.
+    # #115. The EXTENDS edge exists -- the probe proves the edge is in the
+    # graph -- and the agent now surfaces it, because get_related_problems is
+    # called with arguments it accepts and its (Problem, ProblemRelation) tuples
+    # are unpacked. Before #115 the `limit` TypeError and the dict access were
+    # both swallowed and this list was empty.
     edges = require_non_vacuous(
         run_all_probes(
             _SurfaceOver(neo4j_repository), compat_graph.inputs, token=compat_graph.token
         )["api.graph.problem_relations"]
     )
     assert any(row["rel_type"] == "EXTENDS" for row in edges.rows)
-    assert context["related_problems"] == [], (
-        "related_problems is no longer empty, so defect D-1 "
-        "(continuation.py:128 passes limit= to a method that has no such "
-        "parameter) has been fixed. Remove the SCOPED_OUT classification on "
-        "'agent.continuation.related_problems' and add a real probe for it."
+    expected_related = (
+        f"[EXTENDS] {compat_graph.token} How can transformer efficiency be "
+        "improved for problem 2?"
+    )
+    assert context["related_problems"] == [expected_related], (
+        "the fixture's EXTENDS edge did not surface in the continuation "
+        "context; defect D-1/D-2 was repaired by #115, so an empty or "
+        "malformed list is a regression."
     )
 
 
