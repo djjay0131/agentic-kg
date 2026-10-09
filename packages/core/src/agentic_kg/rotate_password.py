@@ -4,7 +4,9 @@ Neo4j is VPC-private after ADR-0006, so this runs *inside* the VPC as the
 ``agentic-kg-rotate-neo4j-<env>`` Cloud Run Job, under its own
 ``neo4j-rotator-<env>`` service account.
 
-**In-GCP mode (ADR-0007, the default when the secret IDs are set).** The Job
+**In-GCP mode (ADR-0007), entrypoint ``python -m agentic_kg.rotate_password_gcp``.**
+A separate module on purpose: an image that predates it fails with
+``ModuleNotFoundError`` before touching Neo4j. The Job
 *generates* the new password itself, so it never leaves GCP:
 
 1. authenticate with ``NEO4J_PASSWORD`` (current). If that fails and the
@@ -23,8 +25,9 @@ Environment: ``NEO4J_URI``, ``NEO4J_USERNAME`` (default ``neo4j``),
 in GCP mode), ``GOOGLE_CLOUD_PROJECT``, ``NEO4J_PASSWORD_SECRET_ID``,
 ``NEO4J_PASSWORD_NEXT_SECRET_ID``.
 
-**Legacy mode** (no secret IDs): the workflow supplied ``NEO4J_PASSWORD_NEXT``
-and the Job only changes and verifies it.
+**Legacy mode** (``python -m agentic_kg.rotate_password``): the workflow
+supplied ``NEO4J_PASSWORD_NEXT`` and the Job only changes and verifies it. It
+refuses the non-secret placeholder.
 
 No password is ever logged.
 
@@ -186,6 +189,10 @@ def rotate_in_gcp(
 
 
 def main() -> None:
+    """Legacy entrypoint: the workflow staged NEO4J_PASSWORD_NEXT.
+
+    In-GCP generation (ADR-0007) is ``python -m agentic_kg.rotate_password_gcp``.
+    """
     logging.basicConfig(
         level=os.environ.get("LOG_LEVEL", "INFO"),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -193,28 +200,49 @@ def main() -> None:
 
     uri = _required_env("NEO4J_URI")
     current_password = _required_env("NEO4J_PASSWORD")
+    next_password = _required_env("NEO4J_PASSWORD_NEXT")
     username = os.environ.get("NEO4J_USERNAME", "neo4j")
-    password_secret_id = os.environ.get("NEO4J_PASSWORD_SECRET_ID")
+
+    # Never install the public, non-secret seed as the database password
+    # (review of #132: a stale image with nothing staged would have done so).
+    if next_password == PLACEHOLDER:
+        logger.error("NEO4J_PASSWORD_NEXT holds the placeholder; refusing to rotate")
+        sys.exit(2)
 
     try:
-        if password_secret_id:
-            rotate_in_gcp(
-                uri=uri,
-                username=username,
-                current_password=current_password,
-                staged_password=os.environ.get("NEO4J_PASSWORD_NEXT"),
-                store=SecretStore(_required_env("GOOGLE_CLOUD_PROJECT")),
-                password_secret_id=password_secret_id,
-                next_secret_id=_required_env("NEO4J_PASSWORD_NEXT_SECRET_ID"),
-            )
-        else:
-            _rotate(uri, username, current_password, _required_env("NEO4J_PASSWORD_NEXT"))
-    except SystemExit:
-        raise
+        _rotate(uri, username, current_password, next_password)
     except Exception as exc:  # noqa: BLE001 — log type, never the value
         logger.error("Neo4j password rotation failed: %s", type(exc).__name__)
         sys.exit(1)
 
+    logger.info("Neo4j password rotation complete and verified")
+    sys.exit(0)
+
+
+def main_gcp() -> None:
+    """ADR-0007 entrypoint: generate and store the password inside GCP."""
+    logging.basicConfig(
+        level=os.environ.get("LOG_LEVEL", "INFO"),
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+    uri = _required_env("NEO4J_URI")
+    current_password = _required_env("NEO4J_PASSWORD")
+    store = SecretStore(_required_env("GOOGLE_CLOUD_PROJECT"))
+    password_secret_id = _required_env("NEO4J_PASSWORD_SECRET_ID")
+    next_secret_id = _required_env("NEO4J_PASSWORD_NEXT_SECRET_ID")
+    try:
+        rotate_in_gcp(
+            uri=uri,
+            username=os.environ.get("NEO4J_USERNAME", "neo4j"),
+            current_password=current_password,
+            staged_password=os.environ.get("NEO4J_PASSWORD_NEXT"),
+            store=store,
+            password_secret_id=password_secret_id,
+            next_secret_id=next_secret_id,
+        )
+    except Exception as exc:  # noqa: BLE001 — log type, never the value
+        logger.error("Neo4j password rotation failed: %s", type(exc).__name__)
+        sys.exit(1)
     logger.info("Neo4j password rotation complete and verified")
     sys.exit(0)
 

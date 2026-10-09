@@ -266,7 +266,7 @@ def test_secret_store_posts_base64_and_logs_only_the_version_name(caplog) -> Non
     assert "VALUE-xyz" not in caplog.text
 
 
-def test_main_uses_gcp_mode_when_secret_ids_are_set(monkeypatch, caplog) -> None:
+def test_main_gcp_wires_the_store_and_logs_no_password(monkeypatch, caplog) -> None:
     monkeypatch.setenv("NEO4J_URI", "bolt://10.0.0.2:7687")
     monkeypatch.setenv("NEO4J_PASSWORD", "CURRENT-ultra-secret")
     monkeypatch.delenv("NEO4J_PASSWORD_NEXT", raising=False)
@@ -277,7 +277,35 @@ def test_main_uses_gcp_mode_when_secret_ids_are_set(monkeypatch, caplog) -> None
     monkeypatch.setattr(rotate_password, "rotate_in_gcp", lambda **k: seen.update(k))
     with caplog.at_level("DEBUG"):
         with pytest.raises(SystemExit) as exc:
-            rotate_password.main()
+            rotate_password.main_gcp()
     assert exc.value.code == 0
     assert seen["password_secret_id"] == "NEO4J_PASSWORD" and seen["staged_password"] is None
     assert "CURRENT-ultra-secret" not in caplog.text
+
+
+def test_main_gcp_requires_the_secret_ids(monkeypatch) -> None:
+    monkeypatch.setenv("NEO4J_URI", "bolt://x:7687")
+    monkeypatch.setenv("NEO4J_PASSWORD", "c")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "p")
+    monkeypatch.delenv("NEO4J_PASSWORD_SECRET_ID", raising=False)
+    with pytest.raises(SystemExit) as exc:
+        rotate_password.main_gcp()
+    assert exc.value.code == 2
+
+
+def test_legacy_main_refuses_the_placeholder(monkeypatch) -> None:
+    monkeypatch.setenv("NEO4J_URI", "bolt://x:7687")
+    monkeypatch.setenv("NEO4J_PASSWORD", "c")
+    monkeypatch.setenv("NEO4J_PASSWORD_NEXT", rotate_password.PLACEHOLDER)
+    called = []
+    monkeypatch.setattr(rotate_password, "_rotate", lambda *a, **k: called.append(1))
+    with pytest.raises(SystemExit) as exc:
+        rotate_password.main()
+    assert exc.value.code == 2 and called == []
+
+
+def test_gcp_entrypoint_module_exists() -> None:
+    import importlib
+
+    mod = importlib.import_module("agentic_kg.rotate_password_gcp")
+    assert mod.main_gcp is rotate_password.main_gcp
