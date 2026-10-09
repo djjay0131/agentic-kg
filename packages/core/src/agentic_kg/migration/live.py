@@ -40,6 +40,7 @@ import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 from agentic_kg.migration.ingestion.documents import PaperDocument
 from agentic_kg.migration.ingestion.identity import normalize_doi
@@ -355,7 +356,10 @@ class LiveOpenAICompletionClient:
             )
         model = self._model or os.getenv("OPENAI_EXTRACTION_MODEL") or "gpt-4o"
         client = AsyncOpenAI(api_key=key)
-        messages: list[dict[str, str]] = []
+        # The OpenAI SDK's message param type is a union of TypedDicts; this
+        # adapter is a staging-only path and the SDK is imported lazily, so the
+        # list is deliberately opaque here.
+        messages: list[Any] = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})

@@ -40,22 +40,54 @@ class SourceRecord(Protocol):
     byte-identical.
     """
 
-    #: A stable, unique key for the paper within a run. Used as the KGIS
-    #: `Document.doc_id`; it need not be human-meaningful.
-    slug: str
-    #: The paper's DOI, exactly as the source carried it. Normalized by callers.
-    doi: str
-    title: str
-    year: int | None
-    #: The full text the segmenter runs over.
-    text: str
-    #: The paper's cross-identifiers, keyed by namespace (`arxiv`,
-    #: `semantic_scholar`, `openalex`, ...). Empty for the frozen corpus, which
-    #: records only DOIs.
-    external_ids: dict[str, str]
+    # Data members are declared as read-only properties, not plain attributes.
+    # Both producers are frozen dataclasses, and mypy treats a frozen field as a
+    # read-only attribute — which does *not* satisfy a protocol member declared
+    # as writable. Read-only requirements accept both frozen fields and derived
+    # properties, which is what the corpus's computed members need.
+
+    @property
+    def slug(self) -> str:
+        """A stable, unique key for the paper within a run.
+
+        Used as the KGIS `Document.doc_id`; it need not be human-meaningful.
+        """
+        ...
+
+    @property
+    def doi(self) -> str:
+        """The paper's DOI, exactly as the source carried it (normalized by callers)."""
+        ...
+
+    @property
+    def title(self) -> str:
+        """The paper's title."""
+        ...
+
+    @property
+    def year(self) -> int | None:
+        """The paper's publication year, or `None` when the source omitted it."""
+        ...
+
+    @property
+    def text(self) -> str:
+        """The full text the segmenter runs over."""
+        ...
 
     def to_document(self) -> PaperDocument:
         """The KGIS source document for this paper."""
+        ...
+
+    @property
+    def external_ids(self) -> dict[str, str]:
+        """The paper's cross-identifiers, keyed by namespace (`arxiv`,
+        `semantic_scholar`, `openalex`, ...). Empty for the frozen corpus, which
+        records only DOIs.
+
+        A read-only property, not a writable attribute: `CorpusPaper` derives it
+        from its committed file, and a protocol member that demanded writability
+        would exclude it.
+        """
         ...
 
     @property

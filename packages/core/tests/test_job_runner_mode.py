@@ -64,6 +64,15 @@ def test_kgis_kgcs_live_passes_query_source_and_limit(
     The corpus default still ignores them; this is the opt-in wiring that lets
     nightly switch to the live KGIS path without a code change.
     """
+    # This file runs in the default install (no migration extra); importing the
+    # migration run module needs `kg_contracts`, so skip rather than fail when
+    # the extra is absent. The live-wiring behaviour is covered in
+    # tests/migration/test_live_acquisition.py where the extra is installed.
+    pytest.importorskip(
+        "kgis",
+        reason="the opt-in 'migration' extra is not installed",
+    )
+
     from agentic_kg.job_runner import run_kgis_kgcs_job
     from agentic_kg.migration import run as run_mod
     from agentic_kg.migration.config import reset_migration_config as _reset
