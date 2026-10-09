@@ -32,12 +32,16 @@ concurrency:
 
 permissions:
   contents: read
-  id-token: write  # WIF: read vendor keys from Secret Manager (ADR-0007)
 
 jobs:
   smoke:
     name: Ingest + Assert
     runs-on: ubuntu-latest
+    # Job-scoped so the workflow-level block stays contents: read
+    # (test_workflow_security.py). WIF reads the vendor keys (ADR-0007).
+    permissions:
+      contents: read
+      id-token: write
     timeout-minutes: 30
 
     services:
