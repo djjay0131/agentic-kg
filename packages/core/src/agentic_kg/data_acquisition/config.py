@@ -9,14 +9,27 @@ import os
 from dataclasses import dataclass, field
 from typing import Optional
 
+# The value Terraform seeds as the first Secret Manager version of
+# SEMANTIC_SCHOLAR_API_KEY so the ingest Cloud Run Job can be created before
+# `.github/workflows/sync-s2-key.yml` writes a real key (Cloud Run refuses an
+# env that references a secret with no versions). It is a placeholder, not a
+# credential: the client must treat it as "no key" so it never sends it.
+SEMANTIC_SCHOLAR_API_KEY_PLACEHOLDER = "unset-seed-not-an-api-key"
+
+
+def _semantic_scholar_api_key_from_env() -> str:
+    """Read SEMANTIC_SCHOLAR_API_KEY, treating the infra seed as unset."""
+    key = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()
+    if key == SEMANTIC_SCHOLAR_API_KEY_PLACEHOLDER:
+        return ""
+    return key
+
 
 @dataclass
 class SemanticScholarConfig:
     """Semantic Scholar API configuration."""
 
-    api_key: str = field(
-        default_factory=lambda: os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
-    )
+    api_key: str = field(default_factory=_semantic_scholar_api_key_from_env)
     base_url: str = "https://api.semanticscholar.org/graph/v1"
 
     # Rate limits (requests per second).
@@ -213,6 +226,7 @@ def reset_data_acquisition_config() -> None:
 
 
 __all__ = [
+    "SEMANTIC_SCHOLAR_API_KEY_PLACEHOLDER",
     "SemanticScholarConfig",
     "ArxivConfig",
     "OpenAlexConfig",

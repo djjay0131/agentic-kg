@@ -101,6 +101,7 @@ deliberate:
 | KGIS/KGCS opt-in flags | **Terraform** | `kgis_kgcs_enabled` + `canonical_namespace` in `envs/staging.tfvars` |
 | Durable KGIS **ledger bucket / volume / IAM** | **Terraform** | `ingest_ledger_bucket` + `ingest_ledger_dir` in `envs/staging.tfvars`; see §Durable KGIS ledger |
 | Neo4j **password value** | rotation workflow | `.github/workflows/rotate-neo4j-password.yml` |
+| Semantic Scholar **API key value** | sync workflow | `.github/workflows/sync-s2-key.yml` |
 
 The deploy workflows were reduced to an image roll for exactly this reason:
 `gcloud run deploy` with its own flags (and `--set-secrets`, which clears
@@ -169,13 +170,27 @@ out-of-band (operator or a one-off rotation bootstrap), then the VM's
 `neo4j-admin dbms set-initial-password`. After that the rotation workflow owns
 it.
 
+## Semantic Scholar API key ownership
+
+The Secret Manager **container** `SEMANTIC_SCHOLAR_API_KEY` and a placeholder
+**seed version** are managed by Terraform; the real value is **not**. The seed
+exists only so the ingest Job's `:latest` secret reference is valid at create
+time (Cloud Run refuses a secret ref with no versions) — its value
+(`unset-seed-not-an-api-key`) is treated as "no key" by the S2 client, so a
+run before the first sync simply goes unauthenticated. The enabled value is
+written by `.github/workflows/sync-s2-key.yml`, which mints a new version from
+the repo GitHub Actions secret `SEMANTIC_SCHOLAR_API_KEY` and then disables the
+superseded ones (the seed included). Operator procedure:
+[`docs/operations/semantic-scholar-key-runbook.md`](../docs/operations/semantic-scholar-key-runbook.md).
+
 ## Resources managed
 
 - GCP APIs (compute, run, cloudbuild, artifactregistry, secretmanager)
 - Compute Engine VM running Neo4j 5.x (adopted; `prevent_destroy` + targeted
   `ignore_changes` so adoption cannot replace or stop it)
 - Firewall rules for Neo4j ports (7474, 7687), VPC-scoped only (ADR-0006)
-- Secret Manager containers (NEO4J_URI, NEO4J_PASSWORD, NEO4J_PASSWORD_NEXT)
+- Secret Manager containers (NEO4J_URI, NEO4J_PASSWORD, NEO4J_PASSWORD_NEXT,
+  SEMANTIC_SCHOLAR_API_KEY)
 - Artifact Registry Docker repository
 - GCS bucket for the durable KGIS ledger (staging only; versioned, PAP enforced,
   30-day noncurrent lifecycle) and its bucket-scoped IAM

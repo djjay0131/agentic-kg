@@ -1,11 +1,34 @@
 # Active Context
 
-Last updated: 2026-09-17
+Last updated: 2026-10-09
 
 > Newest entries at the top. History through 2026-07 lives in
 > [`archive/activeContext-through-2026-07.md`](archive/activeContext-through-2026-07.md)
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
+
+## Label-OR problem lookups: investigated, no full scan (2026-10-09)
+
+Follow-up to the #115 review. #115 label-scoped relation endpoints and the
+synthesis provenance lineage with
+
+`MATCH (n) WHERE n.id = $id AND (n:Problem OR n:ProblemConcept)`.
+
+The review flagged this as a possible full scan — a label predicate in `WHERE`
+is an expression, not a node pattern, so it *looks* like neither
+`problem_id_unique` nor `problem_concept_id_unique` can be used. **Measured,
+not assumed: it does not scan.** Against the suite's Neo4j 5.26
+(testcontainers), `EXPLAIN` on the shipped queries plans as a `Union` of two
+`NodeUniqueIndexSeek` operators — the planner splits the label disjunction and
+uses each per-label unique id index. So `relations.create_relation`,
+`repository.create_derived_from`, `repository.get_derived_from` need **no
+rewrite**, and none was made. Pinned by a testcontainers test
+(`tests/knowledge_graph/test_label_or_index_seek.py`, captures the real
+queries and asserts no `AllNodesScan`/`NodeByLabelScan` and at least one index
+seek) and a Docker-free plan-walker unit test. Note for future work: Neo4j
+5.26 qualifies plan operators with `@<database>` (`NodeUniqueIndexSeek@neo4j`),
+and write queries plan seeks with a lock (`NodeUniqueIndexSeek(Locking)`, as
+CI showed for `create_relation` / `create_derived_from`); the walker strips both.
 
 ## Compat tripwires re-pointed after #115 (2026-10-09, #117)
 

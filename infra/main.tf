@@ -162,9 +162,17 @@ locals {
 
   # Secret IDs are env-scoped once, here, and reused by the containers and the
   # VM bootstrap so prod's `_PROD` suffix cannot drift between them.
-  neo4j_uri_secret_id           = "NEO4J_URI${var.env == "prod" ? "_PROD" : ""}"
-  neo4j_password_secret_id      = "NEO4J_PASSWORD${var.env == "prod" ? "_PROD" : ""}"
-  neo4j_password_next_secret_id = "NEO4J_PASSWORD_NEXT${var.env == "prod" ? "_PROD" : ""}"
+  neo4j_uri_secret_id                = "NEO4J_URI${var.env == "prod" ? "_PROD" : ""}"
+  neo4j_password_secret_id           = "NEO4J_PASSWORD${var.env == "prod" ? "_PROD" : ""}"
+  neo4j_password_next_secret_id      = "NEO4J_PASSWORD_NEXT${var.env == "prod" ? "_PROD" : ""}"
+  semantic_scholar_api_key_secret_id = "SEMANTIC_SCHOLAR_API_KEY${var.env == "prod" ? "_PROD" : ""}"
+
+  # Placeholder value seeded as the first version of the S2 key secret so the
+  # ingest Job can be created before the sync workflow runs (Cloud Run refuses
+  # an env that references `<secret>:latest` with no versions). The client
+  # treats this exact value as "no key" — see
+  # packages/core/src/agentic_kg/data_acquisition/config.py.
+  semantic_scholar_api_key_placeholder = "unset-seed-not-an-api-key"
 }
 
 # =============================================================================
@@ -243,6 +251,36 @@ resource "google_secret_manager_secret" "neo4j_password" {
   depends_on = [google_project_service.apis]
 }
 
+# Semantic Scholar API key. Same ownership split as NEO4J_PASSWORD: Terraform
+# creates the CONTAINER only. `.github/workflows/sync-s2-key.yml` writes the
+# value as a new version (the GitHub Actions secret
+# SEMANTIC_SCHOLAR_API_KEY is the source), so no credential enters state.
+resource "google_secret_manager_secret" "semantic_scholar_api_key" {
+  secret_id = local.semantic_scholar_api_key_secret_id
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+# Seed the placeholder version so the ingest Job's `:latest` reference is
+# valid at create/update time (Cloud Run refuses a secret ref with no
+# versions). The sync workflow writes the real key as a NEW version on top;
+# this one is then disabled by that workflow. ignore_changes keeps Terraform
+# from re-enabling or rewriting it, and ABANDON means a destroy never deletes
+# real key material.
+resource "google_secret_manager_secret_version" "semantic_scholar_api_key_seed" {
+  secret          = google_secret_manager_secret.semantic_scholar_api_key.id
+  secret_data     = local.semantic_scholar_api_key_placeholder
+  deletion_policy = "ABANDON"
+
+  lifecycle {
+    ignore_changes = [secret_data, enabled]
+  }
+}
+
 # =============================================================================
 # IAM — Cloud Run service account can read secrets
 # =============================================================================
@@ -252,6 +290,18 @@ resource "google_project_iam_member" "secret_accessor" {
   project = var.project_id
   role    = "roles/secretmanager.secretAccessor"
   member  = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+
+  depends_on = [google_project_service.apis]
+}
+
+# The project-level binding above already lets the Job's runtime SA read every
+# secret, so this is belt-and-braces. It is declared anyway so the S2 key's
+# accessor is visible in the plan and survives any future narrowing of the
+# project-level grant.
+resource "google_secret_manager_secret_iam_member" "semantic_scholar_api_key_accessor" {
+  secret_id = google_secret_manager_secret.semantic_scholar_api_key.id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
 
   depends_on = [google_project_service.apis]
 }
@@ -560,6 +610,20 @@ resource "google_cloud_run_v2_job" "ingest" {
           }
         }
 
+        # Nightly-pipeline P0-4: live Semantic Scholar calls from the Job were
+        # unauthenticated and hit the shared anonymous rate-limit pool. The
+        # value is owned by `.github/workflows/sync-s2-key.yml`; Terraform
+        # declares where the Job reads it from.
+        env {
+          name = "SEMANTIC_SCHOLAR_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.semantic_scholar_api_key.secret_id
+              version = "latest"
+            }
+          }
+        }
+
         # KGIS/KGCS opt-in seam (ADR-0004/ADR-0005, issue #112). These were
         # applied by hand per the staging runbook and were silently dropped by
         # the next deploy; Terraform now owns them.
@@ -635,6 +699,7 @@ resource "google_cloud_run_v2_job" "ingest" {
     google_project_iam_member.secret_accessor,
     google_project_iam_member.network_user,
     google_secret_manager_secret_version.neo4j_uri,
+    google_secret_manager_secret_version.semantic_scholar_api_key_seed,
   ]
 }
 

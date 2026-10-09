@@ -1,0 +1,124 @@
+# Sync the Semantic Scholar API key into Secret Manager (nightly-pipeline P0-4).
+#
+# The staging ingest Job reads SEMANTIC_SCHOLAR_API_KEY from Secret Manager, so
+# live S2 calls are authenticated instead of drawing on the shared anonymous
+# rate-limit pool. Terraform owns the CONTAINER and a placeholder seed version;
+# this workflow owns the ENABLED value — the same split ADR-0006 uses for the
+# Neo4j password. The value's source of truth is the repo GitHub Actions secret
+# SEMANTIC_SCHOLAR_API_KEY.
+#
+# Runnable only by hand; never on push, PR or schedule.
+#
+# Order of operations (all-or-nothing safety):
+#   1. read the key into the step's shell environment (never argv)
+#   2. mask it before it can reach a log
+#   3. add it as a new Secret Manager version
+#   4. roll the ingest Job onto `latest` with a label stamp (`:latest` alone is
+#      not a config change, so the label forces a fresh revision that resolves
+#      the new version)
+#   5. only then disable the superseded versions
+#
+# The key is never printed, never written to a file, and never placed in
+# GITHUB_OUTPUT / GITHUB_ENV / the step summary.
+
+name: Sync Semantic Scholar API Key
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why the key is being synced (recorded in the summary)'
+        required: false
+        default: 'manual sync'
+
+# Two syncs must never interleave: a queued run waits rather than cancelling
+# one that is mid-roll.
+concurrency:
+  group: sync-s2-key
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  REGION: us-central1
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  ENVIRONMENT: staging
+
+jobs:
+  sync:
+    name: Sync staging S2 API key
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Add the key as a new Secret Manager version
+        # The key lives only in this step's shell. It is masked before it can
+        # reach a log, streamed into Secret Manager from stdin (never argv), and
+        # unset immediately afterwards.
+        env:
+          S2_API_KEY: ${{ secrets.SEMANTIC_SCHOLAR_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${S2_API_KEY:-}" ]; then
+            echo "::error::SEMANTIC_SCHOLAR_API_KEY is not set in this repository"
+            exit 1
+          fi
+          echo "::add-mask::$S2_API_KEY"
+          printf '%s' "$S2_API_KEY" | gcloud secrets versions add \
+            "SEMANTIC_SCHOLAR_API_KEY" \
+            --project="$PROJECT_ID" \
+            --data-file=- >/dev/null
+          unset S2_API_KEY
+          echo "Added a new SEMANTIC_SCHOLAR_API_KEY version."
+
+      - name: Roll the ingest Job onto the new version
+        run: |
+          gcloud run jobs update "agentic-kg-ingest-$ENVIRONMENT" \
+            --region="$REGION" \
+            --project="$PROJECT_ID" \
+            --update-secrets=SEMANTIC_SCHOLAR_API_KEY=SEMANTIC_SCHOLAR_API_KEY:latest \
+            --update-labels=s2-key-synced=${{ github.run_id }}
+
+      - name: Disable superseded secret versions
+        run: |
+          set -euo pipefail
+          # Everything but the newest ENABLED version is superseded. The
+          # Terraform seed placeholder is version 1 and lands here too.
+          gcloud secrets versions list "SEMANTIC_SCHOLAR_API_KEY" \
+            --project="$PROJECT_ID" \
+            --filter='state=ENABLED' \
+            --sort-by='~createTime' \
+            --format='value(name)' \
+          | tail -n +2 \
+          | while read -r version; do
+              gcloud secrets versions disable "$version" \
+                --secret="SEMANTIC_SCHOLAR_API_KEY" \
+                --project="$PROJECT_ID"
+              echo "Disabled superseded SEMANTIC_SCHOLAR_API_KEY version $version."
+            done
+
+      - name: Sync summary
+        env:
+          REASON: ${{ github.event.inputs.reason }}
+        run: |
+          echo "## Semantic Scholar API key sync" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Environment: \`$ENVIRONMENT\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Reason: $REASON" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Status: complete" >> "$GITHUB_STEP_SUMMARY"
