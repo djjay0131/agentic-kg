@@ -18,6 +18,10 @@ permissions:
   # CODECOV_TOKEN (ADR-0007 rule 1: keyless first).
   id-token: write
 
+env:
+  # Ephemeral runners: no reaper needed, and its image pull hits Docker Hub limits.
+  TESTCONTAINERS_RYUK_DISABLED: "true"
+
 jobs:
   test:
     runs-on: ubuntu-latest
