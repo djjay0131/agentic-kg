@@ -41,7 +41,7 @@ from agentic_kg.migration.compat import ProbeInputs
 REPO_ROOT = Path(__file__).resolve().parents[5]
 BASELINE_FILE = Path(__file__).resolve().parent / "baseline" / "legacy_pre_llm_context.json"
 
-NEO4J_IMAGE = "neo4j:5.26-community"
+NEO4J_IMAGE = "mirror.gcr.io/library/neo4j:5.26-community"
 EMPTY_GRAPH_PASSWORD = "testpassword"
 
 
