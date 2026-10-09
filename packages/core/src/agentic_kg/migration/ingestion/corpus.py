@@ -131,6 +131,39 @@ class CorpusPaper:
             slug=self.slug, doi=self.doi, title=self.title, text=self.text
         )
 
+    # --- SourceRecord -------------------------------------------------------
+    # The frozen corpus's record is the committed importer-output file. These
+    # members reproduce, exactly, the values the paper arm derived inline before
+    # `source_record.SourceRecord` existed, so corpus mode is byte-identical.
+
+    @property
+    def external_ids(self) -> dict[str, str]:
+        """Empty: the committed importer output carries DOIs only."""
+        return {}
+
+    @property
+    def record_source_type(self) -> str:
+        return "importer_record"
+
+    @property
+    def record_locator(self) -> str:
+        return f"docs/ground-truth/importer-output/{self.importer_path.name}"
+
+    @property
+    def record_fragment(self) -> str:
+        return "paper"
+
+    @property
+    def record_identity(self) -> str:
+        return self.importer_path.name
+
+    @property
+    def evidence_content(self) -> str:
+        return f"{self.title} ({self.year}) doi:{self.doi}"
+
+    def evidence_hash_parts(self) -> tuple[str, ...]:
+        return (self.title, str(self.year), self.doi)
+
 
 def text_path(slug: str) -> Path:
     return corpus_text_dir() / f"paper_{slug}.txt"
