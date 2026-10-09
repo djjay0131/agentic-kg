@@ -15,6 +15,18 @@ import pytest
 from .conftest import APITestConfig
 
 
+def _handshake_status_code(exc: BaseException) -> int:
+    """Extract the HTTP status from a websockets handshake rejection.
+
+    ``InvalidStatus`` (websockets >= 13) exposes ``.response.status_code``;
+    the legacy ``InvalidStatusCode`` exposed ``.status_code`` directly.
+    """
+    response = getattr(exc, "response", None)
+    if response is not None:
+        return response.status_code
+    return getattr(exc, "status_code", 0)
+
+
 @pytest.mark.e2e
 class TestWebSocketE2E:
     """E2E tests for WebSocket functionality."""
@@ -33,23 +45,18 @@ class TestWebSocketE2E:
     ):
         """Test that WebSocket connection requires a valid run_id."""
         import websockets
-        from websockets.exceptions import InvalidStatusCode
+        from websockets.exceptions import InvalidHandshake
 
-        # Try to connect without run_id - should fail
-        try:
-            async with websockets.connect(f"{ws_url}/invalid-run-id", close_timeout=5) as ws:
-                # If connection succeeds, it should close quickly or send error
-                try:
-                    message = await asyncio.wait_for(ws.recv(), timeout=5.0)
-                    data = json.loads(message)
-                    # May receive an error message
-                    assert data.get("type") in ["error", "close", None]
-                except asyncio.TimeoutError:
-                    # No message is also acceptable
-                    pass
-        except (InvalidStatusCode, ConnectionRefusedError, OSError):
-            # Connection refused is expected for invalid run_id
-            pass
+        # The workflow WebSocket route is /api/agents/ws/workflows/{run_id}.
+        # A request with no run_id matches no route, so the server rejects it
+        # at the HTTP layer (403) before the WebSocket handshake completes --
+        # there is no websocket-level close to observe here.
+        with pytest.raises(InvalidHandshake) as exc_info:
+            async with websockets.connect(ws_url, close_timeout=5):
+                pass  # pragma: no cover - connection is rejected
+
+        status = _handshake_status_code(exc_info.value)
+        assert status in (401, 403, 404), f"unexpected rejection status: {status}"
 
     @pytest.mark.asyncio
     async def test_websocket_message_structure(self):
@@ -126,10 +133,8 @@ class TestWebSocketWithWorkflow:
             run_id = data["run_id"]
 
             # Connect to WebSocket
-            ws_base = api_config.api_url.replace("https://", "wss://").replace(
-                "http://", "ws://"
-            )
-            ws_url = f"{ws_base}/api/agents/ws/{run_id}"
+            ws_base = api_config.api_url.replace("https://", "wss://").replace("http://", "ws://")
+            ws_url = f"{ws_base}/api/agents/ws/workflows/{run_id}"
 
             messages_received = []
 
@@ -172,23 +177,18 @@ class TestWebSocketReconnection:
         import websockets
 
         ws_base = api_config.api_url.replace("https://", "wss://").replace("http://", "ws://")
-        ws_url = f"{ws_base}/api/agents/ws/test-reconnect"
+        # Real route: /api/agents/ws/workflows/{run_id}. The connection manager
+        # accepts any run_id at the transport layer; this test exercises
+        # connect/disconnect/reconnect against the deployed endpoint.
+        ws_url = f"{ws_base}/api/agents/ws/workflows/test-reconnect"
 
-        # First connection
-        try:
-            async with websockets.connect(ws_url, close_timeout=5) as ws:
-                pass  # Just connect and disconnect
-        except Exception:
+        # First connection.
+        async with websockets.connect(ws_url, close_timeout=5):
+            pass  # Just connect and disconnect.
+
+        # Reconnect after the disconnect must succeed.
+        async with websockets.connect(ws_url, close_timeout=5):
             pass
-
-        # Second connection (reconnect)
-        try:
-            async with websockets.connect(ws_url, close_timeout=5) as ws:
-                pass  # Should be able to connect again
-        except Exception:
-            pass
-
-        # Test passes if no exceptions prevent reconnection
 
 
 @pytest.mark.e2e

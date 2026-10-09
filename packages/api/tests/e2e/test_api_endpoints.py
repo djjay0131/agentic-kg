@@ -9,8 +9,6 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from .conftest import APITestConfig
-
 
 @pytest.mark.e2e
 class TestHealthEndpoint:
@@ -44,9 +42,19 @@ class TestStatsEndpoint:
         assert response.status_code == 200
         data = response.json()
 
-        # Should have count fields
-        assert "problem_count" in data or "problems" in data
-        assert "paper_count" in data or "papers" in data
+        # StatsResponse: total_* counts plus two breakdown maps.
+        assert {
+            "total_problems",
+            "total_papers",
+            "total_topics",
+            "problems_by_status",
+            "problems_by_topic",
+        } <= set(data)
+        assert isinstance(data["total_problems"], int)
+        assert isinstance(data["total_papers"], int)
+        assert isinstance(data["total_topics"], int)
+        assert isinstance(data["problems_by_status"], dict)
+        assert isinstance(data["problems_by_topic"], dict)
 
 
 @pytest.mark.e2e
@@ -60,8 +68,11 @@ class TestProblemsEndpoint:
         assert response.status_code == 200
         data = response.json()
 
-        # Should be a list (possibly empty)
-        assert isinstance(data, list)
+        # Paginated envelope (ProblemListResponse), not a bare list.
+        assert {"problems", "total", "limit", "offset"} <= set(data)
+        assert isinstance(data["problems"], list)
+        assert data["limit"] == 10
+        assert data["offset"] == 0
 
     def test_list_problems_with_pagination(self, api_client: httpx.Client):
         """Test problems pagination."""
@@ -72,7 +83,8 @@ class TestProblemsEndpoint:
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data) <= 5
+        assert len(data["problems"]) <= 5
+        assert data["limit"] == 5
 
     def test_get_problem_not_found(self, api_client: httpx.Client):
         """Test getting a non-existent problem returns 404."""
@@ -91,7 +103,12 @@ class TestPapersEndpoint:
 
         assert response.status_code == 200
         data = response.json()
-        assert isinstance(data, list)
+
+        # Paginated envelope (PaperListResponse), not a bare list.
+        assert {"papers", "total", "limit", "offset"} <= set(data)
+        assert isinstance(data["papers"], list)
+        assert data["limit"] == 10
+        assert data["offset"] == 0
 
     def test_get_paper_not_found(self, api_client: httpx.Client):
         """Test getting a non-existent paper returns 404."""
@@ -106,26 +123,35 @@ class TestSearchEndpoint:
 
     def test_search_returns_results(self, api_client: httpx.Client):
         """Test search endpoint returns results structure."""
-        response = api_client.get(
+        query = "machine learning"
+        # Search is POST /api/search with a JSON body, not GET with query
+        # params (which is a 405 against the real router).
+        response = api_client.post(
             "/api/search",
-            params={"q": "machine learning", "limit": 5},
+            json={"query": query, "top_k": 5},
         )
 
         assert response.status_code == 200
         data = response.json()
 
-        # Should be a list
-        assert isinstance(data, list)
+        # SearchResponse envelope.
+        assert {"results", "query", "total"} <= set(data)
+        assert data["query"] == query
+        assert isinstance(data["results"], list)
+        assert data["total"] == len(data["results"])
+        for item in data["results"]:
+            assert {"problem", "score", "match_type"} <= set(item)
 
     def test_search_empty_query_handled(self, api_client: httpx.Client):
         """Test search with empty query is handled gracefully."""
-        response = api_client.get(
+        # SearchRequest.query has min_length=1, so an empty query is a
+        # request-validation error (422) rather than a 200 with no results.
+        response = api_client.post(
             "/api/search",
-            params={"q": "", "limit": 5},
+            json={"query": "", "top_k": 5},
         )
 
-        # Should either return empty results or error gracefully
-        assert response.status_code in [200, 400, 422]
+        assert response.status_code == 422
 
 
 @pytest.mark.e2e
@@ -139,9 +165,10 @@ class TestGraphEndpoint:
         assert response.status_code == 200
         data = response.json()
 
-        # Should have nodes and edges/links
-        assert "nodes" in data or "vertices" in data
-        assert "edges" in data or "links" in data
+        # GraphResponse: nodes + links.
+        assert {"nodes", "links"} <= set(data)
+        assert isinstance(data["nodes"], list)
+        assert isinstance(data["links"], list)
 
 
 @pytest.mark.e2e
@@ -171,24 +198,38 @@ class TestAPIResponseSchemas:
         """Test that problem responses have expected fields."""
         response = api_client.get("/api/problems", params={"limit": 1})
 
-        if response.status_code == 200 and response.json():
-            problem = response.json()[0]
+        assert response.status_code == 200
+        data = response.json()
+        assert "problems" in data
 
-            # Required fields
-            assert "id" in problem
-            assert "title" in problem
-            assert "description" in problem
+        problems = data["problems"]
+        if not problems:
+            pytest.skip("staging has no problems to validate against")
+
+        # ProblemSummary fields.
+        problem = problems[0]
+        assert {"id", "statement", "status"} <= set(problem)
+        assert isinstance(problem["id"], str) and problem["id"]
+        assert isinstance(problem["statement"], str)
+        assert isinstance(problem["status"], str)
 
     def test_paper_schema(self, api_client: httpx.Client):
         """Test that paper responses have expected fields."""
         response = api_client.get("/api/papers", params={"limit": 1})
 
-        if response.status_code == 200 and response.json():
-            paper = response.json()[0]
+        assert response.status_code == 200
+        data = response.json()
+        assert "papers" in data
 
-            # Required fields
-            assert "id" in paper
-            assert "title" in paper
+        papers = data["papers"]
+        if not papers:
+            pytest.skip("staging has no papers to validate against")
+
+        # PaperSummary fields (papers are keyed by ``doi``, not ``id``).
+        paper = papers[0]
+        assert {"doi", "title"} <= set(paper)
+        assert isinstance(paper["doi"], str) and paper["doi"]
+        assert isinstance(paper["title"], str)
 
     def test_error_response_schema(self, api_client: httpx.Client):
         """Test that error responses have expected structure."""
