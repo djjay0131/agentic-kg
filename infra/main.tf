@@ -835,14 +835,18 @@ resource "google_cloud_run_v2_job" "rotate_password" {
 
   template {
     template {
-      # Dedicated identity (ADR-0007): the only principal allowed to add
+      # Dedicated identity (ADR-0007): the only *workload* allowed to add
       # NEO4J_PASSWORD versions, so the password is generated and stored
-      # inside GCP and never transits a GitHub runner.
+      # inside GCP and never transits a GitHub runner. (The apply identity
+      # gh-deploy still holds secretmanager.admin; see ADR-0007 §Risks.)
       service_account = google_service_account.neo4j_rotator.email
 
       containers {
         image   = "${var.region}-docker.pkg.dev/${var.project_id}/agentic-kg/job:latest"
-        command = ["python", "-m", "agentic_kg.rotate_password"]
+        # In-GCP generation lives in its own module (ADR-0007): an image that
+        # predates it fails with ModuleNotFoundError before touching Neo4j,
+        # instead of running the legacy entrypoint against the placeholder.
+        command = ["python", "-m", "agentic_kg.rotate_password_gcp"]
 
         resources {
           limits = {
@@ -928,6 +932,7 @@ resource "google_cloud_run_v2_job" "rotate_password" {
     google_project_iam_member.network_user,
     google_secret_manager_secret_version.neo4j_uri,
     google_secret_manager_secret_version.neo4j_password_next_seed,
+    google_secret_manager_secret_iam_member.rotator_accessor,
     google_secret_manager_secret_iam_member.rotator_version_adder,
     google_project_iam_member.rotator_network_user,
   ]
@@ -994,10 +999,11 @@ resource "google_service_account" "ci_vendor_keys" {
   description  = "ADR-0007: read-only access to vendor API keys for CI; impersonated via WIF."
 }
 
+# The services reference OPENAI_API_KEY with no env suffix; match them.
 resource "google_secret_manager_secret_iam_member" "ci_vendor_keys_accessor" {
   for_each = {
     semantic_scholar = google_secret_manager_secret.semantic_scholar_api_key.id
-    openai           = "projects/${var.project_id}/secrets/OPENAI_API_KEY${var.env == "prod" ? "_PROD" : ""}"
+    openai           = "projects/${var.project_id}/secrets/OPENAI_API_KEY"
   }
   secret_id = each.value
   role      = "roles/secretmanager.secretAccessor"
