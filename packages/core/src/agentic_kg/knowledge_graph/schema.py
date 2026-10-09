@@ -20,7 +20,7 @@ from agentic_kg.knowledge_graph.repository import Neo4jRepository, get_repositor
 logger = logging.getLogger(__name__)
 
 # Current schema version - increment when making schema changes
-SCHEMA_VERSION = 7  # Added Paper.is_stub index + CITES edge (E-5)
+SCHEMA_VERSION = 8  # Added PipelineRun.run_id constraint + started_at index (nightly runs)
 
 # Schema definitions - fmt: off to allow long Cypher strings
 CONSTRAINTS = [
@@ -83,6 +83,12 @@ CONSTRAINTS = [
         "schema_version_unique",
         "CREATE CONSTRAINT schema_version_unique IF NOT EXISTS "
         "FOR (s:SchemaVersion) REQUIRE s.version IS UNIQUE",
+    ),
+    # PipelineRun constraint (nightly reports; label is NOT under Canon__*)
+    (
+        "pipeline_run_id_unique",
+        "CREATE CONSTRAINT pipeline_run_id_unique IF NOT EXISTS "
+        "FOR (r:PipelineRun) REQUIRE r.run_id IS UNIQUE",
     ),
 ]
 
@@ -184,6 +190,12 @@ INDEXES = [
         "paper_is_stub_idx",
         "CREATE INDEX paper_is_stub_idx IF NOT EXISTS "
         "FOR (p:Paper) ON (p.is_stub)",
+    ),
+    # PipelineRun index (nightly reports) — backs the newest-first list ordering
+    (
+        "pipeline_run_started_at_idx",
+        "CREATE INDEX pipeline_run_started_at_idx IF NOT EXISTS "
+        "FOR (r:PipelineRun) ON (r.started_at)",
     ),
 ]
 
