@@ -27,3 +27,4 @@ individually numbered here.
 | [0004](0004-kgis-kgcs-adoption-opt-in-seam.md) | Adopt KGIS/KGCS behind an opt-in, commit-pinned migration seam | Accepted |
 | [0005](0005-kgis-kgcs-staging-isolation.md) | Isolate the KGIS ledger and KGCS canonical graph inside the staging Neo4j | Accepted |
 | [0006](0006-staging-neo4j-private.md) | Staging Neo4j is private (VPC-only) with a repeatable password rotation | Proposed |
+| [0007](0007-nightly-ingestion-pipeline.md) | Nightly ingestion pipeline on Cloud Scheduler + Workflows | Proposed |
