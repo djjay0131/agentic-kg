@@ -60,7 +60,7 @@ from agentic_kg.migration.ingestion.pipeline import (  # noqa: E402
 REPO_ROOT = Path(__file__).resolve().parents[5]
 CHAIN_ROOT = REPO_ROOT / "packages/core/tests/extraction/fixtures/ground_truth_chain"
 
-NEO4J_IMAGE = "neo4j:5.26-community"
+NEO4J_IMAGE = "mirror.gcr.io/library/neo4j:5.26-community"
 NEO4J_TEST_PASSWORD = "testpassword"
 
 #: Heap and page cache for the *second* Neo4j in the job. Small on purpose: this
