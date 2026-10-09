@@ -1,0 +1,65 @@
+# Read-only GCP diagnostics for staging. Never mutates anything.
+# Used to find what keeps redeploying agentic-kg-api-staging outside Terraform.
+name: GCP Diagnose (read-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REGION: us-central1
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Cloud Build triggers
+        run: |
+          gcloud builds triggers list --project="$PROJECT_ID" --region=global \
+            --format='table(name,disabled,github.push.branch,filename,createTime)' || true
+          gcloud builds triggers list --project="$PROJECT_ID" --region="$REGION" \
+            --format='table(name,disabled,github.push.branch,filename,createTime)' || true
+
+      - name: Recent Cloud Builds
+        run: |
+          gcloud builds list --project="$PROJECT_ID" --limit=15 \
+            --format='table(id.slice(0:8),createTime,status,substitutions.TRIGGER_NAME,substitutions.BRANCH_NAME)' || true
+
+      - name: API revisions (who created each)
+        run: |
+          gcloud run revisions list --service=agentic-kg-api-staging --region="$REGION" \
+            --project="$PROJECT_ID" --limit=12 \
+            --format='table(metadata.name,metadata.creationTimestamp,metadata.annotations."serving.knative.dev/creator",metadata.annotations."run.googleapis.com/client-name",metadata.labels.commit)'
+
+      - name: Env var NAMES per recent API revision (no values)
+        run: |
+          for r in $(gcloud run revisions list --service=agentic-kg-api-staging --region="$REGION" \
+              --project="$PROJECT_ID" --limit=6 --format='value(metadata.name)'); do
+            echo "== $r"
+            gcloud run revisions describe "$r" --region="$REGION" --project="$PROJECT_ID" \
+              --format='value(spec.containers[0].env[].name)' | tr ';' '\n' | sort | tr '\n' ' '
+            echo
+          done
+
+      - name: Audit log - who changed the API service (last 2 days)
+        run: |
+          gcloud logging read \
+            'protoPayload.serviceName="run.googleapis.com" AND protoPayload.resourceName:"services/agentic-kg-api-staging" AND protoPayload.methodName:("ReplaceService" OR "UpdateService" OR "CreateService")' \
+            --project="$PROJECT_ID" --freshness=2d --limit=20 \
+            --format='table(timestamp,protoPayload.methodName,protoPayload.authenticationInfo.principalEmail,protoPayload.requestMetadata.callerSuppliedUserAgent.slice(0:60))' || true
