@@ -48,7 +48,6 @@ from agentic_kg.migration.ingestion._contracts import (
     SubmissionStatus,
     is_deterministic,
 )
-from agentic_kg.migration.ingestion.corpus import CorpusPaper
 from agentic_kg.migration.ingestion.documents import PAPER_SOURCE_TYPE, SectionChunker
 from agentic_kg.migration.ingestion.extractors import (
     STRUCTURED_SCORING,
@@ -65,6 +64,7 @@ from agentic_kg.migration.ingestion.papers import (
     build_paper_candidates,
     build_paper_evidence,
 )
+from agentic_kg.migration.ingestion.source_record import SourceRecord
 from agentic_kg.migration.ingestion.stores import ShadowStores
 
 #: A fixed clock for the whole run. Determinism is the requirement that makes
@@ -130,7 +130,7 @@ class ShadowRunResult:
 
 
 def build_shadow_pipeline(
-    papers: Sequence[CorpusPaper],
+    papers: Sequence[SourceRecord],
     *,
     config: MigrationConfig,
     client: CompletionClient,
@@ -139,8 +139,14 @@ def build_shadow_pipeline(
     run_id: str = DEFAULT_RUN_ID,
     job_id: str = DEFAULT_JOB_ID,
     emit_document_artifacts: bool = True,
+    source_locator: str = "ground_truth_chain",
 ) -> ExtractionPipeline:
     """Wire a KGIS `ExtractionPipeline` for the shadow path.
+
+    ``source_locator`` names the collection the papers came from — the frozen
+    corpus by default, or the discovery API for a live run. It is the
+    corpus-level locator on `IterableDocumentSource`; each chunk still carries
+    its own `paper://doi/<doi>` locator, which is what paper-scoped keys read.
 
     Raises :class:`ShadowIngestionDisabled` when the injected config has KGIS
     ingestion switched off.
@@ -164,7 +170,7 @@ def build_shadow_pipeline(
     return ExtractionPipeline(
         graph_id=GRAPH_ID,
         document_source=IterableDocumentSource(
-            documents, source_type=PAPER_SOURCE_TYPE, locator="ground_truth_chain"
+            documents, source_type=PAPER_SOURCE_TYPE, locator=source_locator
         ),
         chunker=SectionChunker(),
         extractors=tuple(extractors) if extractors is not None else research_extractors(),
@@ -204,7 +210,7 @@ def _structured_context(run_id: str) -> BuildContext:
 
 
 def submit_paper_candidates(
-    papers: Sequence[CorpusPaper], *, stores: ShadowStores, run_id: str = DEFAULT_RUN_ID
+    papers: Sequence[SourceRecord], *, stores: ShadowStores, run_id: str = DEFAULT_RUN_ID
 ) -> tuple[Candidate, ...]:
     """The structured arm: one Paper entity + its attributes, per paper.
 
@@ -232,7 +238,7 @@ def submit_paper_candidates(
 
 
 def run_shadow_ingestion(
-    papers: Sequence[CorpusPaper],
+    papers: Sequence[SourceRecord],
     *,
     config: MigrationConfig,
     client: CompletionClient,
@@ -240,6 +246,7 @@ def run_shadow_ingestion(
     extractors: Sequence[ExtractorConfig] | None = None,
     run_id: str = DEFAULT_RUN_ID,
     include_papers: bool = True,
+    source_locator: str = "ground_truth_chain",
 ) -> ShadowRunResult:
     """Run both arms and return what reached the ledger.
 
@@ -253,6 +260,7 @@ def run_shadow_ingestion(
         stores=stores,
         extractors=extractors,
         run_id=run_id,
+        source_locator=source_locator,
     )
     paper_candidates = (
         submit_paper_candidates(papers, stores=stores, run_id=run_id)

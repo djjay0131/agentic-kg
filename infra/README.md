@@ -108,6 +108,26 @@ The deploy workflows were reduced to an image roll for exactly this reason:
 unlisted secret env vars) was dropping the hand-set KGIS/KGCS flags on every
 deploy (#112). Terraform now declares them, so they cannot be dropped.
 
+`deploy-master.yml` is the **only automatic deploy path**. `cloudbuild.yaml` is
+**manual-only** (operator `gcloud builds submit`); it now also rolls only the
+image + `commit` label, so the manual escape hatch cannot drop Terraform-owned
+config either. Two legacy **global** Cloud Build triggers
+(`agentic-kg-api-staging`, `agentic-kg-ui-staging`, created 2026-02-04, running
+as the default compute SA) still fire on pushes; before the guard they
+`ReplaceService`d staging with a spec-less `gcloud run deploy`. They are not in
+Terraform state (`enable_build_triggers = false`) and the WIF CI SA cannot delete
+them, so the **owner deletes them by hand** — Console → Cloud Build → Triggers
+(region **global**) → Delete, or
+
+```bash
+gcloud builds triggers delete agentic-kg-api-staging --region=global --project=vt-gcp-00042
+gcloud builds triggers delete agentic-kg-ui-staging  --region=global --project=vt-gcp-00042
+```
+
+Do not touch the `denario-*` triggers. Until deletion, `cloudbuild.yaml` guards
+every step: a triggered build exits 0 in seconds without deploying. Full
+procedure: [`docs/operations/deploy-runbook.md`](../docs/operations/deploy-runbook.md).
+
 ### KGIS/KGCS opt-in flags
 
 `envs/staging.tfvars` sets:

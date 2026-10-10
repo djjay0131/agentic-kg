@@ -1,7 +1,9 @@
 # Google Cloud Build configuration
-# This file is used for manual Cloud Build triggers or local gcloud builds
 #
-# Usage:
+# MANUAL-ONLY. The only automatic deploy path is GitHub Actions
+# (`.github/workflows/deploy-master.yml`). This file is the manual escape hatch
+# an operator runs by hand:
+#
 #   # Build and deploy API service
 #   gcloud builds submit --config=cloudbuild.yaml \
 #     --substitutions=_SERVICE=api,COMMIT_SHA=$(git rev-parse HEAD)
@@ -9,14 +11,52 @@
 #   # Build specific service with version
 #   gcloud builds submit --config=cloudbuild.yaml \
 #     --substitutions=_SERVICE=ui,_VERSION=v1.0.0,COMMIT_SHA=$(git rev-parse HEAD)
+#
+# LEGACY TRIGGER GUARD. Two global Cloud Build triggers created 2026-02-04
+# (`agentic-kg-api-staging`, `agentic-kg-ui-staging`) still fire on pushes and
+# run this file. Because this file used the `deploy` subcommand, every fired
+# trigger REPLACED the Terraform-owned Cloud Run service spec, silently dropping env
+# flags (CANONICAL_API_ENABLED, KGCS_CANONICAL_NAMESPACE, GCP_*), scaling and
+# anything else Terraform declares. The triggers are not in Terraform state and
+# the CI service account cannot delete them, so the owner deletes them by hand
+# (see docs/operations/deploy-runbook.md). Until then this file neutralises them
+# from the repo side: when the build was started by a trigger (TRIGGER_NAME is
+# non-empty) and `_ALLOW_TRIGGER_DEPLOY` is not "true", every step logs and exits
+# 0, so the build finishes SUCCESS in seconds without building or pushing
+# anything. Cloud Build has no conditional steps, hence the guard at the top of
+# every step below.
+#
+# Deploys mirror deploy-master.yml: `gcloud run services update` /
+# `gcloud run jobs update` with only `--image` and `--update-labels`, so a manual
+# deploy also never drops Terraform-owned config (ADR-0006).
 
 substitutions:
-  _SERVICE: api  # api, ui, or worker
+  _SERVICE: api  # api, ui, or job
   _VERSION: ''   # Optional version tag (e.g., v1.0.0)
   _REGION: us-central1
   _REPOSITORY: agentic-kg
+  # Safety default: never deploy from a trigger. Override only deliberately
+  # (e.g. --substitutions=_ALLOW_TRIGGER_DEPLOY=true) and never while the legacy
+  # triggers still exist.
+  _ALLOW_TRIGGER_DEPLOY: "false"
 
 steps:
+  # Trigger guard. The same guard is at the top of every step below: when a
+  # trigger started this build and the override is not "true", each step exits 0
+  # so the whole build is a fast no-op.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'trigger-guard'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        # TRIGGER-GUARD (manual-only unless _ALLOW_TRIGGER_DEPLOY=true)
+        if [ -n "$TRIGGER_NAME" ] && [ "$_ALLOW_TRIGGER_DEPLOY" != "true" ]; then
+          echo "cloudbuild.yaml is manual-only: build started by trigger '$TRIGGER_NAME'; skipping (override with _ALLOW_TRIGGER_DEPLOY=true)."
+          exit 0
+        fi
+        echo "Manual build detected (no trigger); proceeding."
+
   # Get API URL for UI build (needed at build time for Next.js)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'get-api-url'
@@ -24,6 +64,11 @@ steps:
     args:
       - '-c'
       - |
+        # TRIGGER-GUARD (manual-only unless _ALLOW_TRIGGER_DEPLOY=true)
+        if [ -n "$TRIGGER_NAME" ] && [ "$_ALLOW_TRIGGER_DEPLOY" != "true" ]; then
+          echo "cloudbuild.yaml is manual-only: build started by trigger '$TRIGGER_NAME'; skipping (override with _ALLOW_TRIGGER_DEPLOY=true)."
+          exit 0
+        fi
         if [ "${_SERVICE}" = "ui" ]; then
           echo "Fetching API URL for UI build..."
           API_URL=$(gcloud run services describe agentic-kg-api-staging --region=${_REGION} --format='value(status.url)' 2>/dev/null || echo "")
@@ -41,6 +86,11 @@ steps:
     args:
       - '-c'
       - |
+        # TRIGGER-GUARD (manual-only unless _ALLOW_TRIGGER_DEPLOY=true)
+        if [ -n "$TRIGGER_NAME" ] && [ "$_ALLOW_TRIGGER_DEPLOY" != "true" ]; then
+          echo "cloudbuild.yaml is manual-only: build started by trigger '$TRIGGER_NAME'; skipping (override with _ALLOW_TRIGGER_DEPLOY=true)."
+          exit 0
+        fi
         API_URL=$(cat /workspace/api_url.txt)
         echo "Read API URL from file: '$${API_URL}'"
         BUILD_ARGS=""
@@ -63,6 +113,11 @@ steps:
     args:
       - '-c'
       - |
+        # TRIGGER-GUARD (manual-only unless _ALLOW_TRIGGER_DEPLOY=true)
+        if [ -n "$TRIGGER_NAME" ] && [ "$_ALLOW_TRIGGER_DEPLOY" != "true" ]; then
+          echo "cloudbuild.yaml is manual-only: build started by trigger '$TRIGGER_NAME'; skipping (override with _ALLOW_TRIGGER_DEPLOY=true)."
+          exit 0
+        fi
         if [ -n "${_VERSION}" ]; then
           docker tag \
             ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA \
@@ -72,16 +127,32 @@ steps:
   # Push SHA-tagged image
   - name: 'gcr.io/cloud-builders/docker'
     id: 'push-sha'
+    entrypoint: 'bash'
     args:
-      - 'push'
-      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA'
+      - '-c'
+      - |
+        # TRIGGER-GUARD (manual-only unless _ALLOW_TRIGGER_DEPLOY=true)
+        if [ -n "$TRIGGER_NAME" ] && [ "$_ALLOW_TRIGGER_DEPLOY" != "true" ]; then
+          echo "cloudbuild.yaml is manual-only: build started by trigger '$TRIGGER_NAME'; skipping (override with _ALLOW_TRIGGER_DEPLOY=true)."
+          exit 0
+        fi
+        docker push \
+          ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA
 
   # Push latest-tagged image
   - name: 'gcr.io/cloud-builders/docker'
     id: 'push-latest'
+    entrypoint: 'bash'
     args:
-      - 'push'
-      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:latest'
+      - '-c'
+      - |
+        # TRIGGER-GUARD (manual-only unless _ALLOW_TRIGGER_DEPLOY=true)
+        if [ -n "$TRIGGER_NAME" ] && [ "$_ALLOW_TRIGGER_DEPLOY" != "true" ]; then
+          echo "cloudbuild.yaml is manual-only: build started by trigger '$TRIGGER_NAME'; skipping (override with _ALLOW_TRIGGER_DEPLOY=true)."
+          exit 0
+        fi
+        docker push \
+          ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:latest
 
   # Push version-tagged image if provided
   - name: 'gcr.io/cloud-builders/docker'
@@ -90,86 +161,44 @@ steps:
     args:
       - '-c'
       - |
+        # TRIGGER-GUARD (manual-only unless _ALLOW_TRIGGER_DEPLOY=true)
+        if [ -n "$TRIGGER_NAME" ] && [ "$_ALLOW_TRIGGER_DEPLOY" != "true" ]; then
+          echo "cloudbuild.yaml is manual-only: build started by trigger '$TRIGGER_NAME'; skipping (override with _ALLOW_TRIGGER_DEPLOY=true)."
+          exit 0
+        fi
         if [ -n "${_VERSION}" ]; then
           docker push \
             ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:${_VERSION}
         fi
 
-  # Deploy to Cloud Run (staging by default)
+  # Deploy to staging by rolling ONLY the image + commit label, exactly like
+  # deploy-master.yml. `services update` (never `deploy`) and `jobs update` leave
+  # env, secrets, scaling, port and IAM to Terraform (ADR-0006).
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'deploy'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        # Determine port based on service
-        case "${_SERVICE}" in
-          api) PORT=8000 ;;
-          ui) PORT=3000 ;;
-          worker) PORT=8080 ;;
-        esac
-
-        # Determine memory based on service
-        case "${_SERVICE}" in
-          api) MEMORY=1Gi ;;
-          ui) MEMORY=512Mi ;;
-          worker) MEMORY=2Gi ;;
-        esac
-
-        # Set secrets based on service
-        case "${_SERVICE}" in
-          api) SECRETS="NEO4J_URI=NEO4J_URI:latest,NEO4J_PASSWORD=NEO4J_PASSWORD:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest" ;;
-          ui) SECRETS="" ;;  # UI only needs API_URL, set below
-          worker) SECRETS="NEO4J_URI=NEO4J_URI:latest,NEO4J_PASSWORD=NEO4J_PASSWORD:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest" ;;
-        esac
-
-        # Set env vars based on service
-        case "${_SERVICE}" in
-          api)
-            # Allow all origins for CORS (simplifies configuration)
-            ENV_VARS="CORS_ORIGINS=*"
-            ;;
-          ui)
-            API_URL=$(gcloud run services describe agentic-kg-api-staging --region=${_REGION} --format='value(status.url)' 2>/dev/null || echo "")
-            ENV_VARS="API_URL=$${API_URL},NODE_ENV=production"
-            ;;
-          *) ENV_VARS="" ;;
-        esac
-
-        # Deploy based on service type
-        if [ "${_SERVICE}" = "job" ]; then
-          # Cloud Run Job — update job image (managed by Terraform, just update image)
-          gcloud run jobs update agentic-kg-ingest-staging \
-            --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA \
-            --region=${_REGION}
-        else
-          # Cloud Run Service — deploy as before
-          DEPLOY_CMD="gcloud run deploy agentic-kg-${_SERVICE}-staging \
-            --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA \
-            --region=${_REGION} \
-            --platform=managed \
-            --port=$$PORT \
-            --memory=$$MEMORY \
-            --min-instances=0 \
-            --max-instances=10 \
-            --allow-unauthenticated"
-
-          # Add secrets if any
-          if [ -n "$$SECRETS" ]; then
-            DEPLOY_CMD="$$DEPLOY_CMD --set-secrets=$$SECRETS"
-          fi
-
-          # Add env vars if any
-          if [ -n "$$ENV_VARS" ]; then
-            DEPLOY_CMD="$$DEPLOY_CMD --set-env-vars=$$ENV_VARS"
-          fi
-
-          eval $$DEPLOY_CMD
+        # TRIGGER-GUARD (manual-only unless _ALLOW_TRIGGER_DEPLOY=true)
+        if [ -n "$TRIGGER_NAME" ] && [ "$_ALLOW_TRIGGER_DEPLOY" != "true" ]; then
+          echo "cloudbuild.yaml is manual-only: build started by trigger '$TRIGGER_NAME'; skipping (override with _ALLOW_TRIGGER_DEPLOY=true)."
+          exit 0
         fi
-
-images:
-  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA'
-  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:latest'
+        IMAGE=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA
+        if [ "${_SERVICE}" = "job" ]; then
+          # Cloud Run Job — roll the image, stamp the commit label.
+          gcloud run jobs update agentic-kg-ingest-staging \
+            --image=$${IMAGE} \
+            --region=${_REGION} \
+            --update-labels=environment=staging,commit=$COMMIT_SHA
+        else
+          # Cloud Run Service — roll the image, stamp the commit label.
+          gcloud run services update agentic-kg-${_SERVICE}-staging \
+            --image=$${IMAGE} \
+            --region=${_REGION} \
+            --update-labels=environment=staging,commit=$COMMIT_SHA
+        fi
 
 timeout: 1800s
 

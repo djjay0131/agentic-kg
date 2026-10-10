@@ -84,6 +84,28 @@ gcloud builds list --project=vt-gcp-00042 --limit=5
 - Existing Service: `denario` (core) at https://denario-542888988741.us-central1.run.app
 - New Service: `denario-app` (UI) at https://denario-app-tqpsba7pza-uc.a.run.app
 
+#### Deploy paths (2026-10-09)
+
+- **`.github/workflows/deploy-master.yml` is the ONLY automatic deploy path.**
+  It rolls the Cloud Run image + `commit` label with `gcloud run services update`
+  / `gcloud run jobs update` — never `deploy` — so it cannot drop Terraform-owned
+  env, secrets or scaling (ADR-0006).
+- **`cloudbuild.yaml` is manual-only** (`gcloud builds submit --config=cloudbuild.yaml`).
+  It also rolls only the image + label now. Do not wire it to a trigger.
+- **Two legacy global Cloud Build triggers must be deleted by the owner:**
+  `agentic-kg-api-staging` and `agentic-kg-ui-staging` (created 2026-02-04,
+  running as the default compute SA). They fire on pushes and, before the guard,
+  replaced the staging service spec. They are not in Terraform state and the CI
+  SA cannot delete them. Console → **Cloud Build → Triggers** (region **global**)
+  → Delete, or:
+  ```bash
+  gcloud builds triggers delete agentic-kg-api-staging --region=global --project=vt-gcp-00042
+  gcloud builds triggers delete agentic-kg-ui-staging  --region=global --project=vt-gcp-00042
+  ```
+  Do **not** touch `denario-*` triggers. Until deleted, `cloudbuild.yaml` guards
+  every step: a triggered build logs and exits 0 in seconds without deploying.
+  Full procedure: `docs/operations/deploy-runbook.md`.
+
 ### Key Files to Remember
 - llm/memory_bank/activeContext.md - Current work phase
 - llm/memory_bank/techContext.md - Technical details

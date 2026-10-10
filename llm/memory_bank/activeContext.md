@@ -7,6 +7,42 @@ Last updated: 2026-10-09
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
 
+## Legacy Cloud Build triggers neutralised from the repo side (2026-10-09, T28)
+
+Two **global** Cloud Build triggers created 2026-02-04
+(`agentic-kg-api-staging`, `agentic-kg-ui-staging`, `cloudbuild.yaml`, running as
+the default compute SA) were clobbering staging: they fire on pushes and ran
+`gcloud run deploy`, which did a full `ReplaceService` and dropped the
+Terraform-owned env flags (`CANONICAL_API_ENABLED`, `KGCS_CANONICAL_NAMESPACE`,
+`GCP_*`), scaling and port. Audit log + revision creators confirm it (compute SA
+`ReplaceService` beside every GitHub deploy). They are **not** in Terraform state
+(`enable_build_triggers = false`) and the WIF CI SA has no Cloud Build permission,
+so they cannot be disabled from CI — the owner deletes them by hand.
+
+Repo-side neutralisation while they exist:
+
+- `cloudbuild.yaml` is now explicitly **manual-only** (`deploy-master.yml` is the
+  only automatic path). Every step begins with a trigger guard: if
+  `$TRIGGER_NAME` is non-empty and `_ALLOW_TRIGGER_DEPLOY != "true"`, the step
+  logs and exits 0, so a triggered build finishes SUCCESS in seconds without
+  building, pushing or deploying. Cloud Build has no conditional steps, hence the
+  guard in every step.
+- Manual deploys now use `gcloud run services update --image --update-labels=commit=`
+  (and `gcloud run jobs update` for the ingest Job), mirroring `deploy-master.yml`
+  exactly — no `--set-env-vars`/`--set-secrets`/scaling/port flags, so a manual
+  escape-hatch deploy also cannot drop Terraform-owned config (ADR-0006).
+- Removed the redundant `images:` auto-push block: Cloud Build fails a build
+  whose listed image was never created, which would have broken the guarded
+  no-op path. The explicit guarded `docker push` steps already push sha/latest.
+- Structural contract pinned by `packages/core/tests/test_cloudbuild_guard.py`
+  (no `gcloud run deploy`; every step guarded; `_ALLOW_TRIGGER_DEPLOY` defaults
+  to `"false"`). Operator procedure: `docs/operations/deploy-runbook.md`.
+
+**Still open (owner action):** delete the two legacy triggers — Console → Cloud
+Build → Triggers (region **global**) → Delete, or
+`gcloud builds triggers delete agentic-kg-{api,ui}-staging --region=global`.
+Do not touch the `denario-*` triggers.
+
 ## Label-OR problem lookups: investigated, no full scan (2026-10-09)
 
 Follow-up to the #115 review. #115 label-scoped relation endpoints and the
