@@ -354,7 +354,10 @@ class LiveOpenAICompletionClient:
                 "OPENAI_API_KEY is not set; the live KGIS extraction client "
                 "needs it, or inject a deterministic client for a replay run"
             )
-        model = self._model or os.getenv("OPENAI_EXTRACTION_MODEL") or "gpt-4o"
+        # Same resolution order and fallback as `extraction.llm_client`
+        # (`OPENAI_EXTRACTION_MODEL` wins, then the passed model, then the
+        # repo's default), so one env flip reaches this adapter too.
+        model = self._model or os.getenv("OPENAI_EXTRACTION_MODEL") or "gpt-4-turbo"
         client = AsyncOpenAI(api_key=key)
         # The OpenAI SDK's message param type is a union of TypedDicts; this
         # adapter is a staging-only path and the SDK is imported lazily, so the
