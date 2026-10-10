@@ -27,3 +27,18 @@ Fields:
 API (T30): GET /api/runs?limit=&amp;cursor= -&gt; {"runs":[PipelineRun summary...], "next_cursor": str|null}
            GET /api/runs/{run_id} -&gt; full PipelineRun ; 404 if unknown. Read from Neo4j; no GCS access needed by the API.
 </code></pre></div></div>
+
+<h2 id="live-acquisition-p3">Live acquisition (P3)</h2>
+
+<p><code class="language-plaintext highlighter-rouge">papers_seen</code> and <code class="language-plaintext highlighter-rouge">papers_new</code> are populated from the acquisition step, not
+derived from the KGIS/KGCS summary’s paper list. When the nightly bridge runs
+the KGIS backend with <code class="language-plaintext highlighter-rouge">MIGRATION_SOURCE=live</code>, <code class="language-plaintext highlighter-rouge">INGEST_QUERY</code> selects the papers
+and <code class="language-plaintext highlighter-rouge">INGEST_LIMIT</code> caps the run; the per-query <code class="language-plaintext highlighter-rouge">honest_nulls</code> no longer carries
+<code class="language-plaintext highlighter-rouge">query_scoping</code> (the query <em>does</em> select papers). For <code class="language-plaintext highlighter-rouge">MIGRATION_SOURCE=corpus</code>
+(the default) the query is still recorded but does not select papers, and the
+<code class="language-plaintext highlighter-rouge">query_scoping</code> null remains. The migration summary exposes the fields the bridge
+reads: <code class="language-plaintext highlighter-rouge">source</code>, <code class="language-plaintext highlighter-rouge">query</code>, <code class="language-plaintext highlighter-rouge">limit</code>, <code class="language-plaintext highlighter-rouge">papers_seen</code>, <code class="language-plaintext highlighter-rouge">papers_new</code>,
+<code class="language-plaintext highlighter-rouge">papers_skipped_duplicate</code>, <code class="language-plaintext highlighter-rouge">papers_skipped_no_text</code>, and <code class="language-plaintext highlighter-rouge">acquisition_errors</code>.</p>
+
+<p>Implementation: <code class="language-plaintext highlighter-rouge">packages/core/src/agentic_kg/migration/live.py</code> (acquisition)
+and <code class="language-plaintext highlighter-rouge">migration/run.py</code> (<code class="language-plaintext highlighter-rouge">execute_migration</code>).</p>

@@ -110,6 +110,30 @@ this slice):</p>
       <td>whether <strong>this</strong> run advanced the epoch</td>
     </tr>
     <tr>
+      <td><code class="language-plaintext highlighter-rouge">source</code></td>
+      <td><code class="language-plaintext highlighter-rouge">corpus</code> (default) or <code class="language-plaintext highlighter-rouge">live</code></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">query</code> / <code class="language-plaintext highlighter-rouge">limit</code></td>
+      <td>the live query and its per-run cap (<code class="language-plaintext highlighter-rouge">null</code> for corpus)</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">papers_seen</code> / <code class="language-plaintext highlighter-rouge">papers_new</code></td>
+      <td>papers discovered / papers new to this run</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">papers_skipped_duplicate</code></td>
+      <td>discovered papers already in the ledger or canonical</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">papers_skipped_no_text</code> / <code class="language-plaintext highlighter-rouge">papers_skipped_no_doi</code></td>
+      <td>discovered papers dropped before ingestion</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">acquisition_errors</code></td>
+      <td>per-source discovery errors (e.g. a rate limit)</td>
+    </tr>
+    <tr>
       <td><code class="language-plaintext highlighter-rouge">honest_nulls</code></td>
       <td>the stages that are deliberately not wired</td>
     </tr>
@@ -124,6 +148,55 @@ the deterministic candidate ids re-plan the same operations and the store
 refuses them rather than duplicating canonical state. A second run that reports
 <code class="language-plaintext highlighter-rouge">"committed": true</code> with <code class="language-plaintext highlighter-rouge">CREATE_IDENTITY</code> operations is a defect: stop and
 report it.</p>
+
+<h2 id="2b-live-kgis-acquisition-migration_sourcelive">2b. Live KGIS acquisition (<code class="language-plaintext highlighter-rouge">MIGRATION_SOURCE=live</code>)</h2>
+
+<p>The default <code class="language-plaintext highlighter-rouge">MIGRATION_SOURCE=corpus</code> replays the committed eight-paper corpus
+and is unchanged. <strong>Live</strong> query-driven acquisition is opt-in: set
+<code class="language-plaintext highlighter-rouge">MIGRATION_SOURCE=live</code> and the run discovers papers for <code class="language-plaintext highlighter-rouge">INGEST_QUERY</code> through
+the repo’s existing acquisition layer (the same Semantic Scholar / arXiv /
+OpenAlex clients the legacy path uses, with their rate limiting, bounded
+retries and <code class="language-plaintext highlighter-rouge">SEMANTIC_SCHOLAR_API_KEY</code> handling), fetches full text with the
+production <code class="language-plaintext highlighter-rouge">PDFExtractor</code>, and runs the KGIS -&gt; KGCS pipeline on only the new
+records.</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud run <span class="nb">jobs </span>execute agentic-kg-ingest-staging <span class="se">\</span>
+  <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="se">\</span>
+  <span class="nt">--update-env-vars</span><span class="o">=</span><span class="nv">MIGRATION_SOURCE</span><span class="o">=</span>live,INGEST_QUERY<span class="o">=</span><span class="s2">"retrieval augmented generation"</span>,INGEST_LIMIT<span class="o">=</span>20 <span class="se">\</span>
+  <span class="nt">--wait</span>
+</code></pre></div></div>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">INGEST_QUERY</code> — required in live mode; the run refuses without it.</li>
+  <li><code class="language-plaintext highlighter-rouge">INGEST_LIMIT</code> — the per-run cap (default 20). Discovery is asked for the cap
+and the merged, deduplicated result is truncated to it.</li>
+  <li><code class="language-plaintext highlighter-rouge">INGEST_SOURCES</code> — optional comma-separated source list
+(<code class="language-plaintext highlighter-rouge">semantic_scholar,arxiv,openalex</code>); unset means all.</li>
+</ul>
+
+<p><strong>Dedupe.</strong> Before any full-text fetch, a discovered paper is dropped as a
+duplicate when <em>any</em> of its aliases (DOI, arXiv, Semantic Scholar, OpenAlex id)
+is already in the durable KGIS ledger (<code class="language-plaintext highlighter-rouge">INGEST_LEDGER_DIR</code>, GCS at
+<code class="language-plaintext highlighter-rouge">/mnt/ledger/staging</code>) or already a canonical <code class="language-plaintext highlighter-rouge">Paper</code> in the namespace. Reading
+every alias, not just the DOI, is what lets a paper discovered under a different
+identifier be recognized as the same paper. The expensive, network-bound fetch
+therefore never runs for a paper KGIS has already seen.</p>
+
+<p><strong>Provenance.</strong> Each live paper’s evidence row carries the source API, the
+retrieval instant, the query it was discovered under, and its cross-identifiers,
+so a canonical paper can be traced back to the discovery response that produced
+it. A live run’s summary no longer carries the <code class="language-plaintext highlighter-rouge">query_scoping</code> honest null —
+the query <em>does</em> select the papers — provided the extraction client is a live
+provider; if a deterministic replay client is injected the <code class="language-plaintext highlighter-rouge">extraction_quality</code>
+null remains.</p>
+
+<p><strong>Idempotency.</strong> Re-running the same query is a no-op: every discovered paper is
+already in the ledger, so <code class="language-plaintext highlighter-rouge">papers_new</code> is 0, the pipeline is not run, and
+<code class="language-plaintext highlighter-rouge">committed</code> is <code class="language-plaintext highlighter-rouge">false</code> with the epoch unchanged. This is the same idempotency
+contract §2 states for the corpus, extended to discovery.</p>
+
+<p><strong>Not wired, still honest:</strong> entity resolution, the LLM adviser and the human
+review queue remain deferred (unchanged from the corpus slice).</p>
 
 <h2 id="3-query-the-read-only-canonical-api">3. Query the read-only canonical API</h2>
 
@@ -143,9 +216,10 @@ on this path.</p>
 
 <h2 id="4-what-the-first-slice-does-and-does-not-do">4. What the first slice does and does not do</h2>
 
-<p><strong>Does:</strong> acquire from the committed corpus, run KGIS shadow ingestion, run KGCS
-curation, commit DOI-keyed <code class="language-plaintext highlighter-rouge">Paper</code> identities into the isolated canonical
-namespace, publish an epoch, and report all of it as JSON.</p>
+<p><strong>Does:</strong> acquire from the committed corpus (or, with <code class="language-plaintext highlighter-rouge">MIGRATION_SOURCE=live</code>,
+from live discovery — see §2b), run KGIS shadow ingestion, run KGCS curation,
+commit DOI-keyed <code class="language-plaintext highlighter-rouge">Paper</code> identities into the isolated canonical namespace,
+publish an epoch, and report all of it as JSON.</p>
 
 <p><strong>Does not (honest nulls, carried in the summary):</strong></p>
 
