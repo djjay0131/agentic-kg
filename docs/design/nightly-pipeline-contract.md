@@ -34,3 +34,18 @@ Fields:
 API (T30): GET /api/runs?limit=&cursor= -> {"runs":[PipelineRun summary...], "next_cursor": str|null}
            GET /api/runs/{run_id} -> full PipelineRun ; 404 if unknown. Read from Neo4j; no GCS access needed by the API.
 ```
+
+## Live acquisition (P3)
+
+`papers_seen` and `papers_new` are populated from the acquisition step, not
+derived from the KGIS/KGCS summary's paper list. When the nightly bridge runs
+the KGIS backend with `MIGRATION_SOURCE=live`, `INGEST_QUERY` selects the papers
+and `INGEST_LIMIT` caps the run; the per-query `honest_nulls` no longer carries
+`query_scoping` (the query *does* select papers). For `MIGRATION_SOURCE=corpus`
+(the default) the query is still recorded but does not select papers, and the
+`query_scoping` null remains. The migration summary exposes the fields the bridge
+reads: `source`, `query`, `limit`, `papers_seen`, `papers_new`,
+`papers_skipped_duplicate`, `papers_skipped_no_text`, and `acquisition_errors`.
+
+Implementation: `packages/core/src/agentic_kg/migration/live.py` (acquisition)
+and `migration/run.py` (`execute_migration`).
