@@ -68,6 +68,39 @@ terraform fmt -check -recursive
 terraform plan -var-file=envs/staging.tfvars -lock=false
 ```
 
+## Roles the apply identity needs
+
+The Terraform workflow authenticates as the Workload-Identity deploy identity
+`gh-deploy@vt-gcp-00042.iam.gserviceaccount.com`. The roles it needs are, as far
+as possible, granted **by Terraform through this same reviewed plan/apply path**
+— never by a human running `gcloud` (ADR-0007 rule 4).
+
+- **`roles/resourcemanager.projectIamAdmin` — the bootstrap role.** It must be
+  granted out-of-band once (owner, console or `gcloud`), because Terraform
+  cannot grant the apply identity a role it does not already hold. The grant
+  below is possible only because the apply identity already has this one.
+- **`roles/iam.serviceAccountAdmin` — granted by Terraform.**
+  `google_project_iam_member.deploy_service_account_admin` in `main.tf` binds it
+  to `var.deploy_service_account_email`. It is what lets the apply create the
+  ADR-0007 service accounts (`neo4j-rotator-<env>`, `gh-ci-vendor-keys-<env>`,
+  added in #131) and their `service_account_iam` bindings. Both
+  `google_service_account` resources `depends_on` that grant, so a single apply
+  orders it first.
+
+The remaining apply roles (`compute.admin`, `run.admin`, `secretmanager.admin`,
+`artifactregistry.admin`, `serviceusage.serviceUsageAdmin`, and
+`iam.serviceAccountUser` on the compute default SA) are listed in the adoption
+PR (#113) and are granted out-of-band like `projectIamAdmin`.
+
+### First-apply IAM propagation
+
+A project-level IAM change can take a few seconds to propagate. If the **first**
+apply fails to create a service account with `403 ... permission denied` on
+`iam.serviceAccounts.create`, the `iam.serviceAccountAdmin` grant has not
+propagated yet. **Re-run the Terraform workflow** (Actions → *Terraform* → *Run
+workflow* with `apply: true`); the second apply succeeds. No other manual step
+is required.
+
 ## Adopting the existing staging resources (one time — issue #112)
 
 Staging resources already exist in `vt-gcp-00042` from earlier hand/`gcloud`

@@ -949,11 +949,35 @@ resource "google_cloud_run_v2_job" "rotate_password" {
 #    keys (Semantic Scholar, OpenAI) at run time. It replaces the GitHub-secret
 #    copies; it can read exactly those two secrets and nothing else, so a PR
 #    workflow never holds the deployer's broad roles just to get an API key.
+#
+# The apply identity (`gh-deploy`) already holds
+# roles/resourcemanager.projectIamAdmin, so it can grant ITSELF the one role
+# #131 needs through the normal reviewed plan/apply path — no operator runs
+# `gcloud projects add-iam-policy-binding` (ADR-0007 rule 4: agents/operators
+# never touch IAM by hand). Creating the two service accounts below requires
+# roles/iam.serviceAccountAdmin; Terraform grants it here rather than assuming
+# a human added it. Empty var (a fresh env with no deploy identity) => no grant.
+# See infra/README.md §Roles the apply identity needs.
+resource "google_project_iam_member" "deploy_service_account_admin" {
+  count   = var.deploy_service_account_email == "" ? 0 : 1
+  project = var.project_id
+  role    = "roles/iam.serviceAccountAdmin"
+  member  = "serviceAccount:${var.deploy_service_account_email}"
+
+  depends_on = [google_project_service.apis]
+}
 
 resource "google_service_account" "neo4j_rotator" {
   account_id   = "neo4j-rotator-${var.env}"
   display_name = "Neo4j password rotation job (${var.env})"
   description  = "ADR-0007: generates the Neo4j password inside GCP and stores it; never exposed."
+
+  # #131's service accounts can only be created once the apply identity holds
+  # roles/iam.serviceAccountAdmin, granted by the binding above in this same
+  # apply. Order the grant first. IAM propagation can still lag on the very
+  # first apply (a 403 creating the account); re-running the Terraform workflow
+  # then succeeds — no other manual step. See infra/README.md.
+  depends_on = [google_project_iam_member.deploy_service_account_admin]
 }
 
 resource "google_secret_manager_secret_iam_member" "rotator_accessor" {
@@ -997,6 +1021,11 @@ resource "google_service_account" "ci_vendor_keys" {
   account_id   = "gh-ci-vendor-keys-${var.env}"
   display_name = "GitHub CI vendor-key reader (${var.env})"
   description  = "ADR-0007: read-only access to vendor API keys for CI; impersonated via WIF."
+
+  # Same prerequisite as neo4j_rotator: #131 cannot create this account until
+  # the apply identity holds roles/iam.serviceAccountAdmin (granted by the
+  # binding above through this apply). See infra/README.md for the re-run note.
+  depends_on = [google_project_iam_member.deploy_service_account_admin]
 }
 
 # The services reference OPENAI_API_KEY with no env suffix; match them.
