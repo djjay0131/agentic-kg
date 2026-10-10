@@ -96,6 +96,12 @@ The summary's fields:
 | `deferred_candidates` / `deferral_reasons` | validated-but-not-committed, classified |
 | `epoch` | latest published canonical epoch |
 | `committed` | whether **this** run advanced the epoch |
+| `source` | `corpus` (default) or `live` |
+| `query` / `limit` | the live query and its per-run cap (`null` for corpus) |
+| `papers_seen` / `papers_new` | papers discovered / papers new to this run |
+| `papers_skipped_duplicate` | discovered papers already in the ledger or canonical |
+| `papers_skipped_no_text` / `papers_skipped_no_doi` | discovered papers dropped before ingestion |
+| `acquisition_errors` | per-source discovery errors (e.g. a rate limit) |
 | `honest_nulls` | the stages that are deliberately not wired |
 
 ### Idempotency check (required)
@@ -106,6 +112,54 @@ the deterministic candidate ids re-plan the same operations and the store
 refuses them rather than duplicating canonical state. A second run that reports
 `"committed": true` with `CREATE_IDENTITY` operations is a defect: stop and
 report it.
+
+## 2b. Live KGIS acquisition (`MIGRATION_SOURCE=live`)
+
+The default `MIGRATION_SOURCE=corpus` replays the committed eight-paper corpus
+and is unchanged. **Live** query-driven acquisition is opt-in: set
+`MIGRATION_SOURCE=live` and the run discovers papers for `INGEST_QUERY` through
+the repo's existing acquisition layer (the same Semantic Scholar / arXiv /
+OpenAlex clients the legacy path uses, with their rate limiting, bounded
+retries and `SEMANTIC_SCHOLAR_API_KEY` handling), fetches full text with the
+production `PDFExtractor`, and runs the KGIS -> KGCS pipeline on only the new
+records.
+
+```bash
+gcloud run jobs execute agentic-kg-ingest-staging \
+  --region=us-central1 \
+  --update-env-vars=MIGRATION_SOURCE=live,INGEST_QUERY="retrieval augmented generation",INGEST_LIMIT=20 \
+  --wait
+```
+
+* `INGEST_QUERY` — required in live mode; the run refuses without it.
+* `INGEST_LIMIT` — the per-run cap (default 20). Discovery is asked for the cap
+  and the merged, deduplicated result is truncated to it.
+* `INGEST_SOURCES` — optional comma-separated source list
+  (`semantic_scholar,arxiv,openalex`); unset means all.
+
+**Dedupe.** Before any full-text fetch, a discovered paper is dropped as a
+duplicate when *any* of its aliases (DOI, arXiv, Semantic Scholar, OpenAlex id)
+is already in the durable KGIS ledger (`INGEST_LEDGER_DIR`, GCS at
+`/mnt/ledger/staging`) or already a canonical `Paper` in the namespace. Reading
+every alias, not just the DOI, is what lets a paper discovered under a different
+identifier be recognized as the same paper. The expensive, network-bound fetch
+therefore never runs for a paper KGIS has already seen.
+
+**Provenance.** Each live paper's evidence row carries the source API, the
+retrieval instant, the query it was discovered under, and its cross-identifiers,
+so a canonical paper can be traced back to the discovery response that produced
+it. A live run's summary no longer carries the `query_scoping` honest null —
+the query *does* select the papers — provided the extraction client is a live
+provider; if a deterministic replay client is injected the `extraction_quality`
+null remains.
+
+**Idempotency.** Re-running the same query is a no-op: every discovered paper is
+already in the ledger, so `papers_new` is 0, the pipeline is not run, and
+`committed` is `false` with the epoch unchanged. This is the same idempotency
+contract §2 states for the corpus, extended to discovery.
+
+**Not wired, still honest:** entity resolution, the LLM adviser and the human
+review queue remain deferred (unchanged from the corpus slice).
 
 ## 3. Query the read-only canonical API
 
@@ -126,9 +180,10 @@ on this path.
 
 ## 4. What the first slice does and does not do
 
-**Does:** acquire from the committed corpus, run KGIS shadow ingestion, run KGCS
-curation, commit DOI-keyed `Paper` identities into the isolated canonical
-namespace, publish an epoch, and report all of it as JSON.
+**Does:** acquire from the committed corpus (or, with `MIGRATION_SOURCE=live`,
+from live discovery — see §2b), run KGIS shadow ingestion, run KGCS curation,
+commit DOI-keyed `Paper` identities into the isolated canonical namespace,
+publish an epoch, and report all of it as JSON.
 
 **Does not (honest nulls, carried in the summary):**
 
