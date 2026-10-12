@@ -491,7 +491,6 @@ resource "google_project_iam_member" "deploy_storage_admin" {
 resource "google_storage_bucket" "ledger" {
   count = var.ingest_ledger_bucket != "" ? 1 : 0
 
-
   name                        = var.ingest_ledger_bucket
   location                    = var.region
   storage_class               = "STANDARD"
