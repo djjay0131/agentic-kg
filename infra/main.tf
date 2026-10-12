@@ -475,8 +475,25 @@ resource "google_cloud_run_v2_service_iam_member" "api_public" {
 #
 # Created only when var.ingest_ledger_bucket names it: environments that keep
 # the job-local /tmp ledger get no bucket and no volume.
+# The apply identity must create the ledger bucket and set its IAM; it lacked
+# storage.buckets.create, so the first apply of #123 failed (2026-10-10).
+# Granted through the reviewed plan/apply path (ADR-0007: no hand-run IAM),
+# like deploy_service_account_admin; owner-approved 2026-10-11.
+resource "google_project_iam_member" "deploy_storage_admin" {
+  count   = var.deploy_service_account_email != "" && var.ingest_ledger_bucket != "" ? 1 : 0
+  project = var.project_id
+  role    = "roles/storage.admin"
+  member  = "serviceAccount:${var.deploy_service_account_email}"
+
+  depends_on = [google_project_service.apis]
+}
+
 resource "google_storage_bucket" "ledger" {
   count = var.ingest_ledger_bucket != "" ? 1 : 0
+
+  # Order after the grant; IAM can lag on the first apply, and re-running the
+  # Terraform workflow then succeeds (infra/README.md).
+  depends_on = [google_project_iam_member.deploy_storage_admin]
 
   name                        = var.ingest_ledger_bucket
   location                    = var.region
@@ -829,6 +846,25 @@ resource "google_secret_manager_secret_version" "neo4j_password_next_seed" {
   }
 }
 
+# Re-seed (2026-10-10). The pre-ADR-0007 rotation workflow destroyed the newest
+# NEO4J_PASSWORD_NEXT version after each run, so `:latest` pointed at a
+# DESTROYED version and Cloud Run refused to update the rotation Job. This adds
+# one more NON-SECRET placeholder version (the string the Job treats as
+# "nothing staged") so `:latest` resolves again. The ADR-0007 workflow (#132)
+# leaves a placeholder as the newest version after every run, so this is a
+# one-time repair. Same lifecycle guards as the original seed.
+resource "google_secret_manager_secret_version" "neo4j_password_next_reseed" {
+  secret          = google_secret_manager_secret.neo4j_password_next.id
+  secret_data     = "unset-seed-not-a-password"
+  deletion_policy = "ABANDON"
+
+  lifecycle {
+    ignore_changes = [secret_data, enabled]
+  }
+
+  depends_on = [google_secret_manager_secret_version.neo4j_password_next_seed]
+}
+
 resource "google_cloud_run_v2_job" "rotate_password" {
   name     = "agentic-kg-rotate-neo4j-${var.env}"
   location = var.region
@@ -932,6 +968,7 @@ resource "google_cloud_run_v2_job" "rotate_password" {
     google_project_iam_member.network_user,
     google_secret_manager_secret_version.neo4j_uri,
     google_secret_manager_secret_version.neo4j_password_next_seed,
+    google_secret_manager_secret_version.neo4j_password_next_reseed,
     google_secret_manager_secret_iam_member.rotator_accessor,
     google_secret_manager_secret_iam_member.rotator_version_adder,
     google_project_iam_member.rotator_network_user,
