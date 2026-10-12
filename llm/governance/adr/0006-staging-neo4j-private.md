@@ -7,6 +7,8 @@ nav_exclude: true
 
 Status: Proposed
 Date: 2026-10-05
+Amended: 2026-10-09 by ADR-0007 — the rotation Job now generates and stores the
+password inside GCP; the workflow no longer generates or pipes it.
 
 ## Context
 
