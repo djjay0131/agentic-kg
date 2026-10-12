@@ -25,6 +25,7 @@ from agentic_kg_api.routers import (
     papers,
     problems,
     reviews,
+    runs,
     search,
     topics,
 )
@@ -143,6 +144,7 @@ app.include_router(concepts.router)
 app.include_router(models_router.router)
 app.include_router(methods_router.router)
 app.include_router(canonical.router)
+app.include_router(runs.router)
 
 
 # Health and stats endpoints

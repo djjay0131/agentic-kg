@@ -23,6 +23,9 @@ github_repo           = "agentic-kg"
 sync_github_secrets   = false
 enable_build_triggers = false
 
+# ADR-0007: the deploy/apply identity must act as the job identities it manages.
+deploy_service_account_email = "gh-deploy@vt-gcp-00042.iam.gserviceaccount.com"
+
 # KGIS/KGCS opt-in seam (ADR-0004/ADR-0005, issue #112). These were hand-set
 # per docs/operations/kgis-kgcs-staging-runbook.md and silently dropped by the
 # next deploy; Terraform is now the single owner. The namespace MUST be the

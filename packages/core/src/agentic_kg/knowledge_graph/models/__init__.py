@@ -38,6 +38,15 @@ from .enums import (
     TopicLevel,
     WorkflowState,
 )
+from .pipeline_run import (
+    PipelineBudget,
+    PipelineFailure,
+    PipelineQueryResult,
+    PipelineRun,
+    PipelineRunStatus,
+    PipelineRunTrigger,
+    PipelineTotals,
+)
 
 # Relationship models
 from .relationships import (
@@ -104,6 +113,14 @@ __all__ = [
     "ResearchConcept",
     "SuggestedConceptForReview",
     "Topic",
+    # PipelineRun models (nightly reports; see docs/design/nightly-pipeline-contract.md)
+    "PipelineBudget",
+    "PipelineFailure",
+    "PipelineQueryResult",
+    "PipelineRun",
+    "PipelineRunStatus",
+    "PipelineRunTrigger",
+    "PipelineTotals",
     # Relationship models
     "AuthoredByRelation",
     "ContradictsRelation",
