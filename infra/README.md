@@ -68,6 +68,39 @@ terraform fmt -check -recursive
 terraform plan -var-file=envs/staging.tfvars -lock=false
 ```
 
+## Roles the apply identity needs
+
+The Terraform workflow authenticates as the Workload-Identity deploy identity
+`gh-deploy@vt-gcp-00042.iam.gserviceaccount.com`. The roles it needs are, as far
+as possible, granted **by Terraform through this same reviewed plan/apply path**
+— never by a human running `gcloud` (ADR-0007 rule 4).
+
+- **`roles/resourcemanager.projectIamAdmin` — the bootstrap role.** It must be
+  granted out-of-band once (owner, console or `gcloud`), because Terraform
+  cannot grant the apply identity a role it does not already hold. The grant
+  below is possible only because the apply identity already has this one.
+- **`roles/iam.serviceAccountAdmin` — granted by Terraform.**
+  `google_project_iam_member.deploy_service_account_admin` in `main.tf` binds it
+  to `var.deploy_service_account_email`. It is what lets the apply create the
+  ADR-0007 service accounts (`neo4j-rotator-<env>`, `gh-ci-vendor-keys-<env>`,
+  added in #131) and their `service_account_iam` bindings. Both
+  `google_service_account` resources `depends_on` that grant, so a single apply
+  orders it first.
+
+The remaining apply roles (`compute.admin`, `run.admin`, `secretmanager.admin`,
+`artifactregistry.admin`, `serviceusage.serviceUsageAdmin`, and
+`iam.serviceAccountUser` on the compute default SA) are listed in the adoption
+PR (#113) and are granted out-of-band like `projectIamAdmin`.
+
+### First-apply IAM propagation
+
+A project-level IAM change can take a few seconds to propagate. If the **first**
+apply fails to create a service account with `403 ... permission denied` on
+`iam.serviceAccounts.create`, the `iam.serviceAccountAdmin` grant has not
+propagated yet. **Re-run the Terraform workflow** (Actions → *Terraform* → *Run
+workflow* with `apply: true`); the second apply succeeds. No other manual step
+is required.
+
 ## Adopting the existing staging resources (one time — issue #112)
 
 Staging resources already exist in `vt-gcp-00042` from earlier hand/`gcloud`
@@ -107,6 +140,26 @@ The deploy workflows were reduced to an image roll for exactly this reason:
 `gcloud run deploy` with its own flags (and `--set-secrets`, which clears
 unlisted secret env vars) was dropping the hand-set KGIS/KGCS flags on every
 deploy (#112). Terraform now declares them, so they cannot be dropped.
+
+`deploy-master.yml` is the **only automatic deploy path**. `cloudbuild.yaml` is
+**manual-only** (operator `gcloud builds submit`); it now also rolls only the
+image + `commit` label, so the manual escape hatch cannot drop Terraform-owned
+config either. Two legacy **global** Cloud Build triggers
+(`agentic-kg-api-staging`, `agentic-kg-ui-staging`, created 2026-02-04, running
+as the default compute SA) still fire on pushes; before the guard they
+`ReplaceService`d staging with a spec-less `gcloud run deploy`. They are not in
+Terraform state (`enable_build_triggers = false`) and the WIF CI SA cannot delete
+them, so the **owner deletes them by hand** — Console → Cloud Build → Triggers
+(region **global**) → Delete, or
+
+```bash
+gcloud builds triggers delete agentic-kg-api-staging --region=global --project=vt-gcp-00042
+gcloud builds triggers delete agentic-kg-ui-staging  --region=global --project=vt-gcp-00042
+```
+
+Do not touch the `denario-*` triggers. Until deletion, `cloudbuild.yaml` guards
+every step: a triggered build exits 0 in seconds without deploying. Full
+procedure: [`docs/operations/deploy-runbook.md`](../docs/operations/deploy-runbook.md).
 
 ### KGIS/KGCS opt-in flags
 

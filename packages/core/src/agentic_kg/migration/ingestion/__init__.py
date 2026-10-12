@@ -13,6 +13,7 @@ imported successfully and then did nothing would be worse.
 Start at :func:`~agentic_kg.migration.ingestion.pipeline.run_shadow_ingestion`.
 """
 
+from agentic_kg.migration.ingestion._contracts import is_deterministic
 from agentic_kg.migration.ingestion.arm_export import (
     UNAVAILABLE_REASON,
     ShadowArmEntity,
@@ -61,6 +62,7 @@ from agentic_kg.migration.ingestion.replay import (
     replay_client_from_file,
     save_recording,
 )
+from agentic_kg.migration.ingestion.source_record import SourceRecord
 from agentic_kg.migration.ingestion.stores import ShadowStores
 from agentic_kg.migration.ingestion.structured import (
     INCLUDE_SNAPSHOT_IN_LOCATOR,
@@ -98,12 +100,14 @@ __all__ = [
     "ShadowRunResult",
     "ShadowStores",
     "SnapshotLocatorRefused",
+    "SourceRecord",
     "WriterLease",
     "acquire_writer_lease",
     "as_arm_payload",
     "assert_no_live_provider",
     "build_shadow_pipeline",
     "importer_replay_client",
+    "is_deterministic",
     "join_key",
     "load_corpus",
     "load_paper",

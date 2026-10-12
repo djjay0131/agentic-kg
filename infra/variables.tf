@@ -234,3 +234,23 @@ variable "ingest_ledger_mount_path" {
   type        = string
   default     = "/mnt/ledger"
 }
+
+# ADR-0007: identities for secret handling ---------------------------------------
+
+variable "wif_pool_id" {
+  description = "Workload Identity Pool that GitHub Actions authenticates through (scripts/setup_wif_deploy.sh)"
+  type        = string
+  default     = "github"
+}
+
+variable "wif_repository" {
+  description = "owner/name of the repository whose workflows may impersonate the CI vendor-key reader"
+  type        = string
+  default     = "djjay0131/agentic-kg"
+}
+
+variable "deploy_service_account_email" {
+  description = "Service account the GitHub workflows deploy as (needs actAs on job identities)"
+  type        = string
+  default     = ""
+}

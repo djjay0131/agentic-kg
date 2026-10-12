@@ -125,6 +125,75 @@ export interface GraphResponse {
   links: GraphLink[];
 }
 
+// PipelineRun types (nightly reports; see docs/design/nightly-pipeline-contract.md)
+export interface PipelineTotals {
+  papers_seen: number;
+  papers_new: number;
+  committed_operations: number;
+  deferred_candidates: number;
+  honest_nulls: number;
+}
+
+export interface PipelineRunSummary {
+  run_id: string;
+  started_at: string;
+  finished_at: string | null;
+  status: string;
+  trigger: string;
+  namespace: string;
+  totals: PipelineTotals;
+  budget_stopped: boolean;
+  failures_count: number;
+  review_queue_size: number | null;
+}
+
+export interface PipelineQueryResult {
+  query_id: string;
+  query: string;
+  topic: string;
+  limit: number;
+  papers_seen: number;
+  papers_new: number;
+  status: string;
+  error: string | null;
+}
+
+export interface PipelineBudget {
+  max_papers: number;
+  max_llm_usd: number;
+  est_llm_usd: number;
+  stopped_by_budget: boolean;
+}
+
+export interface PipelineFailure {
+  step: string;
+  message: string;
+  log_url: string | null;
+}
+
+export interface PipelineRun {
+  run_id: string;
+  started_at: string;
+  finished_at: string | null;
+  status: string;
+  trigger: string;
+  namespace: string;
+  queries: PipelineQueryResult[];
+  totals: PipelineTotals;
+  deferral_reasons: Record<string, number>;
+  budget: PipelineBudget;
+  review_queue_size: number | null;
+  proposed_queries: Record<string, unknown>[];
+  failures: PipelineFailure[];
+  git_sha: string;
+  image: string;
+}
+
+export interface PipelineRunListResponse {
+  runs: PipelineRunSummary[];
+  next_cursor: string | null;
+}
+
 // Workflow types
 export interface WorkflowStatus {
   run_id: string;
@@ -246,6 +315,17 @@ export const api = {
     const query = searchParams.toString();
     return fetchAPI<GraphResponse>(`/api/graph/neighbors/${encodeURIComponent(nodeId)}${query ? `?${query}` : ''}`);
   },
+
+  // Nightly runs
+  listRuns: (params?: { limit?: number; cursor?: string }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.limit) searchParams.set('limit', String(params.limit));
+    if (params?.cursor) searchParams.set('cursor', params.cursor);
+    const query = searchParams.toString();
+    return fetchAPI<PipelineRunListResponse>(`/api/runs${query ? `?${query}` : ''}`);
+  },
+
+  getRun: (runId: string) => fetchAPI<PipelineRun>(`/api/runs/${encodeURIComponent(runId)}`),
 
   // Workflows
   startWorkflow: (params?: { domain_filter?: string; status_filter?: string; max_problems?: number }) =>
