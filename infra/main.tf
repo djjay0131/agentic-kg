@@ -491,9 +491,6 @@ resource "google_project_iam_member" "deploy_storage_admin" {
 resource "google_storage_bucket" "ledger" {
   count = var.ingest_ledger_bucket != "" ? 1 : 0
 
-  # Order after the grant; IAM can lag on the first apply, and re-running the
-  # Terraform workflow then succeeds (infra/README.md).
-  depends_on = [google_project_iam_member.deploy_storage_admin]
 
   name                        = var.ingest_ledger_bucket
   location                    = var.region
@@ -518,7 +515,12 @@ resource "google_storage_bucket" "ledger" {
     }
   }
 
-  depends_on = [google_project_service.apis]
+  # After the storage grant above; IAM can lag on the first apply, and
+  # re-running the Terraform workflow then succeeds (infra/README.md).
+  depends_on = [
+    google_project_service.apis,
+    google_project_iam_member.deploy_storage_admin,
+  ]
 }
 
 # The ingest Job's runtime SA writes the ledger, so it gets object admin on THIS
