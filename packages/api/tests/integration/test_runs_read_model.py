@@ -32,7 +32,9 @@ def neo4j_container():
         pytest.skip("Docker not available")
         return
 
-    container = Neo4jContainer("neo4j:5.26-community", password="testpassword")
+    container = Neo4jContainer(
+        "mirror.gcr.io/library/neo4j:5.26-community", password="testpassword"
+    )
     try:
         container.start()
         yield container
@@ -186,3 +188,84 @@ class TestRunsApiIntegration:
         page2 = second.json()
         assert [r["run_id"] for r in page2["runs"]] == [seeded["older"].run_id]
         assert page2["next_cursor"] is None
+
+
+def _delete_run(repo, run_id: str) -> None:
+    with repo.session() as session:
+        session.run(
+            "MATCH (r:PipelineRun {run_id: $run_id}) DETACH DELETE r",
+            run_id=run_id,
+        )
+
+
+class TestNightlyBuiltRunRoundTrip:
+    """The nightly job's own code path writes a run the API reads back intact.
+
+    This is the cross-task round-trip: ``agentic_kg.pipeline.nightly.run_nightly``
+    builds the shared ``PipelineRun`` and persists it with
+    ``save_pipeline_run``, then ``GET /api/runs`` and ``/api/runs/{run_id}``
+    serve the nested queries/totals/budget unchanged.
+    """
+
+    def test_nightly_report_round_trips_through_the_api(self, api_client):
+        from datetime import datetime, timezone
+
+        from agentic_kg.pipeline.catalog import QueryCatalog
+        from agentic_kg.pipeline.ingest import QueryOutcome
+        from agentic_kg.pipeline.nightly import run_nightly
+        from agentic_kg.pipeline.plan import DEFAULT_MAX_PAPERS
+
+        client, repo, _seeded = api_client
+        catalog = QueryCatalog(
+            queries=[
+                {
+                    "id": "q1",
+                    "query": "graph neural networks",
+                    "topic": "GNN",
+                    "limit": 10,
+                    "weight": 1.0,
+                    "enabled": True,
+                }
+            ]
+        )
+
+        def runner(query, limit, *, run_id, namespace):
+            return QueryOutcome(
+                papers_seen=10,
+                papers_new=2,
+                committed_operations=3,
+                deferred_candidates=1,
+                deferral_reasons={"low_confidence": 1},
+                honest_nulls={"entity_resolution": "not_wired"},
+                est_llm_usd=0.5,
+            )
+
+        result = run_nightly(
+            now=datetime(2026, 2, 1, 2, 30, tzinfo=timezone.utc),
+            catalog=catalog,
+            runner=runner,
+            repo=repo,
+            runs_dir=None,
+            write_json=False,
+        )
+        run_id = result.report.run_id
+        try:
+            detail = client.get(f"/api/runs/{run_id}")
+            assert detail.status_code == 200
+            body = detail.json()
+            assert body["status"] == "succeeded"
+            assert body["queries"][0]["query"] == "graph neural networks"
+            assert body["queries"][0]["papers_new"] == 2
+            assert body["totals"]["papers_seen"] == 10
+            assert body["totals"]["papers_new"] == 2
+            assert body["totals"]["committed_operations"] == 3
+            assert body["totals"]["honest_nulls"] == 1
+            assert body["budget"]["max_papers"] == DEFAULT_MAX_PAPERS
+            assert body["budget"]["est_llm_usd"] == 0.5
+            assert body["deferral_reasons"] == {"low_confidence": 1}
+
+            listing = client.get("/api/runs?limit=5")
+            assert listing.status_code == 200
+            assert listing.json()["runs"][0]["run_id"] == run_id
+        finally:
+            _delete_run(repo, run_id)

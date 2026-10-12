@@ -1,0 +1,47 @@
+# Manual "run now" for the nightly ingestion pipeline (nightly-pipeline P1).
+#
+# Dispatches the same Cloud Workflows workflow the 02:30 America/New_York
+# Cloud Scheduler job triggers, with trigger="manual" so the PipelineRun report
+# records how it was started. Auth is WIF; no secret value is printed — only the
+# execution state.
+#
+# Requires the CI service account to hold roles/workflows.invoker (see the
+# "Owner bootstrap needed" section of the P1 PR; not granted in Terraform).
+
+name: Run nightly pipeline now
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  REGION: us-central1
+  WORKFLOW: agentic-kg-nightly-staging
+
+jobs:
+  run:
+    name: Run nightly pipeline
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Run the nightly workflow
+        run: |
+          gcloud workflows run "${WORKFLOW}" \
+            --location="${REGION}" \
+            --data='{"trigger":"manual"}' \
+            --format='value(state)'
