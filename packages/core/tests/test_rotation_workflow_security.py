@@ -89,10 +89,24 @@ def test_wif_auth_matches_deploy_workflows(workflow: dict) -> None:
     assert with_args["service_account"] == "${{ secrets.GCP_SERVICE_ACCOUNT }}"
 
 
-def test_password_is_masked_before_use(text: str) -> None:
-    mask = text.index("::add-mask::")
-    staged = text.index("secrets versions add")
-    assert mask < staged, "password must be masked before it is written anywhere"
+def test_workflow_never_generates_reads_or_pipes_a_password(text: str) -> None:
+    """ADR-0007 rule 2: the rotation Job generates and stores the password
+    inside GCP; this workflow only triggers it and manages version metadata."""
+    assert "token_urlsafe" not in text and "secrets.token" not in text
+    assert "versions access" not in text
+    assert "NEW_PASSWORD" not in text
+    assert "::add-mask::" not in text  # nothing secret ever reaches the runner
+    # The only value it ever writes is the public placeholder, before destroying.
+    adds = [ln for ln in text.splitlines() if "secrets versions add" in ln]
+    assert len(adds) == 1
+    placeholder = text.index("printf '%s' 'unset-seed-not-a-password'")
+    destroy = text.index("gcloud secrets versions destroy")
+    assert placeholder < destroy
+
+
+def test_job_runs_the_fail_safe_in_gcp_entrypoint(text: str) -> None:
+    """An image without in-GCP generation must fail to start, not run legacy."""
+    assert "--args=-m,agentic_kg.rotate_password_gcp" in text
 
 
 def test_password_is_never_echoed_or_persisted(text: str) -> None:
@@ -115,10 +129,11 @@ def test_rotates_inside_the_vpc_via_a_cloud_run_job(text: str) -> None:
 
 
 def test_verifies_before_disabling_the_old_version(text: str) -> None:
+    execute = text.index("gcloud run jobs execute")
     verify = text.index("Verify the API reads the graph")
-    disable = text.index("Disable the superseded secret version")
-    destroy = text.index("Destroy the transport version")
-    assert verify < disable < destroy
+    disable = text.index("Disable the superseded secret versions")
+    destroy = text.index("Destroy the transport copy")
+    assert execute < verify < disable < destroy
 
 
 def test_does_not_depend_on_removed_github_secrets(text: str) -> None:

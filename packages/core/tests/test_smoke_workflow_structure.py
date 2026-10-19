@@ -296,11 +296,18 @@ class TestEnvBlock:
 
     def test_api_keys_scoped_to_ingest_step(self, workflow):
         """#80: API keys live on the ingest step, not the job env, so the
-        checkout / install / artifact steps never hold them."""
+        checkout / install / artifact steps never hold them. ADR-0007: the
+        values come from Secret Manager (masked step outputs of the vendor
+        fetch), never from GitHub-secret copies."""
         step = _step_by_name(workflow, "Ingest (with single retry)")
         env = step["env"]
-        assert "secrets.OPENAI_API_KEY" in env["OPENAI_API_KEY"]
-        assert "secrets.SEMANTIC_SCHOLAR_API_KEY" in env["SEMANTIC_SCHOLAR_API_KEY"]
+        assert env["OPENAI_API_KEY"] == "${{ steps.vendor.outputs.OPENAI_API_KEY }}"
+        assert env["SEMANTIC_SCHOLAR_API_KEY"] == (
+            "${{ steps.vendor.outputs.SEMANTIC_SCHOLAR_API_KEY }}"
+        )
+        text = _WORKFLOW_PATH.read_text(encoding="utf-8")
+        assert "secrets.OPENAI_API_KEY" not in text
+        assert "secrets.SEMANTIC_SCHOLAR_API_KEY" not in text
 
     def test_api_keys_absent_from_job_env(self, workflow):
         """#80: neither key may regress to the job-wide env block."""
@@ -328,13 +335,27 @@ class TestEnvBlock:
         env = _smoke_job(workflow)["env"]
         assert env["NEO4J_URI"] == "bolt://localhost:7687"
 
-    def test_no_gcp_secrets_referenced(self, workflow):
-        """No WIF auth, no GCP-scoped secrets."""
+    def test_only_the_read_only_vendor_key_identity(self, workflow):
+        """ADR-0007: the only GCP identity this PR-triggered workflow may use is
+        the read-only CI vendor-key reader (it can read the S2 and OpenAI keys
+        and nothing else). Never the deployer service account, never a key
+        file."""
         text = _WORKFLOW_PATH.read_text(encoding="utf-8")
-        # Guard against accidental copy-paste of GCP integration tokens.
-        assert "GCP_" not in text
-        assert "workload_identity_provider" not in text
+        assert "GCP_SERVICE_ACCOUNT" not in text
         assert "GOOGLE_APPLICATION_CREDENTIALS" not in text
+        assert "credentials_json" not in text
+        auth_steps = [
+            s for s in _smoke_job(workflow)["steps"]
+            if str(s.get("uses", "")).startswith("google-github-actions/auth")
+        ]
+        assert len(auth_steps) == 1
+        assert auth_steps[0]["with"]["service_account"].startswith(
+            "gh-ci-vendor-keys-staging@"
+        )
+        # Fork PRs get no OIDC token: the fetch must be guarded.
+        assert "head.repo.full_name == github.repository" in auth_steps[0]["if"]
+        # Masked step outputs only: never exported to later steps' environment.
+        assert "GITHUB_ENV" not in text.split("Fetch vendor keys")[1].split("- name:")[0]
 
 
 # =============================================================================
