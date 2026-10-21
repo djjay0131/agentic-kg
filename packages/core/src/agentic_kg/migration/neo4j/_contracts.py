@@ -31,6 +31,7 @@ from kg_contracts.assertions import (  # noqa: E402
     Assertion,
     CanonicalEntity,
     CurationStatus,
+    is_assertion_id,
 )
 from kg_contracts.curation import (  # noqa: E402
     CurationOperation,
@@ -67,4 +68,5 @@ __all__ = [
     "Precondition",
     "TemporalGraphReader",
     "UnsupportedCapabilityError",
+    "is_assertion_id",
 ]

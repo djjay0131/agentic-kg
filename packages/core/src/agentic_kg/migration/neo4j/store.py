@@ -102,6 +102,7 @@ from agentic_kg.migration.neo4j._contracts import (
     GraphReadOptions,
     Precondition,
     UnsupportedCapabilityError,
+    is_assertion_id,
 )
 from agentic_kg.migration.neo4j.operations import SUPPORTED_OPERATIONS
 from agentic_kg.migration.neo4j.schema import (
@@ -115,6 +116,20 @@ from agentic_kg.migration.neo4j.schema import (
 )
 
 DEFAULT_DATABASE = "neo4j"
+
+#: What both canonical surfaces advertise. Kept as one value so
+#: :meth:`Neo4jCanonicalGraphStore.capabilities` and
+#: :meth:`Neo4jCanonicalGraphReader.capabilities` cannot drift apart: KGPS
+#: decides whether to use ``get_assertion`` or a full scan from exactly this
+#: declaration (``kgps.ports.supports_native_lookup``).
+CANONICAL_CAPABILITIES = AdapterCapabilities(
+    supports_transactions=True,
+    supports_temporal_queries=True,
+    supports_snapshot_reads=True,
+    supports_constraints=True,
+    supports_bulk_upsert=True,
+    supports_assertion_lookup=True,
+)
 
 #: Statuses a ``RETRACT_ASSERTION`` may move an assertion to. ``ACTIVE`` is not
 #: a retraction; restoring an assertion is an ``ATTACH_ASSERTION``, which since
@@ -165,6 +180,18 @@ class Neo4jCanonicalGraphStore:
             supplies it, so this is now defence for hand-built and older plans
             rather than a workaround for upstream (see :meth:`_apply_retract`).
         owns_driver: Close the driver on :meth:`close`.
+
+    Known limitations of the read surface (deliberate, not defects):
+
+    * ``superseded_by`` is **not epoch-versioned**. A historical read at an
+      epoch before a supersession reports the record ``ACTIVE`` with the pointer
+      cleared (the contract forbids a pointer on an ACTIVE record), but a
+      historical ``include_superseded`` view of a record *already* superseded
+      shows the pointer as it is today, not as it was at that epoch.
+    * The ADR-0026 subject-revoke shield uses the identity's **latest** status.
+      Consequently, after ``RESTORE_IDENTITY`` a historical read inside the
+      revoked window is no longer shielded. Revocation remains terminal and
+      global until a restore happens; the shield is not time-travelled.
     """
 
     def __init__(
@@ -229,14 +256,7 @@ class Neo4jCanonicalGraphStore:
         six named vector indexes of spec §4.4 live on the projection surface,
         not here. A capability is a promise about this adapter, not about Neo4j.
         """
-        return AdapterCapabilities(
-            supports_transactions=True,
-            supports_temporal_queries=True,
-            supports_snapshot_reads=True,
-            supports_constraints=True,
-            supports_bulk_upsert=True,
-            supports_assertion_lookup=True,
-        )
+        return CANONICAL_CAPABILITIES
 
     # --- GraphMutationStore ---------------------------------------------------
 
@@ -555,7 +575,14 @@ class Neo4jCanonicalGraphStore:
                 f"or absent (got {replaced_by!r})"
             )
         payload_update: dict[str, Any] = {"status": status, "superseded_at": at}
-        if replaced_by is not None:
+        if status is not CurationStatus.SUPERSEDED:
+            # A REVOKED record cannot carry a successor pointer: the contract's
+            # partial invariant is "pointer set => status SUPERSEDED". Retiring
+            # an already-SUPERSEDED record must therefore clear the pointer it
+            # inherited; leaving it would make `Assertion.model_validate` refuse
+            # the update and turn a valid RETRACT into a CommitRefused.
+            payload_update["superseded_by"] = None
+        elif replaced_by is not None:
             payload_update["superseded_by"] = replaced_by
         self._append_status(
             tx, str(assertion_id), epoch, status, at, payload_update=payload_update
@@ -733,7 +760,9 @@ class Neo4jCanonicalGraphStore:
         :func:`_get_assertion` with
         :class:`~agentic_kg.migration.neo4j.reader.Neo4jCanonicalGraphReader`,
         the epoch gate, both history flags, the subject-revoke shield and the
-        temporal filters are exactly the ones ``assertions_for`` applies.
+        temporal filters are exactly the ones ``assertions_for`` applies. A
+        malformed id (not a contract assertion id, or containing the synthetic
+        uid separator) returns ``None`` without querying.
         """
         self._check_temporal_options(options)
         return _get_assertion(
@@ -746,7 +775,14 @@ class Neo4jCanonicalGraphStore:
         *,
         batch_size: int = 500,
     ) -> Iterator[Assertion]:
-        """Stream every visible assertion in this namespace, batch by batch."""
+        """Stream every visible assertion in this namespace, batch by batch.
+
+        Without a caller-supplied ``curation_epoch`` the whole stream is pinned
+        to the epoch read at stream start, so an assertion committed mid-stream
+        does not appear. Each page still runs in its own transaction; this is
+        epoch consistency, not a read snapshot, and ``superseded_by`` is not
+        epoch-versioned (see the class docstring's known limitations).
+        """
         self._check_temporal_options(options)
         return _iter_assertions(
             self._driver, self._database, self._namespace, options, batch_size
@@ -1264,7 +1300,17 @@ def _get_assertion(
     subject-revoke shield through :func:`_subject_revoked`. The assertion is
     filtered first so a hidden record costs no identity read. An unknown id is
     ``None``, never an exception.
+
+    The id is validated *before* a session is opened (ADR-0029). This path is
+    fed from an API path parameter, and the synthetic ``uid`` is
+    ``namespace + UID_SEP + assertion_id``: an id containing the separator could
+    otherwise address a node in another namespace. A malformed id is an honest
+    ``None`` — no query, no exception, same answer as an unknown id.
     """
+    if not isinstance(assertion_id, str) or not is_assertion_id(assertion_id):
+        return None
+    if UID_SEP in assertion_id:
+        return None
     with driver.session(database=database) as session:
         row = session.execute_read(_read_assertion, namespace, assertion_id)
         if row is None:
@@ -1320,9 +1366,22 @@ def _iter_assertions(
     options: GraphReadOptions,
     batch_size: int,
 ) -> Iterator[Assertion]:
-    """Namespace-scoped, keyset-paginated assertion stream (ADR-0029)."""
+    """Namespace-scoped, keyset-paginated assertion stream (ADR-0029).
+
+    Each page runs in its own driver session, so without a caller-supplied
+    ``curation_epoch`` the stream would otherwise straddle epochs: an assertion
+    committed between two pages could appear in the later one. Pinning the
+    namespace's current epoch *once, at stream start* makes the whole stream
+    one snapshot; an already-pinned option is left untouched. This is a
+    consistency guarantee, not a transaction — see the docstrings on
+    ``iter_assertions`` for the exact limits.
+    """
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")
+    if options.curation_epoch is None:
+        with driver.session(database=database) as session:
+            epoch = session.execute_read(_read_epoch, namespace)
+        options = options.model_copy(update={"curation_epoch": epoch})
     after: int | None = None
     while True:
         with driver.session(database=database) as session:

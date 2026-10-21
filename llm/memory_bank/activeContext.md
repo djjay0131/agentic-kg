@@ -58,6 +58,16 @@ the new typed `Evidence.span` agreeing; Phase-5 reports regenerated (pin lines
 only). New testcontainers coverage in
 `tests/migration/neo4j/test_assertion_lookups.py` runs in CI.
 
+Known limitations of the read surface (documented, not changed here):
+
+- `superseded_by` is **not epoch-versioned**. A historical `include_superseded`
+  read of an already-retired record shows the current pointer, not the pointer
+  as it stood at that epoch (an ACTIVE historical view still clears it, because
+  the contract forbids a pointer on an ACTIVE record).
+- The ADR-0026 subject-revoke shield uses the identity's **latest** status.
+  After `RESTORE_IDENTITY`, a historical read inside the revoked window is
+  therefore no longer shielded; the shield is not time-travelled.
+
 ## Legacy Cloud Build triggers neutralised from the repo side (2026-10-09, T28)
 
 Two **global** Cloud Build triggers created 2026-02-04
