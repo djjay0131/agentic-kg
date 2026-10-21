@@ -1,11 +1,34 @@
 # Active Context
 
-Last updated: 2026-10-09
+Last updated: 2026-10-21
 
 > Newest entries at the top. History through 2026-07 lives in
 > [`archive/activeContext-through-2026-07.md`](archive/activeContext-through-2026-07.md)
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
+
+## R-3 PR-1: contracts bump + canonical assertion lookups (2026-10-21, W5-1)
+
+R-3's first slice (spec `llm/features/r3-answer-with-provenance.md`, C1+C2 /
+AC-1+AC-2). The `[migration]` extra now pins agentic-kgis **v0.6.0**
+(`285ca1d`, kg_contracts 2.3.0), agentic-kgcs **main** (`ac51b1a`, includes
+#57's compatible-minor acceptance and the ADR-0027/0028 halves) and adds
+**agentic-kgps v0.5.0** (`24a73c6`). The v2.0.0 kgcs tag would reject a 2.3.0
+envelope, so it is not used. The ADR-0004 CI import check now imports `kgps`,
+and `pin_gate.py` tracks all three SHAs.
+
+Adapter changes forced by the bump: `RESTORE_IDENTITY` is applied (ADR-0027,
+epoch-preserving, only from REVOKED); the RETRACT payload's `superseded_by`
+transport is persisted on the retired record alongside `source_candidate_ids`
+(ADR-0028); both canonical surfaces gain `get_assertion` (one uid index seek,
+same visibility as `assertions_for`, subject-revoke shield included) and the
+reader gains batched keyset `iter_assertions`; `capabilities()` declares
+`supports_assertion_lookup`. Reconciled tripwires: contract suite now 28 named
+tests; corpus candidate digest re-measured (`ea2d2dab…`) after verifying the
+delta is additive-only; the evidence test pins the legacy locator fragment and
+the new typed `Evidence.span` agreeing; Phase-5 reports regenerated (pin lines
+only). New testcontainers coverage in
+`tests/migration/neo4j/test_assertion_lookups.py` runs in CI.
 
 ## Legacy Cloud Build triggers neutralised from the repo side (2026-10-09, T28)
 

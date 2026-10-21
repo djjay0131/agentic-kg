@@ -63,10 +63,15 @@ LONG_TEXT = (
     + "\n"
 )
 
-#: The committed-corpus candidate digest, measured on `master` before this
-#: change (252 candidates, `report.candidates_submitted == 228`).
+#: The committed-corpus candidate digest, re-measured at the agentic-kgis
+#: v0.6.0 / kg_contracts 2.3.0 pin (252 candidates,
+#: `report.candidates_submitted == 228`). The delta from the previous digest is
+#: additive-only and was verified field by field: `contract_version` 2.0.0 ->
+#: 2.3.0, plus the new `extractor_version` / `model_id` / `model_version` /
+#: `prompt_version` envelope fields and `source_coordinates.source_version`
+#: (null for the corpus). No id, alias, locator or evidence ref moved.
 CORPUS_CANDIDATE_DIGEST = (
-    "bbee0cbab217f055de32625abf391577790b397b187a2b429e8c2a78874064ec"
+    "ea2d2dabe013a2c3bc53a402b6b3efb2cd1b26a86490637da847900851695fe6"
 )
 
 
