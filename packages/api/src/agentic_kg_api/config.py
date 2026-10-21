@@ -5,6 +5,12 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
+#: The non-secret version Terraform seeds into the ``API_KEY`` Secret Manager
+#: secret so Cloud Run can create the API revision before the first rotation.
+#: It is public (it is in this repository), so treating it as a valid key would
+#: be an open door. It means "auth not configured", exactly like an empty value.
+API_KEY_PLACEHOLDER = "unset-seed-not-an-api-key"
+
 
 @dataclass
 class APIConfig:
@@ -35,9 +41,18 @@ class APIConfig:
     )
 
     @property
+    def auth_configured(self) -> bool:
+        """Whether a real API key is installed.
+
+        Empty and the public Terraform placeholder both mean "no key". A gated
+        router must fail closed (503) rather than compare against either.
+        """
+        return bool(self.api_key) and self.api_key != API_KEY_PLACEHOLDER
+
+    @property
     def requires_auth(self) -> bool:
         """Whether API key authentication is required."""
-        return bool(self.api_key)
+        return self.auth_configured
 
 
 _config: APIConfig | None = None

@@ -7,6 +7,34 @@ Last updated: 2026-10-21
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
 
+## Enforced API-key auth + machine-only rotation (2026-10-21, R-3 PR-2)
+
+`packages/api` now has `require_api_key` (`dependencies.py`), a router-level
+dependency that constant-time compares `X-API-Key` with `API_KEY`. Missing and
+wrong keys get the same 401; an empty key **or the public Terraform placeholder
+seed** fails closed with 503 `auth not configured`. It is applied only to the
+new `GET /api/auth/check` (router `routers/auth.py`); existing public endpoints
+are unchanged and pinned by tests. PR-5 mounts `/api/query` and
+`/api/provenance/*` behind the same dependency (spec
+`llm/features/r3-answer-with-provenance.md` C5, AC-5/AC-6).
+
+Rotation follows ADR-0007 rule 2, copying the Neo4j pattern:
+
+- `agentic_kg.rotate_api_key_gcp` generates `secrets.token_urlsafe(48)` and
+  adds an `API_KEY` version through the existing stdlib `SecretStore`
+  (`rotate_password.py`); it refuses the placeholder and any degenerate key
+  before writing, and logs only the version name.
+- `agentic_kg.check_api_key` runs as the API identity, reads `API_KEY` from
+  Secret Manager in-process, calls `/api/auth/check`, and prints only PASS/FAIL.
+- Terraform: `API_KEY` container + placeholder seed (ABANDON/ignore_changes),
+  API env `API_KEY:latest`, `api-key-rotator-<env>` SA with **only**
+  `secretVersionAdder` on `API_KEY`, the rotate Job, and the check Job.
+- `.github/workflows/rotate-api-key.yml`: monthly off-hour + dispatch, one
+  non-cancelling concurrency group, pins both Jobs to the ingest image, rolls
+  the API with a label stamp, runs the check, then disables superseded versions
+  by basename. It never reads/adds a version or prints a value.
+- Operator runbook: `docs/operations/api-key-rotation-runbook.md`.
+
 ## R-3 PR-1: contracts bump + canonical assertion lookups (2026-10-21, W5-1)
 
 R-3's first slice (spec `llm/features/r3-answer-with-provenance.md`, C1+C2 /

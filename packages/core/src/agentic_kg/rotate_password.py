@@ -115,10 +115,11 @@ def _http(url: str, *, method: str = "GET", headers=None, body: bytes | None = N
 
 
 class SecretStore:
-    """Adds Secret Manager versions over REST with the Job's own identity.
+    """Adds and reads Secret Manager versions over REST with the Job's identity.
 
     Standard library only (no new image dependency). ``http`` is injectable
-    for tests. Only the *version name* is ever logged.
+    for tests. Only the *version name* is ever logged; a read payload is
+    returned to the caller and never logged.
     """
 
     def __init__(self, project: str, http: Callable[..., bytes] = _http) -> None:
@@ -146,6 +147,20 @@ class SecretStore:
         name = str(json.loads(raw).get("name", "?"))
         logger.info("Added secret version %s", name)
         return name
+
+    def access_version(self, secret_id: str, version: str = "latest") -> str:
+        """Read one version's payload for an in-GCP consumer.
+
+        Used by the API-key check Job (ADR-0007 rule 5): the value is read
+        inside GCP and handed straight to the HTTP request. It is never
+        logged, printed, written to a workflow output, or returned by the Job.
+        """
+        url = (
+            f"{_SECRET_MANAGER}/projects/{self._project}/secrets/{secret_id}"
+            f"/versions/{version}:access"
+        )
+        raw = self._http(url, headers={"Authorization": f"Bearer {self._token()}"})
+        return base64.b64decode(json.loads(raw)["payload"]["data"]).decode()
 
 
 def _authenticates(uri: str, username: str, password: str, driver_factory) -> bool:
