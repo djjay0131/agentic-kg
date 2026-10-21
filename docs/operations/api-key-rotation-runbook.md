@@ -73,3 +73,14 @@ The workflow stops at the failing step and disables nothing. A re-run is safe:
 the rotation Job adds another version, the roll resolves `:latest`, and the
 check Job proves the effect. If the API still serves the old version, re-run the
 workflow rather than reading the secret to compare.
+
+## Known gap: no overlap window (read before PR-5 adds key consumers)
+
+Cloud Run resolves `API_KEY:latest` when an instance starts. If the rotation Job
+succeeds but the API roll fails, running instances keep the old key while any new
+instance of the same revision starts with the new one, so a request can be
+accepted or refused depending on which instance serves it. Re-run the workflow to
+converge. There is also no overlap window: clients holding the old key get 401
+from the roll onward. Nothing calls a gated route yet; before `/api/query` gets
+callers, either accept two keys during the switch or roll the callers in the same
+workflow. The Neo4j rotation has the same shape.

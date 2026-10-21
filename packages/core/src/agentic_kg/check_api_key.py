@@ -10,8 +10,9 @@ The rotation workflow executes this Job *after* rolling the API service onto
 (ADR-0007 rule 5: verification is by effect, not by value).
 
 Environment: ``API_URL``, ``GOOGLE_CLOUD_PROJECT``, ``API_KEY_SECRET_ID``
-(default ``API_KEY``), ``API_KEY_CHECK_ATTEMPTS`` (default 20) and
+(default ``API_KEY``), ``API_KEY_CHECK_ATTEMPTS`` (default 8) and
 ``API_KEY_CHECK_INTERVAL_SECONDS`` (default 6) to ride out a cold revision.
+8 x (30 s request timeout + 6 s wait) stays inside the Job's 300 s timeout.
 """
 
 from __future__ import annotations
@@ -90,7 +91,7 @@ def main() -> None:
         check_api_key(
             os.environ["API_URL"],
             api_key,
-            attempts=int(os.environ.get("API_KEY_CHECK_ATTEMPTS", "20")),
+            attempts=int(os.environ.get("API_KEY_CHECK_ATTEMPTS", "8")),
             interval=float(os.environ.get("API_KEY_CHECK_INTERVAL_SECONDS", "6")),
         )
     except Exception:  # noqa: BLE001 — never print the reason (it could carry a value)

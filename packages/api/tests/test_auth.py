@@ -94,3 +94,15 @@ def test_key_is_compared_with_compare_digest(auth_client, monkeypatch) -> None:
         == 200
     )
     assert calls
+
+
+def test_decision_comes_from_compare_digest(auth_client, monkeypatch) -> None:
+    """With compare_digest forced to False the right key must still be refused,
+    so no earlier ``==`` shortcut can accept it."""
+    import agentic_kg_api.dependencies as deps
+
+    monkeypatch.setattr(deps.hmac, "compare_digest", lambda a, b: False)
+    assert (
+        auth_client.get("/api/auth/check", headers={"X-API-Key": _KEY}).status_code
+        == 401
+    )

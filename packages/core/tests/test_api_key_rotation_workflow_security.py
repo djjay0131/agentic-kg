@@ -125,3 +125,36 @@ def test_check_runs_after_the_roll_and_before_disabling(text: str) -> None:
 def test_disables_by_version_basename_only(text: str) -> None:
     assert "name.basename()" in text
     assert "gcloud secrets versions disable" in text
+
+
+def _steps(workflow: dict) -> list[dict]:
+    return workflow["jobs"]["rotate"]["steps"]
+
+
+def test_no_step_can_run_or_pass_after_a_failure(workflow: dict) -> None:
+    """A failed check must stop the job before anything is disabled.
+
+    ``if: always()`` / ``if: failure()`` or ``continue-on-error`` on any step
+    would let the disable step run after a failed check.
+    """
+    job = workflow["jobs"]["rotate"]
+    assert "continue-on-error" not in job
+    for step in _steps(workflow):
+        assert "if" not in step, step.get("name")
+        assert "continue-on-error" not in step, step.get("name")
+
+
+def test_parsed_step_order_is_rotate_roll_check_disable(workflow: dict) -> None:
+    names = [step.get("name", "") for step in _steps(workflow)]
+
+    def at(prefix: str) -> int:
+        hits = [i for i, n in enumerate(names) if n.startswith(prefix)]
+        assert len(hits) == 1, (prefix, names)
+        return hits[0]
+
+    assert (
+        at("Run the in-GCP rotation job")
+        < at("Roll the API onto the new secret version")
+        < at("Execute the in-GCP check job")
+        < at("Disable the superseded secret versions")
+    )

@@ -96,12 +96,6 @@ def main() -> None:
     project = _required_env("GOOGLE_CLOUD_PROJECT")
     secret_id = os.environ.get("API_KEY_SECRET_ID", DEFAULT_SECRET_ID)
 
-    # Defensive: a Job wired to the placeholder value must refuse rather than
-    # seed the live key. The rotation Job never needs API_KEY for anything else.
-    if os.environ.get("API_KEY") == PLACEHOLDER:
-        logger.error("API_KEY holds the placeholder; refusing to rotate")
-        sys.exit(2)
-
     try:
         rotate_api_key(store=SecretStore(project), secret_id=secret_id)
     except Exception as exc:  # noqa: BLE001 — log type, never the value

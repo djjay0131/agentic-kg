@@ -80,16 +80,6 @@ def test_main_exits_2_when_configuration_is_missing(monkeypatch) -> None:
     assert exc.value.code == 2
 
 
-def test_main_refuses_the_placeholder(monkeypatch) -> None:
-    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "p")
-    monkeypatch.setenv("API_KEY", rotate_mod.PLACEHOLDER)
-    called = []
-    monkeypatch.setattr(rotate_mod, "rotate_api_key", lambda **k: called.append(k))
-    with pytest.raises(SystemExit) as exc:
-        rotate_mod.main()
-    assert exc.value.code == 2 and called == []
-
-
 def test_main_succeeds_and_logs_no_key(monkeypatch, caplog) -> None:
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "p")
     monkeypatch.setenv("API_KEY_SECRET_ID", "API_KEY")
