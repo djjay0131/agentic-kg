@@ -101,9 +101,13 @@ def main(argv: list[str]) -> int:
                 errors.append(f"{tag}: quote not found in paper_{paper}.txt: {nq[:80]!r}...")
 
         if set(papers_listed) != gold_papers:
-            errors.append(f"{qid}: papers {sorted(papers_listed)} != gold papers {sorted(gold_papers)}")
+            errors.append(
+                f"{qid}: papers {sorted(papers_listed)} != gold papers {sorted(gold_papers)}"
+            )
         if kind == "cross_paper" and len(gold_papers) < 2:
-            errors.append(f"{qid}: cross_paper needs >=2 distinct papers, has {sorted(gold_papers)}")
+            errors.append(
+                f"{qid}: cross_paper needs >=2 distinct papers, has {sorted(gold_papers)}"
+            )
         if kind in ("single_fact", "multi_fact") and len(gold_papers) != 1:
             errors.append(f"{qid}: {kind} should cite exactly one paper, has {sorted(gold_papers)}")
         if kind == "single_fact" and len(gold) != 1:
@@ -121,7 +125,10 @@ def main(argv: list[str]) -> int:
             errors.append(f"kind {k}: expected ~{want} (+/-{APPROX_TOL}), found {kinds[k]}")
     for s in SLUGS:
         if touches[s] < MIN_TOUCHES_PER_PAPER:
-            errors.append(f"paper {s}: touched by {touches[s]} questions (want >= {MIN_TOUCHES_PER_PAPER})")
+            errors.append(
+                f"paper {s}: touched by {touches[s]} questions"
+                f" (want >= {MIN_TOUCHES_PER_PAPER})"
+            )
 
     print(f"questions: {len(questions)}  quotes checked: {n_quotes}")
     print("kinds:  " + ", ".join(f"{k}={kinds[k]}" for k in sorted(KINDS)))
