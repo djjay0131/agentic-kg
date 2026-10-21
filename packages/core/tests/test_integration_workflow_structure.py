@@ -126,8 +126,12 @@ class TestE2EStepSecrets:
         assert "secrets.STAGING_API_URL" in env["STAGING_API_URL"]
 
     def test_live_source_step_has_step_scoped_s2_key(self, workflow):
+        """Step-scoped (#80) and sourced from Secret Manager through the
+        read-only vendor-key identity, not a GitHub-secret copy (ADR-0007)."""
         env = _step(workflow, _LIVE_STEP)["env"]
-        assert "secrets.SEMANTIC_SCHOLAR_API_KEY" in env["SEMANTIC_SCHOLAR_API_KEY"]
+        assert env["SEMANTIC_SCHOLAR_API_KEY"] == (
+            "${{ steps.vendor.outputs.SEMANTIC_SCHOLAR_API_KEY }}"
+        )
 
     def test_s2_key_is_not_job_wide(self, workflow):
         """#80: the S2 key lives on the live-source step only, so checkout /

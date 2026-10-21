@@ -251,10 +251,10 @@ resource "google_secret_manager_secret" "neo4j_password" {
   depends_on = [google_project_service.apis]
 }
 
-# Semantic Scholar API key. Same ownership split as NEO4J_PASSWORD: Terraform
-# creates the CONTAINER only. `.github/workflows/sync-s2-key.yml` writes the
-# value as a new version (the GitHub Actions secret
-# SEMANTIC_SCHOLAR_API_KEY is the source), so no credential enters state.
+# Semantic Scholar API key. Terraform creates the CONTAINER only. The vendor
+# issues the value, so the owner adds it directly as a new version in Secret
+# Manager — its only home (ADR-0007) — and roll-vendor-keys.yml rolls the
+# consumers onto it without reading it. No credential enters state.
 resource "google_secret_manager_secret" "semantic_scholar_api_key" {
   secret_id = local.semantic_scholar_api_key_secret_id
 
@@ -475,6 +475,19 @@ resource "google_cloud_run_v2_service_iam_member" "api_public" {
 #
 # Created only when var.ingest_ledger_bucket names it: environments that keep
 # the job-local /tmp ledger get no bucket and no volume.
+# The apply identity must create the ledger bucket and set its IAM; it lacked
+# storage.buckets.create, so the first apply of #123 failed (2026-10-10).
+# Granted through the reviewed plan/apply path (ADR-0007: no hand-run IAM),
+# like deploy_service_account_admin; owner-approved 2026-10-11.
+resource "google_project_iam_member" "deploy_storage_admin" {
+  count   = var.deploy_service_account_email != "" && var.ingest_ledger_bucket != "" ? 1 : 0
+  project = var.project_id
+  role    = "roles/storage.admin"
+  member  = "serviceAccount:${var.deploy_service_account_email}"
+
+  depends_on = [google_project_service.apis]
+}
+
 resource "google_storage_bucket" "ledger" {
   count = var.ingest_ledger_bucket != "" ? 1 : 0
 
@@ -501,7 +514,12 @@ resource "google_storage_bucket" "ledger" {
     }
   }
 
-  depends_on = [google_project_service.apis]
+  # After the storage grant above; IAM can lag on the first apply, and
+  # re-running the Terraform workflow then succeeds (infra/README.md).
+  depends_on = [
+    google_project_service.apis,
+    google_project_iam_member.deploy_storage_admin,
+  ]
 }
 
 # The ingest Job's runtime SA writes the ledger, so it gets object admin on THIS
@@ -612,7 +630,7 @@ resource "google_cloud_run_v2_job" "ingest" {
 
         # Nightly-pipeline P0-4: live Semantic Scholar calls from the Job were
         # unauthenticated and hit the shared anonymous rate-limit pool. The
-        # value is owned by `.github/workflows/sync-s2-key.yml`; Terraform
+        # value is added in Secret Manager by the owner (ADR-0007); Terraform
         # declares where the Job reads it from.
         env {
           name = "SEMANTIC_SCHOLAR_API_KEY"
@@ -829,6 +847,25 @@ resource "google_secret_manager_secret_version" "neo4j_password_next_seed" {
   }
 }
 
+# Re-seed (2026-10-10). The pre-ADR-0007 rotation workflow destroyed the newest
+# NEO4J_PASSWORD_NEXT version after each run, so `:latest` pointed at a
+# DESTROYED version and Cloud Run refused to update the rotation Job. This adds
+# one more NON-SECRET placeholder version (the string the Job treats as
+# "nothing staged") so `:latest` resolves again. The ADR-0007 workflow (#132)
+# leaves a placeholder as the newest version after every run, so this is a
+# one-time repair. Same lifecycle guards as the original seed.
+resource "google_secret_manager_secret_version" "neo4j_password_next_reseed" {
+  secret          = google_secret_manager_secret.neo4j_password_next.id
+  secret_data     = "unset-seed-not-a-password"
+  deletion_policy = "ABANDON"
+
+  lifecycle {
+    ignore_changes = [secret_data, enabled]
+  }
+
+  depends_on = [google_secret_manager_secret_version.neo4j_password_next_seed]
+}
+
 resource "google_cloud_run_v2_job" "rotate_password" {
   name     = "agentic-kg-rotate-neo4j-${var.env}"
   location = var.region
@@ -932,6 +969,7 @@ resource "google_cloud_run_v2_job" "rotate_password" {
     google_project_iam_member.network_user,
     google_secret_manager_secret_version.neo4j_uri,
     google_secret_manager_secret_version.neo4j_password_next_seed,
+    google_secret_manager_secret_version.neo4j_password_next_reseed,
     google_secret_manager_secret_iam_member.rotator_accessor,
     google_secret_manager_secret_iam_member.rotator_version_adder,
     google_project_iam_member.rotator_network_user,
@@ -949,11 +987,35 @@ resource "google_cloud_run_v2_job" "rotate_password" {
 #    keys (Semantic Scholar, OpenAI) at run time. It replaces the GitHub-secret
 #    copies; it can read exactly those two secrets and nothing else, so a PR
 #    workflow never holds the deployer's broad roles just to get an API key.
+#
+# The apply identity (`gh-deploy`) already holds
+# roles/resourcemanager.projectIamAdmin, so it can grant ITSELF the one role
+# #131 needs through the normal reviewed plan/apply path — no operator runs
+# `gcloud projects add-iam-policy-binding` (ADR-0007 rule 4: agents/operators
+# never touch IAM by hand). Creating the two service accounts below requires
+# roles/iam.serviceAccountAdmin; Terraform grants it here rather than assuming
+# a human added it. Empty var (a fresh env with no deploy identity) => no grant.
+# See infra/README.md §Roles the apply identity needs.
+resource "google_project_iam_member" "deploy_service_account_admin" {
+  count   = var.deploy_service_account_email == "" ? 0 : 1
+  project = var.project_id
+  role    = "roles/iam.serviceAccountAdmin"
+  member  = "serviceAccount:${var.deploy_service_account_email}"
+
+  depends_on = [google_project_service.apis]
+}
 
 resource "google_service_account" "neo4j_rotator" {
   account_id   = "neo4j-rotator-${var.env}"
   display_name = "Neo4j password rotation job (${var.env})"
   description  = "ADR-0007: generates the Neo4j password inside GCP and stores it; never exposed."
+
+  # #131's service accounts can only be created once the apply identity holds
+  # roles/iam.serviceAccountAdmin, granted by the binding above in this same
+  # apply. Order the grant first. IAM propagation can still lag on the very
+  # first apply (a 403 creating the account); re-running the Terraform workflow
+  # then succeeds — no other manual step. See infra/README.md.
+  depends_on = [google_project_iam_member.deploy_service_account_admin]
 }
 
 resource "google_secret_manager_secret_iam_member" "rotator_accessor" {
@@ -997,6 +1059,11 @@ resource "google_service_account" "ci_vendor_keys" {
   account_id   = "gh-ci-vendor-keys-${var.env}"
   display_name = "GitHub CI vendor-key reader (${var.env})"
   description  = "ADR-0007: read-only access to vendor API keys for CI; impersonated via WIF."
+
+  # Same prerequisite as neo4j_rotator: #131 cannot create this account until
+  # the apply identity holds roles/iam.serviceAccountAdmin (granted by the
+  # binding above through this apply). See infra/README.md for the re-run note.
+  depends_on = [google_project_iam_member.deploy_service_account_admin]
 }
 
 # The services reference OPENAI_API_KEY with no env suffix; match them.
