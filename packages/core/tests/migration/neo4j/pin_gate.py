@@ -45,7 +45,7 @@ _PIN = re.compile(r"^\s*(?P<name>[A-Za-z0-9._-]+)\s*@\s*git\+[^@]+@(?P<rev>\S+?)
 _FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 
 #: The packages this gate is responsible for.
-TRACKED = ("agentic-kgis", "agentic-kgcs")
+TRACKED = ("agentic-kgis", "agentic-kgcs", "agentic-kgps")
 
 
 class PinGateError(AssertionError):

@@ -85,11 +85,58 @@ ADR_0026_TESTS = frozenset(
 )
 
 
+#: The seven tests kg_contracts added at the v0.6.0 pin (ADR-0027, #51/#55):
+#: RESTORE_IDENTITY, its epoch preservation, and the subject-only shield.
+ADR_0027_TESTS = frozenset(
+    {
+        "test_restore_identity_undoes_a_revoke_and_preserves_creation_epoch",
+        "test_restore_identity_lifts_the_assertion_shield",
+        "test_restore_identity_of_active_identity_does_not_commit",
+        "test_second_restore_of_already_restored_identity_does_not_commit",
+        "test_revoke_restore_revoke_cycle_returns_to_revoked_at_the_creation_epoch",
+        "test_restore_identity_assertion_visibility_flag_cross_terms",
+        "test_assertion_on_live_subject_with_revoked_object_stays_visible_by_default",
+    }
+)
+
+#: The four id-lookup tests (ADR-0029, #59/#66).
+ADR_0029_TESTS = frozenset(
+    {
+        "test_get_assertion_returns_active_assertion_by_id",
+        "test_get_assertion_hides_superseded_by_default_and_flag_reveals",
+        "test_get_assertion_honours_subject_revoke_shield",
+        "test_get_assertion_unknown_id_returns_none",
+    }
+)
+
+#: The three lineage-pointer tests (ADR-0028, #58/#69).
+ADR_0028_TESTS = frozenset(
+    {
+        "test_assertion_lineage_fields_default_to_honest_null",
+        "test_source_candidate_ids_round_trip_through_reads",
+        "test_superseded_by_round_trips_through_include_superseded_reads",
+    }
+)
+
+
 def test_expected_names_come_from_upstream_and_are_non_empty() -> None:
     """Obligation 1 and 3: derived from upstream, and the set is not empty."""
     names = expected_contract_tests()
     assert "test_snapshot_read_at_old_epoch_hides_later_records" in names
-    assert len(names) == 14
+    assert len(names) == 28
+
+
+def test_the_restore_lookup_and_lineage_tests_are_now_required() -> None:
+    """The gate's payoff, collected on the v0.6.0 / contracts 2.3.0 re-pin.
+
+    ``suite_gate`` derives expectations from upstream so an added test becomes a
+    requirement the moment the pin moves. ADR-0027 added seven, ADR-0029 four,
+    ADR-0028 three. This fails naming any that vanish, rather than letting the
+    adapter quietly stop being tested for one.
+    """
+    required = ADR_0027_TESTS | ADR_0028_TESTS | ADR_0029_TESTS
+    missing = required - expected_contract_tests()
+    assert not missing, f"upstream no longer publishes: {sorted(missing)}"
 
 
 def test_the_revocation_tests_the_new_pins_added_are_now_required() -> None:

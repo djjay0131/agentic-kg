@@ -267,8 +267,10 @@ jobs:
       - name: Assert the extra actually resolved
         # A skipped suite and a passing suite look identical in a green check.
         # Fail here rather than letting importorskip quietly empty the job.
+        # ADR-0004 names kgis/kgcs; agentic-kgps joined the same `[migration]`
+        # extra with the R-3 contracts bump, so it is asserted here too.
         run: |
-          python -c "import kgis, kg_contracts; print(kgis.__file__); print(kg_contracts.__file__)"
+          python -c "import kgis, kg_contracts, kgps; print(kgis.__file__); print(kg_contracts.__file__); print(kgps.__file__)"
 
       - name: Assert no provider credential is visible
         # This path must never reach a live model. The suite asserts it too

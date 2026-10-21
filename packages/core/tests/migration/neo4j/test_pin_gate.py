@@ -21,14 +21,21 @@ import pytest
 
 from .pin_gate import PinGateError, check, read_pins
 
-KGIS = "d5bab8f6d6207ce554ee5f687d37938f747eaa79"
-KGCS = "e2c24fca8533af79e520a2ea5fddadd0668baa07"
+KGIS = "285ca1d220e45c73525ad3677fa352b7343d4ef7"
+KGCS = "ac51b1a72c93800b6c27eac012878da53ef8bfd0"
+KGPS = "24a73c6d0c46579338ce05cad4a4225927d70680"
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
 PYPROJECTS = [REPO_ROOT / "pyproject.toml", REPO_ROOT / "packages" / "core" / "pyproject.toml"]
 
 
-def _pyproject(tmp_path: Path, name: str, kgis: str = KGIS, kgcs: str = KGCS) -> Path:
+def _pyproject(
+    tmp_path: Path,
+    name: str,
+    kgis: str = KGIS,
+    kgcs: str = KGCS,
+    kgps: str = KGPS,
+) -> Path:
     path = tmp_path / name
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -42,6 +49,7 @@ def _pyproject(tmp_path: Path, name: str, kgis: str = KGIS, kgcs: str = KGCS) ->
             migration = [
                 "agentic-kgis @ git+https://github.com/djjay0131/agentic-kgis@{kgis}",
                 "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@{kgcs}",
+                "agentic-kgps @ git+https://github.com/djjay0131/agentic-kgps@{kgps}",
             ]
         """),
         encoding="utf-8",
@@ -54,7 +62,7 @@ def _pyproject(tmp_path: Path, name: str, kgis: str = KGIS, kgcs: str = KGCS) ->
 
 def test_reads_pins_from_an_optional_dependency_group(tmp_path: Path) -> None:
     pins = read_pins(_pyproject(tmp_path, "pyproject.toml"))
-    assert pins == {"agentic-kgis": KGIS, "agentic-kgcs": KGCS}
+    assert pins == {"agentic-kgis": KGIS, "agentic-kgcs": KGCS, "agentic-kgps": KGPS}
 
 
 def test_ignores_ordinary_requirements(tmp_path: Path) -> None:
@@ -124,10 +132,11 @@ def test_this_repository_pins_both_packages_consistently() -> None:
     pins = [read_pins(p) for p in PYPROJECTS]
     assert pins[0]["agentic-kgcs"] == pins[1]["agentic-kgcs"] == KGCS
     assert pins[0]["agentic-kgis"] == pins[1]["agentic-kgis"] == KGIS
+    assert pins[0]["agentic-kgps"] == pins[1]["agentic-kgps"] == KGPS
 
 
 def test_the_gate_passes_against_the_installed_extra() -> None:
     """The whole gate, end to end, exactly as CI invokes it."""
     pytest.importorskip("kgcs", reason="the opt-in 'migration' extra is not installed")
     report = check(PYPROJECTS)
-    assert KGCS in report and KGIS in report
+    assert KGCS in report and KGIS in report and KGPS in report

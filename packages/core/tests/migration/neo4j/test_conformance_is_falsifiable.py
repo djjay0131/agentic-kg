@@ -8,9 +8,9 @@ A green conformance run says nothing on its own. A suite wired to a store that
 silently no-ops, or fixtures that make every assertion vacuous, passes exactly
 as convincingly as a correct one. So each defect the shared suite is supposed to
 catch is injected here, one at a time, and the specific test that should notice
-is asserted to fail. The control case — the unmutated adapter passing all fourteen
-— runs in the same module against the same helper, so "all fourteen" is measured
-the same way in both directions.
+is asserted to fail. The control case — the unmutated adapter passing all
+twenty-eight — runs in the same module against the same helper, so the count is
+measured the same way in both directions.
 
 The mutations are applied with ``monkeypatch`` against the real implementation
 rather than by writing a separate broken class: a hand-written stub can drift
@@ -76,19 +76,33 @@ def test_the_suite_has_the_tests_this_module_assumes() -> None:
     an empty expectation. Pinning the names makes that a failure here instead.
     """
     assert CONTRACT_TESTS == (
+        "test_assertion_lineage_fields_default_to_honest_null",
+        "test_assertion_on_live_subject_with_revoked_object_stays_visible_by_default",
         "test_capability_conformance_for_temporal_options",
         "test_create_and_attach_commits_and_returns_new_epoch",
         "test_create_and_revoke_identity_in_one_batch_commits_a_tombstone",
         "test_entity_readable_after_commit_not_before",
         "test_failed_entity_version_precondition_blocks_commit_atomically",
+        "test_get_assertion_hides_superseded_by_default_and_flag_reveals",
+        "test_get_assertion_honours_subject_revoke_shield",
+        "test_get_assertion_returns_active_assertion_by_id",
+        "test_get_assertion_unknown_id_returns_none",
         "test_include_superseded_and_include_revoked_are_independent",
+        "test_restore_identity_assertion_visibility_flag_cross_terms",
+        "test_restore_identity_lifts_the_assertion_shield",
+        "test_restore_identity_of_active_identity_does_not_commit",
+        "test_restore_identity_undoes_a_revoke_and_preserves_creation_epoch",
         "test_revoke_identity_hides_entity_and_preserves_creation_epoch",
         "test_revoke_identity_hides_its_assertions_by_default_and_flag_reveals",
+        "test_revoke_restore_revoke_cycle_returns_to_revoked_at_the_creation_epoch",
         "test_revoked_assertions_hidden_by_default_visible_with_flag",
         "test_revoked_identity_assertion_visibility_flag_cross_terms",
+        "test_second_restore_of_already_restored_identity_does_not_commit",
         "test_second_revoke_of_already_revoked_identity_does_not_commit",
         "test_snapshot_read_at_old_epoch_hides_later_records",
+        "test_source_candidate_ids_round_trip_through_reads",
         "test_superseded_assertions_hidden_by_default_visible_with_flag",
+        "test_superseded_by_round_trips_through_include_superseded_reads",
         "test_transaction_at_filters_by_half_open_recorded_superseded_window",
     )
 
@@ -372,16 +386,18 @@ def test_in_place_status_mutation_breaks_the_epoch_read(
     *already-committed* assertion at a later epoch and then reads back at the
     earlier one. So the mutation below (replace the status history instead of
     appending to it, i.e. backdate the new status to the original epoch) leaves
-    all fourteen contract tests green while destroying the property the
+    all twenty-eight contract tests green while destroying the property the
     evidence-evolution scenario depends on.
 
-    This asserts both halves: the fourteen stay green, and the epoch read goes
+    This asserts both halves: the twenty-eight stay green, and the epoch read goes
     wrong. That is why ``test_old_assertion_is_still_active_at_its_own_epoch``
     exists as a separate criterion rather than being folded into "it conforms".
     """
     import json
 
-    def _replace_status(self, tx, assertion_id, epoch, status, at):  # noqa: ANN001
+    def _replace_status(  # noqa: ANN001
+        self, tx, assertion_id, epoch, status, at, *, payload_update=None
+    ):
         row = tx.run(
             "MATCH (a:Canon__Assertion {uid: $uid}) RETURN a.status_history AS h",
             uid=f"{self._namespace}\x1f{assertion_id}",
@@ -527,8 +543,8 @@ def shadowed_contract_methods(cls: type) -> set[str]:
 def test_the_conforming_class_shadows_no_contract_method() -> None:
     """Closes the last hole in ``suite_gate.py``, which junit alone cannot see.
 
-    A subclass that overrides all fourteen contract methods with ``pass`` (and a
-    ``make_store`` that raises) still emits fourteen passing testcases under one
+    A subclass that overrides all twenty-eight contract methods with ``pass`` (and
+    a ``make_store`` that raises) still emits twenty-eight passing testcases under one
     classname, so the gate reports ``10/10 shared contract tests passed`` and
     exits 0. The junit report records *that* the names ran, never *what* ran —
     an XML-level gate cannot distinguish the real body from a stub, and no
@@ -612,7 +628,7 @@ def test_half_dropped_valid_window_survives_the_shared_suite(
 
     ``test_capability_conformance_for_temporal_options`` probes ``valid_at``
     only *inside* the window and *after* it, so an implementation that dropped
-    the ``valid_from`` comparison passes all fourteen. So did this repo's own
+    the ``valid_from`` comparison passes all twenty-eight. So did this repo's own
     façade probe, until a reviewer pointed the mutation at it — 84 passed with
     the lower bound deleted.
     """

@@ -68,6 +68,11 @@ from agentic_kg.migration.neo4j._contracts import CurationOperationType
 #:   plan that mints an identity un-rollbackable through this store —
 #:   ``PlanExecutor`` would return ``UNSUPPORTED_OPERATION`` for the
 #:   compensating plan with the identity already committed.
+#: * ``RESTORE_IDENTITY`` — the exact inverse of ``REVOKE_IDENTITY``
+#:   (kg_contracts 2.1.0, ADR-0027). It appends ``ACTIVE`` without touching the
+#:   creation epoch, so it lifts the ADR-0026 assertion shield at the epoch that
+#:   created the identity. Only a ``REVOKED`` identity may be restored; anything
+#:   else is a named non-commit, mirroring the double-revoke rule.
 SUPPORTED_OPERATIONS: frozenset[CurationOperationType] = frozenset(
     {
         CurationOperationType.CREATE_IDENTITY,
@@ -77,6 +82,7 @@ SUPPORTED_OPERATIONS: frozenset[CurationOperationType] = frozenset(
         CurationOperationType.SPLIT_IDENTITY,
         CurationOperationType.REASSIGN_ASSERTION,
         CurationOperationType.REVOKE_IDENTITY,
+        CurationOperationType.RESTORE_IDENTITY,
     }
 )
 

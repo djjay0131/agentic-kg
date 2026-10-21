@@ -274,16 +274,15 @@ def test_every_evidence_ref_resolves(shadow_run: ShadowRunResult) -> None:
     assert checked > 0
 
 
-def test_evidence_locators_carry_the_span_as_a_string(
+def test_evidence_locator_fragment_and_typed_span_agree(
     shadow_run: ShadowRunResult,
 ) -> None:
-    """The known KGIS gap, asserted as the shape it actually has.
+    """The KGIS span encoding, now pinned on both surfaces.
 
-    `kg_contracts.Evidence` has no span, page or offset field. KGIS encodes the
-    span into `source_locator` as `f"{locator}#{fragment}"`. This test pins that
-    encoding so a future upstream change — a real span field, or a different
-    join character — is noticed here rather than in a projector that silently
-    stops finding coordinates.
+    kg_contracts 2.2.0 added the typed `Evidence.span` (`TextSpan`) while
+    leaving the legacy `source_locator` fragment string unchanged. This pins
+    that both are present and name the same half-open character range, so a
+    projector may prefer the typed field without the two silently diverging.
     """
     registry = shadow_run.stores.evidence
     extracted = [
@@ -298,7 +297,11 @@ def test_evidence_locators_carry_the_span_as_a_string(
         assert evidence.source_locator.endswith(
             "#" + str(candidate.source_coordinates.fragment)
         )
-        assert not hasattr(evidence, "span")
+        span = evidence.span
+        assert span is not None
+        suffix = evidence.source_locator.rsplit("#", 1)[-1]
+        start, end = suffix.removeprefix("chars:").split("-")
+        assert (span.start, span.end) == (int(start), int(end))
         assert not hasattr(evidence, "page")
 
 
