@@ -1,6 +1,6 @@
 # Feature: R-3 — Answer with provenance (`POST /api/query`) and the B0/B1/B2 evaluation
 
-**Status:** SPECIFIED (draft — dual-persona review pending)
+**Status:** SPECIFIED
 **Date:** 2026-10-10
 **Author:** Feature Architect (AI-assisted)
 **Backlog ID:** R-3 (LLM synthesis endpoint)
@@ -9,6 +9,14 @@ agentic-kgps v0.5.0 (PA-AKG provenance service: ProvenanceService, ProvenanceRou
 verify/correct, B0/B1/B2 harness, PROV-O export); ADR-0007 (machine-only secrets)
 **Scope decision (owner, 2026-10-10):** option C — the live endpoint **and** the B0/B1/B2
 numbers on the 8-paper ground-truth set.
+**Evidence-path decision (owner, 2026-10-20):** published snapshot (C3/C4), not a copy of
+evidence in Neo4j — it leaves the ingest write path unchanged and reuses KGPS
+`ReadOnlyRegistry`.
+
+**Build order (owner "go", 2026-10-20):** PR-1 contracts bump + canonical lookups (C1, C2);
+PR-2 enforced API-key auth + key rotation (C5); PR-3 approved question set (C10); then PR-4
+evidence snapshot + API read path (C3, C4); PR-5 generator/judge/endpoint + provenance router
+(C6–C9); PR-6 eval runner + report + spot-check (C11, C12).
 
 ## Problem
 
@@ -274,6 +282,19 @@ def get_provenance_service() -> ProvenanceService:
   not required: the ground-truth papers can be ingested by DOI).
 
 ## Open Questions
+
+Dual-persona review: the owner directed implementation to start after the evidence-path
+decision; the remaining review questions are carried here and answered in the PR that touches
+each area.
+
+- (Tech lead) Is the 60 s pointer re-read on every request path cheap enough, or should the
+  snapshot registry swap be driven by a background refresher? — decide in PR-4.
+- (QA) How is the AC-4 "in-flight requests finish on the old snapshot" property tested without
+  a real FUSE mount? — PR-4 uses a tmp-dir pointer swap under concurrent requests.
+- (Tech lead) Per-request LLM budget defaults (40 calls / 60 s) — tune from PR-5 measurements;
+  record the numbers, do not guess.
+- (QA) How will a reviewer reproduce one `/api/query` answer from logs alone? — PR-5 logs the
+  trace id, model ids, prompt versions and routed assertion ids (never evidence text).
 
 - Should the ground-truth papers be (re)ingested into the staging canonical namespace before the
   eval, or into a dedicated `eval` namespace to keep runs reproducible? (proposal: dedicated
