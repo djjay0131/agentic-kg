@@ -1,0 +1,334 @@
+# R-3 evaluation question set v1 — DRAFT for owner approval (spec: llm/features/r3-answer-with-provenance.md, C10 / AC-11).
+# Frozen once approved: edits require questions.v2.yml.
+version: 1
+status: draft
+source_texts: ground_truth_chain/paper_<slug>.txt
+quote_convention: "verbatim from paper_<slug>.txt, internal whitespace normalised to single spaces"
+questions:
+  # ------------------------------------------------------------ single_fact (12)
+  - id: q01
+    kind: single_fact
+    question: "How consistent were the expert annotators who labelled the gold standard used to evaluate the original CS-KG?"
+    papers: [cskg]
+    gold:
+      - paper: cskg
+        quote: "The Fleiss’ kappa agreement [18] between the annotators was 0.435, indicating a moderate agreement."
+    reference_answer: "Inter-annotator agreement measured by Fleiss' kappa was 0.435, which the authors describe as moderate agreement."
+    notes: "Pitfall: CS-KG 2.0 reports a different kappa (0.61) for its own 3,600-triple evaluation; the answer must not mix them."
+
+  - id: q02
+    kind: single_fact
+    question: "What similarity cutoff does the CS-KG pipeline apply when deciding that two entity surface forms denote the same entity?"
+    papers: [cskg]
+    gold:
+      - paper: cskg
+        quote: "Entities which have a cosine similarity equal to or greater than a threshold thmerge = 0.9 (empirically calculated) are merged together."
+    reference_answer: "Entities are merged when their cosine similarity is at least 0.9, a threshold that was set empirically."
+
+  - id: q03
+    kind: single_fact
+    question: "Which link prediction benchmarks were published together with the 2.0 release of the Computer Science Knowledge Graph?"
+    papers: [cskg2]
+    gold:
+      - paper: cskg2
+        quote: "we also release three extensive benchmarks for the evaluation of link prediction algorithms: CSKG-2M, CSKG-490K, and CSKG-132K."
+    reference_answer: "Three link prediction benchmarks were released: CSKG-2M, CSKG-490K and CSKG-132K."
+
+  - id: q04
+    kind: single_fact
+    question: "How were the dependency-tree patterns used by the newer CS-KG extractor chosen, and how many survived the selection?"
+    papers: [cskg2]
+    gold:
+      - paper: cskg2
+        quote: "The paths were evaluated based on the quality and frequency of the resulting triples, with only those generating over 60% correct triples being retained. This process yielded twelve highly effective paths for capturing high-quality relationships."
+    reference_answer: "Candidate paths were judged on the quality and frequency of the triples they produced; only those yielding more than 60% correct triples were kept, which left twelve paths."
+
+  - id: q05
+    kind: single_fact
+    question: "How many knowledge-graph-specific construction approaches does the KG construction survey assess, and against what?"
+    papers: [kg_construction_survey]
+    gold:
+      - paper: kg_construction_survey
+        quote: "we select 23 KG-specific construction approaches as well as generic toolsets based on the criteria discussed in Section 4.1 and evaluate and compare them w.r.t. the requirements"
+    reference_answer: "The survey selects 23 KG-specific construction approaches, along with generic toolsets, and evaluates and compares them with respect to the requirements it introduces."
+
+  - id: q06
+    kind: single_fact
+    question: "What benchmark did the scholarly ontology generation study build for testing relation identification between research topics, and how large is it?"
+    papers: [llm_ontology_gen]
+    gold:
+      - paper: llm_ontology_gen
+        quote: "we introduce IEEE-Rel-1K, a gold-standard dataset derived from the IEEE Thesaurus, which describes the semantic relationships of 1000 topic pairs."
+    reference_answer: "They built IEEE-Rel-1K, a gold standard derived from the IEEE Thesaurus covering the semantic relationships of 1000 topic pairs."
+
+  - id: q07
+    kind: single_fact
+    question: "Which LLM scored highest at classifying broader/narrower/same-as links between engineering topics, and with what F1?"
+    papers: [llm_ontology_gen]
+    gold:
+      - paper: llm_ontology_gen
+        quote: "Proprietary models performed best, with Claude 3 Sonnet achieving an impressive F1 score of 0.967."
+    reference_answer: "Proprietary models did best, led by Claude 3 Sonnet with an F1 score of 0.967."
+
+  - id: q08
+    kind: single_fact
+    question: "What was the outcome of using SciCheck to enrich the Artificial Intelligence Knowledge Graph?"
+    papers: [fact_completion]
+    gold:
+      - paper: fact_completion
+        quote: "1.2M statements extracted from the 333K most cited articles in the ﬁeld of Artiﬁcial Intelligence, and generated a new version of this knowledge graph with 300K additional triples."
+    reference_answer: "Applied to AI-KG (1.2M statements from the 333K most cited AI articles), SciCheck produced a new version of the graph with 300K additional triples."
+
+  - id: q09
+    kind: single_fact
+    question: "What neural architecture did the SciCheck evaluation use to predict whether a triple is correct?"
+    papers: [fact_completion]
+    gold:
+      - paper: fact_completion
+        quote: "To predict the correctness of a triple, we used feedforward neural networks with 3 intermediate layers containing 128, 64 and 32 neurons, respectively."
+    reference_answer: "Feedforward neural networks with three hidden layers of 128, 64 and 32 neurons."
+
+  - id: q10
+    kind: single_fact
+    question: "Who served as the real human validators in the study combining LLMs with human-in-the-loop checking of CS-KG triples?"
+    papers: [kg_validation_hitl]
+    gold:
+      - paper: kg_validation_hitl
+        quote: "The annotators were four advanced PhD researchers with Computer Science (or equivalent) background, who did not have any involvement in the creation of CS-KG, SCICERO or the initial gold standard creation."
+    reference_answer: "Four advanced PhD researchers with a Computer Science (or equivalent) background, none of whom had been involved in creating CS-KG, SCICERO or the original gold standard."
+
+  - id: q11
+    kind: single_fact
+    question: "What kind of model makes the final valid/invalid decision on candidate hypotheses in ResearchLink?"
+    papers: [hypothesis_generation]
+    gold:
+      - paper: hypothesis_generation
+        quote: "ResearchLink applies a set of random forest classification models to the representation of the candidate hypotheses in order to assess which one is valid."
+    reference_answer: "ResearchLink uses a set of random forest classifiers over the candidate hypotheses' feature representation to decide which are valid."
+    notes: "Pitfall: SciCheck (a neural per-relation classifier) is used earlier only for pruning; it is not the final classifier."
+
+  - id: q12
+    kind: single_fact
+    question: "How much of its evaluation question set could the initial KG-EmpiRE answer, and from what corpus of papers?"
+    papers: [empire]
+    gold:
+      - paper: empire
+        quote: "From 570 papers of the IEEE International Requirements Engineering Conference (2000 – 2022), we extract and analyze data on the reported empirical research and answer 16 out of 77 competency questions."
+    reference_answer: "Using data extracted from 570 papers of the IEEE International Requirements Engineering Conference (2000–2022), KG-EmpiRE answered 16 of 77 competency questions."
+
+  # ------------------------------------------------------------- multi_fact (6)
+  - id: q13
+    kind: multi_fact
+    question: "How well did the CS-KG generation pipeline do on its manually annotated benchmark, what did its checking stages contribute, and what did the evaluation show about statements backed by many papers?"
+    papers: [cskg]
+    gold:
+      - paper: cskg
+        quote: "The CS-KG pipeline outperforms all the other tools yielding a overall f-measure of 0.76."
+      - paper: cskg
+        quote: "are able to increase signiﬁcantly the accuracy of the statements (+21% in precision), paying a relatively low price in recall."
+      - paper: cskg
+        quote: "An inspection of the results shows also that 86% of the statements with support greater than 5 are correct"
+    reference_answer: "The pipeline beat all other tools with an overall F-measure of 0.76; its checker modules raised precision by 21% at a relatively low cost in recall, and 86% of statements with support greater than 5 were correct."
+
+  - id: q14
+    kind: multi_fact
+    question: "Why are current knowledge graph construction pipelines poorly suited to keeping a KG up to date, according to the construction survey?"
+    papers: [kg_construction_survey]
+    gold:
+      - paper: kg_construction_survey
+        quote: "KGs are currently created often in a batch-like manner so that the respective pipelines are unfit to incorporate new incoming facts into a KG without full re-computation of the individual tasks."
+      - paper: kg_construction_survey
+        quote: "different steps of the pipelines often require manual intervention, thereby limiting scalability to large data volumes and increasing the time for updating a KG."
+    reference_answer: "KGs are often built in batch mode, so pipelines cannot add new facts without fully recomputing their tasks, and several steps need manual intervention, which limits scalability to large data volumes and lengthens update time."
+
+  - id: q15
+    kind: multi_fact
+    question: "In the study of LLMs for scholarly ontology generation, which prompting approach worked best and how much difference can the prompting choice make?"
+    papers: [llm_ontology_gen]
+    gold:
+      - paper: llm_ontology_gen
+        quote: "In particular, the two-way variant of CoT prompting consistently outperforms alternative approaches."
+      - paper: llm_ontology_gen
+        quote: "prompting strategies can lead to substantial performance gains, with improvements exceeding 0.2 F1 points in several instances."
+    reference_answer: "The two-way chain-of-thought variant consistently beat the alternatives, and the choice of prompting strategy improved results by more than 0.2 F1 points in several cases."
+
+  - id: q16
+    kind: multi_fact
+    question: "How was the small manually labelled AI-KG test set for SciCheck annotated, and what was its final class balance?"
+    papers: [fact_completion]
+    gold:
+      - paper: fact_completion
+        quote: "The resulting 500 triples were manually annotated by ﬁve domain experts, with an inter-reviewer agreement of 0.61 (according to Cohen’s kappa)"
+      - paper: fact_completion
+        quote: "A majority vote approach was used to determine that 221 triples were correct and 279 were incorrect."
+    reference_answer: "Its 500 triples were annotated by five domain experts (Cohen's kappa 0.61), and majority vote labelled 221 as correct and 279 as incorrect."
+    notes: "The set is AIKG-500; the question avoids naming it to prevent lexical matching."
+
+  - id: q17
+    kind: multi_fact
+    question: "How did the human-LLM KG validation study obtain human judgments in its two experiments, and at what scale?"
+    papers: [kg_validation_hitl]
+    gold:
+      - paper: kg_validation_hitl
+        quote: "In this setting, the human validator module was simulated using the annotations of the original domain experts from the SCICERO evaluation"
+      - paper: kg_validation_hitl
+        quote: "In Experiment B, we validated the findings of Experiment A by implementing an actual human validator module, comprising a pool of recruited domain experts."
+      - paper: kg_validation_hitl
+        quote: "Given the additional manual effort required, this experiment was conducted on a representative subset of 600 triples from the original dataset."
+    reference_answer: "In Experiment A the human validator was simulated with the original SCICERO experts' annotations; Experiment B confirmed those findings with a real pool of recruited domain experts, using a representative 600-triple subset because of the extra manual effort."
+    notes: "Experiment A's size (3.6K triples) is stated only with a math-italic K glyph, so it is deliberately not asked about."
+
+  - id: q18
+    kind: multi_fact
+    question: "How did the ResearchLink authors build a gold standard that could tell whether generated hypotheses were later borne out?"
+    papers: [hypothesis_generation]
+    gold:
+      - paper: hypothesis_generation
+        quote: "We generated these hypotheses starting from a version of CS-KG containing only data up to 2017."
+      - paper: hypothesis_generation
+        quote: "validate the accuracy of the hypotheses by assessing if they were verified in the following years (2018–2023)."
+      - paper: hypothesis_generation
+        quote: "a hypothesis was deemed valid if sufficiently precise and supported by at least a scientific article published post-2017."
+    reference_answer: "Hypotheses were generated from a CS-KG snapshot with data only up to 2017 and checked against 2018–2023; a hypothesis counted as valid if it was sufficiently precise and supported by at least one article published after 2017."
+
+  # ------------------------------------------------------------ cross_paper (6)
+  - id: q19
+    kind: cross_paper
+    question: "How much larger is CS-KG 2.0 than the first CS-KG release in terms of source papers, entities and statements?"
+    papers: [cskg, cskg2]
+    gold:
+      - paper: cskg
+        quote: "a large-scale knowledge graph composed by over 350M RDF triples describing 41M statements from 6.7M articles about 10M entities linked by 179 semantic relations"
+      - paper: cskg2
+        quote: "an extensive knowledge base generated from 15 million research papers. CS-KG 2.0 describes 25 million entities linked by 67 million relationships"
+    reference_answer: "The first CS-KG had 41M statements about 10M entities from 6.7M articles; CS-KG 2.0 was generated from 15 million papers and describes 25 million entities linked by 67 million relationships."
+    notes: "Pitfall: cskg2 is internally inconsistent (abstract 15M papers / 25M entities; body ~24M entities; Table 1 14.5M papers / 24.7M entities). Gold uses the abstract; an answer citing the body figures is also faithful if it cites those spans."
+
+  - id: q20
+    kind: cross_paper
+    question: "What limitations of the original CS-KG, including its dependence on a retired bibliographic source, does the 2.0 release address, and what replaced that source?"
+    papers: [cskg, cskg2]
+    gold:
+      - paper: cskg
+        quote: "Since MAG has been decommissioned in 2021, the following versions will adopt OpenAlex, which oﬀers a comparable publication coverage."
+      - paper: cskg2
+        quote: "First, CS-KG lacks time-related information for its entities, which is essential for analyzing trends in the adoption and evolution of various methods and materials."
+      - paper: cskg2
+        quote: "Finally, CS-KG is based on the Microsoft Academic Graph (MAG), a resource that has since been discontinued."
+      - paper: cskg2
+        quote: "which covers all the papers within the computer science domain indexed within the OpenAlex catalog from 2010 to 2022."
+    reference_answer: "The original CS-KG lacked time-related information for its entities and relied on the since-discontinued Microsoft Academic Graph; the first paper already planned to move to OpenAlex, and CS-KG 2.0 covers all computer science papers indexed in OpenAlex from 2010 to 2022."
+
+  - id: q21
+    kind: cross_paper
+    question: "Which later studies in the set use CS-KG as their experimental testbed, and for what tasks?"
+    papers: [kg_validation_hitl, hypothesis_generation]
+    gold:
+      - paper: kg_validation_hitl
+        quote: "we consider the validation of the Computer Science Knowledge Graph (CS-KG) as our use case."
+      - paper: hypothesis_generation
+        quote: "we constructed CSKG-600, a new dataset for research hypothesis generation derived from the Computer Science Knowledge Graph."
+    reference_answer: "The human/LLM validation study uses CS-KG validation as its use case, and the ResearchLink study derives its hypothesis-generation dataset CSKG-600 from CS-KG."
+    notes: "Pitfall: CSKG-600 (hypotheses) and CS-KG-600 (validation subset) are different datasets with near-identical names."
+
+  - id: q22
+    kind: cross_paper
+    question: "SciCheck was proposed for knowledge graph completion; how is it reused in the ResearchLink hypothesis generation pipeline?"
+    papers: [fact_completion, hypothesis_generation]
+    gold:
+      - paper: fact_completion
+        quote: "In this paper, we introduce SciCheck, a new triple classiﬁcation approach for completing scientiﬁc statements in knowledge graphs."
+      - paper: hypothesis_generation
+        quote: "We perform this pruning by ranking the best candidates with SciCheck [62], a path-based link prediction approach specifically tailored for scientific knowledge graphs."
+      - paper: hypothesis_generation
+        quote: "Hypotheses with confidence values below a predefined threshold (set at 0.5 in our current configuration) are discarded."
+    reference_answer: "SciCheck, a triple classification approach for completing scientific statements in KGs, is used by ResearchLink to prune candidate hypotheses: candidates are ranked with it and those with confidence below 0.5 are discarded."
+
+  - id: q23
+    kind: cross_paper
+    question: "How does the Computer Science Ontology figure in the CS-KG 2.0 pipeline, and how is it characterised in the work on LLM-based ontology generation?"
+    papers: [cskg2, llm_ontology_gen]
+    gold:
+      - paper: cskg2
+        quote: "Specifically, it evaluates whether a given text span aligns with one of the over 14,000 topics defined in the CSO."
+      - paper: llm_ontology_gen
+        quote: "Some notable achievements include the semi-automatic pipeline for generating OpenAlex Topics (OpenAlex, 2024) and the automatic development of the Computer Science Ontology (Salatino et al., 2020)"
+    reference_answer: "In CS-KG 2.0 a module checks whether text spans match one of the more than 14,000 CSO topics; the ontology-generation paper cites the automatic development of the Computer Science Ontology as a notable achievement in automated ontology generation."
+    notes: "The cskg2 quote's subject ('it') is the CSO Classifier Module; the preceding sentence carries citation-number artifacts, so it was not used."
+
+  - id: q24
+    kind: cross_paper
+    question: "Where do the KG construction survey and the human/LLM validation study agree on the value of pairing LLMs with knowledge graphs, and what concrete gain did the validation study measure?"
+    papers: [kg_construction_survey, kg_validation_hitl]
+    gold:
+      - paper: kg_construction_survey
+        quote: "KGs can further be combined with Large Language Models (LLMs) to improve factual correctness and explanations"
+      - paper: kg_validation_hitl
+        quote: "an LLM-based validation can increase precision from 75% up to 87% without requiring any manual validation efforts"
+    reference_answer: "The survey notes that combining KGs with LLMs can improve factual correctness and explanations; the validation study found that LLM-based validation raised precision from 75% to as much as 87% without manual validation."
+    notes: "Weakest cross-paper link in the set: the two papers address different directions (KG helps LLM vs LLM helps KG). Kept to give the short survey a third touch."
+
+  # ------------------------------------------------------------- comparison (3)
+  - id: q25
+    kind: comparison
+    question: "How did the classifier that rescues low-support triples change between the original CS-KG pipeline and CS-KG 2.0?"
+    papers: [cskg, cskg2]
+    gold:
+      - paper: cskg
+        quote: "It ﬁrst splits T in two disjoint sets: Treliable (support ≥3) and Tuncertain (otherwise). The set Treliable is employed to train a Multi-Layer Perceptron classiﬁer"
+      - paper: cskg2
+        quote: "First, we partition the set of all triples, denoted as T, into two groups: Treliable, which includes triples with a support ≥3, and Tuncertain, which includes all other triples."
+      - paper: cskg2
+        quote: "Subsequently, the set Treliable is utilized to fine-tune a SciBERT59 classifier on a binary classification task."
+    reference_answer: "Both split triples by support (support of at least 3 counts as reliable) and train on the reliable set, but the original used a Multi-Layer Perceptron while CS-KG 2.0 fine-tunes a SciBERT classifier on a binary task."
+    notes: "'SciBERT59' is an extractor artifact (footnote 59 glued on) kept verbatim."
+
+  - id: q26
+    kind: comparison
+    question: "How does the end-to-end extraction quality reported for CS-KG 2.0 compare with that reported for the first CS-KG?"
+    papers: [cskg, cskg2]
+    gold:
+      - paper: cskg
+        quote: "The CS-KG pipeline outperforms all the other tools yielding a overall f-measure of 0.76."
+      - paper: cskg2
+        quote: "The final version of the pipeline achieves a precision of 72% and a recall of 79%, resulting in an F-measure of 75%."
+    reference_answer: "The first CS-KG pipeline reached an F-measure of 0.76, while the CS-KG 2.0 pipeline reports 72% precision, 79% recall and a 75% F-measure, but the two scores come from different gold standards, so they are not a like-for-like comparison."
+    notes: "The two evaluations use different gold standards (1,200 vs 3,600 triples), so a careful answer should not claim a like-for-like improvement or regression."
+
+  - id: q27
+    kind: comparison
+    question: "How do the CS-KG 2.0 authors and the KG-EmpiRE authors differ in how they view the Open Research Knowledge Graph?"
+    papers: [cskg2, empire]
+    gold:
+      - paper: cskg2
+        quote: "The content-focused KGs are either created through crowdsourcing (e.g., ORKG39, Nanopublications34) or generated automatically (e.g., AI-KG40, CS-KG41, SoftwareKG42)."
+      - paper: cskg2
+        quote: "Crowdsourced KGs suffer from their limited coverage in terms of the number of articles because they rely on human experts to extract information from scholarly literature"
+      - paper: empire
+        quote: "The ORKG is a ready-to-use and advanced infrastructure to organize data from literature reviews as knowledge graphs."
+    reference_answer: "CS-KG 2.0 groups ORKG with crowdsourced KGs, which it says have limited article coverage because they depend on human experts; KG-EmpiRE instead presents ORKG as a ready-to-use, advanced infrastructure for organising literature-review data as knowledge graphs."
+
+  # ----------------------------------------------------------- unanswerable (3)
+  - id: q28
+    kind: unanswerable
+    question: "What compute hardware and total processing time were needed to run the pipeline that built CS-KG 2.0?"
+    papers: []
+    gold: []
+    reference_answer: "None of the eight papers reports the hardware or runtime used to build CS-KG or CS-KG 2.0; the system should abstain."
+    notes: "Distractors: llm_ontology_gen mentions V100/L4 GPUs for its own LLM runs; fact_completion reports SciCheck runtimes. Neither concerns the CS-KG build. Verified by grep for gpu|hours|cpu."
+
+  - id: q29
+    kind: unanswerable
+    question: "What was the inter-annotator agreement among the senior researchers who labelled the CSKG-600 hypothesis gold standard?"
+    papers: []
+    gold: []
+    reference_answer: "The ResearchLink paper says three senior researchers labelled the hypotheses but reports no agreement statistic; the system should abstain rather than reuse a kappa from another paper."
+    notes: "Distractors: kappas of 0.435 (cskg), 0.61 (cskg2), 0.61 Cohen (fact_completion). Verified: no 'kappa' or 'agreement' in paper_hypothesis_generation.txt."
+
+  - id: q30
+    kind: unanswerable
+    question: "How much did it cost in API fees to have the commercial LLMs validate the CS-KG triples?"
+    papers: []
+    gold: []
+    reference_answer: "No paper reports a monetary cost for the LLM validation runs; the system should abstain."
+    notes: "Distractor: kg_validation_hitl mentions 'reducing the LLM annotation costs' and counts LLM annotations, but gives no monetary figure. Verified by grep for cost|$|usd|price."
