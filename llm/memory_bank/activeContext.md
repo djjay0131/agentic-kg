@@ -1,11 +1,72 @@
 # Active Context
 
-Last updated: 2026-10-09
+Last updated: 2026-10-21
 
 > Newest entries at the top. History through 2026-07 lives in
 > [`archive/activeContext-through-2026-07.md`](archive/activeContext-through-2026-07.md)
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
+
+## Enforced API-key auth + machine-only rotation (2026-10-21, R-3 PR-2)
+
+`packages/api` now has `require_api_key` (`dependencies.py`), a router-level
+dependency that constant-time compares `X-API-Key` with `API_KEY`. Missing and
+wrong keys get the same 401; an empty key **or the public Terraform placeholder
+seed** fails closed with 503 `auth not configured`. It is applied only to the
+new `GET /api/auth/check` (router `routers/auth.py`); existing public endpoints
+are unchanged and pinned by tests. PR-5 mounts `/api/query` and
+`/api/provenance/*` behind the same dependency (spec
+`llm/features/r3-answer-with-provenance.md` C5, AC-5/AC-6).
+
+Rotation follows ADR-0007 rule 2, copying the Neo4j pattern:
+
+- `agentic_kg.rotate_api_key_gcp` generates `secrets.token_urlsafe(48)` and
+  adds an `API_KEY` version through the existing stdlib `SecretStore`
+  (`rotate_password.py`); it refuses the placeholder and any degenerate key
+  before writing, and logs only the version name.
+- `agentic_kg.check_api_key` runs as the API identity, reads `API_KEY` from
+  Secret Manager in-process, calls `/api/auth/check`, and prints only PASS/FAIL.
+- Terraform: `API_KEY` container + placeholder seed (ABANDON/ignore_changes),
+  API env `API_KEY:latest`, `api-key-rotator-<env>` SA with **only**
+  `secretVersionAdder` on `API_KEY`, the rotate Job, and the check Job.
+- `.github/workflows/rotate-api-key.yml`: monthly off-hour + dispatch, one
+  non-cancelling concurrency group, pins both Jobs to the ingest image, rolls
+  the API with a label stamp, runs the check, then disables superseded versions
+  by basename. It never reads/adds a version or prints a value.
+- Operator runbook: `docs/operations/api-key-rotation-runbook.md`.
+
+## R-3 PR-1: contracts bump + canonical assertion lookups (2026-10-21, W5-1)
+
+R-3's first slice (spec `llm/features/r3-answer-with-provenance.md`, C1+C2 /
+AC-1+AC-2). The `[migration]` extra now pins agentic-kgis **v0.6.0**
+(`285ca1d`, kg_contracts 2.3.0), agentic-kgcs **main** (`ac51b1a`, includes
+#57's compatible-minor acceptance and the ADR-0027/0028 halves) and adds
+**agentic-kgps v0.5.0** (`24a73c6`). The v2.0.0 kgcs tag would reject a 2.3.0
+envelope, so it is not used. The ADR-0004 CI import check now imports `kgps`,
+and `pin_gate.py` tracks all three SHAs.
+
+Adapter changes forced by the bump: `RESTORE_IDENTITY` is applied (ADR-0027,
+epoch-preserving, only from REVOKED); the RETRACT payload's `superseded_by`
+transport is persisted on the retired record alongside `source_candidate_ids`
+(ADR-0028); both canonical surfaces gain `get_assertion` (one uid index seek,
+same visibility as `assertions_for`, subject-revoke shield included) and the
+reader gains batched keyset `iter_assertions`; `capabilities()` declares
+`supports_assertion_lookup`. Reconciled tripwires: contract suite now 28 named
+tests; corpus candidate digest re-measured (`ea2d2dab…`) after verifying the
+delta is additive-only; the evidence test pins the legacy locator fragment and
+the new typed `Evidence.span` agreeing; Phase-5 reports regenerated (pin lines
+only). New testcontainers coverage in
+`tests/migration/neo4j/test_assertion_lookups.py` runs in CI.
+
+Known limitations of the read surface (documented, not changed here):
+
+- `superseded_by` is **not epoch-versioned**. A historical `include_superseded`
+  read of an already-retired record shows the current pointer, not the pointer
+  as it stood at that epoch (an ACTIVE historical view still clears it, because
+  the contract forbids a pointer on an ACTIVE record).
+- The ADR-0026 subject-revoke shield uses the identity's **latest** status.
+  After `RESTORE_IDENTITY`, a historical read inside the revoked window is
+  therefore no longer shielded; the shield is not time-travelled.
 
 ## Legacy Cloud Build triggers neutralised from the repo side (2026-10-09, T28)
 

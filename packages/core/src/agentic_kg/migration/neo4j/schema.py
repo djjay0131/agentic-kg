@@ -84,6 +84,11 @@ DDL_STATEMENTS: tuple[str, ...] = (
     f"FOR (n:{LABEL_ASSERTION}) ON (n.ns, n.subject_identity)",
     f"CREATE INDEX canon_assertion_object IF NOT EXISTS "
     f"FOR (n:{LABEL_ASSERTION}) ON (n.ns, n.object_identity)",
+    # Keyset pagination in _read_assertion_page orders by (ns, seq); without
+    # this the scan re-sorts the whole namespace on every batch (O(N²) over a
+    # stream). Additive and idempotent, like every statement here.
+    f"CREATE INDEX canon_assertion_seq IF NOT EXISTS "
+    f"FOR (n:{LABEL_ASSERTION}) ON (n.ns, n.seq)",
 )
 
 

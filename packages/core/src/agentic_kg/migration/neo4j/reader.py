@@ -31,17 +31,22 @@ against, so "did an application write canonically?" is answerable by an
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 
 from neo4j import Driver
 
 from agentic_kg.migration.neo4j._contracts import (
+    AdapterCapabilities,
     Assertion,
     CanonicalEntity,
     EntityRef,
     GraphReadOptions,
 )
 from agentic_kg.migration.neo4j.store import (
+    CANONICAL_CAPABILITIES,
     DEFAULT_DATABASE,
+    _get_assertion,
+    _iter_assertions,
     _read_assertions,
     _read_epoch,
     _read_identities,
@@ -71,6 +76,19 @@ class Neo4jCanonicalGraphReader:
     @property
     def namespace(self) -> str:
         return self._namespace
+
+    def capabilities(self) -> AdapterCapabilities:
+        """The same capabilities the store declares, without exposing the store.
+
+        KGPS's ``supports_native_lookup`` checks ``reader.capabilities()
+        .supports_assertion_lookup`` before choosing ``get_assertion`` over a
+        full ``find_entities``/``assertions_for`` scan. Without this method a
+        reader that *does* implement the indexed lookup would still be
+        full-scanned forever. The value is the shared
+        :data:`~agentic_kg.migration.neo4j.store.CANONICAL_CAPABILITIES`, so the
+        two surfaces cannot disagree.
+        """
+        return CANONICAL_CAPABILITIES
 
     def current_epoch(self) -> int:
         with self._driver.session(database=self._database) as session:
@@ -116,6 +134,48 @@ class Neo4jCanonicalGraphReader:
             rows = session.execute_read(_read_assertions, self._namespace, identity_id)
         found = [_visible_assertion(row, options) for row in rows]
         return [a for a in found if a is not None]
+
+    def get_assertion(
+        self, assertion_id: str, options: GraphReadOptions = GraphReadOptions()
+    ) -> Assertion | None:
+        """Resolve one assertion by id, scoped to this reader's namespace.
+
+        The id-keyed counterpart to :meth:`assertions_for` (ADR-0029). It
+        shares :func:`~agentic_kg.migration.neo4j.store._get_assertion` with the
+        store, so ``curation_epoch``, ``include_superseded``,
+        ``include_revoked``, the subject-revoke shield (ADR-0026) and the
+        temporal filters behave identically on both surfaces. An id in another
+        namespace, or no id at all, returns ``None``.
+        """
+        return _get_assertion(
+            self._driver, self._database, self._namespace, assertion_id, options
+        )
+
+    def iter_assertions(
+        self,
+        options: GraphReadOptions = GraphReadOptions(),
+        *,
+        batch_size: int = 500,
+    ) -> Iterator[Assertion]:
+        """Stream every visible assertion in this namespace.
+
+        Keyset-paginated on the namespace's ``seq`` (never one giant list), so
+        memory stays bounded regardless of graph size. Visibility is applied
+        per record exactly as :meth:`assertions_for` applies it, including the
+        subject-revoke shield; assertions in any other namespace are never
+        selected. :meth:`~agentic_kg.migration.neo4j.store._iter_assertions`
+        owns the pagination.
+
+        When ``options.curation_epoch`` is ``None`` the stream pins the
+        namespace's current epoch once, before the first page, so a record
+        committed while the stream is being consumed cannot appear in a later
+        page. That makes the stream *epoch-consistent*; it is not a database
+        transaction, and it does not make ``superseded_by`` historical (see
+        :class:`~agentic_kg.migration.neo4j.store.Neo4jCanonicalGraphStore`).
+        """
+        return _iter_assertions(
+            self._driver, self._database, self._namespace, options, batch_size
+        )
 
     def neighborhood(
         self, identity_id: str, hops: int = 1, options: GraphReadOptions = GraphReadOptions()

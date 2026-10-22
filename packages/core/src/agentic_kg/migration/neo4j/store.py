@@ -83,7 +83,7 @@ pins it.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
@@ -102,6 +102,7 @@ from agentic_kg.migration.neo4j._contracts import (
     GraphReadOptions,
     Precondition,
     UnsupportedCapabilityError,
+    is_assertion_id,
 )
 from agentic_kg.migration.neo4j.operations import SUPPORTED_OPERATIONS
 from agentic_kg.migration.neo4j.schema import (
@@ -110,10 +111,25 @@ from agentic_kg.migration.neo4j.schema import (
     LABEL_IDENTITY,
     LABEL_META,
     LABEL_VERSION,
+    UID_SEP,
     uid,
 )
 
 DEFAULT_DATABASE = "neo4j"
+
+#: What both canonical surfaces advertise. Kept as one value so
+#: :meth:`Neo4jCanonicalGraphStore.capabilities` and
+#: :meth:`Neo4jCanonicalGraphReader.capabilities` cannot drift apart: KGPS
+#: decides whether to use ``get_assertion`` or a full scan from exactly this
+#: declaration (``kgps.ports.supports_native_lookup``).
+CANONICAL_CAPABILITIES = AdapterCapabilities(
+    supports_transactions=True,
+    supports_temporal_queries=True,
+    supports_snapshot_reads=True,
+    supports_constraints=True,
+    supports_bulk_upsert=True,
+    supports_assertion_lookup=True,
+)
 
 #: Statuses a ``RETRACT_ASSERTION`` may move an assertion to. ``ACTIVE`` is not
 #: a retraction; restoring an assertion is an ``ATTACH_ASSERTION``, which since
@@ -164,6 +180,18 @@ class Neo4jCanonicalGraphStore:
             supplies it, so this is now defence for hand-built and older plans
             rather than a workaround for upstream (see :meth:`_apply_retract`).
         owns_driver: Close the driver on :meth:`close`.
+
+    Known limitations of the read surface (deliberate, not defects):
+
+    * ``superseded_by`` is **not epoch-versioned**. A historical read at an
+      epoch before a supersession reports the record ``ACTIVE`` with the pointer
+      cleared (the contract forbids a pointer on an ACTIVE record), but a
+      historical ``include_superseded`` view of a record *already* superseded
+      shows the pointer as it is today, not as it was at that epoch.
+    * The ADR-0026 subject-revoke shield uses the identity's **latest** status.
+      Consequently, after ``RESTORE_IDENTITY`` a historical read inside the
+      revoked window is no longer shielded. Revocation remains terminal and
+      global until a restore happens; the shield is not time-travelled.
     """
 
     def __init__(
@@ -228,13 +256,7 @@ class Neo4jCanonicalGraphStore:
         six named vector indexes of spec §4.4 live on the projection surface,
         not here. A capability is a promise about this adapter, not about Neo4j.
         """
-        return AdapterCapabilities(
-            supports_transactions=True,
-            supports_temporal_queries=True,
-            supports_snapshot_reads=True,
-            supports_constraints=True,
-            supports_bulk_upsert=True,
-        )
+        return CANONICAL_CAPABILITIES
 
     # --- GraphMutationStore ---------------------------------------------------
 
@@ -331,6 +353,8 @@ class Neo4jCanonicalGraphStore:
                 return self._apply_reassign(tx, payload, epoch)
             if operation.type is CurationOperationType.REVOKE_IDENTITY:
                 return self._apply_revoke_identity(tx, payload, epoch)
+            if operation.type is CurationOperationType.RESTORE_IDENTITY:
+                return self._apply_restore_identity(tx, payload, epoch)
         except CommitRefused:
             raise
         except (ValueError, TypeError, KeyError) as exc:
@@ -466,6 +490,43 @@ class Neo4jCanonicalGraphStore:
         self._append_status(tx, str(assertion_id), epoch, status, None)
         return [str(record["subject_identity"])]
 
+    def _apply_restore_identity(
+        self, tx: ManagedTransaction, payload: dict[str, Any], epoch: int
+    ) -> list[str]:
+        """Lift a ``REVOKE_IDENTITY`` tombstone (ADR-0027).
+
+        The exact inverse of :meth:`_apply_revoke_identity`: append ``ACTIVE``
+        at this batch's epoch and leave the creation epoch alone, so the
+        identity is findable again as of the epoch that created it. Only a
+        currently-``REVOKED`` identity can be restored; anything else (an
+        active or superseded identity, or a second restore) is a named
+        non-commit that consumes no epoch, mirroring the double-revoke rule.
+
+        The subject-revoke shield is a *read* rule (ADR-0026), so restoring the
+        identity lifts it without mutating any assertion's status.
+        """
+        identity_id = payload.get("identity_id")
+        if not isinstance(identity_id, str) or not identity_id:
+            raise CommitRefused(
+                "invalid_payload: RESTORE_IDENTITY requires a non-empty string "
+                f"'identity_id' (got {identity_id!r})"
+            )
+        record = self._load_identity(tx, identity_id)
+        if record is None:
+            raise CommitRefused(
+                f"unknown_identity: RESTORE_IDENTITY names an unknown identity "
+                f"{identity_id!r} in namespace {self._namespace!r}"
+            )
+        current, _ = _effective(json.loads(record["status_history"]), None)
+        if current is not CurationStatus.REVOKED:
+            raise CommitRefused(
+                f"not_revoked: RESTORE_IDENTITY targets an identity that is not "
+                f"revoked: {identity_id!r} in namespace {self._namespace!r} "
+                f"(status {current.value})"
+            )
+        self._append_identity_status(tx, identity_id, epoch, CurationStatus.ACTIVE)
+        return [identity_id]
+
     def _apply_retract(
         self, tx: ManagedTransaction, payload: dict[str, Any], epoch: int
     ) -> list[str]:
@@ -503,7 +564,29 @@ class Neo4jCanonicalGraphStore:
             )
         raw_at = payload.get("superseded_at")
         at = _parse_datetime(raw_at) if raw_at is not None else self._clock()
-        self._append_status(tx, str(assertion_id), epoch, status, at)
+        # ADR-0028: the forward supersession's RETRACT payload names its
+        # successor. `mark_superseded(replaced_by=None)` leaves an existing
+        # pointer as-is (it cannot clear one); compensation clears it by
+        # *re-attaching* the pre-retraction copy, whose `superseded_by` is None.
+        replaced_by = payload.get("superseded_by")
+        if replaced_by is not None and not isinstance(replaced_by, str):
+            raise CommitRefused(
+                f"invalid_payload: RETRACT_ASSERTION 'superseded_by' must be a string "
+                f"or absent (got {replaced_by!r})"
+            )
+        payload_update: dict[str, Any] = {"status": status, "superseded_at": at}
+        if status is not CurationStatus.SUPERSEDED:
+            # A REVOKED record cannot carry a successor pointer: the contract's
+            # partial invariant is "pointer set => status SUPERSEDED". Retiring
+            # an already-SUPERSEDED record must therefore clear the pointer it
+            # inherited; leaving it would make `Assertion.model_validate` refuse
+            # the update and turn a valid RETRACT into a CommitRefused.
+            payload_update["superseded_by"] = None
+        elif replaced_by is not None:
+            payload_update["superseded_by"] = replaced_by
+        self._append_status(
+            tx, str(assertion_id), epoch, status, at, payload_update=payload_update
+        )
         return [str(record["subject_identity"])]
 
     def _apply_merge(
@@ -666,6 +749,44 @@ class Neo4jCanonicalGraphStore:
             rows = session.execute_read(_read_assertions, self._namespace, identity_id)
         found = [_visible_assertion(row, options) for row in rows]
         return [a for a in found if a is not None]
+
+    def get_assertion(
+        self, assertion_id: str, options: GraphReadOptions = GraphReadOptions()
+    ) -> Assertion | None:
+        """Resolve one assertion by id, with the same visibility as the list read.
+
+        ADR-0029: the id lookup is the existing ``canon_assertion_uid`` unique
+        index, not a scan over every subject. Because it shares
+        :func:`_get_assertion` with
+        :class:`~agentic_kg.migration.neo4j.reader.Neo4jCanonicalGraphReader`,
+        the epoch gate, both history flags, the subject-revoke shield and the
+        temporal filters are exactly the ones ``assertions_for`` applies. A
+        malformed id (not a contract assertion id, or containing the synthetic
+        uid separator) returns ``None`` without querying.
+        """
+        self._check_temporal_options(options)
+        return _get_assertion(
+            self._driver, self._database, self._namespace, assertion_id, options
+        )
+
+    def iter_assertions(
+        self,
+        options: GraphReadOptions = GraphReadOptions(),
+        *,
+        batch_size: int = 500,
+    ) -> Iterator[Assertion]:
+        """Stream every visible assertion in this namespace, batch by batch.
+
+        Without a caller-supplied ``curation_epoch`` the whole stream is pinned
+        to the epoch read at stream start, so an assertion committed mid-stream
+        does not appear. Each page still runs in its own transaction; this is
+        epoch consistency, not a read snapshot, and ``superseded_by`` is not
+        epoch-versioned (see the class docstring's known limitations).
+        """
+        self._check_temporal_options(options)
+        return _iter_assertions(
+            self._driver, self._database, self._namespace, options, batch_size
+        )
 
     def neighborhood(
         self, identity_id: str, hops: int = 1, options: GraphReadOptions = GraphReadOptions()
@@ -915,19 +1036,42 @@ class Neo4jCanonicalGraphStore:
         epoch: int,
         status: CurationStatus,
         at: datetime | None,
+        *,
+        payload_update: dict[str, Any] | None = None,
     ) -> None:
-        """Append one status-history entry. Never edits an existing one."""
+        """Append one status-history entry. Never edits an existing one.
+
+        ``payload_update`` rewrites non-history fields on the stored record
+        (ADR-0028's ``superseded_by``). It is validated through the
+        ``Assertion`` model before it is written, so the partial invariant
+        (pointer set => ``SUPERSEDED`` + ``superseded_at``) is enforced by the
+        contract rather than by this adapter restating it.
+        """
         record = tx.run(
-            f"MATCH (a:{LABEL_ASSERTION} {{uid: $uid}}) RETURN a.status_history AS h",
+            f"MATCH (a:{LABEL_ASSERTION} {{uid: $uid}}) "
+            f"RETURN a.status_history AS h, a.payload AS payload",
             uid=uid(self._namespace, assertion_id),
         ).single()
         assert record is not None
         history = json.loads(record["h"])
         history.append(_history_entry(epoch, status, at))
+        if payload_update is None:
+            tx.run(
+                f"MATCH (a:{LABEL_ASSERTION} {{uid: $uid}}) SET a.status_history = $h",
+                uid=uid(self._namespace, assertion_id),
+                h=json.dumps(history),
+            ).consume()
+            return
+        assertion = Assertion.model_validate_json(record["payload"])
+        updated = Assertion.model_validate(
+            {**assertion.model_dump(mode="python"), **payload_update}
+        )
         tx.run(
-            f"MATCH (a:{LABEL_ASSERTION} {{uid: $uid}}) SET a.status_history = $h",
+            f"MATCH (a:{LABEL_ASSERTION} {{uid: $uid}}) "
+            f"SET a.status_history = $h, a.payload = $payload",
             uid=uid(self._namespace, assertion_id),
             h=json.dumps(history),
+            payload=updated.model_dump_json(),
         ).consume()
 
     def _append_identity_status(
@@ -1128,6 +1272,136 @@ def _read_assertions(
     ).data()
 
 
+def _read_assertion(
+    tx: ManagedTransaction, namespace: str, assertion_id: str
+) -> dict[str, Any] | None:
+    """One assertion by id: a unique-index seek on ``canon_assertion_uid``."""
+    record = tx.run(
+        f"MATCH (a:{LABEL_ASSERTION} {{uid: $uid}}) "
+        f"RETURN a.payload AS payload, a.status_history AS status_history, "
+        f"       a.curation_epoch AS curation_epoch, "
+        f"       a.subject_identity AS subject_identity",
+        uid=uid(namespace, assertion_id),
+    ).single()
+    return None if record is None else dict(record)
+
+
+def _get_assertion(
+    driver: Driver,
+    database: str,
+    namespace: str,
+    assertion_id: str,
+    options: GraphReadOptions,
+) -> Assertion | None:
+    """The one implementation of the id lookup, shared by store and reader.
+
+    Visibility is deliberately the same sequence ``assertions_for`` uses:
+    epoch/status/temporal through :func:`_visible_assertion`, then the
+    subject-revoke shield through :func:`_subject_revoked`. The assertion is
+    filtered first so a hidden record costs no identity read. An unknown id is
+    ``None``, never an exception.
+
+    The id is validated *before* a session is opened (ADR-0029). This path is
+    fed from an API path parameter, and the synthetic ``uid`` is
+    ``namespace + UID_SEP + assertion_id``: an id containing the separator could
+    otherwise address a node in another namespace. A malformed id is an honest
+    ``None`` — no query, no exception, same answer as an unknown id.
+    """
+    if not isinstance(assertion_id, str) or not is_assertion_id(assertion_id):
+        return None
+    if UID_SEP in assertion_id:
+        return None
+    with driver.session(database=database) as session:
+        row = session.execute_read(_read_assertion, namespace, assertion_id)
+        if row is None:
+            return None
+        assertion = _visible_assertion(row, options)
+        if assertion is None:
+            return None
+        identity = session.execute_read(
+            _read_identity, namespace, str(row["subject_identity"])
+        )
+    if identity is not None and _subject_revoked(
+        json.loads(identity["status_history"]), options
+    ):
+        return None
+    return assertion
+
+
+def _read_assertion_page(
+    tx: ManagedTransaction,
+    namespace: str,
+    after: int | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """One keyset page ordered by the namespace's stable ``seq``.
+
+    The identity lookup joins by synthetic ``uid`` (``$ns + UID_SEP +
+    subject``), so the subject history needed by the ADR-0026 shield comes back
+    with the page instead of one query per assertion. ``seq`` is minted by
+    ``_next_seq`` inside the writing transaction, so it is unique and
+    monotonic within a namespace — the stream sees each assertion once and
+    never needs ``SKIP``.
+    """
+    return tx.run(
+        f"MATCH (a:{LABEL_ASSERTION} {{ns: $ns}}) "
+        f"WHERE ($after IS NULL OR a.seq > $after) "
+        f"OPTIONAL MATCH (i:{LABEL_IDENTITY} {{uid: $ns + $sep + a.subject_identity}}) "
+        f"RETURN a.payload AS payload, a.status_history AS status_history, "
+        f"       a.curation_epoch AS curation_epoch, a.seq AS seq, "
+        f"       i.status_history AS subject_status_history "
+        f"ORDER BY a.seq, a.assertion_id "
+        f"LIMIT $limit",
+        ns=namespace,
+        sep=UID_SEP,
+        after=after,
+        limit=limit,
+    ).data()
+
+
+def _iter_assertions(
+    driver: Driver,
+    database: str,
+    namespace: str,
+    options: GraphReadOptions,
+    batch_size: int,
+) -> Iterator[Assertion]:
+    """Namespace-scoped, keyset-paginated assertion stream (ADR-0029).
+
+    Each page runs in its own driver session, so without a caller-supplied
+    ``curation_epoch`` the stream would otherwise straddle epochs: an assertion
+    committed between two pages could appear in the later one. Pinning the
+    namespace's current epoch *once, at stream start* makes the whole stream
+    one snapshot; an already-pinned option is left untouched. This is a
+    consistency guarantee, not a transaction — see the docstrings on
+    ``iter_assertions`` for the exact limits.
+    """
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+    if options.curation_epoch is None:
+        with driver.session(database=database) as session:
+            epoch = session.execute_read(_read_epoch, namespace)
+        options = options.model_copy(update={"curation_epoch": epoch})
+    after: int | None = None
+    while True:
+        with driver.session(database=database) as session:
+            rows = session.execute_read(
+                _read_assertion_page, namespace, after, batch_size
+            )
+        if not rows:
+            return
+        for row in rows:
+            after = int(row["seq"])
+            history = row.get("subject_status_history")
+            if history is not None and _subject_revoked(json.loads(history), options):
+                continue
+            assertion = _visible_assertion(row, options)
+            if assertion is not None:
+                yield assertion
+        if len(rows) < batch_size:
+            return
+
+
 # --- visibility ---------------------------------------------------------------
 
 
@@ -1266,8 +1540,24 @@ def _visible_assertion(row: dict[str, Any], options: GraphReadOptions) -> Assert
         return None
     status, superseded_at = reported
     assertion = Assertion.model_validate_json(row["payload"])
-    if assertion.status is not status or assertion.superseded_at != superseded_at:
-        assertion = assertion.model_copy(update={"status": status, "superseded_at": superseded_at})
+    # ADR-0028's pointer is part of the retired record: a historical read that
+    # reports the assertion ACTIVE (before the supersession that wrote the
+    # pointer) must not hand back an Assertion violating the contract's partial
+    # invariant (pointer set => status SUPERSEDED). The payload keeps the
+    # pointer; the epoch-scoped view clears it.
+    superseded_by = assertion.superseded_by if status is CurationStatus.SUPERSEDED else None
+    if (
+        assertion.status is not status
+        or assertion.superseded_at != superseded_at
+        or assertion.superseded_by != superseded_by
+    ):
+        assertion = assertion.model_copy(
+            update={
+                "status": status,
+                "superseded_at": superseded_at,
+                "superseded_by": superseded_by,
+            }
+        )
     if options.valid_at is not None and not _valid_at_matches(assertion, options.valid_at):
         return None
     if options.transaction_at is not None and not _transaction_at_matches(
