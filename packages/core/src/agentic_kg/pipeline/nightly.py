@@ -41,8 +41,11 @@ from agentic_kg.pipeline.plan import (
     plan_queries,
 )
 from agentic_kg.pipeline.report import (
+    emit_run_event,
     iso,
     new_run_id,
+    run_event,
+    run_page_url,
     utc_now,
     write_report_json,
 )
@@ -57,6 +60,7 @@ ENV_NAMESPACE = "NIGHTLY_NAMESPACE"
 ENV_TRIGGER = "NIGHTLY_TRIGGER"
 ENV_GIT_SHA = "NIGHTLY_GIT_SHA"
 ENV_IMAGE = "NIGHTLY_IMAGE"
+ENV_UI_BASE_URL = "NIGHTLY_UI_BASE_URL"
 
 Runner = Callable[..., QueryOutcome]
 
@@ -114,6 +118,7 @@ def run_nightly(
     image: str = "unknown",
     runs_dir: str | Path | None = None,
     runs_bucket: str | None = None,
+    ui_base_url: str | None = None,
     runner: Runner = run_query_ingest,
     repo: Any = None,
     write_json: bool = True,
@@ -144,7 +149,8 @@ def run_nightly(
             image=image,
         )
         return _finalize(report, url=None, write_json=write_json, write_neo4j=write_neo4j,
-                         runs_dir=runs_dir, runs_bucket=runs_bucket, repo=repo)
+                         runs_dir=runs_dir, runs_bucket=runs_bucket, ui_base_url=ui_base_url,
+                         repo=repo)
 
     entries = [
         PipelineQueryResult(
@@ -174,7 +180,8 @@ def run_nightly(
         report.status = "failed"
         report.finished_at = iso(utc_now())
         return _finalize(report, url=None, write_json=write_json, write_neo4j=write_neo4j,
-                         runs_dir=runs_dir, runs_bucket=runs_bucket, repo=repo)
+                         runs_dir=runs_dir, runs_bucket=runs_bucket, ui_base_url=ui_base_url,
+                         repo=repo)
 
     # --- run each query under the budgets ---------------------------------
     # The planner already bounds the plan by ``max_papers``; the loop's checks
@@ -244,7 +251,8 @@ def run_nightly(
     report.finished_at = iso(utc_now())
 
     return _finalize(report, url=None, write_json=write_json, write_neo4j=write_neo4j,
-                     runs_dir=runs_dir, runs_bucket=runs_bucket, repo=repo)
+                     runs_dir=runs_dir, runs_bucket=runs_bucket, ui_base_url=ui_base_url,
+                     repo=repo)
 
 
 def _finalize(
@@ -255,6 +263,7 @@ def _finalize(
     write_neo4j: bool,
     runs_dir: str | Path | None,
     runs_bucket: str | None,
+    ui_base_url: str | None,
     repo: Any,
 ) -> NightlyResult:
     """Persist the report, emit the structured log line, and pick an exit code."""
@@ -285,22 +294,12 @@ def _finalize(
     for step, message in write_errors:
         logger.error("report persistence failed: %s: %s", step, message)
 
-    event = (
-        "pipeline_run_completed"
-        if report.status in ("succeeded", "partial")
-        else "pipeline_run_failed"
+    event = run_event(
+        report,
+        report_url=url,
+        run_url=run_page_url(report.run_id, ui_base_url),
     )
-    logger.info(
-        json.dumps(
-            {
-                "event": event,
-                "run_id": report.run_id,
-                "status": report.status,
-                "totals": report.totals.model_dump(),
-                "url": url,
-            }
-        )
-    )
+    emit_run_event(event)
 
     if report.status == "failed":
         exit_code = 2
@@ -365,6 +364,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     runs_bucket = args.runs_bucket or os.environ.get(ENV_RUNS_BUCKET)
     git_sha = args.git_sha or os.environ.get(ENV_GIT_SHA, "unknown")
     image = args.image or os.environ.get(ENV_IMAGE, "unknown")
+    ui_base_url = os.environ.get(ENV_UI_BASE_URL) or None
     catalog_path = args.catalog or None
 
     if args.plan_only:
@@ -387,6 +387,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         image=image,
         runs_dir=runs_dir,
         runs_bucket=runs_bucket,
+        ui_base_url=ui_base_url,
         write_neo4j=not args.no_neo4j,
     )
     return result.exit_code
