@@ -1,11 +1,38 @@
 # Active Context
 
-Last updated: 2026-10-21
+Last updated: 2026-10-26
 
 > Newest entries at the top. History through 2026-07 lives in
 > [`archive/activeContext-through-2026-07.md`](archive/activeContext-through-2026-07.md)
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
+
+## RQ1 extraction-reliability harness (2026-10-26, T43)
+
+`agentic_kg.evaluation.rq1` measures precision/recall/F1 of extracted problems,
+assumptions, constraints, datasets, metrics and baselines against versioned
+`rq1-annotation/v1` JSONL annotations, overall and stratified by section, with
+per-paper clustered bootstrap CIs, Cohen's kappa / Krippendorff's alpha, and
+five error buckets. It is independent of `kg_eval` and runs on a default install
+with no model call.
+
+- Entry point: `python -m agentic_kg.evaluation.rq1 ...`; `make rq1-eval`;
+  CI `.github/workflows/rq1-eval.yml` runs the frozen fixtures and uploads the
+  JSON + Markdown report as an artifact.
+- Annotation guide: `docs/evaluation/rq1-annotation-guide.md`. Converter:
+  `agentic_kg.evaluation.annotations`, exposed as the `convert` subcommand.
+- Frozen fixtures: `packages/core/tests/evaluation/fixtures/rq1/` (gold,
+  predictions, corpus manifest). A regeneration test fails if they drift.
+- **Honest coverage today:** the 8-paper corpus has annotations for 4 papers
+  (`cskg`, `cskg2` reconciled; `empire`, `fact_completion` human) and only the
+  `problem` field. The other four papers and five structured fields are reported
+  as honest nulls, never `0.0` or false positives.
+- **kg_eval bug:** the named `_unsupported_assertions` SUPPORTS-only bug is
+  already fixed at the pinned agentic-kgis v0.6.0 (`285ca1d`; upstream #60/#62).
+  No upstream PR was needed. The new
+  `tests/migration/evaluation/test_kg_eval_grounding_support.py` pins the
+  resolved dependency's `SUPPORTS` vs `DERIVED_FROM` semantics in the migration
+  CI job.
 
 ## Enforced API-key auth + machine-only rotation (2026-10-21, R-3 PR-2)
 
