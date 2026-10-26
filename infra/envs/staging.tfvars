@@ -56,3 +56,14 @@ nightly_timeout     = 3600
 # inventing a queue.
 nightly_curate_enabled   = true
 nightly_curate_max_items = 500
+
+# Research-progression cycle (ADR-0010). Deliberately OFF: the owner turns it
+# on after reviewing the autonomy policy. Every gate is human regardless.
+# Set research_cycle_enabled = true to add the nightly post-curate step; set
+# research_cycle_weekly_enabled = true for the independent weekly tick.
+research_cycle_enabled         = false
+research_cycle_top_k           = 3
+research_cycle_max_llm_usd     = 0
+research_cycle_max_experiments = 10
+research_cycle_timeout         = 3600
+research_cycle_weekly_enabled  = false

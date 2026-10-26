@@ -315,6 +315,50 @@ variable "nightly_curate_max_items" {
   default     = 500
 }
 
+# Research-progression cycle (closed loop). Off by default: an owner turns it
+# on after ADR-0010. Every gate is human regardless of this flag.
+variable "research_cycle_enabled" {
+  description = "Run the scheduled research-progression cycle (Cloud Run Job + nightly Workflow step). Default false."
+  type        = bool
+  default     = false
+}
+
+variable "research_cycle_top_k" {
+  description = "Maximum workflows one cycle starts (RESEARCH_CYCLE_TOP_K)."
+  type        = number
+  default     = 3
+}
+
+variable "research_cycle_max_llm_usd" {
+  description = "Estimated-USD budget for one cycle (RESEARCH_CYCLE_MAX_LLM_USD). <= 0 disables the cap."
+  type        = number
+  default     = 0
+}
+
+variable "research_cycle_max_experiments" {
+  description = "Maximum workflow evaluations one cycle may admit (RESEARCH_CYCLE_MAX_EXPERIMENTS)."
+  type        = number
+  default     = 10
+}
+
+variable "research_cycle_timeout" {
+  description = "Timeout in seconds for the research-cycle Cloud Run Job and its wall-time cap."
+  type        = number
+  default     = 3600
+}
+
+variable "research_cycle_weekly_enabled" {
+  description = "Add an independent weekly Cloud Scheduler tick that invokes the research-cycle Job directly."
+  type        = bool
+  default     = false
+}
+
+variable "research_cycle_weekly_schedule" {
+  description = "Cron for the optional weekly research-cycle tick (America/New_York)."
+  type        = string
+  default     = "0 3 * * 0"
+}
+
 # ADR-0007: identities for secret handling ---------------------------------------
 
 variable "wif_pool_id" {
