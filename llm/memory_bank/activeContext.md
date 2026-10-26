@@ -45,9 +45,9 @@ budget, selected problems, per-workflow ids/states, every gate decision
   Terraform-gated. Runbook: `docs/operations/research-cycle-runbook.md`; spec:
   `llm/features/research-progression-loop.md`.
 
-Honest dependencies/limits: ADR-0009's Cloud Run Job execution backend is on a
-separate, unmerged branch, so evaluation still uses the existing workflow path;
-the cycle's USD number is a documented per-workflow estimate, not billing.
+Honest limits: evaluation rides the ADR-0009 execution backend merged from the
+base branch (Docker locally, Cloud Run Job in GCP); the cycle's USD number is a
+documented per-workflow estimate, not billing.
 
 ## P2 nightly review queue (2026-10-26)
 ## P2 nightly review queue (2026-10-26)

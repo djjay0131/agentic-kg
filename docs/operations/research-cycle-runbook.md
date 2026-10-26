@@ -34,7 +34,8 @@ The Job runs `python -m agentic_kg.pipeline.cycle`. It writes:
 - a `:PipelineRun` node plus a JSON report under
   `gs://<runs-bucket>/research-cycles/<cycle_id>.json`.
 
-It logs one structured line: `pipeline_run_completed` or
+Evaluation uses ADR-0009's execution backend (Cloud Run Job in GCP, Docker for
+a local run). It logs one structured line: `pipeline_run_completed` or
 `pipeline_run_failed` with `trigger: research_cycle`. When disabled it logs
 `research_cycle_disabled` and exits 0 without touching the graph.
 

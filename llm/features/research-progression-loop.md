@@ -51,9 +51,9 @@ close finished workflows
 ## Out of scope / honest nulls
 
 - Live model quality of ranking/continuation/evaluation is not measured here.
-- The Cloud Run Job evaluation backend is ADR-0009 (separate, unmerged branch);
-  this loop uses the existing workflow's evaluation path and does not depend on
-  that backend being present.
+- Evaluation uses the execution backend from ADR-0009 (`create_execution_backend`;
+  Docker locally, Cloud Run Job in GCP). This loop does not add a second
+  execution path.
 - No gate is auto. No auto path is enabled in staging.
 - The cycle's USD figure is an explicit per-workflow estimate, not a billing
   measurement (the agent client does not report token usage through this path).
