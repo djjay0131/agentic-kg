@@ -17,3 +17,4 @@ that change its behavior.
 - [Semantic Scholar API key (staging ingest Job)](semantic-scholar-key-runbook.html)
 - [API key rotation (staging gated endpoints)](api-key-rotation-runbook.html)
 - [Deploy paths (automatic vs manual)](deploy-runbook.html)
+- [Nightly pipeline notifications](nightly-runbook.html)
