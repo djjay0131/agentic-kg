@@ -177,6 +177,23 @@ jobs:
             --region=${{ env.REGION }} \
             --update-labels=environment=staging,commit=${{ github.sha }}
 
+      # The nightly orchestrator runs the same `job` image, so it is rolled in
+      # lockstep with the ingest Job. It is created by Terraform (ADR-0008,
+      # nightly_enabled); if that has not been applied yet the Job is absent and
+      # this step is a no-op rather than a deploy failure.
+      - name: Deploy nightly Job to staging
+        if: needs.changes.outputs.job == 'true'
+        run: |
+          if gcloud run jobs describe agentic-kg-nightly-staging \
+              --region=${{ env.REGION }} >/dev/null 2>&1; then
+            gcloud run jobs update agentic-kg-nightly-staging \
+              --image=${{ needs.build.outputs.job_image }} \
+              --region=${{ env.REGION }} \
+              --update-labels=environment=staging,commit=${{ github.sha }}
+          else
+            echo "agentic-kg-nightly-staging not present (Terraform nightly_enabled not applied); skipping"
+          fi
+
       # Assert Cloud Run actually reports the SHA we just deployed. Logic lives
       # in a unit-tested script (label-only in PR-1; PR-3 adds --check-version).
       - name: Assert deployed SHA matches
