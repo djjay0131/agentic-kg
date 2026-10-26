@@ -5,8 +5,8 @@ nav_exclude: true
 
 # Research agents on the canonical graph — runbook
 
-Companion to
-[ADR-0010](../../llm/governance/adr/0010-research-agents-canonical-graph.md).
+Companion to ADR-0010,
+`llm/governance/adr/0010-research-agents-canonical-graph.md`.
 The research agents (ranking, continuation, evaluation, synthesis) read a
 `GraphPort`. `AGENT_GRAPH_SOURCE` selects the adapter:
 
@@ -22,7 +22,7 @@ it by accident.
 ## Before flipping staging to `canonical`
 
 1. The canonical namespace is populated and `kgis_kgcs_enabled = true`
-   (see [kgis-kgcs-staging-runbook.md](kgis-kgcs-staging-runbook.md)).
+   (see [kgis-kgcs-staging-runbook.html](kgis-kgcs-staging-runbook.html)).
 2. The API/job image has the `migration` extra installed. A canonical run
    without it fails at `WorkflowRunner` construction; the API logs
    `WorkflowRunner initialization failed` and agent routes return 503.
