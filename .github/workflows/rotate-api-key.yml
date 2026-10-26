@@ -1,0 +1,134 @@
+# Rotate the staging API key (ADR-0007 rule 2, spec R-3 C5/AC-6).
+#
+# Scheduled monthly AND runnable on demand. Rotation is automated, not
+# remembered. Never triggered by push/PR. One concurrency group: a queued run
+# waits rather than cancelling one that is mid-cutover.
+#
+# Order of operations — the key never leaves GCP and is never read here:
+#   1. point the rotation and check Jobs at the current ingest Job image
+#   2. execute the rotation Job. Under its own `api-key-rotator` identity it
+#      GENERATES the key and adds an API_KEY version.
+#   3. roll the API service onto `API_KEY:latest` with a label stamp (`:latest`
+#      alone is not a config change, so the label forces a fresh revision)
+#   4. execute the check Job. It runs as the API's identity, reads the key from
+#      Secret Manager in-process, calls GET /api/auth/check, and prints only
+#      pass/fail.
+#   5. ONLY THEN disable the superseded API_KEY versions (metadata only).
+#
+# This workflow never generates, reads, pipes or prints a value. It only manages
+# version metadata. It has no payload read or add, no add-mask, and writes no
+# step outputs or environment files. On failure it stops before disabling
+# anything, so a re-run can recover safely.
+
+name: Rotate API Key
+
+on:
+  schedule:
+    # 04:23 UTC on the 1st of every month — off the hour to avoid the runner
+    # stampede at :00.
+    - cron: '23 4 1 * *'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why this rotation is being run (recorded in the summary)'
+        required: false
+        default: 'scheduled rotation'
+
+concurrency:
+  group: rotate-api-key
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  REGION: us-central1
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  ENVIRONMENT: staging
+
+jobs:
+  rotate:
+    name: Rotate staging API key
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Pin both Jobs at the current job image
+        # Terraform ignores Job images (deploys own them) and deploy-master only
+        # re-points the ingest Job, so pin the rotation and check Jobs to the
+        # image the ingest Job runs. The commands are in-GCP entrypoints: an
+        # image that predates them fails to start rather than doing anything.
+        run: |
+          set -euo pipefail
+          IMAGE="$(gcloud run jobs describe "agentic-kg-ingest-$ENVIRONMENT" \
+            --region="$REGION" --project="$PROJECT_ID" \
+            --format='value(spec.template.spec.template.spec.containers[0].image)')"
+          gcloud run jobs update "agentic-kg-rotate-api-key-$ENVIRONMENT" \
+            --region="$REGION" --project="$PROJECT_ID" --image="$IMAGE" \
+            --command=python --args=-m,agentic_kg.rotate_api_key_gcp
+          gcloud run jobs update "agentic-kg-check-api-key-$ENVIRONMENT" \
+            --region="$REGION" --project="$PROJECT_ID" --image="$IMAGE" \
+            --command=python --args=-m,agentic_kg.check_api_key
+
+      - name: Run the in-GCP rotation job (generates and stores the key)
+        run: |
+          gcloud run jobs execute "agentic-kg-rotate-api-key-$ENVIRONMENT" \
+            --region="$REGION" \
+            --project="$PROJECT_ID" \
+            --wait
+
+      - name: Roll the API onto the new secret version
+        run: |
+          gcloud run services update "agentic-kg-api-$ENVIRONMENT" \
+            --region="$REGION" \
+            --project="$PROJECT_ID" \
+            --update-secrets=API_KEY=API_KEY:latest \
+            --update-labels=api-key-rotated=${{ github.run_id }}
+
+      - name: Execute the in-GCP check job (reads the key itself)
+        # The check Job prints only pass/fail. A non-zero exit stops the run
+        # here, before any superseded version is disabled.
+        run: |
+          gcloud run jobs execute "agentic-kg-check-api-key-$ENVIRONMENT" \
+            --region="$REGION" \
+            --project="$PROJECT_ID" \
+            --wait
+
+      - name: Disable the superseded secret versions
+        # Metadata only: version numbers, never payloads.
+        run: |
+          set -euo pipefail
+          gcloud secrets versions list "API_KEY" \
+            --project="$PROJECT_ID" --filter='state=ENABLED' \
+            --sort-by='~createTime' --format='value(name.basename())' \
+          | tail -n +2 \
+          | while read -r version; do
+              gcloud secrets versions disable "$version" \
+                --secret="API_KEY" --project="$PROJECT_ID"
+              echo "Disabled superseded API_KEY version $version."
+            done
+
+      - name: Rotation summary
+        env:
+          REASON: ${{ github.event.inputs.reason }}
+        run: |
+          echo "## API key rotation" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Environment: \`$ENVIRONMENT\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Reason: $REASON" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Status: complete" >> "$GITHUB_STEP_SUMMARY"

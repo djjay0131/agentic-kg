@@ -17,6 +17,7 @@ from agentic_kg_api.config import get_api_config
 from agentic_kg_api.dependencies import get_relations, get_repo, get_search, reset_dependencies
 from agentic_kg_api.routers import (
     agents,
+    auth,
     canonical,
     concepts,
     extract,
@@ -131,6 +132,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 # Include routers
+app.include_router(auth.router)
 app.include_router(problems.router)
 app.include_router(papers.router)
 app.include_router(search.router)

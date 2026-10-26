@@ -15,4 +15,5 @@ that change its behavior.
 - [Structured re-sync (`@snapshot=` locators)](structured-resync-runbook.html)
 - [Neo4j hardening (private staging + password rotation)](neo4j-hardening-runbook.html)
 - [Semantic Scholar API key (staging ingest Job)](semantic-scholar-key-runbook.html)
+- [API key rotation (staging gated endpoints)](api-key-rotation-runbook.html)
 - [Deploy paths (automatic vs manual)](deploy-runbook.html)

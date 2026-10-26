@@ -1,5 +1,6 @@
 """Shared API dependencies for dependency injection."""
 
+import hmac
 import logging
 from typing import Optional
 
@@ -12,7 +13,7 @@ from agentic_kg.knowledge_graph.review_queue import (
     reset_review_queue_service,
 )
 from agentic_kg.knowledge_graph.search import SearchService, get_search_service
-from fastapi import Depends, HTTPException
+from fastapi import Depends, Header, HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,31 @@ def reset_dependencies() -> None:
     _review_queue_service = None
     _canonical_reader = None
     reset_review_queue_service()
+
+
+def require_api_key(
+    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+) -> None:
+    """Gate a router behind the shared API key (ADR-0007, spec C5).
+
+    Compares in constant time. Missing and wrong keys are deliberately
+    indistinguishable: both get the same 401 body.
+
+    If no usable key is installed the dependency **fails closed** with 503,
+    never open. A key is unusable when ``API_KEY`` is unset/empty or still the
+    public Terraform placeholder seed. Only routers that opt in with
+    ``dependencies=[Depends(require_api_key)]`` are affected; public endpoints
+    stay public.
+    """
+    from agentic_kg_api.config import API_KEY_PLACEHOLDER, get_api_config
+
+    expected = get_api_config().api_key
+    if not expected or expected == API_KEY_PLACEHOLDER:
+        raise HTTPException(status_code=503, detail="auth not configured")
+
+    supplied = x_api_key or ""
+    if not hmac.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8")):
+        raise HTTPException(status_code=401, detail="invalid or missing API key")
 
 
 def require_canonical_enabled() -> None:

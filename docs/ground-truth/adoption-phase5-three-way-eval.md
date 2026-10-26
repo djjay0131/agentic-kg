@@ -11,8 +11,8 @@ nav_exclude: true
 
 ## Pins
 
-- `agentic-kgis @ d5bab8f6d6207ce554ee5f687d37938f747eaa79`
-- `agentic-kgcs @ e2c24fca8533af79e520a2ea5fddadd0668baa07`
+- `agentic-kgis @ 285ca1d220e45c73525ad3677fa352b7343d4ef7`
+- `agentic-kgcs @ ac51b1a72c93800b6c27eac012878da53ef8bfd0`
 - reconciled papers: 2 (cskg, cskg2)
 - scored gold entities: 53
 

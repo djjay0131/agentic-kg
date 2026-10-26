@@ -170,6 +170,7 @@ locals {
   neo4j_password_secret_id           = "NEO4J_PASSWORD${var.env == "prod" ? "_PROD" : ""}"
   neo4j_password_next_secret_id      = "NEO4J_PASSWORD_NEXT${var.env == "prod" ? "_PROD" : ""}"
   semantic_scholar_api_key_secret_id = "SEMANTIC_SCHOLAR_API_KEY${var.env == "prod" ? "_PROD" : ""}"
+  api_key_secret_id                  = "API_KEY${var.env == "prod" ? "_PROD" : ""}"
 
   # Placeholder value seeded as the first version of the S2 key secret so the
   # ingest Job can be created before the sync workflow runs (Cloud Run refuses
@@ -177,6 +178,11 @@ locals {
   # treats this exact value as "no key" — see
   # packages/core/src/agentic_kg/data_acquisition/config.py.
   semantic_scholar_api_key_placeholder = "unset-seed-not-an-api-key"
+
+  # Same shape for the R-3 API key (ADR-0007, spec C5/AC-6). It is PUBLIC —
+  # never a credential. The API treats it as "auth not configured" and returns
+  # 503 on gated routes until the rotation Job installs a real version.
+  api_key_placeholder = "unset-seed-not-an-api-key"
 }
 
 # =============================================================================
@@ -278,6 +284,32 @@ resource "google_secret_manager_secret" "semantic_scholar_api_key" {
 resource "google_secret_manager_secret_version" "semantic_scholar_api_key_seed" {
   secret          = google_secret_manager_secret.semantic_scholar_api_key.id
   secret_data     = local.semantic_scholar_api_key_placeholder
+  deletion_policy = "ABANDON"
+
+  lifecycle {
+    ignore_changes = [secret_data, enabled]
+  }
+}
+
+# API key for the gated R-3 endpoints (spec C5/AC-6, ADR-0007). Terraform owns
+# the CONTAINER and a public placeholder seed only; the enabled value is
+# generated inside GCP by the rotate-api-key Job and never enters state.
+resource "google_secret_manager_secret" "api_key" {
+  secret_id = local.api_key_secret_id
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+# Seed version so the API service can be created with an `API_KEY:latest`
+# reference. Same lifecycle guards as the Neo4j seed: Terraform never rewrites
+# or re-enables it, and ABANDON means a destroy never deletes key material.
+resource "google_secret_manager_secret_version" "api_key_seed" {
+  secret          = google_secret_manager_secret.api_key.id
+  secret_data     = local.api_key_placeholder
   deletion_policy = "ABANDON"
 
   lifecycle {
@@ -397,6 +429,18 @@ resource "google_cloud_run_v2_service" "api" {
         }
       }
 
+      # R-3 gated endpoints (spec C5). Public read endpoints stay public; the
+      # dependency fails closed (503) while this holds the placeholder seed.
+      env {
+        name = "API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.api_key.secret_id
+            version = "latest"
+          }
+        }
+      }
+
       # GCP config for Cloud Run Jobs trigger
       env {
         name  = "GCP_PROJECT"
@@ -456,6 +500,7 @@ resource "google_cloud_run_v2_service" "api" {
     google_project_iam_member.secret_accessor,
     google_project_iam_member.network_user,
     google_secret_manager_secret_version.neo4j_uri,
+    google_secret_manager_secret_version.api_key_seed,
   ]
 }
 
@@ -981,6 +1026,132 @@ resource "google_cloud_run_v2_job" "rotate_password" {
 }
 
 # =============================================================================
+# ADR-0007: API-key rotation (R-3 C5/AC-6)
+# =============================================================================
+# Same shape as the Neo4j rotation: the Job generates and stores the key inside
+# GCP under a dedicated identity, and a separate in-GCP check Job proves the
+# API accepts it. The workflow only executes jobs and manages version metadata.
+
+resource "google_cloud_run_v2_job" "rotate_api_key" {
+  name     = "agentic-kg-rotate-api-key-${var.env}"
+  location = var.region
+
+  template {
+    template {
+      # Dedicated identity: the only *workload* allowed to add API_KEY
+      # versions. It has no read access, so it cannot see the key it creates
+      # or the one it replaces.
+      service_account = google_service_account.api_key_rotator.email
+
+      containers {
+        image = "${var.region}-docker.pkg.dev/${var.project_id}/agentic-kg/job:latest"
+        command = [
+          "python", "-m", "agentic_kg.rotate_api_key_gcp",
+        ]
+
+        resources {
+          limits = {
+            memory = "512Mi"
+            cpu    = "1"
+          }
+        }
+
+        env {
+          name  = "GOOGLE_CLOUD_PROJECT"
+          value = var.project_id
+        }
+        env {
+          name  = "API_KEY_SECRET_ID"
+          value = google_secret_manager_secret.api_key.secret_id
+        }
+      }
+
+      timeout     = "300s"
+      max_retries = 0
+    }
+  }
+
+  # Image and deploy-stamped labels/annotations are owned by the deploy and
+  # rotation workflows (the Job runs the same `job` image as ingest).
+  lifecycle {
+    ignore_changes = [
+      client,
+      client_version,
+      template[0].template[0].containers[0].image,
+      template[0].labels,
+      template[0].annotations,
+    ]
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_service_account.api_key_rotator,
+    google_secret_manager_secret_iam_member.api_key_rotator_version_adder,
+  ]
+}
+
+# Effect verification (ADR-0007 rule 5). Runs as the API's runtime identity so
+# it can read the secret, reads the key in-process, calls
+# GET /api/auth/check, and prints only pass/fail.
+resource "google_cloud_run_v2_job" "check_api_key" {
+  name     = "agentic-kg-check-api-key-${var.env}"
+  location = var.region
+
+  template {
+    template {
+      service_account = "${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+
+      containers {
+        image = "${var.region}-docker.pkg.dev/${var.project_id}/agentic-kg/job:latest"
+        command = [
+          "python", "-m", "agentic_kg.check_api_key",
+        ]
+
+        resources {
+          limits = {
+            memory = "256Mi"
+            cpu    = "1"
+          }
+        }
+
+        env {
+          name  = "API_URL"
+          value = google_cloud_run_v2_service.api.uri
+        }
+        env {
+          name  = "GOOGLE_CLOUD_PROJECT"
+          value = var.project_id
+        }
+        env {
+          name  = "API_KEY_SECRET_ID"
+          value = google_secret_manager_secret.api_key.secret_id
+        }
+      }
+
+      timeout     = "300s"
+      max_retries = 0
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [
+      client,
+      client_version,
+      template[0].template[0].containers[0].image,
+      template[0].labels,
+      template[0].annotations,
+    ]
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_cloud_run_v2_service.api,
+    google_project_iam_member.secret_accessor,
+    google_secret_manager_secret_version.api_key_seed,
+  ]
+}
+
+# =============================================================================
 # ADR-0007: narrow identities for secret handling
 # =============================================================================
 # 1. neo4j_rotator runs the rotation Job. It may read the Neo4j secrets and
@@ -996,10 +1167,10 @@ resource "google_cloud_run_v2_job" "rotate_password" {
 # roles/resourcemanager.projectIamAdmin, so it can grant ITSELF the one role
 # #131 needs through the normal reviewed plan/apply path — no operator runs
 # `gcloud projects add-iam-policy-binding` (ADR-0007 rule 4: agents/operators
-# never touch IAM by hand). Creating the two service accounts below requires
-# roles/iam.serviceAccountAdmin; Terraform grants it here rather than assuming
-# a human added it. Empty var (a fresh env with no deploy identity) => no grant.
-# See infra/README.md §Roles the apply identity needs.
+# never touch IAM by hand). Creating the ADR-0007 service accounts below
+# requires roles/iam.serviceAccountAdmin; Terraform grants it here rather than
+# assuming a human added it. Empty var (a fresh env with no deploy identity) =>
+# no grant. See infra/README.md §Roles the apply identity needs.
 resource "google_project_iam_member" "deploy_service_account_admin" {
   count   = var.deploy_service_account_email == "" ? 0 : 1
   project = var.project_id
@@ -1055,6 +1226,31 @@ resource "google_project_iam_member" "rotator_network_user" {
 resource "google_service_account_iam_member" "deployer_acts_as_rotator" {
   count              = var.deploy_service_account_email == "" ? 0 : 1
   service_account_id = google_service_account.neo4j_rotator.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${var.deploy_service_account_email}"
+}
+
+# API-key rotator (R-3 C5/AC-6). Its ONLY permission is secretVersionAdder on
+# API_KEY: it can add the version it generates, and cannot read any version —
+# not even the one it just wrote. The check Job runs as the API's identity.
+resource "google_service_account" "api_key_rotator" {
+  account_id   = "api-key-rotator-${var.env}"
+  display_name = "API key rotation job (${var.env})"
+  description  = "ADR-0007: generates the API key inside GCP and stores it; never exposed."
+
+  depends_on = [google_project_iam_member.deploy_service_account_admin]
+}
+
+resource "google_secret_manager_secret_iam_member" "api_key_rotator_version_adder" {
+  secret_id = google_secret_manager_secret.api_key.id
+  role      = "roles/secretmanager.secretVersionAdder"
+  member    = "serviceAccount:${google_service_account.api_key_rotator.email}"
+}
+
+# The deploy identity must be able to update/execute the rotation Job.
+resource "google_service_account_iam_member" "deployer_acts_as_api_key_rotator" {
+  count              = var.deploy_service_account_email == "" ? 0 : 1
+  service_account_id = google_service_account.api_key_rotator.name
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${var.deploy_service_account_email}"
 }

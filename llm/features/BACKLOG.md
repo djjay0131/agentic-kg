@@ -125,7 +125,7 @@ The "killer feature". Depends on entity expansion + communities.
 |---|---------|--------|-------|
 | R-1 | Query-facing vector search | Partial Spec | Expose vector search across all entity types for user queries (currently internal). |
 | R-2 | Graph neighbor expansion | Partial Spec | Configurable-depth traversal from vector hits; context assembly from graph paths. |
-| R-3 | LLM synthesis endpoint | Partial Spec | `POST /api/query` — NL question → answer with provenance from graph. |
+| R-3 | [Answer with provenance (`POST /api/query`) + B0/B1/B2 eval](https://github.com/djjay0131/agentic-kg/blob/master/llm/features/r3-answer-with-provenance.md) | **SPECIFIED 2026-10-20** | NL question → answer whose every sentence cites canonical assertions, verified (Claude) and corrected via agentic-kgps; snapshot evidence path; 14 ACs; build order PR-1..PR-6 in the spec. |
 | R-4 | Community-aware retrieval | Partial Spec | Include community summaries in retrieval context for global/thematic questions. |
 | R-5 | RAG evaluation & benchmarks | Needs Spec | Improvement vs. vector-only for multi-hop questions. |
 

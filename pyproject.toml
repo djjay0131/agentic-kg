@@ -38,39 +38,43 @@ dependencies = [
 # it. Only the requirement lines are duplicated.
 #
 # OPT-IN: not installed by default, so today's install and CI are unaffected.
-# Exact commit SHAs, not version specifiers — neither repo is on PyPI,
-# agentic-kgis has zero tags, and its version sat at 0.2.0 for 122 commits
-# (it is 0.3.0 at the pin below, but still untagged).
+# Exact commit SHAs, not version specifiers — none of these repos is on PyPI,
+# and their version strings are not what CI keys on (see pin_gate.py). The
+# three pins must match packages/core/pyproject.toml exactly.
 migration = [
-    # agentic-kgis @ d5bab8f6 = version 0.3.0 (up from de48639a, also 0.3.0).
-    # kg_contracts CONTRACT_VERSION is "2.0.0". Ships kg_contracts, kgis,
-    # kg_eval. Changes this repo had to act on:
-    #  (a) ADR-0026 (agentic-kgis #54, issues #49/#50) - a revoked identity
-    #      shields its ASSERTIONS from default reads (read-layer, statuses
-    #      untouched); a batch applies operations in order so create-then-revoke
-    #      in one batch commits a tombstone; a second revoke commits nothing and
-    #      consumes no epoch. FOUR new tests join GraphMutationStoreContract
-    #      (14 total); this adapter implements all three in Cypher.
-    #  (b) CARRIED FROM de48639a - ADR-0024's `IdentityDisposition` on
-    #      `ConfidencePolicy.route()`, and ADR-0025's `REVOKE_IDENTITY` (eighth
-    #      CurationOperationType, CREATE_IDENTITY inverse) with `include_revoked`
-    #      hiding REVOKED records from every default read at any epoch.
-    "agentic-kgis @ git+https://github.com/djjay0131/agentic-kgis@d5bab8f6d6207ce554ee5f687d37938f747eaa79",
-    # agentic-kgcs @ e2c24fca = the v2.0.0 release commit (agentic-kgcs #45),
-    # up from 727df56 (the merge of #44). The release is METADATA-ONLY over
-    # 727df56: verified, `git diff --stat 727df56 e2c24fca` touches only
-    # CHANGELOG.md, llm/memory_bank/* and pyproject.toml (version 1.0.0 ->
-    # 2.0.0). No source moves. The version is still not what CI keys on -
-    # packages/core/tests/migration/neo4j/pin_gate.py checks the resolved commit.
+    # agentic-kgis @ 285ca1d = tag v0.6.0, kg_contracts CONTRACT_VERSION
+    # "2.3.0". Ships kg_contracts, kgis, kg_eval. Changes this repo had to act
+    # on:
+    #  (a) ADR-0029 (agentic-kgis #59, #66) - `GraphReader.get_assertion` and
+    #      `AdapterCapabilities.supports_assertion_lookup`. Implemented by both
+    #      canonical read surfaces in migration/neo4j/{reader,store}.py.
+    #  (b) ADR-0028 (agentic-kgis #58, #69) - `Assertion.source_candidate_ids`
+    #      and `Assertion.superseded_by`. Both live outside the ADR-0021 record
+    #      seed, so they ride the adapter's serialized `payload` without
+    #      re-minting ids; the RETRACT payload's `superseded_by` transport is
+    #      persisted on the retired record.
+    #  (c) ADR-0027 (agentic-kgis #51, #55) - `RESTORE_IDENTITY` is the exact
+    #      inverse of `REVOKE_IDENTITY` and preserves the creation epoch. It is
+    #      the ninth CurationOperationType this adapter applies.
+    #  (d) CARRIED FROM 0.3.0 - ADR-0026's revoked-identity assertion shield
+    #      (including the in-order create-then-revoke batch tombstone), ADR-0025's
+    #      `REVOKE_IDENTITY`, and ADR-0024's `IdentityDisposition`.
+    "agentic-kgis @ git+https://github.com/djjay0131/agentic-kgis@285ca1d220e45c73525ad3677fa352b7343d4ef7",
+    # agentic-kgcs @ ac51b1a = current `main` after #57-#60. The v2.0.0 tag
+    # (e2c24fca) predates #57 and validates CONTRACT_VERSION exactly, so it
+    # would reject a 2.3.0 envelope; ac51b1a accepts compatible 2.x minors
+    # (ADR-0024) and carries the ADR-0027/ADR-0028 halves. Its version string
+    # is still 2.0.0 (releases are a separate upstream PR), which is why the
+    # SHA - not the version - is the pin CI verifies from direct_url.json.
     #
-    # New at 727df56 (agentic-kgcs #44, ADR-0022): the identity disposition is
-    # derived BEFORE routing, so entity candidates are NEW_IDENTITY and an
-    # absent `identity_confidence` no longer blocks AUTO. Measured over the
-    # committed corpus at published thresholds: the contract default now routes
-    # 8 of 252 AUTO (the DOI-keyed structured Papers), defers 244, and still
-    # reaches no graded entity. Consequence acted on here: the registered-
-    # identifier guard in migration/curation/pipeline.py no longer short-circuits
-    # on the identity-gate field.
+    # New at ac51b1a:
+    #   - ADR-0028 KGCS half (#58): the planner stamps source_candidate_ids on
+    #     ATTACH_ASSERTION and superseded_by on the retired copy; the RETRACT
+    #     payload carries `superseded_by` as transport.
+    #   - RESTORE_IDENTITY adoption (#54) of agentic-kgis ADR-0027.
+    #   - ContractVersionRule accepts compatible kg_contracts minors (#57).
+    #   - Durable semantic-audit storage (#51), evidence-rendered adviser
+    #     replay (#50), and the semantic-ref rowid guard (#59).
     #
     # Carried forward from earlier pins and still true:
     #   - after #30, `orcid` is no longer a default strong namespace, so Author
@@ -81,26 +85,24 @@ migration = [
     #     a STORE OBLIGATION this adapter honours: a compensating
     #     ATTACH_ASSERTION is an upsert by `assertion_id`, replacing in place.
     #     See packages/core/src/agentic_kg/migration/neo4j/store.py.
-    #
-    # New at f68d1d7:
+    #   - ADR-0022: the identity disposition is derived BEFORE routing, so the
+    #     registered-identifier guard in migration/curation/pipeline.py no
+    #     longer short-circuits on the identity-gate field.
     #   - `assertion_id` is minted from `record_seed(fact_id, object,
     #     valid_period, evidence_refs, provenance)` - CLOCK-FREE. A true replay
     #     collides onto the record it already minted; the same fact carrying new
-    #     evidence mints a new one. This is the evidence-evolution fix.
-    #   - DEPLOYMENT PREREQUISITE, from that: KGIS's structured reader stamps
-    #     `@snapshot=<version>` into the locator by default, and the locator is
-    #     part of the record seed. Any source read on a SCHEDULE must set
-    #     `include_snapshot_in_locator=False` or it mints a fresh ACTIVE record
-    #     per run for unchanged data (measured: 30 re-syncs -> 30 records
-    #     vs 1). Enforced by migration/ingestion/structured.py; operator
-    #     runbook at docs/operations/structured-resync-runbook.md.
-    #   - `CREATE_IDENTITY` now carries a working inverse (REVOKE_IDENTITY), and
-    #     `ATTACH_ASSERTION` carries a per-subject `assertion_absent` guard, so a
+    #     evidence mints a new one. DEPLOYMENT PREREQUISITE: a scheduled source
+    #     read must set `include_snapshot_in_locator=False` or it mints a fresh
+    #     ACTIVE record per run (enforced by migration/ingestion/structured.py).
+    #   - `ATTACH_ASSERTION` carries a per-subject `assertion_absent` guard, so a
     #     re-planned replay comes back STALE instead of appending a duplicate.
-    #   - `Compensator._invert`'s legacy reversal_data fallback now RAISES by
-    #     default (opt in with `allow_legacy_reversal_data=True`); a malformed
-    #     INVERSE_PAYLOAD_KEY raises unconditionally.
-    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@e2c24fca8533af79e520a2ea5fddadd0668baa07",
+    "agentic-kgcs @ git+https://github.com/djjay0131/agentic-kgcs@ac51b1a72c93800b6c27eac012878da53ef8bfd0",
+    # agentic-kgps @ 24a73c6 = tag v0.5.0. The read-only provenance service
+    # (ProvenanceService, ProvenanceRouter, verify/correct, B0/B1/B2 harness,
+    # PROV-O export) over the same kg_contracts 2.3.0 records. It needs
+    # agentic-kgis>=0.6.0 and is read-only over canonical state (KGPS ADR-0001).
+    # Nothing in packages/core imports it yet; the R-3 API read path does.
+    "agentic-kgps @ git+https://github.com/djjay0131/agentic-kgps@24a73c6d0c46579338ce05cad4a4225927d70680",
 ]
 dev = [
     "pytest>=7.0.0",
