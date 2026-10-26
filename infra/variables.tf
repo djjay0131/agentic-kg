@@ -303,6 +303,18 @@ variable "nightly_ingest_mode" {
   }
 }
 
+variable "nightly_notify_enabled" {
+  description = "Create the email notification channel and the completed/failed log-based alert policies for the nightly pipeline. Requires nightly_enabled."
+  type        = bool
+  default     = true
+}
+
+variable "notify_email" {
+  description = "Recipient email address for nightly pipeline run notifications."
+  type        = string
+  default     = "djjay@vt.edu"
+}
+
 # ADR-0007: identities for secret handling ---------------------------------------
 
 variable "wif_pool_id" {

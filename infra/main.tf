@@ -14,6 +14,10 @@ resource "google_project_service" "apis" {
     # and Cloud Scheduler triggers it at 02:30 America/New_York.
     "workflows.googleapis.com",
     "cloudscheduler.googleapis.com",
+    # Nightly run notifications: a log-based alert on the Job's structured
+    # pipeline_run_completed / pipeline_run_failed event.
+    "logging.googleapis.com",
+    "monitoring.googleapis.com",
   ])
 
   project            = var.project_id
@@ -1655,6 +1659,13 @@ resource "google_cloud_run_v2_job" "nightly" {
           name  = "NIGHTLY_RUNS_BUCKET"
           value = var.nightly_runs_bucket
         }
+
+        # The run link in the email points at the UI's Runs page. The UI service
+        # owns the URL, so Terraform injects it; no separate variable to drift.
+        env {
+          name  = "NIGHTLY_UI_BASE_URL"
+          value = google_cloud_run_v2_service.ui.uri
+        }
       }
 
       vpc_access {
@@ -1815,6 +1826,113 @@ resource "google_cloud_scheduler_job" "nightly" {
       service_account_email = local.nightly_sa_email
     }
   }
+
+  depends_on = [google_project_service.apis]
+}
+
+# ---- Run-finished notifications (ADR-0008 §5) ------------------------------
+# The Job writes exactly one bare-JSON stdout line per run, so Cloud Logging
+# stores it as jsonPayload. These two log-based policies notify on the
+# completed (INFO) and failed (ERROR) events. The documentation templates the
+# run summary and the UI run link from labels extracted from that log entry;
+# there are no mail credentials in the application (Cloud Monitoring owns the
+# channel).
+locals {
+  nightly_run_alerts = {
+    completed = {
+      event           = "pipeline_run_completed"
+      log_severity    = "INFO"
+      policy_severity = null
+      display_name    = "Nightly pipeline completed"
+      subject         = "Nightly pipeline completed: $${log.extracted_label.run_id}"
+    }
+    failed = {
+      event           = "pipeline_run_failed"
+      log_severity    = "ERROR"
+      policy_severity = "ERROR"
+      display_name    = "Nightly pipeline failed"
+      subject         = "Nightly pipeline FAILED: $${log.extracted_label.run_id}"
+    }
+  }
+}
+
+resource "google_monitoring_notification_channel" "nightly_email" {
+  count = var.nightly_enabled && var.nightly_notify_enabled ? 1 : 0
+
+  project      = var.project_id
+  display_name = "Nightly pipeline email (${var.env})"
+  type         = "email"
+  labels = {
+    email_address = var.notify_email
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_monitoring_alert_policy" "nightly_run" {
+  for_each = var.nightly_enabled && var.nightly_notify_enabled ? local.nightly_run_alerts : {}
+
+  project      = var.project_id
+  display_name = "${each.value.display_name} (${var.env})"
+  combiner     = "OR"
+  enabled      = true
+  severity     = each.value.policy_severity
+
+  conditions {
+    display_name = each.value.display_name
+
+    condition_matched_log {
+      # Cloud Run Jobs report resource.type "cloud_run_job"; the Job's structured
+      # line carries the event and its severity.
+      filter = "resource.type=\"cloud_run_job\" AND severity=\"${each.value.log_severity}\" AND jsonPayload.event=\"${each.value.event}\""
+
+      label_extractors = {
+        run_id               = "EXTRACT(jsonPayload.run_id)"
+        status               = "EXTRACT(jsonPayload.status)"
+        namespace            = "EXTRACT(jsonPayload.namespace)"
+        papers_seen          = "EXTRACT(jsonPayload.papers_seen)"
+        papers_new           = "EXTRACT(jsonPayload.papers_new)"
+        committed_operations = "EXTRACT(jsonPayload.committed_operations)"
+        deferred_candidates  = "EXTRACT(jsonPayload.deferred_candidates)"
+        review_queue_size    = "EXTRACT(jsonPayload.review_queue_size)"
+        llm_usd              = "EXTRACT(jsonPayload.llm_usd)"
+        failure_count        = "EXTRACT(jsonPayload.failure_count)"
+        run_url              = "EXTRACT(jsonPayload.run_url)"
+      }
+    }
+  }
+
+  # One run writes one event, so a 5-minute rate limit yields one notification
+  # per run; auto-close the incident an hour later.
+  alert_strategy {
+    notification_rate_limit {
+      period = "300s"
+    }
+    auto_close = "3600s"
+  }
+
+  documentation {
+    content   = <<-EOT
+      ### Nightly pipeline notification (${each.value.display_name})
+
+      - **Run:** `$${log.extracted_label.run_id}`
+      - **Status:** `$${log.extracted_label.status}`
+      - **Namespace:** `$${log.extracted_label.namespace}`
+      - **Papers seen / new:** `$${log.extracted_label.papers_seen}` / `$${log.extracted_label.papers_new}`
+      - **Committed / deferred:** `$${log.extracted_label.committed_operations}` / `$${log.extracted_label.deferred_candidates}`
+      - **Review queue size:** `$${log.extracted_label.review_queue_size}`
+      - **Estimated LLM spend (USD):** `$${log.extracted_label.llm_usd}`
+      - **Pipeline failures:** `$${log.extracted_label.failure_count}`
+
+      [Open the run page]($${log.extracted_label.run_url})
+    EOT
+    mime_type = "text/markdown"
+    subject   = each.value.subject
+  }
+
+  notification_channels = [
+    google_monitoring_notification_channel.nightly_email[0].name,
+  ]
 
   depends_on = [google_project_service.apis]
 }
