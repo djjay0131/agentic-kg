@@ -35,7 +35,8 @@ jobs:
       api: ${{ steps.filter.outputs.api }}
       ui: ${{ steps.filter.outputs.ui }}
       job: ${{ steps.filter.outputs.job }}
-      any_service: ${{ steps.filter.outputs.api == 'true' || steps.filter.outputs.ui == 'true' || steps.filter.outputs.job == 'true' }}
+      experiment: ${{ steps.filter.outputs.experiment }}
+      any_service: ${{ steps.filter.outputs.api == 'true' || steps.filter.outputs.ui == 'true' || steps.filter.outputs.job == 'true' || steps.filter.outputs.experiment == 'true' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -61,6 +62,9 @@ jobs:
               - 'packages/core/**'
               - 'pyproject.toml'
               - 'docker/Dockerfile.job'
+            experiment:
+              - 'packages/core/src/agentic_kg/agents/experiment_runner.py'
+              - 'docker/Dockerfile.experiment'
 
   # Run full test suite
   test:
@@ -117,7 +121,7 @@ jobs:
     uses: ./.github/workflows/build-images.yml
     with:
       services: >-
-        ${{ needs.changes.outputs.api == 'true' && 'api,' || '' }}${{ needs.changes.outputs.ui == 'true' && 'ui,' || '' }}${{ needs.changes.outputs.job == 'true' && 'job' || '' }}
+        ${{ needs.changes.outputs.api == 'true' && 'api,' || '' }}${{ needs.changes.outputs.ui == 'true' && 'ui,' || '' }}${{ needs.changes.outputs.job == 'true' && 'job,' || '' }}${{ needs.changes.outputs.experiment == 'true' && 'experiment' || '' }}
       image_tag: latest
       push: true
     secrets:
@@ -177,10 +181,25 @@ jobs:
             --region=${{ env.REGION }} \
             --update-labels=environment=staging,commit=${{ github.sha }}
 
+      # The experiment Job is created by Terraform. If the first deploy beats
+      # the Terraform apply, leave it alone: the Job template already points at
+      # :latest, which this build just pushed.
+      - name: Deploy experiment Job to staging
+        if: needs.changes.outputs.experiment == 'true'
+        run: |
+          if gcloud run jobs describe agentic-kg-experiment-staging --region=${{ env.REGION }} >/dev/null 2>&1; then
+            gcloud run jobs update agentic-kg-experiment-staging \
+              --image=${{ needs.build.outputs.experiment_image }} \
+              --region=${{ env.REGION }} \
+              --update-labels=environment=staging,commit=${{ github.sha }}
+          else
+            echo "agentic-kg-experiment-staging not created yet; Terraform owns creation"
+          fi
+
       # The nightly orchestrator runs the same `job` image, so it is rolled in
-      # lockstep with the ingest Job. It is created by Terraform (ADR-0008,
-      # nightly_enabled); if that has not been applied yet the Job is absent and
-      # this step is a no-op rather than a deploy failure.
+      # lockstep with the ingest Job. It is created by Terraform (nightly_enabled);
+      # if that has not been applied yet the Job is absent and this step is a
+      # no-op rather than a deploy failure.
       - name: Deploy nightly Job to staging
         if: needs.changes.outputs.job == 'true'
         run: |

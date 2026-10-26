@@ -7,7 +7,7 @@ on:
   workflow_call:
     inputs:
       services:
-        description: 'Comma-separated list of services to build (api,ui,job) or "all"'
+        description: 'Comma-separated list of services to build (api,ui,job,experiment) or "all"'
         required: true
         type: string
       image_tag:
@@ -36,6 +36,9 @@ on:
       job_image:
         description: 'Full ingest-job image reference'
         value: ${{ jobs.build.outputs.job_image }}
+      experiment_image:
+        description: 'Full experiment-job image reference'
+        value: ${{ jobs.build.outputs.experiment_image }}
 
 env:
   REGISTRY: us-central1-docker.pkg.dev
@@ -56,6 +59,7 @@ jobs:
       api_image: ${{ steps.meta.outputs.api_image }}
       ui_image: ${{ steps.meta.outputs.ui_image }}
       job_image: ${{ steps.meta.outputs.job_image }}
+      experiment_image: ${{ steps.meta.outputs.experiment_image }}
 
     steps:
       - name: Checkout code
@@ -83,10 +87,12 @@ jobs:
             echo "build_api=true" >> $GITHUB_OUTPUT
             echo "build_ui=true" >> $GITHUB_OUTPUT
             echo "build_job=true" >> $GITHUB_OUTPUT
+            echo "build_experiment=true" >> $GITHUB_OUTPUT
           else
             echo "build_api=$(echo $SERVICES | grep -q 'api' && echo true || echo false)" >> $GITHUB_OUTPUT
             echo "build_ui=$(echo $SERVICES | grep -q 'ui' && echo true || echo false)" >> $GITHUB_OUTPUT
             echo "build_job=$(echo $SERVICES | grep -q 'job' && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "build_experiment=$(echo $SERVICES | grep -q 'experiment' && echo true || echo false)" >> $GITHUB_OUTPUT
           fi
 
       - name: Set image metadata
@@ -105,6 +111,7 @@ jobs:
           echo "api_image=${REGISTRY}/api:${TAG}" >> $GITHUB_OUTPUT
           echo "ui_image=${REGISTRY}/ui:${TAG}" >> $GITHUB_OUTPUT
           echo "job_image=${REGISTRY}/job:${TAG}" >> $GITHUB_OUTPUT
+          echo "experiment_image=${REGISTRY}/experiment:${TAG}" >> $GITHUB_OUTPUT
           echo "registry=${REGISTRY}" >> $GITHUB_OUTPUT
 
       - name: Build API image
@@ -155,6 +162,22 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
 
+      - name: Build Experiment Job image
+        if: steps.parse.outputs.build_experiment == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.experiment
+          push: ${{ inputs.push }}
+          tags: |
+            ${{ steps.meta.outputs.experiment_image }}
+            ${{ steps.meta.outputs.registry }}/experiment:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
       - name: Scan images for vulnerabilities
         if: inputs.push
         run: |
@@ -175,4 +198,8 @@ jobs:
           if [ "${{ steps.parse.outputs.build_job }}" = "true" ]; then
             trivy image --exit-code 0 --severity HIGH,CRITICAL \
               ${{ steps.meta.outputs.job_image }} || echo "Job image has vulnerabilities"
+          fi
+          if [ "${{ steps.parse.outputs.build_experiment }}" = "true" ]; then
+            trivy image --exit-code 0 --severity HIGH,CRITICAL \
+              ${{ steps.meta.outputs.experiment_image }} || echo "Experiment image has vulnerabilities"
           fi

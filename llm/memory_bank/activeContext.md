@@ -52,8 +52,8 @@ the cycle's USD number is a documented per-workflow estimate, not billing.
 ## P2 nightly review queue (2026-10-26)
 ## P2 nightly review queue (2026-10-26)
 
-`feat/review-queue-p2` adds the adviser/human loop on top of P1 (#127, still
-open, so this branch is stacked on it). The new Cloud Run Job
+`feat/review-queue-p2` adds the adviser/human loop on top of P1 (#127, now
+merged, so this branch is based directly on master). The new Cloud Run Job
 `agentic-kg-adviser-<env>` runs `python -m agentic_kg.pipeline.curate` after the
 nightly ingest in the same Workflow, reads the run's KGIS ledger, re-runs the
 deterministic policy, and grades deferred candidates with a bounded KGCS

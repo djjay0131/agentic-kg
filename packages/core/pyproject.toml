@@ -33,6 +33,9 @@ dependencies = [
     "langgraph>=0.2.0",
     "langchain-core>=0.3.0",
     "docker>=7.0.0",
+    # Cloud Run Job execution backend (GCS hand-off + Run Admin API auth)
+    "google-auth>=2.0.0",
+    "google-cloud-storage>=2.0.0",
 ]
 
 [project.optional-dependencies]
