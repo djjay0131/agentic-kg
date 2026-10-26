@@ -1,0 +1,111 @@
+<h1 id="research-cycle-runbook">Research-cycle runbook</h1>
+
+<p>The research-progression loop runs one <strong>cycle</strong> at a time: it closes finished
+workflows, re-ranks the graph, starts up to <code class="language-plaintext highlighter-rouge">RESEARCH_CYCLE_TOP_K</code> workflows and
+stops each at its next human gate. Infrastructure is in <code class="language-plaintext highlighter-rouge">infra/main.tf</code>
+(<code class="language-plaintext highlighter-rouge">agentic-kg-research-cycle-&lt;env&gt;</code>), gated by <code class="language-plaintext highlighter-rouge">research_cycle_enabled</code>, which
+<strong>defaults false</strong>. ADR-0010 governs autonomy.</p>
+
+<h2 id="turning-it-on">Turning it on</h2>
+
+<ol>
+  <li>Review <code class="language-plaintext highlighter-rouge">config/research-autonomy.yaml</code>. It ships with every gate <code class="language-plaintext highlighter-rouge">human</code>; a
+test pins that default. Changing a gate requires ADR-0010’s evidence and an
+owner decision.</li>
+  <li>In <code class="language-plaintext highlighter-rouge">infra/envs/&lt;env&gt;.tfvars</code> set <code class="language-plaintext highlighter-rouge">research_cycle_enabled = true</code> and apply
+(owner bootstrap may be needed; see ADR-0008 for the CI principal limits).</li>
+  <li>Optionally set <code class="language-plaintext highlighter-rouge">research_cycle_weekly_enabled = true</code> for an independent
+weekly tick (<code class="language-plaintext highlighter-rouge">research_cycle_weekly_schedule</code>, default Sunday 03:00 ET).</li>
+  <li>Run it manually before trusting the schedule (below).</li>
+</ol>
+
+<h2 id="manual-run">Manual run</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud run <span class="nb">jobs </span>execute agentic-kg-research-cycle-staging <span class="se">\</span>
+  <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="nt">--wait</span>
+</code></pre></div></div>
+
+<p>The Job runs <code class="language-plaintext highlighter-rouge">python -m agentic_kg.pipeline.cycle</code>. It writes:</p>
+
+<ul>
+  <li>a <code class="language-plaintext highlighter-rouge">:Canon__ResearchCycle</code> node (<code class="language-plaintext highlighter-rouge">ns</code>, <code class="language-plaintext highlighter-rouge">cycle_id</code>), and</li>
+  <li>a <code class="language-plaintext highlighter-rouge">:PipelineRun</code> node plus a JSON report under
+<code class="language-plaintext highlighter-rouge">gs://&lt;runs-bucket&gt;/research-cycles/&lt;cycle_id&gt;.json</code>.</li>
+</ul>
+
+<p>Evaluation uses ADR-0009’s execution backend (Cloud Run Job in GCP, Docker for
+a local run). It logs one structured line: <code class="language-plaintext highlighter-rouge">pipeline_run_completed</code> or
+<code class="language-plaintext highlighter-rouge">pipeline_run_failed</code> with <code class="language-plaintext highlighter-rouge">trigger: research_cycle</code>. When disabled it logs
+<code class="language-plaintext highlighter-rouge">research_cycle_disabled</code> and exits 0 without touching the graph.</p>
+
+<h2 id="deciding-a-gate">Deciding a gate</h2>
+
+<p>Use <strong>Research Loop</strong> in the UI, or:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl <span class="nt">-X</span> POST <span class="se">\</span>
+  <span class="nt">-H</span> <span class="s1">'X-User-ID: alice'</span> <span class="nt">-H</span> <span class="s1">'Content-Type: application/json'</span> <span class="se">\</span>
+  <span class="s2">"</span><span class="nv">$API</span><span class="s2">/api/research/gates/&lt;cycle_id&gt;/&lt;workflow_run_id&gt;"</span> <span class="se">\</span>
+  <span class="nt">-d</span> <span class="s1">'{"gate":"approve_proposal","decision":"approve","note":"ok"}'</span>
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">GET /api/research/gates</code> lists pending gates; <code class="language-plaintext highlighter-rouge">GET /api/research/cycles</code>
+lists cycles. The decision is recorded on the cycle before the workflow is
+resumed, so a failed resume leaves an audit record. Approve/edit resumes the
+workflow; reject closes it without a canonical write.</p>
+
+<h2 id="budgets-and-the-kill-switch">Budgets and the kill switch</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Env</th>
+      <th>Terraform</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">RESEARCH_CYCLE_ENABLED</code></td>
+      <td><code class="language-plaintext highlighter-rouge">research_cycle_enabled</code></td>
+      <td>Kill switch (default false)</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">RESEARCH_CYCLE_TOP_K</code></td>
+      <td><code class="language-plaintext highlighter-rouge">research_cycle_top_k</code></td>
+      <td>Workflows per cycle (default 3)</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">RESEARCH_CYCLE_MAX_LLM_USD</code></td>
+      <td><code class="language-plaintext highlighter-rouge">research_cycle_max_llm_usd</code></td>
+      <td>Est-USD cap; ≤0 disables</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">RESEARCH_CYCLE_MAX_EXPERIMENTS</code></td>
+      <td><code class="language-plaintext highlighter-rouge">research_cycle_max_experiments</code></td>
+      <td>Evaluations per cycle</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">RESEARCH_CYCLE_MAX_WALL_SECONDS</code></td>
+      <td><code class="language-plaintext highlighter-rouge">research_cycle_timeout</code></td>
+      <td>Wall-time cap; stale <code class="language-plaintext highlighter-rouge">running</code> cycles are closed</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>A cap is an honest stop: the cycle sets <code class="language-plaintext highlighter-rouge">budget.stopped_by_budget = true</code>, a
+<code class="language-plaintext highlighter-rouge">note</code> naming the cap, and exits 1. The USD figure is a documented per-workflow
+estimate, not billing.</p>
+
+<h2 id="one-at-a-time">One-at-a-time</h2>
+
+<p>A cycle is <code class="language-plaintext highlighter-rouge">running</code> only while it is executing. Once its workflows are at
+gates it is <code class="language-plaintext highlighter-rouge">awaiting_gate</code>, which does <strong>not</strong> block the next tick. A stale
+<code class="language-plaintext highlighter-rouge">running</code> cycle older than the wall-time cap is closed as failed before the
+guard is applied, so a crashed Job cannot block the loop forever.</p>
+
+<h2 id="durable-gates">Durable gates</h2>
+
+<p>Checkpoints live in <code class="language-plaintext highlighter-rouge">:Canon__AgentCheckpoint</code> nodes (<code class="language-plaintext highlighter-rouge">ns</code>, <code class="language-plaintext highlighter-rouge">thread_id</code>), written
+by <code class="language-plaintext highlighter-rouge">DurableCheckpointSaver</code>. The API and the cycle Job both use it, so a gate
+can be decided by a process that did not start the workflow. Do not delete those
+nodes while a workflow is gated.</p>
