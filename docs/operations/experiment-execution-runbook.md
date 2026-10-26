@@ -7,7 +7,7 @@ nav_exclude: true
 
 How the `EvaluationAgent` runs generated experiment code in staging, and what to
 do when a run does not execute. The design decision is
-[ADR-0008](../../llm/governance/adr/0008-cloud-run-job-execution-backend.md).
+[ADR-0009](../../llm/governance/adr/0009-cloud-run-job-execution-backend.md).
 
 ## Backends
 
@@ -170,6 +170,6 @@ pass `--set-env-vars`, `--set-secrets` or resource flags.
 
 ## Related
 
-- [ADR-0008 — Cloud Run Job execution backend](../../llm/governance/adr/0008-cloud-run-job-execution-backend.md)
+- [ADR-0009 — Cloud Run Job execution backend](../../llm/governance/adr/0009-cloud-run-job-execution-backend.md)
 - [Deploy paths](deploy-runbook.html)
 - [Neo4j hardening](neo4j-hardening-runbook.html)

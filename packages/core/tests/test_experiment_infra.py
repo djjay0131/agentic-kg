@@ -1,4 +1,4 @@
-"""Structural tests for the experiment execution isolation (ADR-0008).
+"""Structural tests for the experiment execution isolation (ADR-0009).
 
 These parse the committed Terraform and Docker files; they do not call GCP.
 The assertions pin the isolation properties the runbook promises: a dedicated
