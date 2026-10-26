@@ -10,10 +10,12 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
+from agentic_kg.agents.provenance import AgentOutputStore
 from agentic_kg.agents.schemas import CheckpointDecision, CheckpointType
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
+from agentic_kg_api.dependencies import get_agent_outputs
 from agentic_kg_api.websocket import ws_manager
 
 logger = logging.getLogger(__name__)
@@ -220,6 +222,97 @@ async def cancel_workflow(run_id: str) -> dict:
         return {"status": "cancelled", "run_id": run_id}
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Workflow {run_id} not found")
+
+
+# --- Provenance ---
+
+
+class ProvenanceResponse(BaseModel):
+    """The provenance envelope for one agent output."""
+
+    output_id: str
+    run_id: str
+    trace_id: str
+    agent: str
+    source: str
+    model: Optional[str] = None
+    prompt_version: str = ""
+    output_kind: str = ""
+    derived_from: list[str] = []
+    provenance: dict[str, Any]
+    canonical_available: bool = False
+    canonical_error: Optional[str] = None
+    explanations: list[dict[str, Any]] = []
+
+
+def _canonical_explanations(citation_ids: list[str]) -> tuple[bool, Optional[str], list[dict]]:
+    """KGPS ``explain`` payloads for the cited assertions, if available."""
+    if not citation_ids:
+        return True, None, []
+    try:
+        from agentic_kg.migration.canonical_read import (
+            canonical_read_target_from_env,
+            open_canonical_reader,
+        )
+        from kgps import ProvenanceService, catalog_for
+        from kgps.api import ProvenanceAPI
+    except Exception as exc:  # noqa: BLE001 - optional extra
+        return False, f"KGPS/canonical reader unavailable: {type(exc).__name__}", []
+
+    reader = None
+    try:
+        reader = open_canonical_reader(canonical_read_target_from_env())
+        service = ProvenanceService(catalog_for(reader), _NullEvidenceLookup())
+        api = ProvenanceAPI(service)
+        return True, None, [api.explain(assertion_id) for assertion_id in citation_ids]
+    except Exception as exc:  # noqa: BLE001 - a read failure is reported, not raised
+        return False, f"{type(exc).__name__}: {exc}", []
+    finally:
+        driver = getattr(reader, "_driver", None)
+        close = getattr(driver, "close", None)
+        if callable(close):
+            close()
+
+
+class _NullEvidenceLookup:
+    """Evidence content lives in the KGIS ledger, not the canonical reader.
+
+    KGPS reports a dangling-evidence gap for each unresolved link; that is the
+    honest answer here, and it still shows the assertion and evidence ids.
+    """
+
+    def get(self, evidence_id: str) -> None:
+        return None
+
+
+@router.get("/outputs/{output_id}/provenance", response_model=ProvenanceResponse)
+def get_output_provenance(
+    output_id: str,
+    store: AgentOutputStore = Depends(get_agent_outputs),
+) -> ProvenanceResponse:
+    """Return the KGPS provenance envelope for one agent output."""
+    output = store.get(output_id)
+    if output is None:
+        raise HTTPException(status_code=404, detail=f"Agent output not found: {output_id}")
+    citation_ids = [c.assertion_id for c in output.provenance.citations]
+    canonical_available, canonical_error, explanations = _canonical_explanations(
+        citation_ids
+    )
+    return ProvenanceResponse(
+        output_id=output.id,
+        run_id=output.run_id,
+        trace_id=output.trace_id,
+        agent=output.agent,
+        source=output.source,
+        model=output.model,
+        prompt_version=output.prompt_version,
+        output_kind=output.output_kind,
+        derived_from=output.provenance.derived_from,
+        provenance=output.provenance.model_dump(mode="json"),
+        canonical_available=canonical_available,
+        canonical_error=canonical_error,
+        explanations=explanations,
+    )
 
 
 # --- WebSocket endpoint ---

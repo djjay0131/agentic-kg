@@ -962,6 +962,8 @@ class ReviewItemSummary(BaseModel):
     adviser_verdict: str
     confidence: Optional[float] = None
     adviser_abstained: bool = False
+    source: str = "adviser"
+    agent_name: str = ""
     status: str
     committable: bool = True
     commit_blocker: Optional[str] = None
@@ -981,6 +983,7 @@ class ReviewItemDetail(ReviewItemSummary):
     adviser_model_id: str = ""
     adviser_model_version: str = ""
     prompt_version: str = ""
+    agent_output_id: str = ""
     decided_by: Optional[str] = None
     decision_note: Optional[str] = None
     committed_epoch: Optional[int] = None
