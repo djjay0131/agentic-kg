@@ -66,18 +66,23 @@ def write_report_json(
     *,
     runs_dir: str | Path,
     runs_bucket: str | None = None,
+    kind: str = "nightly",
 ) -> str:
-    """Write ``nightly/<run_id>.json`` under ``runs_dir``; return its URL.
+    """Write ``<kind>/<run_id>.json`` under ``runs_dir``; return its URL.
+
+    ``kind`` defaults to ``nightly`` (the nightly job's contract). The research
+    cycle reuses the same writer with ``kind="research-cycles"`` so a cycle
+    report is the same object shape in a different folder.
 
     When ``runs_bucket`` is given the URL is the ``gs://`` object URL; otherwise
     the local path is returned (used by tests and dry runs).
     """
-    target_dir = Path(runs_dir) / "nightly"
+    target_dir = Path(runs_dir) / kind
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / f"{run.run_id}.json"
     target.write_text(report_json(run) + "\n", encoding="utf-8")
     if runs_bucket:
-        return f"gs://{runs_bucket}/nightly/{run.run_id}.json"
+        return f"gs://{runs_bucket}/{kind}/{run.run_id}.json"
     return str(target)
 
 
