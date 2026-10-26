@@ -18,7 +18,7 @@ from agentic_kg.agents.config import AgentConfig, get_agent_config
 from agentic_kg.agents.continuation import ContinuationAgent
 from agentic_kg.agents.evaluation import EvaluationAgent
 from agentic_kg.agents.ranking import RankingAgent
-from agentic_kg.agents.sandbox import DockerSandbox
+from agentic_kg.agents.sandbox import create_execution_backend
 from agentic_kg.agents.schemas import (
     CheckpointDecision,
     CheckpointType,
@@ -73,7 +73,7 @@ class WorkflowRunner:
         self._evaluation = EvaluationAgent(
             llm_client=self._llm,
             repository=self._repo,
-            sandbox=DockerSandbox(config=self._config.sandbox),
+            sandbox=create_execution_backend(config=self._config.sandbox),
         )
         self._synthesis = SynthesisAgent(
             llm_client=self._llm,
