@@ -1,0 +1,116 @@
+<h1 id="research-agents-on-the-canonical-graph--runbook">Research agents on the canonical graph — runbook</h1>
+
+<p>Companion to ADR-0010,
+<code class="language-plaintext highlighter-rouge">llm/governance/adr/0010-research-agents-canonical-graph.md</code>.
+The research agents (ranking, continuation, evaluation, synthesis) read a
+<code class="language-plaintext highlighter-rouge">GraphPort</code>. <code class="language-plaintext highlighter-rouge">AGENT_GRAPH_SOURCE</code> selects the adapter:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>value</th>
+      <th>adapter</th>
+      <th>reads</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">legacy</code> (default)</td>
+      <td><code class="language-plaintext highlighter-rouge">LegacyGraphPort</code></td>
+      <td>legacy <code class="language-plaintext highlighter-rouge">:Problem</code> projection via repository/search/relations</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">canonical</code></td>
+      <td><code class="language-plaintext highlighter-rouge">CanonicalGraphPort</code></td>
+      <td>KGCS <code class="language-plaintext highlighter-rouge">Canon__Problem</code> identities at the latest epoch</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Terraform owns <code class="language-plaintext highlighter-rouge">agent_graph_source</code> and injects <code class="language-plaintext highlighter-rouge">AGENT_GRAPH_SOURCE</code> into the
+API service. The deploy workflows only roll the image, so a deploy cannot flip
+it by accident.</p>
+
+<h2 id="before-flipping-staging-to-canonical">Before flipping staging to <code class="language-plaintext highlighter-rouge">canonical</code></h2>
+
+<ol>
+  <li>The canonical namespace is populated and <code class="language-plaintext highlighter-rouge">kgis_kgcs_enabled = true</code>
+(see <a href="kgis-kgcs-staging-runbook.html">kgis-kgcs-staging-runbook.html</a>).</li>
+  <li>The API/job image has the <code class="language-plaintext highlighter-rouge">migration</code> extra installed. A canonical run
+without it fails at <code class="language-plaintext highlighter-rouge">WorkflowRunner</code> construction; the API logs
+<code class="language-plaintext highlighter-rouge">WorkflowRunner initialization failed</code> and agent routes return 503.</li>
+  <li><code class="language-plaintext highlighter-rouge">GET /api/canonical/summary</code> returns a non-zero <code class="language-plaintext highlighter-rouge">entities_by_type.Problem</code>
+(requires <code class="language-plaintext highlighter-rouge">CANONICAL_API_ENABLED=1</code>).</li>
+  <li>The review queue is reachable: <code class="language-plaintext highlighter-rouge">GET /api/review</code> returns 200.</li>
+</ol>
+
+<h2 id="flip">Flip</h2>
+
+<div class="language-hcl highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># infra/envs/staging.tfvars</span>
+<span class="nx">agent_graph_source</span> <span class="o">=</span> <span class="s2">"canonical"</span>
+</code></pre></div></div>
+
+<p>Apply through the normal Terraform workflow. Then roll the API image (or wait
+for the next <code class="language-plaintext highlighter-rouge">deploy-master.yml</code> run) and confirm the service revision carries
+<code class="language-plaintext highlighter-rouge">AGENT_GRAPH_SOURCE=canonical</code>:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud run services describe agentic-kg-api-staging <span class="se">\</span>
+  <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042 <span class="se">\</span>
+  <span class="nt">--format</span><span class="o">=</span><span class="s1">'value(spec.template.spec.containers[0].env)'</span>
+</code></pre></div></div>
+
+<p>Never set this with <code class="language-plaintext highlighter-rouge">gcloud run deploy</code>; ADR-0006 reserves the service spec
+for Terraform.</p>
+
+<h2 id="what-changes-in-a-canonical-run">What changes in a canonical run</h2>
+
+<ul>
+  <li><strong>Reads</strong> come from <code class="language-plaintext highlighter-rouge">Canon__Problem</code> identities, their assertions and their
+evidence ids. Ranking adds the documented graph-native score
+(<code class="language-plaintext highlighter-rouge">llm/governance/adr/0010-research-agents-canonical-graph.md</code> §Decision 4).</li>
+  <li><strong>Writes</strong>: none from the agents. SynthesisAgent queues
+<code class="language-plaintext highlighter-rouge">:Canon__ReviewItem</code> rows with <code class="language-plaintext highlighter-rouge">source=agent</code>, the workflow run id, agent
+name, model and prompt version. Every queued item is <code class="language-plaintext highlighter-rouge">pending</code>; nothing is
+canonical content until a human approves it.</li>
+  <li><strong>Approval</strong> through <code class="language-plaintext highlighter-rouge">POST /api/review/{id}</code> re-enters <code class="language-plaintext highlighter-rouge">commit_candidate</code>
+-&gt; <code class="language-plaintext highlighter-rouge">run_curation</code> -&gt; <code class="language-plaintext highlighter-rouge">PlanExecutor</code>. A rejected item writes nothing
+canonical. Status changes are queued <code class="language-plaintext highlighter-rouge">committable=false</code> (no KGCS candidate
+operation in this slice) and cannot be approved.</li>
+  <li><strong>Provenance</strong>: every agent output carries an <code class="language-plaintext highlighter-rouge">AgentProvenance</code> envelope and
+is held in the API process’s <code class="language-plaintext highlighter-rouge">AgentOutputStore</code> (in-memory in this slice, the
+same lifetime as the runner’s <code class="language-plaintext highlighter-rouge">MemorySaver</code> workflows). <code class="language-plaintext highlighter-rouge">GET
+/api/agents/outputs/{id}/provenance</code> returns the KGPS envelope (assertions +
+evidence ids + upstream output ids) and KGPS <code class="language-plaintext highlighter-rouge">explain</code> payloads when the
+canonical reader is reachable. Evidence content is not read here (KGIS
+ledger is a separate access path); unresolved links appear as KGPS gaps. A
+restart clears the store; the workflow state is cleared with it.</li>
+</ul>
+
+<h2 id="operating-the-queue">Operating the queue</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># What did the agents propose?</span>
+curl <span class="nt">-s</span> <span class="s2">"</span><span class="nv">$API</span><span class="s2">/api/review?status=pending&amp;type=entity"</span> | jq
+<span class="c"># The item says source=agent, agent_name=synthesis, run_id=&lt;workflow run&gt;</span>
+</code></pre></div></div>
+
+<p>Approve only after reading the evidence text in the detail response. An
+approval commits through KGCS; it is not a direct graph edit. If KGCS refuses
+(e.g. a stale snapshot), the API returns 502 and the item stays pending.</p>
+
+<h2 id="rollback">Rollback</h2>
+
+<p>Set <code class="language-plaintext highlighter-rouge">agent_graph_source = "legacy"</code> and apply. Pending agent review items
+remain in the queue; they are harmless in a legacy run because only the
+review API can act on them. Do not delete them: the queue is the audit trail
+of what the agents proposed.</p>
+
+<h2 id="provenance-endpoint-availability">Provenance endpoint availability</h2>
+
+<ul>
+  <li>Legacy output: the envelope abstains, <code class="language-plaintext highlighter-rouge">explanations</code> is empty.</li>
+  <li>Canonical output with no reachable reader/KGPS: <code class="language-plaintext highlighter-rouge">canonical_available=false</code>
+and <code class="language-plaintext highlighter-rouge">canonical_error</code> names the reason. The envelope itself is still
+returned.</li>
+  <li>Canonical output with a reachable reader: <code class="language-plaintext highlighter-rouge">explanations</code> has one KGPS
+<code class="language-plaintext highlighter-rouge">explain</code> payload per cited assertion.</li>
+</ul>

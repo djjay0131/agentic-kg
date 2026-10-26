@@ -1,0 +1,162 @@
+<h1 id="reviewing-the-nightly-queue">Reviewing the nightly queue</h1>
+
+<p>The nightly pipeline defers candidates the deterministic admission policy will
+not auto-apply. P2 grades those candidates with a bounded KGCS adviser and puts
+them in a human review queue. This runbook is the operator procedure.</p>
+
+<p>Contract: <code class="language-plaintext highlighter-rouge">docs/design/nightly-pipeline-contract.md</code> §Review queue (P2).
+Decision record: <code class="language-plaintext highlighter-rouge">llm/governance/adr/0008-nightly-ingestion-pipeline.md</code>.</p>
+
+<h2 id="what-the-queue-contains">What the queue contains</h2>
+
+<p>One item per deferred candidate per run:</p>
+
+<ul>
+  <li><strong>Entity candidates</strong> — <code class="language-plaintext highlighter-rouge">Problem</code>, <code class="language-plaintext highlighter-rouge">ResearchConcept</code>, <code class="language-plaintext highlighter-rouge">Method</code>, <code class="language-plaintext highlighter-rouge">Model</code>,
+<code class="language-plaintext highlighter-rouge">Topic</code>. These are the main event: approving one mints its canonical
+identity.</li>
+  <li><strong>Relation / attribute candidates whose endpoints are already identity ids.</strong>
+Approving one attaches the assertion.</li>
+  <li><strong>Not queued:</strong> artifacts (no KGCS operation type) and assertions whose
+endpoints are still aliases (they need entity resolution, which is not
+wired). They remain visible in the run’s <code class="language-plaintext highlighter-rouge">deferral_reasons</code>.</li>
+</ul>
+
+<p>Each item carries the quoted evidence text the adviser saw, the adviser’s
+verdict (<code class="language-plaintext highlighter-rouge">admit</code> / <code class="language-plaintext highlighter-rouge">reject</code> / <code class="language-plaintext highlighter-rouge">merge-into:&lt;id&gt;</code>), confidence and rationale.</p>
+
+<h2 id="open-the-queue">Open the queue</h2>
+
+<p>UI: <strong>Review</strong> in the sidebar, or a run’s <code class="language-plaintext highlighter-rouge">review_queue_size</code> on the Runs page
+(that link pre-filters by <code class="language-plaintext highlighter-rouge">run_id</code>).</p>
+
+<p>API:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl <span class="s2">"</span><span class="nv">$API_URL</span><span class="s2">/api/review?status=pending&amp;limit=25"</span>
+curl <span class="s2">"</span><span class="nv">$API_URL</span><span class="s2">/api/review?run_id=nightly-20261009T063000Z&amp;type=Problem"</span>
+curl <span class="s2">"</span><span class="nv">$API_URL</span><span class="s2">/api/review/&lt;item_id&gt;"</span>
+</code></pre></div></div>
+
+<h2 id="decide-an-item">Decide an item</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl <span class="nt">-X</span> POST <span class="s2">"</span><span class="nv">$API_URL</span><span class="s2">/api/review/&lt;item_id&gt;"</span> <span class="se">\</span>
+  <span class="nt">-H</span> <span class="s1">'Content-Type: application/json'</span> <span class="se">\</span>
+  <span class="nt">-H</span> <span class="s1">'X-User-ID: your.name'</span> <span class="se">\</span>
+  <span class="nt">-d</span> <span class="s1">'{"decision":"approve","note":"evidence is specific; problem is distinct"}'</span>
+</code></pre></div></div>
+
+<ul>
+  <li><strong>Approve</strong> commits the candidate through KGCS (<code class="language-plaintext highlighter-rouge">run_curation</code> with the
+candidate marked human-approved). The plan is still KGCS’s; the review queue
+is not a second write path. The response includes <code class="language-plaintext highlighter-rouge">committed_epoch</code> and
+<code class="language-plaintext highlighter-rouge">committed_identity_ids</code>.</li>
+  <li><strong>Reject</strong> records the decision and writes nothing to the canonical graph.</li>
+  <li>Both create an immutable <code class="language-plaintext highlighter-rouge">:Canon__ReviewDecision</code> node. An item that already
+has a decision cannot be decided again (409).</li>
+  <li>A non-committable item (merge recommendation, or an item an older stage
+queued with alias endpoints) returns 409 with the blocker. Rejecting it still
+works.</li>
+</ul>
+
+<p>Approval is <strong>not</strong> automatic. Nothing in the nightly job approves an item.</p>
+
+<h2 id="budget">Budget</h2>
+
+<p>The stage reuses <code class="language-plaintext highlighter-rouge">NIGHTLY_MAX_LLM_USD</code> (<code class="language-plaintext highlighter-rouge">0</code> disables the cap). The provider
+client does not report token usage through KGCS’s port, so the cap is enforced
+against a declared per-call estimate
+(<code class="language-plaintext highlighter-rouge">EST_USD_PER_ADVISER_CALL</code>, currently USD 0.001). A stopped stage:</p>
+
+<ul>
+  <li>writes the items it graded;</li>
+  <li>leaves the rest ungraded;</li>
+  <li>sets the run’s <code class="language-plaintext highlighter-rouge">budget.stopped_by_budget</code> and appends an <code class="language-plaintext highlighter-rouge">adviser</code> failure;</li>
+  <li>exits 1, so the workflow surfaces the partial.</li>
+</ul>
+
+<p>Raise <code class="language-plaintext highlighter-rouge">NIGHTLY_MAX_LLM_USD</code> or re-run the stage; it is idempotent and grades
+only the missing candidates.</p>
+
+<h2 id="run-the-stage-manually">Run the stage manually</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Cloud Run Job (staging)</span>
+gcloud run <span class="nb">jobs </span>execute agentic-kg-adviser-staging <span class="se">\</span>
+  <span class="nt">--region</span> us-central1 <span class="nt">--wait</span> <span class="se">\</span>
+  <span class="nt">--update-env-vars</span> <span class="nv">NIGHTLY_RUN_ID</span><span class="o">=</span>nightly-20261009T063000Z
+
+<span class="c"># Or locally, against a run's ledger directory</span>
+python <span class="nt">-m</span> agentic_kg.pipeline.curate <span class="se">\</span>
+  <span class="nt">--run-id</span> nightly-20261009T063000Z <span class="se">\</span>
+  <span class="nt">--ledger-dir</span> /path/to/ledger <span class="se">\</span>
+  <span class="nt">--namespace</span> staging
+</code></pre></div></div>
+
+<p>Without <code class="language-plaintext highlighter-rouge">--run-id</code>/<code class="language-plaintext highlighter-rouge">NIGHTLY_RUN_ID</code>, the stage reads
+<code class="language-plaintext highlighter-rouge">&lt;NIGHTLY_RUNS_DIR&gt;/nightly/.latest_run_id</code>, the marker the nightly job writes.
+The stage prints one JSON summary line (<code class="language-plaintext highlighter-rouge">review_items_written</code>,
+<code class="language-plaintext highlighter-rouge">verdict_counts</code>, <code class="language-plaintext highlighter-rouge">honest_nulls</code>, …).</p>
+
+<p>Exit codes: <code class="language-plaintext highlighter-rouge">0</code> wrote the queue (or had nothing to do), <code class="language-plaintext highlighter-rouge">1</code> budget stop, <code class="language-plaintext highlighter-rouge">2</code>
+a failure (including no resolvable run id).</p>
+
+<h2 id="when-the-queue-is-empty">When the queue is empty</h2>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">nightly_ingest_mode = "legacy"</code> writes no KGIS ledger, so there are no
+candidates to grade. <code class="language-plaintext highlighter-rouge">review_queue_size</code> is <code class="language-plaintext highlighter-rouge">0</code> and the stage reports an
+honest null. This is expected until the nightly opt-in changes; P2 does not
+change the default.</li>
+  <li>A repeated stage run skips candidates already queued for the run
+(<code class="language-plaintext highlighter-rouge">honest_nulls.idempotent_skips</code>).</li>
+  <li>A run whose candidates all routed <code class="language-plaintext highlighter-rouge">AUTO</code> has nothing deferred.</li>
+</ul>
+
+<h2 id="troubleshooting">Troubleshooting</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Symptom</th>
+      <th>Likely cause</th>
+      <th>Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">review_queue_size</code> is null</td>
+      <td>the adviser stage did not run for the run</td>
+      <td>check the workflow step and <code class="language-plaintext highlighter-rouge">nightly_curate_enabled</code></td>
+    </tr>
+    <tr>
+      <td>stage exits 2 with “no run id”</td>
+      <td>no <code class="language-plaintext highlighter-rouge">NIGHTLY_RUN_ID</code> and no marker</td>
+      <td>pass <code class="language-plaintext highlighter-rouge">--run-id</code>; check the runs volume mount</td>
+    </tr>
+    <tr>
+      <td>stage reports 0 candidates</td>
+      <td>legacy ingest, or run id mismatch</td>
+      <td>confirm <code class="language-plaintext highlighter-rouge">nightly_ingest_mode</code> and the run id</td>
+    </tr>
+    <tr>
+      <td>approve returns 409</td>
+      <td>item not pending, or not committable</td>
+      <td>read <code class="language-plaintext highlighter-rouge">commit_blocker</code>; reject if appropriate</td>
+    </tr>
+    <tr>
+      <td>approve returns 502</td>
+      <td>KGCS/Neo4j failure</td>
+      <td>check Cloud Run logs and Neo4j connectivity; retry is safe only if the item is still pending</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="invariants">Invariants</h2>
+
+<ul>
+  <li>The adviser never writes canonical state; it only returns an assessment.</li>
+  <li>Only <code class="language-plaintext highlighter-rouge">PlanExecutor</code> writes canonical state.</li>
+  <li>Review items live in the canonical namespace under <code class="language-plaintext highlighter-rouge">Canon__ReviewItem</code>, never
+in the legacy label space.</li>
+  <li>Decisions are append-only; the item’s <code class="language-plaintext highlighter-rouge">status</code> is its current value, not a
+replacement for the decision history.</li>
+</ul>
