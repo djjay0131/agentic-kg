@@ -462,6 +462,13 @@ resource "google_cloud_run_v2_service" "api" {
         value = "*"
       }
 
+      # ADR-0009: the research agents' graph source. Terraform owns it so a
+      # deploy that only rolls the image cannot silently flip it.
+      env {
+        name  = "AGENT_GRAPH_SOURCE"
+        value = var.agent_graph_source
+      }
+
       # KGIS/KGCS opt-in seam (ADR-0004/ADR-0005, issue #112). Declared here so
       # the deploy workflows — which now roll the image only — cannot drop them.
       dynamic "env" {

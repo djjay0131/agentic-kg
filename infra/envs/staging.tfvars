@@ -33,6 +33,11 @@ deploy_service_account_email = "gh-deploy@vt-gcp-00042.iam.gserviceaccount.com"
 kgis_kgcs_enabled   = true
 canonical_namespace = "staging"
 
+# ADR-0009: research agents stay on the legacy graph on staging by default.
+# Flip to "canonical" once the canonical Problem read and review queue are
+# trusted; the agents never write canonical state directly.
+agent_graph_source = "legacy"
+
 # Durable KGIS ledger (nightly-pipeline design P0-2). The ingest Job mounts this
 # bucket with a Cloud Run GCS volume and writes the ledger/evidence under the
 # namespace subdirectory, so it survives scale-in instead of vanishing with
