@@ -15,10 +15,15 @@ from agentic_kg.agents.prompts import (
     EVALUATION_CODE_PROMPT,
     EVALUATION_SYSTEM_PROMPT,
 )
-from agentic_kg.agents.sandbox import DockerSandbox, SandboxResult
+from agentic_kg.agents.sandbox import (
+    ExecutionBackend,
+    SandboxResult,
+    create_execution_backend,
+)
 from agentic_kg.agents.schemas import (
     ContinuationProposal,
     EvaluationResult,
+    ExecutionProvenance,
     MetricResult,
     WorkflowStatus,
 )
@@ -30,7 +35,7 @@ logger = logging.getLogger(__name__)
 class EvaluationAgent(BaseAgent):
     """Evaluates continuation proposals via LLM analysis and sandboxed code execution."""
 
-    def __init__(self, *args, sandbox: DockerSandbox | None = None, **kwargs):
+    def __init__(self, *args, sandbox: ExecutionBackend | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self._sandbox = sandbox
 
@@ -39,9 +44,9 @@ class EvaluationAgent(BaseAgent):
         return "evaluation"
 
     @property
-    def sandbox(self) -> DockerSandbox:
+    def sandbox(self) -> ExecutionBackend:
         if self._sandbox is None:
-            self._sandbox = DockerSandbox()
+            self._sandbox = create_execution_backend()
         return self._sandbox
 
     async def run(self, state: ResearchState) -> ResearchState:
@@ -199,6 +204,16 @@ class EvaluationAgent(BaseAgent):
         if not metrics_data:
             limitations.append("No structured metrics output produced")
 
+        provenance = ExecutionProvenance(
+            backend=sandbox_result.backend,
+            experiment_id=sandbox_result.experiment_id,
+            result_uri=sandbox_result.result_uri,
+            code_hash=sandbox_result.code_hash,
+            image_digest=sandbox_result.image_digest,
+            started_at=sandbox_result.started_at,
+            finished_at=sandbox_result.finished_at,
+        )
+
         return EvaluationResult(
             proposal_id=proposal.problem_id,
             feasibility_score=feasibility,
@@ -208,4 +223,5 @@ class EvaluationAgent(BaseAgent):
             metrics_results=metrics_results,
             limitations=limitations,
             verdict=verdict,
+            execution_provenance=provenance,
         )

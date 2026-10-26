@@ -169,6 +169,32 @@ class MetricResult(BaseModel):
     notes: str = Field(default="", description="Additional context")
 
 
+class ExecutionProvenance(BaseModel):
+    """Reproducibility provenance for a sandboxed experiment run."""
+
+    backend: Optional[str] = Field(
+        default=None, description="Execution backend (docker or cloudrun_job)"
+    )
+    experiment_id: Optional[str] = Field(
+        default=None, description="Unique experiment id"
+    )
+    result_uri: Optional[str] = Field(
+        default=None, description="gs:// prefix containing script, inputs and outputs"
+    )
+    code_hash: Optional[str] = Field(
+        default=None, description="SHA-256 of the executed source code"
+    )
+    image_digest: Optional[str] = Field(
+        default=None, description="Container image digest when the backend knows it"
+    )
+    started_at: Optional[datetime] = Field(
+        default=None, description="UTC start time"
+    )
+    finished_at: Optional[datetime] = Field(
+        default=None, description="UTC finish time"
+    )
+
+
 class EvaluationResult(BaseModel):
     """Output of the Evaluation Agent."""
 
@@ -196,6 +222,9 @@ class EvaluationResult(BaseModel):
     verdict: str = Field(
         default="",
         description="Overall verdict: promising, inconclusive, or not_viable",
+    )
+    execution_provenance: Optional[ExecutionProvenance] = Field(
+        default=None, description="Where/how the experiment was executed"
     )
 
     @field_validator("verdict")
