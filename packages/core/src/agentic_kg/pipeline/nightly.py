@@ -44,6 +44,7 @@ from agentic_kg.pipeline.report import (
     iso,
     new_run_id,
     utc_now,
+    write_latest_run_id,
     write_report_json,
 )
 
@@ -268,6 +269,9 @@ def _finalize(
             write_errors.append(("report_json", "no runs_dir configured (NIGHTLY_RUNS_DIR)"))
         else:
             try:
+                # The adviser Job reads this marker to learn which run to grade:
+                # Cloud Workflows does not parse the ingest Job's stdout.
+                write_latest_run_id(report.run_id, runs_dir=runs_dir)
                 url = write_report_json(
                     report, runs_dir=runs_dir, runs_bucket=runs_bucket
                 )

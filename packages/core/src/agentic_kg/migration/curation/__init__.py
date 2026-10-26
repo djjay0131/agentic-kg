@@ -44,6 +44,12 @@ from agentic_kg.migration.curation.clients import (
     load_recorded_adviser,
     record_admission_fixtures,
 )
+from agentic_kg.migration.curation.commit import (
+    ReviewCommitError,
+    ReviewCommitResult,
+    candidate_from_payload,
+    commit_candidate,
+)
 from agentic_kg.migration.curation.pipeline import (
     ARTIFACT_REASON,
     UNRESOLVED_SUBJECT_REASON,
@@ -96,12 +102,16 @@ __all__ = [
     "Deferral",
     "NotRollbackable",
     "OpenAICompletionClient",
+    "ReviewCommitError",
+    "ReviewCommitResult",
     "RollbackResult",
     "SyntheticAdmissionOracle",
     "UnsafeIdentityRelaxation",
     "adjudicate_llm_assess_candidates",
     "admission_question",
+    "candidate_from_payload",
     "classify",
+    "commit_candidate",
     "curated_arm",
     "curation_engine",
     "duplicate_registered_identities",
