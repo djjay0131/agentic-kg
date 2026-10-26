@@ -29,3 +29,4 @@ individually numbered here.
 | [0006](0006-staging-neo4j-private.md) | Staging Neo4j is private (VPC-only) with a repeatable password rotation | Proposed |
 | [0007](0007-machine-only-secrets.md) | Secrets are machine-generated, machine-stored and never seen | Accepted |
 | [0008](0008-nightly-ingestion-pipeline.md) | Nightly ingestion pipeline on Cloud Scheduler + Workflows | Proposed |
+| [0010](0010-autonomy-policy-research-loop.md) | Autonomy policy for the research loop | Proposed |
