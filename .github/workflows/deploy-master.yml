@@ -194,6 +194,22 @@ jobs:
             echo "agentic-kg-nightly-staging not present (Terraform nightly_enabled not applied); skipping"
           fi
 
+      # The adviser/review-queue stage runs the same `job` image and is rolled
+      # in lockstep with it. Gated by nightly_curate_enabled in Terraform; if
+      # the Job is absent this is a no-op, not a deploy failure.
+      - name: Deploy adviser Job to staging
+        if: needs.changes.outputs.job == 'true'
+        run: |
+          if gcloud run jobs describe agentic-kg-adviser-staging \
+              --region=${{ env.REGION }} >/dev/null 2>&1; then
+            gcloud run jobs update agentic-kg-adviser-staging \
+              --image=${{ needs.build.outputs.job_image }} \
+              --region=${{ env.REGION }} \
+              --update-labels=environment=staging,commit=${{ github.sha }}
+          else
+            echo "agentic-kg-adviser-staging not present (Terraform nightly_curate_enabled not applied); skipping"
+          fi
+
       # Assert Cloud Run actually reports the SHA we just deployed. Logic lives
       # in a unit-tested script (label-only in PR-1; PR-3 adds --check-version).
       - name: Assert deployed SHA matches

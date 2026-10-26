@@ -303,6 +303,18 @@ variable "nightly_ingest_mode" {
   }
 }
 
+variable "nightly_curate_enabled" {
+  description = "Add the adviser/review-queue stage after the nightly ingest (Cloud Run Job agentic-kg-adviser-<env> + workflow step). Default true. It no-ops honestly when the run's ingest path wrote no KGIS ledger."
+  type        = bool
+  default     = true
+}
+
+variable "nightly_curate_max_items" {
+  description = "Maximum candidates the adviser stage grades in one invocation (NIGHTLY_CURATE_MAX_ITEMS)."
+  type        = number
+  default     = 500
+}
+
 # ADR-0007: identities for secret handling ---------------------------------------
 
 variable "wif_pool_id" {

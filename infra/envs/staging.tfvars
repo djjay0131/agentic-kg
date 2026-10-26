@@ -49,3 +49,10 @@ nightly_runs_bucket = "vt-gcp-00042-agentic-kg-runs-staging"
 nightly_max_papers  = 50
 nightly_max_llm_usd = 0
 nightly_timeout     = 3600
+
+# P2 adviser/review-queue stage. Enabled for staging; it runs after the nightly
+# ingest in the same workflow. With the default legacy ingest mode there is no
+# KGIS ledger, so the stage honestly reports zero candidates rather than
+# inventing a queue.
+nightly_curate_enabled   = true
+nightly_curate_max_items = 500
