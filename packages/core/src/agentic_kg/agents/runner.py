@@ -17,6 +17,11 @@ from agentic_kg.agents.checkpoints import CheckpointManager
 from agentic_kg.agents.config import AgentConfig, get_agent_config
 from agentic_kg.agents.continuation import ContinuationAgent
 from agentic_kg.agents.evaluation import EvaluationAgent
+from agentic_kg.agents.graph_port import (
+    SOURCE_CANONICAL,
+    build_graph_port,
+)
+from agentic_kg.agents.provenance import AgentOutputStore, InMemoryAgentOutputStore
 from agentic_kg.agents.ranking import RankingAgent
 from agentic_kg.agents.sandbox import DockerSandbox
 from agentic_kg.agents.schemas import (
@@ -48,6 +53,10 @@ class WorkflowRunner:
         relation_service: Any | None = None,
         config: AgentConfig | None = None,
         checkpointer: Any | None = None,
+        graph_source: str | None = None,
+        canonical_reader: Any | None = None,
+        canonical_sink: Any | None = None,
+        output_store: AgentOutputStore | None = None,
     ) -> None:
         self._llm = llm_client
         self._repo = repository
@@ -56,30 +65,57 @@ class WorkflowRunner:
         self._config = config or get_agent_config()
         self._checkpointer = checkpointer or MemorySaver()
         self._workflows: dict[str, dict] = {}  # run_id -> metadata
+        self._source = graph_source or self._config.graph_source
+        self._reader = canonical_reader
+        self._output_store = output_store or InMemoryAgentOutputStore()
+
+        # ADR-0009: one port per runner, shared by the agents that read it.
+        self._port = build_graph_port(
+            self._source,
+            repository=self._repo,
+            search_service=self._search,
+            relation_service=self._relations,
+            reader=self._reader,
+        )
+
+        sink = canonical_sink
+        namespace = None
+        if self._source == SOURCE_CANONICAL:
+            if sink is None:
+                from agentic_kg.knowledge_graph.review_items import (
+                    ReviewItemRepository,
+                )
+
+                sink = ReviewItemRepository(self._repo)
+            namespace = getattr(sink, "namespace", None)
+            # A canonical run needs the opt-in extra for candidate payloads.
+            from agentic_kg.migration.imports import require_kg_contracts
+
+            require_kg_contracts()
+
+        common = dict(
+            llm_client=self._llm,
+            repository=self._repo,
+            search_service=self._search,
+            relation_service=self._relations,
+            graph_port=self._port,
+            output_store=self._output_store,
+            source=self._source,
+        )
 
         # Build agents
-        self._ranking = RankingAgent(
-            llm_client=self._llm,
-            repository=self._repo,
-            search_service=self._search,
-            relation_service=self._relations,
-        )
-        self._continuation = ContinuationAgent(
-            llm_client=self._llm,
-            repository=self._repo,
-            search_service=self._search,
-            relation_service=self._relations,
-        )
+        self._ranking = RankingAgent(**common, model=self._config.ranking.model)
+        self._continuation = ContinuationAgent(**common, model=self._config.continuation.model)
         self._evaluation = EvaluationAgent(
-            llm_client=self._llm,
-            repository=self._repo,
+            **common,
+            model=self._config.evaluation.model,
             sandbox=DockerSandbox(config=self._config.sandbox),
         )
         self._synthesis = SynthesisAgent(
-            llm_client=self._llm,
-            repository=self._repo,
-            search_service=self._search,
-            relation_service=self._relations,
+            **common,
+            model=self._config.synthesis.model,
+            canonical_sink=sink,
+            namespace=namespace,
         )
 
         # Compile workflow graph
@@ -234,17 +270,13 @@ class WorkflowRunner:
         """
         self._require_workflow(run_id)
         self._workflows[run_id]["status"] = WorkflowStatus.CANCELLED.value
-        self._workflows[run_id]["updated_at"] = datetime.now(
-            timezone.utc
-        ).isoformat()
+        self._workflows[run_id]["updated_at"] = datetime.now(timezone.utc).isoformat()
 
     def _sync_metadata(self, run_id: str, thread_config: dict) -> None:
         """Sync in-memory metadata from the graph state."""
         # We can't await here so we just update what we can
         if run_id in self._workflows:
-            self._workflows[run_id]["updated_at"] = datetime.now(
-                timezone.utc
-            ).isoformat()
+            self._workflows[run_id]["updated_at"] = datetime.now(timezone.utc).isoformat()
 
     @staticmethod
     def _count_completed_steps(state: ResearchState) -> int:

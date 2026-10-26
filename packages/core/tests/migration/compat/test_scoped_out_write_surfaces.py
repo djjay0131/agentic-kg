@@ -291,7 +291,7 @@ def test_continuation_agent_binds_its_relation_context_call() -> None:
     with pytest.raises(TypeError):
         signature.bind(object(), "problem-id", direction="both", limit=10)
 
-    source = (REPO_ROOT / "packages/core/src/agentic_kg/agents/continuation.py").read_text(
+    source = (REPO_ROOT / "packages/core/src/agentic_kg/agents/graph_port.py").read_text(
         encoding="utf-8"
     )
     assert "limit=10" not in source, "the D-1 misbind has been reintroduced"
@@ -317,7 +317,7 @@ def test_continuation_agent_reads_the_relation_service_tuples() -> None:
         f"ContinuationAgent's tuple unpacking is still correct"
     )
 
-    source = (REPO_ROOT / "packages/core/src/agentic_kg/agents/continuation.py").read_text(
+    source = (REPO_ROOT / "packages/core/src/agentic_kg/agents/graph_port.py").read_text(
         encoding="utf-8"
     )
     assert "for related_problem, relation in related" in source, (

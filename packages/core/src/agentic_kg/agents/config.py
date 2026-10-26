@@ -9,6 +9,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
+from agentic_kg.agents.graph_port import graph_source_from_env
+
 
 @dataclass
 class AgentLLMConfig:
@@ -79,6 +81,8 @@ class AgentConfig:
     ))
     sandbox: SandboxConfig = field(default_factory=SandboxConfig)
     checkpoints: CheckpointConfig = field(default_factory=CheckpointConfig)
+    #: ``AGENT_GRAPH_SOURCE``: legacy (default) or canonical (ADR-0009).
+    graph_source: str = field(default_factory=graph_source_from_env)
 
 
 _config: AgentConfig | None = None

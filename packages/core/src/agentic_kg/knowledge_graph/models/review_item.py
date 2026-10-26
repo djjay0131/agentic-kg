@@ -125,6 +125,11 @@ class ReviewItem(BaseModel):
     adviser_model_id: str = ""
     adviser_model_version: str = ""
     prompt_version: str = ""
+    #: ``adviser`` for the nightly KGIS adviser stage, ``agent`` for a research
+    #: agent that proposed the item (ADR-0009).
+    source: str = "adviser"
+    agent_name: str = ""
+    agent_output_id: str = ""
     status: ReviewItemStatus = "pending"
     committable: bool = True
     commit_blocker: Optional[str] = None
@@ -181,6 +186,9 @@ class ReviewItem(BaseModel):
             "adviser_model_id": self.adviser_model_id,
             "adviser_model_version": self.adviser_model_version,
             "prompt_version": self.prompt_version,
+            "source": self.source,
+            "agent_name": self.agent_name,
+            "agent_output_id": self.agent_output_id,
             "status": self.status,
             "committable": self.committable,
             "commit_blocker": self.commit_blocker,
@@ -221,6 +229,9 @@ class ReviewItem(BaseModel):
             adviser_model_id=props.get("adviser_model_id") or "",
             adviser_model_version=props.get("adviser_model_version") or "",
             prompt_version=props.get("prompt_version") or "",
+            source=props.get("source") or "adviser",
+            agent_name=props.get("agent_name") or "",
+            agent_output_id=props.get("agent_output_id") or "",
             status=props.get("status") or "pending",
             committable=bool(props.get("committable", True)),
             commit_blocker=props.get("commit_blocker"),

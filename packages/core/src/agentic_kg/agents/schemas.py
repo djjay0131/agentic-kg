@@ -12,6 +12,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from agentic_kg.agents.provenance import AgentProvenance
+
 
 def _utc_now() -> datetime:
     """Get current UTC time."""
@@ -77,6 +79,32 @@ class RankedProblem(BaseModel):
         default=0, description="Number of related problems in the graph"
     )
 
+    # Canonical graph-native features (ADR-0009). ``None`` on the legacy
+    # source, where the historical LLM-only ranking is unchanged.
+    graph_native_score: Optional[float] = Field(
+        default=None, ge=0, le=1,
+        description="Deterministic score from canonical graph features",
+    )
+    problem_age_days: Optional[float] = Field(
+        default=None, ge=0, description="Age of the canonical problem record"
+    )
+    evidence_strength: Optional[float] = Field(
+        default=None, ge=0, le=1,
+        description="Share of assertions backed by evidence",
+    )
+    connectivity: Optional[float] = Field(
+        default=None, ge=0, le=1,
+        description="Normalised assertion/neighbour count",
+    )
+    dataset_count: int = Field(default=0, ge=0)
+    metric_count: int = Field(default=0, ge=0)
+    output_id: str = Field(
+        default="", description="Agent output id for provenance lookup"
+    )
+    provenance: Optional[AgentProvenance] = Field(
+        default=None, description="KGPS provenance envelope for this output"
+    )
+
 
 class RankingResult(BaseModel):
     """Output of the Ranking Agent."""
@@ -139,6 +167,12 @@ class ContinuationProposal(BaseModel):
     rationale: str = Field(
         default="", description="Why this continuation was proposed"
     )
+    output_id: str = Field(
+        default="", description="Agent output id for provenance lookup"
+    )
+    provenance: Optional[AgentProvenance] = Field(
+        default=None, description="KGPS provenance envelope for this proposal"
+    )
 
     @field_validator("experimental_steps")
     @classmethod
@@ -197,6 +231,12 @@ class EvaluationResult(BaseModel):
         default="",
         description="Overall verdict: promising, inconclusive, or not_viable",
     )
+    output_id: str = Field(
+        default="", description="Agent output id for provenance lookup"
+    )
+    provenance: Optional[AgentProvenance] = Field(
+        default=None, description="KGPS provenance envelope for this evaluation"
+    )
 
     @field_validator("verdict")
     @classmethod
@@ -226,6 +266,28 @@ class GraphUpdate(BaseModel):
     details: str = Field(default="", description="Description of what was done")
 
 
+class SynthesisItem(BaseModel):
+    """One proposed canonical change, with its own provenance.
+
+    On the canonical path nothing here is written directly: each item becomes
+    a review-queue candidate and only a human approval commits it (ADR-0009).
+    """
+
+    action: str = Field(
+        ..., description="create_problem, create_relation, or update_status"
+    )
+    target_id: str = Field(default="", description="Review item or known target id")
+    statement: str = Field(default="", description="Problem statement for create")
+    relation_type: str = Field(default="", description="Relation type, if any")
+    review_item_id: str = Field(default="", description="Queued review item id")
+    committable: bool = Field(
+        default=True, description="Whether approval can commit this item today"
+    )
+    commit_blocker: Optional[str] = None
+    output_id: str = Field(default="", description="Agent output id")
+    provenance: Optional[AgentProvenance] = None
+
+
 class SynthesisReport(BaseModel):
     """Output of the Synthesis Agent."""
 
@@ -248,6 +310,20 @@ class SynthesisReport(BaseModel):
     )
     recommendations: list[str] = Field(
         default_factory=list, description="Recommendations for next steps"
+    )
+    output_id: str = Field(
+        default="", description="Agent output id for provenance lookup"
+    )
+    provenance: Optional[AgentProvenance] = Field(
+        default=None, description="KGPS provenance envelope for this report"
+    )
+    review_item_ids: list[str] = Field(
+        default_factory=list,
+        description="Canonical-path review items created instead of direct writes",
+    )
+    items: list[SynthesisItem] = Field(
+        default_factory=list,
+        description="Per-item outputs, each carrying its own provenance",
     )
 
 
