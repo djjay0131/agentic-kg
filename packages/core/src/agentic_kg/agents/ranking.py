@@ -76,6 +76,7 @@ class RankingAgent(BaseAgent):
         topic_id = state.get("topic_filter")
         status_filter = state.get("status_filter", "open")
         max_problems = state.get("max_problems", 20)
+        wanted = set(state.get("candidate_problem_ids") or [])
 
         if self.search:
             if topic_id:
@@ -89,7 +90,7 @@ class RankingAgent(BaseAgent):
                     status=status_filter,
                     top_k=max_problems,
                 )
-            return [
+            candidates = [
                 {
                     "id": r.problem.id,
                     "statement": r.problem.statement,
@@ -106,7 +107,7 @@ class RankingAgent(BaseAgent):
                 status=status_filter,
                 limit=max_problems,
             )
-            return [
+            candidates = [
                 {
                     "id": p.id,
                     "statement": p.statement,
@@ -116,6 +117,13 @@ class RankingAgent(BaseAgent):
                 }
                 for p in problems
             ]
+
+        if wanted:
+            # A cycle selected these candidates; keep the query bounded by the
+            # requested ids rather than relying on the top_k window to contain
+            # them.
+            candidates = [c for c in candidates if c["id"] in wanted]
+        return candidates
 
     def _format_problems(self, candidates: list[dict]) -> str:
         """Format problems as numbered text for the LLM."""

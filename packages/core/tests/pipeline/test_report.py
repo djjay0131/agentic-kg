@@ -91,3 +91,18 @@ def test_reported_json_is_the_shared_core_model():
     decoded = PipelineRun.model_validate_json(report_json(report))
     assert decoded == report
     assert decoded.totals.honest_nulls == report.totals.honest_nulls
+
+
+def test_write_report_json_supports_the_research_cycle_folder(tmp_path):
+    report = _report(
+        run_id="cycle-20261026T030000Z",
+        trigger="research_cycle",
+    )
+    url = write_report_json(
+        report,
+        runs_dir=tmp_path,
+        runs_bucket="bucket",
+        kind="research-cycles",
+    )
+    assert url == "gs://bucket/research-cycles/cycle-20261026T030000Z.json"
+    assert (tmp_path / "research-cycles" / "cycle-20261026T030000Z.json").is_file()

@@ -45,23 +45,44 @@ def report_json(run: PipelineRun) -> str:
     return json.dumps(run.model_dump(mode="json"), indent=2, sort_keys=False)
 
 
+def write_latest_run_id(run_id: str, *, runs_dir: str | Path) -> Path:
+    """Write the ``.latest_run_id`` marker the adviser Job reads.
+
+    Cloud Workflows does not parse a Job's stdout, so the run id cannot be
+    handed from the ingest Job to the adviser Job through the workflow. Both
+    Jobs mount the same runs bucket; this marker is the handoff. It is written
+    in the same ``nightly/`` directory as the report and is deliberately not a
+    ``.json`` file, so nothing lists it as a run.
+    """
+    target_dir = Path(runs_dir) / "nightly"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / ".latest_run_id"
+    target.write_text(run_id + "\n", encoding="utf-8")
+    return target
+
+
 def write_report_json(
     run: PipelineRun,
     *,
     runs_dir: str | Path,
     runs_bucket: str | None = None,
+    kind: str = "nightly",
 ) -> str:
-    """Write ``nightly/<run_id>.json`` under ``runs_dir``; return its URL.
+    """Write ``<kind>/<run_id>.json`` under ``runs_dir``; return its URL.
+
+    ``kind`` defaults to ``nightly`` (the nightly job's contract). The research
+    cycle reuses the same writer with ``kind="research-cycles"`` so a cycle
+    report is the same object shape in a different folder.
 
     When ``runs_bucket`` is given the URL is the ``gs://`` object URL; otherwise
     the local path is returned (used by tests and dry runs).
     """
-    target_dir = Path(runs_dir) / "nightly"
+    target_dir = Path(runs_dir) / kind
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / f"{run.run_id}.json"
     target.write_text(report_json(run) + "\n", encoding="utf-8")
     if runs_bucket:
-        return f"gs://{runs_bucket}/nightly/{run.run_id}.json"
+        return f"gs://{runs_bucket}/{kind}/{run.run_id}.json"
     return str(target)
 
 
@@ -70,5 +91,6 @@ __all__ = [
     "new_run_id",
     "report_json",
     "utc_now",
+    "write_latest_run_id",
     "write_report_json",
 ]

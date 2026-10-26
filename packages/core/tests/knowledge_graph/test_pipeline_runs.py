@@ -130,6 +130,14 @@ class TestPipelineRunModel:
                 trigger="cron",  # type: ignore[arg-type]
             )
 
+    def test_accepts_the_research_cycle_trigger(self):
+        run = PipelineRun(
+            run_id="cycle-1",
+            started_at="2026-01-01T02:30:00Z",
+            trigger="research_cycle",
+        )
+        assert run.trigger == "research_cycle"
+
     def test_to_neo4j_properties_json_encodes_nested_fields(self):
         props = make_run().to_neo4j_properties()
         # Scalars stay scalar.

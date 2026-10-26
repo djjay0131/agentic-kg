@@ -7,6 +7,69 @@ Last updated: 2026-10-26
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
 
+## Research-progression loop (2026-10-26, T45)
+
+`feat/research-loop` closes the loop from the proposal §IV-E / §V-G5. One
+scheduled tick (`python -m agentic_kg.pipeline.cycle`) reconciles workflows that
+already finished, re-ranks, starts up to `RESEARCH_CYCLE_TOP_K` (default 3)
+workflows and runs each to its next human gate. Cycles are durable
+`:Canon__ResearchCycle` nodes (app namespace, ADR-0004/0005) recording the
+budget, selected problems, per-workflow ids/states, every gate decision
+(who/when/note/edit) and the outcome. Each cycle also writes the shared
+`PipelineRun` shape with `trigger="research_cycle"` (JSON under
+`research-cycles/`), so the Runs page and the existing
+`pipeline_run_completed`/`failed` log events cover it.
+
+- **Durable gates.** `DurableCheckpointSaver` persists LangGraph checkpoints in
+  `:Canon__AgentCheckpoint` nodes, so the API (or a later cycle Job) can resume
+  a gate started by a different process days earlier. The API now builds its
+  runner with it. Offline test: a tiny graph interrupted in one saver resumes
+  in a fresh saver over the same store.
+- **Autonomy is policy.** `config/research-autonomy.yaml` (v1) ships every gate
+  `human`; a test pins it. `AutonomyPolicy` fails closed (`auto_if` needs a
+  threshold; unknown/missing gates raise). ADR-0010 records the options and the
+  evidence (P2 adviser/human agreement, shadow period, false-approval bound)
+  required before the owner may enable auto. `auto`/`auto_if` are wired into the
+  cycle's advance loop but not enabled.
+- **Gates.** `GET/POST /api/research/...` and a new Research Loop page list
+  pending gates and record approve/reject/edit-with-note. Only an approval can
+  reach synthesis; rejection resumes the graph only to close it. `X-User-ID`
+  required; decision recorded on the cycle before resume.
+- **Budgets / kill switch.** `RESEARCH_CYCLE_ENABLED` (Terraform
+  `research_cycle_enabled`) defaults **false**. Per-cycle USD cap, experiment
+  cap and wall-time cap set `budget.stopped_by_budget` and a note. A stale
+  `running` cycle is closed at the wall cap; a cycle waiting at a gate is
+  `awaiting_gate` and does not block the next tick.
+- **Infra.** `agentic-kg-research-cycle-<env>` Cloud Run Job, a step after
+  curate in the nightly Workflow, and an optional weekly Scheduler — all
+  Terraform-gated. Runbook: `docs/operations/research-cycle-runbook.md`; spec:
+  `llm/features/research-progression-loop.md`.
+
+Honest limits: evaluation rides the ADR-0009 execution backend merged from the
+base branch (Docker locally, Cloud Run Job in GCP); the cycle's USD number is a
+documented per-workflow estimate, not billing.
+
+## P2 nightly review queue (2026-10-26)
+## P2 nightly review queue (2026-10-26)
+
+`feat/review-queue-p2` adds the adviser/human loop on top of P1 (#127, now
+merged, so this branch is based directly on master). The new Cloud Run Job
+`agentic-kg-adviser-<env>` runs `python -m agentic_kg.pipeline.curate` after the
+nightly ingest in the same Workflow, reads the run's KGIS ledger, re-runs the
+deterministic policy, and grades deferred candidates with a bounded KGCS
+`StructuredAdviser` wired to the ledger's evidence registry (evidence **text**,
+not ids). It writes `:Canon__ReviewItem` nodes in the canonical namespace
+(idempotent on `(run_id, candidate_id)`); `GET/POST /api/review` and the
+Review page decide them. Approval re-enters `run_curation` with the candidate
+marked human-approved, so KGCS still plans and `PlanExecutor` still writes.
+Rejections write nothing canonical. Both append a `:Canon__ReviewDecision`.
+Only entity candidates and assertions with identity endpoints are queued;
+artifacts and alias-endpoint assertions stay in `deferral_reasons`. The stage
+reuses `NIGHTLY_MAX_LLM_USD` with a documented per-call estimate. It does not
+change `nightly_ingest_mode` (staging is still `legacy`, so the queue is
+honestly empty until the nightly opts into KGIS). Runbook:
+`docs/operations/review-queue-runbook.md`.
+
 ## RQ1 extraction-reliability harness (2026-10-26, T43)
 
 `agentic_kg.evaluation.rq1` measures precision/recall/F1 of extracted problems,

@@ -20,7 +20,8 @@ property            shape
 ``status``          str
 ``trigger``         str
 ``namespace``       str
-``review_queue_size`` int, absent/null until the P2 review queue exists
+``review_queue_size`` int, absent/null when the run had no review stage
+``adviser_verdicts`` JSON str -> ``dict[str, int]`` (P2 verdict mix)
 ``git_sha``         str
 ``image``           str
 ``queries``         JSON str -> ``list[dict]``
@@ -42,11 +43,13 @@ from typing import Any, Literal, Mapping, Optional
 
 from pydantic import BaseModel, Field
 
+from agentic_kg.knowledge_graph.models.review_item import ReviewAgreement
+
 #: ``PipelineRun.status`` -- the contract's closed set.
 PipelineRunStatus = Literal["running", "succeeded", "partial", "failed"]
 
 #: ``PipelineRun.trigger`` -- how the execution was started.
-PipelineRunTrigger = Literal["schedule", "manual"]
+PipelineRunTrigger = Literal["schedule", "manual", "research_cycle"]
 
 
 class PipelineQueryResult(BaseModel):
@@ -103,6 +106,13 @@ class PipelineRun(BaseModel):
     deferral_reasons: dict[str, int] = Field(default_factory=dict)
     budget: PipelineBudget = Field(default_factory=PipelineBudget)
     review_queue_size: Optional[int] = None
+    #: Adviser verdict mix for this run's review items (P2). Persisted; counts
+    #: are keyed by the stored verdict (``admit``, ``reject``, ``merge-into:<id>``).
+    adviser_verdicts: dict[str, int] = Field(default_factory=dict)
+    #: Read-time projection only: adviser-vs-human agreement to date, per entity
+    #: type. Not persisted on the run node (it is a query over all ReviewItems),
+    #: and empty on the nightly job's own report.
+    adviser_human_agreement: dict[str, ReviewAgreement] = Field(default_factory=dict)
     proposed_queries: list[dict[str, Any]] = Field(default_factory=list)
     failures: list[PipelineFailure] = Field(default_factory=list)
     git_sha: str = ""
@@ -128,6 +138,7 @@ class PipelineRun(BaseModel):
             "totals": json.dumps(self.totals.model_dump()),
             "deferral_reasons": json.dumps(self.deferral_reasons),
             "budget": json.dumps(self.budget.model_dump()),
+            "adviser_verdicts": json.dumps(self.adviser_verdicts),
             "proposed_queries": json.dumps(self.proposed_queries),
             "failures": json.dumps([f.model_dump() for f in self.failures]),
         }
@@ -143,6 +154,7 @@ class PipelineRun(BaseModel):
         totals = decode_json_field(props.get("totals"), {}) or {}
         budget = decode_json_field(props.get("budget"), {}) or {}
         deferral_reasons = decode_json_field(props.get("deferral_reasons"), {}) or {}
+        adviser_verdicts = decode_json_field(props.get("adviser_verdicts"), {}) or {}
 
         return cls(
             run_id=props["run_id"],
@@ -156,6 +168,7 @@ class PipelineRun(BaseModel):
             deferral_reasons=dict(deferral_reasons),
             budget=PipelineBudget(**budget),
             review_queue_size=props.get("review_queue_size"),
+            adviser_verdicts=dict(adviser_verdicts),
             proposed_queries=list(proposed_queries),
             failures=[PipelineFailure(**f) for f in failures],
             git_sha=props.get("git_sha") or "",

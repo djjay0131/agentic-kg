@@ -1,7 +1,7 @@
 """API request/response schemas."""
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Literal, Optional
 
 from agentic_kg.knowledge_graph.models.pipeline_run import PipelineTotals
 from pydantic import BaseModel, Field
@@ -930,3 +930,175 @@ class PipelineRunListResponse(BaseModel):
 
     runs: list[PipelineRunSummary] = Field(default_factory=list)
     next_cursor: Optional[str] = None
+
+
+# =============================================================================
+# Review Queue Schemas (nightly P2)
+# =============================================================================
+#
+# The queue is populated by the adviser stage (packages/core .../pipeline/
+# curate.py) and decided through this API. A decision is append-only: the
+# item's status is its current value, and every decision also writes a
+# :Canon__ReviewDecision node.
+
+
+class ReviewEvidenceRefResponse(BaseModel):
+    """One quoted evidence item shown to the reviewer."""
+
+    evidence_id: str
+    relationship: Optional[str] = None
+    content: Optional[str] = None
+
+
+class ReviewItemSummary(BaseModel):
+    """A compact ReviewItem row for the queue table."""
+
+    id: str
+    run_id: str
+    candidate_id: str
+    candidate_kind: str
+    entity_type: Optional[str] = None
+    candidate_summary: str = ""
+    adviser_verdict: str
+    confidence: Optional[float] = None
+    adviser_abstained: bool = False
+    status: str
+    committable: bool = True
+    commit_blocker: Optional[str] = None
+    created_at: str
+    decided_at: Optional[str] = None
+
+
+class ReviewItemDetail(ReviewItemSummary):
+    """The full review payload: evidence text, rationale and decision."""
+
+    namespace: str
+    candidate_payload: dict[str, Any] = Field(default_factory=dict)
+    evidence_refs: list[ReviewEvidenceRefResponse] = Field(default_factory=list)
+    rationale: str = ""
+    adviser_type: str = ""
+    adviser_version: str = ""
+    adviser_model_id: str = ""
+    adviser_model_version: str = ""
+    prompt_version: str = ""
+    decided_by: Optional[str] = None
+    decision_note: Optional[str] = None
+    committed_epoch: Optional[int] = None
+    committed_identity_ids: list[str] = Field(default_factory=list)
+
+
+class ReviewItemListResponse(BaseModel):
+    """Response for GET /api/review."""
+
+    items: list[ReviewItemSummary] = Field(default_factory=list)
+    total: int = 0
+    limit: int = 50
+    offset: int = 0
+
+
+class ReviewDecisionRequest(BaseModel):
+    """Body for POST /api/review/{id}."""
+
+    decision: Literal["approve", "reject"]
+    note: Optional[str] = None
+
+
+# =============================================================================
+# Research-progression cycle schemas
+# =============================================================================
+#
+# A cycle is the durable record of one scheduling tick; its workflows stop at
+# human gates. The API exposes cycles and pending gates, and a decision resumes
+# the workflow through the durable checkpoint store. The decision is audited on
+# the cycle node (``decided_by`` / ``decided_at`` / ``note``).
+
+
+class ResearchGateDecisionResponse(BaseModel):
+    """One recorded gate decision."""
+
+    gate: str
+    decision: str
+    decided_by: str
+    decided_at: str
+    note: str = ""
+    edited_data: Optional[dict[str, Any]] = None
+
+
+class ResearchWorkflowResponse(BaseModel):
+    """One workflow started by a cycle."""
+
+    workflow_run_id: str
+    problem_id: str
+    problem_statement: str = ""
+    state: str
+    current_step: str = ""
+    pending_gate: Optional[str] = None
+    started_at: str = ""
+    updated_at: str = ""
+    finished_at: Optional[str] = None
+    gate_decisions: list[ResearchGateDecisionResponse] = Field(default_factory=list)
+    error: Optional[str] = None
+
+
+class ResearchCycleBudgetResponse(BaseModel):
+    max_llm_usd: float = 0.0
+    est_llm_usd: float = 0.0
+    max_experiments: int = 0
+    experiments: int = 0
+    max_wall_seconds: int = 0
+    wall_seconds: float = 0.0
+    stopped_by_budget: bool = False
+
+
+class ResearchCycleResponse(BaseModel):
+    """The full detail payload for one cycle."""
+
+    cycle_id: str
+    namespace: str
+    started_at: str
+    finished_at: Optional[str] = None
+    status: str
+    trigger: str
+    policy_version: str = ""
+    selected_problems: list[str] = Field(default_factory=list)
+    workflow_runs: list[ResearchWorkflowResponse] = Field(default_factory=list)
+    budget: ResearchCycleBudgetResponse = Field(
+        default_factory=ResearchCycleBudgetResponse
+    )
+    git_sha: str = ""
+    image: str = ""
+    note: Optional[str] = None
+
+
+class ResearchCycleListResponse(BaseModel):
+    """Response for GET /api/research/cycles."""
+
+    cycles: list[ResearchCycleResponse] = Field(default_factory=list)
+    total: int = 0
+
+
+class PendingResearchGate(BaseModel):
+    """A pending gate flattened for the Research page."""
+
+    cycle_id: str
+    workflow_run_id: str
+    problem_id: str
+    problem_statement: str = ""
+    gate: str
+    updated_at: str = ""
+
+
+class PendingResearchGateListResponse(BaseModel):
+    """Response for GET /api/research/gates."""
+
+    gates: list[PendingResearchGate] = Field(default_factory=list)
+    total: int = 0
+
+
+class ResearchGateDecisionRequest(BaseModel):
+    """Body for POST /api/research/gates/{cycle_id}/{workflow_run_id}."""
+
+    gate: Literal["select_problem", "approve_proposal", "review_evaluation"]
+    decision: Literal["approve", "reject", "edit"]
+    note: str = ""
+    edited_data: Optional[dict[str, Any]] = None

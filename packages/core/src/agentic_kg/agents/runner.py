@@ -91,15 +91,42 @@ class WorkflowRunner:
             checkpointer=self._checkpointer,
         )
 
+    async def rank_candidates(
+        self,
+        topic_filter: str | None = None,
+        status_filter: str | None = None,
+        max_problems: int = 20,
+        min_confidence: float = 0.3,
+    ) -> list[dict]:
+        """Run only the ranking step, for a cycle deciding what to start.
+
+        This is the same agent and the same candidate query a workflow uses, so
+        the cycle and the workflow cannot disagree about what "top-ranked"
+        means. It performs no write and opens no workflow thread.
+        """
+        state = create_initial_state(
+            topic_filter=topic_filter,
+            status_filter=status_filter,
+            max_problems=max_problems,
+            min_confidence=min_confidence,
+        )
+        result = await self._ranking.run(state)
+        return list(result.get("ranked_problems", []))
+
     async def start_workflow(
         self,
         topic_filter: str | None = None,
         status_filter: str | None = None,
         max_problems: int = 20,
         min_confidence: float = 0.3,
+        candidate_problem_ids: list[str] | None = None,
     ) -> str:
         """
         Start a new research workflow.
+
+        ``candidate_problem_ids`` narrows the ranking step to a cycle's
+        selected candidates, so a cycle can offer one problem per workflow
+        instead of starting three identical full rankings.
 
         Returns:
             run_id for tracking the workflow session.
@@ -109,6 +136,7 @@ class WorkflowRunner:
             status_filter=status_filter,
             max_problems=max_problems,
             min_confidence=min_confidence,
+            candidate_problem_ids=candidate_problem_ids,
         )
         run_id = state["run_id"]
         thread_config = {"configurable": {"thread_id": run_id}}
@@ -129,13 +157,28 @@ class WorkflowRunner:
         return run_id
 
     def has_workflow(self, run_id: str) -> bool:
-        """Return whether ``run_id`` names a workflow this runner has started.
+        """Return whether ``run_id`` names a known workflow.
+
+        A workflow is known if this process started it, **or** if the
+        checkpointer has a durable checkpoint for it. The second case is what
+        lets a different process (the API after a restart, or a scheduled
+        cycle) find and resume a workflow that stopped at a gate days ago.
 
         ``MemorySaver.aget_state`` returns an empty snapshot for an unknown
         thread instead of raising, so callers that need to distinguish "not
-        found" from "present" must consult the tracked set explicitly.
+        found" from "present" must consult the tracked set or the checkpoint
+        store explicitly.
         """
-        return run_id in self._workflows
+        if run_id in self._workflows:
+            return True
+        checker = getattr(getattr(self, "_checkpointer", None), "has_thread", None)
+        if checker is not None:
+            try:
+                return bool(checker(run_id))
+            except Exception:  # noqa: BLE001 - a store failure must not look like "found"
+                logger.warning("could not check durable checkpoint for %s", run_id)
+                return False
+        return False
 
     def _require_workflow(self, run_id: str) -> None:
         """Raise ``KeyError`` if ``run_id`` is not a tracked workflow.
@@ -206,24 +249,28 @@ class WorkflowRunner:
         return dict(snapshot.values)
 
     async def get_status(self, run_id: str) -> WorkflowSummary:
-        """Get a summary of workflow status."""
-        meta = self._workflows.get(run_id)
-        if not meta:
-            raise KeyError(f"Workflow {run_id} not found")
+        """Get a summary of workflow status.
+
+        ``created_at``/``updated_at`` come from the in-process metadata when
+        present and from the checkpointed state when this process did not start
+        the workflow (a durable resume after a restart).
+        """
+        self._require_workflow(run_id)
+        meta = self._workflows.get(run_id, {})
 
         state = await self.get_state(run_id)
         return WorkflowSummary(
             run_id=run_id,
             status=WorkflowStatus(state.get("status", "pending")),
             current_step=state.get("current_step", ""),
-            created_at=meta["created_at"],
-            updated_at=state.get("updated_at", meta["updated_at"]),
+            created_at=meta.get("created_at") or state.get("created_at"),
+            updated_at=state.get("updated_at") or meta.get("updated_at"),
             total_steps=7,
             completed_steps=self._count_completed_steps(state),
         )
 
     def list_workflows(self) -> list[dict]:
-        """List all tracked workflows."""
+        """List all workflows tracked by this process."""
         return list(self._workflows.values())
 
     async def cancel_workflow(self, run_id: str) -> None:
