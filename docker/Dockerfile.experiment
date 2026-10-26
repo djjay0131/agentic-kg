@@ -1,0 +1,35 @@
+# Experiment execution image (ADR-0008)
+#
+# Minimal Python runtime for one generated evaluation script. It deliberately
+# does NOT contain the agentic-kg application, Neo4j drivers, secrets or the
+# Docker client: the Job can only read its own GCS prefix and execute Python.
+#
+# Build: docker build -f docker/Dockerfile.experiment -t agentic-kg-experiment .
+
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    HOME=/tmp
+
+RUN pip install --no-cache-dir \
+    numpy \
+    pandas \
+    scipy \
+    scikit-learn \
+    "google-cloud-storage>=2.0.0" \
+    "google-auth>=2.0.0"
+
+RUN groupadd --gid 10001 experiment \
+    && useradd --uid 10001 --gid experiment --shell /usr/sbin/nologin experiment
+
+WORKDIR /app
+COPY packages/core/src/agentic_kg/agents/experiment_runner.py /app/experiment_runner.py
+RUN chown -R experiment:experiment /app
+
+USER experiment
+
+# Cloud Run writes only /tmp; the runner creates its workdir there.
+ENTRYPOINT ["python", "/app/experiment_runner.py"]
