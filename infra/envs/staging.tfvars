@@ -40,6 +40,15 @@ canonical_namespace = "staging"
 ingest_ledger_bucket = "vt-gcp-00042-agentic-kg-ledger-staging"
 ingest_ledger_dir    = "/mnt/ledger/staging"
 
+# Experiment execution (ADR-0009). Cloud Run has no Docker daemon, so staging
+# runs the EvaluationAgent's generated code in a dedicated Cloud Run Job.
+experiment_backend     = "cloudrun_job"
+experiment_bucket      = "vt-gcp-00042-agentic-kg-experiments"
+experiment_gcs_prefix  = "staging"
+experiment_job_memory  = "2Gi"
+experiment_job_cpu     = "1"
+experiment_job_timeout = 300
+
 # Nightly pipeline (nightly-pipeline P1, ADR-0008). Enabled for staging only;
 # creates the runs bucket, the nightly SA, the nightly Cloud Run Job, the
 # Cloud Workflows workflow and the 02:30 America/New_York Cloud Scheduler job.
