@@ -10,6 +10,7 @@ import {
   Network,
   Play,
   History,
+  ClipboardCheck,
 } from 'lucide-react';
 
 const navItems = [
@@ -20,6 +21,7 @@ const navItems = [
   { href: '/graph', label: 'Graph', icon: Network },
   { href: '/workflows', label: 'Workflows', icon: Play },
   { href: '/runs', label: 'Runs', icon: History },
+  { href: '/review', label: 'Review', icon: ClipboardCheck },
 ];
 
 export default function Sidebar() {
