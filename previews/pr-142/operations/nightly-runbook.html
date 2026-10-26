@@ -1,0 +1,108 @@
+<h1 id="nightly-pipeline-run-notifications">Nightly pipeline run notifications</h1>
+
+<p>The nightly Cloud Run Job writes exactly one structured JSON line per finished
+run. Cloud Logging stores it as <code class="language-plaintext highlighter-rouge">jsonPayload</code>, and two Terraform-managed
+log-based alert policies notify on it:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Event</th>
+      <th>Log severity</th>
+      <th>Alert policy</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">pipeline_run_completed</code></td>
+      <td><code class="language-plaintext highlighter-rouge">INFO</code></td>
+      <td>Nightly pipeline completed</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">pipeline_run_failed</code></td>
+      <td><code class="language-plaintext highlighter-rouge">ERROR</code></td>
+      <td>Nightly pipeline failed</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The email summary includes the run id, status, papers seen/new, committed and
+deferred counts, review-queue size, estimated LLM spend, failure count and a
+link to <code class="language-plaintext highlighter-rouge">&lt;UI base&gt;/runs/&lt;run_id&gt;</code>. The application holds <strong>no mail
+credentials</strong>; Cloud Monitoring owns the email notification channel.</p>
+
+<h2 id="change-the-recipient">Change the recipient</h2>
+
+<p>The recipient is a Terraform variable, so it is changed by a reviewed PR and
+applied through the normal <code class="language-plaintext highlighter-rouge">infra/</code> path (never by hand):</p>
+
+<div class="language-hcl highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1"># infra/envs/staging.tfvars</span>
+<span class="nx">notify_email</span> <span class="o">=</span> <span class="s2">"someone-else@vt.edu"</span>
+</code></pre></div></div>
+
+<p>The default in <code class="language-plaintext highlighter-rouge">infra/variables.tf</code> is <code class="language-plaintext highlighter-rouge">djjay@vt.edu</code>. The channel is created
+only when both <code class="language-plaintext highlighter-rouge">nightly_enabled</code> and <code class="language-plaintext highlighter-rouge">nightly_notify_enabled</code> are true
+(<code class="language-plaintext highlighter-rouge">nightly_notify_enabled</code> defaults to <code class="language-plaintext highlighter-rouge">true</code>).</p>
+
+<p>After the change is applied, the existing policy keeps pointing at the same
+<code class="language-plaintext highlighter-rouge">google_monitoring_notification_channel.nightly_email</code> resource, whose
+<code class="language-plaintext highlighter-rouge">email_address</code> label is updated. The recipient must confirm the subscription
+email from Google Cloud Monitoring before mail is delivered.</p>
+
+<h2 id="add-the-mobile-app-channel">Add the mobile-app channel</h2>
+
+<p>The Cloud Monitoring mobile app uses the <code class="language-plaintext highlighter-rouge">mobile-app</code> notification channel
+type. Add it beside the email channel and list it on both policies:</p>
+
+<div class="language-hcl highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nx">resource</span> <span class="s2">"google_monitoring_notification_channel"</span> <span class="s2">"nightly_mobile"</span> <span class="p">{</span>
+  <span class="nx">count</span> <span class="o">=</span> <span class="nx">var</span><span class="p">.</span><span class="nx">nightly_enabled</span> <span class="o">&amp;&amp;</span> <span class="nx">var</span><span class="p">.</span><span class="nx">nightly_notify_enabled</span> <span class="o">?</span> <span class="mi">1</span> <span class="o">:</span> <span class="mi">0</span>
+
+  <span class="nx">project</span>      <span class="o">=</span> <span class="nx">var</span><span class="p">.</span><span class="nx">project_id</span>
+  <span class="nx">display_name</span> <span class="o">=</span> <span class="s2">"Nightly pipeline mobile (${var.env})"</span>
+  <span class="nx">type</span>         <span class="o">=</span> <span class="s2">"mobile-app"</span>
+  <span class="nx">labels</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="c1"># The Monitoring mobile app pairs with this project; the label is the</span>
+    <span class="c1"># project id the app is signed in to.</span>
+    <span class="nx">project_id</span> <span class="o">=</span> <span class="nx">var</span><span class="p">.</span><span class="nx">project_id</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div></div>
+
+<p>Then add <code class="language-plaintext highlighter-rouge">google_monitoring_notification_channel.nightly_mobile[0].name</code> to
+the <code class="language-plaintext highlighter-rouge">notification_channels</code> list of <code class="language-plaintext highlighter-rouge">google_monitoring_alert_policy.nightly_run</code>.
+Each operator installs the Cloud Monitoring app and enables notifications for
+the project; there is no per-device token to manage in Terraform.</p>
+
+<p>To route to Slack/PagerDuty instead, create that channel type the same way and
+add it to the same list.</p>
+
+<h2 id="verify-a-notification-end-to-end">Verify a notification end to end</h2>
+
+<ol>
+  <li>
+    <p>Confirm the Job’s structured line (Logs Explorer):</p>
+
+    <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>resource.type="cloud_run_job"
+jsonPayload.event=("pipeline_run_completed" OR "pipeline_run_failed")
+</code></pre></div>    </div>
+  </li>
+  <li>
+    <p>Trigger a manual run: <strong>Actions → Run nightly pipeline now</strong>, or</p>
+
+    <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud workflows run agentic-kg-nightly-staging <span class="se">\</span>
+  <span class="nt">--location</span><span class="o">=</span>us-central1 <span class="nt">--data</span><span class="o">=</span><span class="s1">'{"trigger":"manual"}'</span> <span class="nt">--format</span><span class="o">=</span><span class="s1">'value(state)'</span>
+</code></pre></div>    </div>
+  </li>
+  <li>
+    <p>The email arrives within a few minutes. If it does not, check <strong>Monitoring →
+Alerting → Policies</strong> for the two <code class="language-plaintext highlighter-rouge">Nightly pipeline … (staging)</code> policies and
+their incident history; a policy with no notification channel configured
+creates incidents without email.</p>
+  </li>
+</ol>
+
+<h2 id="disable-notifications-temporarily">Disable notifications temporarily</h2>
+
+<p>Set <code class="language-plaintext highlighter-rouge">nightly_notify_enabled = false</code> in the environment’s <code class="language-plaintext highlighter-rouge">.tfvars</code> and apply.
+This removes both policies and the channel; the Job’s structured log line is
+unaffected.</p>
