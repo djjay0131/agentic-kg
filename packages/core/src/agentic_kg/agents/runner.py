@@ -23,7 +23,7 @@ from agentic_kg.agents.graph_port import (
 )
 from agentic_kg.agents.provenance import AgentOutputStore, InMemoryAgentOutputStore
 from agentic_kg.agents.ranking import RankingAgent
-from agentic_kg.agents.sandbox import DockerSandbox
+from agentic_kg.agents.sandbox import create_execution_backend
 from agentic_kg.agents.schemas import (
     CheckpointDecision,
     CheckpointType,
@@ -69,7 +69,7 @@ class WorkflowRunner:
         self._reader = canonical_reader
         self._output_store = output_store or InMemoryAgentOutputStore()
 
-        # ADR-0009: one port per runner, shared by the agents that read it.
+        # ADR-0010: one port per runner, shared by the agents that read it.
         self._port = build_graph_port(
             self._source,
             repository=self._repo,
@@ -109,7 +109,7 @@ class WorkflowRunner:
         self._evaluation = EvaluationAgent(
             **common,
             model=self._config.evaluation.model,
-            sandbox=DockerSandbox(config=self._config.sandbox),
+            sandbox=create_execution_backend(config=self._config.sandbox),
         )
         self._synthesis = SynthesisAgent(
             **common,

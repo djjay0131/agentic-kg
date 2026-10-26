@@ -1,4 +1,4 @@
-"""GET /api/agents/outputs/{id}/provenance (ADR-0009)."""
+"""GET /api/agents/outputs/{id}/provenance (ADR-0010)."""
 
 from __future__ import annotations
 

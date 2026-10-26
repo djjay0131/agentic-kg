@@ -4,7 +4,7 @@ Synthesis Agent.
 Summarizes workflow outcomes, identifies new research directions, and writes
 new problems and relations back to the knowledge graph.
 
-On the canonical source (ADR-0009) it writes **nothing** directly: every
+On the canonical source (ADR-0010) it writes **nothing** directly: every
 proposed change becomes a review-queue item, and only a human approval
 re-enters the KGCS ``run_curation`` -> ``PlanExecutor`` path.
 """

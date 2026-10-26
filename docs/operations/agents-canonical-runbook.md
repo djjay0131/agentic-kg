@@ -6,7 +6,7 @@ nav_exclude: true
 # Research agents on the canonical graph — runbook
 
 Companion to
-[ADR-0009](../../llm/governance/adr/0009-research-agents-canonical-graph.md).
+[ADR-0010](../../llm/governance/adr/0010-research-agents-canonical-graph.md).
 The research agents (ranking, continuation, evaluation, synthesis) read a
 `GraphPort`. `AGENT_GRAPH_SOURCE` selects the adapter:
 
@@ -54,7 +54,7 @@ for Terraform.
 
 - **Reads** come from `Canon__Problem` identities, their assertions and their
   evidence ids. Ranking adds the documented graph-native score
-  (`llm/governance/adr/0009-research-agents-canonical-graph.md` §Decision 4).
+  (`llm/governance/adr/0010-research-agents-canonical-graph.md` §Decision 4).
 - **Writes**: none from the agents. SynthesisAgent queues
   `:Canon__ReviewItem` rows with `source=agent`, the workflow run id, agent
   name, model and prompt version. Every queued item is `pending`; nothing is

@@ -10,7 +10,7 @@ Last updated: 2026-10-26
 ## Research agents on the canonical graph (2026-10-26, T44)
 
 `feat/agents-canonical-kgps` gives the ranking/continuation/evaluation/
-synthesis agents a `GraphPort` (ADR-0009). `AGENT_GRAPH_SOURCE=legacy|canonical`
+synthesis agents a `GraphPort` (ADR-0010). `AGENT_GRAPH_SOURCE=legacy|canonical`
 selects `LegacyGraphPort` (unchanged behaviour) or `CanonicalGraphPort`, which
 reads `Canon__Problem` identities/assertions/evidence through
 `migration/canonical_read.py` and holds no write surface. Terraform owns
@@ -31,8 +31,8 @@ data availability, connectivity, freshness). Runbook:
 
 ## P2 nightly review queue (2026-10-26)
 
-`feat/review-queue-p2` adds the adviser/human loop on top of P1 (#127, still
-open, so this branch is stacked on it). The new Cloud Run Job
+`feat/review-queue-p2` adds the adviser/human loop on top of P1 (#127, now
+merged, so this branch is based directly on master). The new Cloud Run Job
 `agentic-kg-adviser-<env>` runs `python -m agentic_kg.pipeline.curate` after the
 nightly ingest in the same Workflow, reads the run's KGIS ledger, re-runs the
 deterministic policy, and grades deferred candidates with a bounded KGCS

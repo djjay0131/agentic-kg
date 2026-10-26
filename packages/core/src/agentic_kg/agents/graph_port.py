@@ -2,7 +2,7 @@
 
 The agents used to reach into ``Neo4jRepository`` / ``SearchService`` /
 ``RelationService`` directly, which meant the only graph they could see was
-the legacy projection. ADR-0009 makes the source a choice without forking the
+the legacy projection. ADR-0010 makes the source a choice without forking the
 agents:
 
 * :class:`LegacyGraphPort` reproduces the pre-ADR behaviour exactly — the same
@@ -19,7 +19,7 @@ instead of silently falling back to legacy.
 
 The canonical ranking score is computed here, deterministically, from the four
 graph-native features the proposal names. The formula and its rationale are
-documented in ``llm/governance/adr/0009-research-agents-canonical-graph.md``.
+documented in ``llm/governance/adr/0010-research-agents-canonical-graph.md``.
 """
 
 from __future__ import annotations

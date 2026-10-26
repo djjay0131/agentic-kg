@@ -1,9 +1,9 @@
 ---
-title: "ADR-0009: Research agents over the canonical graph"
+title: "ADR-0010: Research agents over the canonical graph"
 nav_exclude: true
 ---
 
-# ADR-0009: Research agents over the canonical graph
+# ADR-0010: Research agents over the canonical graph
 
 Status: Proposed
 Date: 2026-10-26

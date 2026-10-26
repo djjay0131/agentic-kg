@@ -1,4 +1,4 @@
-"""End-to-end research agents over the canonical graph (ADR-0009).
+"""End-to-end research agents over the canonical graph (ADR-0010).
 
 The whole chain runs offline against a fake canonical reader: ranking,
 continuation, evaluation, synthesis. Synthesis must produce review-queue items

@@ -1,4 +1,4 @@
-"""GraphPort adapters (ADR-0009): legacy unchanged, canonical read-only."""
+"""GraphPort adapters (ADR-0010): legacy unchanged, canonical read-only."""
 
 from __future__ import annotations
 

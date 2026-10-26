@@ -1,4 +1,4 @@
-"""Agent provenance envelopes and output storage (ADR-0009)."""
+"""Agent provenance envelopes and output storage (ADR-0010)."""
 
 from __future__ import annotations
 

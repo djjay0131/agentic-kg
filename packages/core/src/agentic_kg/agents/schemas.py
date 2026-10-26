@@ -79,7 +79,7 @@ class RankedProblem(BaseModel):
         default=0, description="Number of related problems in the graph"
     )
 
-    # Canonical graph-native features (ADR-0009). ``None`` on the legacy
+    # Canonical graph-native features (ADR-0010). ``None`` on the legacy
     # source, where the historical LLM-only ranking is unchanged.
     graph_native_score: Optional[float] = Field(
         default=None, ge=0, le=1,
@@ -203,6 +203,32 @@ class MetricResult(BaseModel):
     notes: str = Field(default="", description="Additional context")
 
 
+class ExecutionProvenance(BaseModel):
+    """Reproducibility provenance for a sandboxed experiment run."""
+
+    backend: Optional[str] = Field(
+        default=None, description="Execution backend (docker or cloudrun_job)"
+    )
+    experiment_id: Optional[str] = Field(
+        default=None, description="Unique experiment id"
+    )
+    result_uri: Optional[str] = Field(
+        default=None, description="gs:// prefix containing script, inputs and outputs"
+    )
+    code_hash: Optional[str] = Field(
+        default=None, description="SHA-256 of the executed source code"
+    )
+    image_digest: Optional[str] = Field(
+        default=None, description="Container image digest when the backend knows it"
+    )
+    started_at: Optional[datetime] = Field(
+        default=None, description="UTC start time"
+    )
+    finished_at: Optional[datetime] = Field(
+        default=None, description="UTC finish time"
+    )
+
+
 class EvaluationResult(BaseModel):
     """Output of the Evaluation Agent."""
 
@@ -230,6 +256,9 @@ class EvaluationResult(BaseModel):
     verdict: str = Field(
         default="",
         description="Overall verdict: promising, inconclusive, or not_viable",
+    )
+    execution_provenance: Optional[ExecutionProvenance] = Field(
+        default=None, description="Where/how the experiment was executed"
     )
     output_id: str = Field(
         default="", description="Agent output id for provenance lookup"
@@ -270,7 +299,7 @@ class SynthesisItem(BaseModel):
     """One proposed canonical change, with its own provenance.
 
     On the canonical path nothing here is written directly: each item becomes
-    a review-queue candidate and only a human approval commits it (ADR-0009).
+    a review-queue candidate and only a human approval commits it (ADR-0010).
     """
 
     action: str = Field(

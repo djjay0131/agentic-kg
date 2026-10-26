@@ -457,12 +457,52 @@ resource "google_cloud_run_v2_service" "api" {
         value = var.env
       }
 
+      # Experiment execution backend. Terraform sets `cloudrun_job` in staging
+      # because a Cloud Run service has no Docker daemon (ADR-0010). The API
+      # only receives the bucket/job coordinates when the Job exists.
+      env {
+        name  = "EXPERIMENT_BACKEND"
+        value = var.experiment_backend
+      }
+
+      dynamic "env" {
+        for_each = var.experiment_bucket != "" ? [1] : []
+        content {
+          name  = "EXPERIMENT_GCS_BUCKET"
+          value = var.experiment_bucket
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.experiment_bucket != "" ? [1] : []
+        content {
+          name  = "EXPERIMENT_GCS_PREFIX"
+          value = var.experiment_gcs_prefix
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.experiment_bucket != "" ? [1] : []
+        content {
+          name  = "EXPERIMENT_GCS_ENDPOINT"
+          value = "https://private.googleapis.com"
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.experiment_bucket != "" ? [1] : []
+        content {
+          name  = "EXPERIMENT_JOB_NAME"
+          value = google_cloud_run_v2_job.experiment[0].name
+        }
+      }
+
       env {
         name  = "CORS_ORIGINS"
         value = "*"
       }
 
-      # ADR-0009: the research agents' graph source. Terraform owns it so a
+      # ADR-0010: the research agents' graph source. Terraform owns it so a
       # deploy that only rolls the image cannot silently flip it.
       env {
         name  = "AGENT_GRAPH_SOURCE"
@@ -536,7 +576,11 @@ resource "google_cloud_run_v2_service_iam_member" "api_public" {
 # Granted through the reviewed plan/apply path (ADR-0007: no hand-run IAM),
 # like deploy_service_account_admin; owner-approved 2026-10-11.
 resource "google_project_iam_member" "deploy_storage_admin" {
-  count   = var.deploy_service_account_email != "" && var.ingest_ledger_bucket != "" ? 1 : 0
+  count = (
+    var.deploy_service_account_email != ""
+    && (var.ingest_ledger_bucket != "" || var.experiment_bucket != "")
+    ? 1 : 0
+  )
   project = var.project_id
   role    = "roles/storage.admin"
   member  = "serviceAccount:${var.deploy_service_account_email}"
@@ -780,6 +824,259 @@ resource "google_cloud_run_v2_job" "ingest" {
 # IAM — API service account can trigger and poll ingest job (minimum permissions)
 resource "google_cloud_run_v2_job_iam_member" "api_can_run_ingest" {
   name     = google_cloud_run_v2_job.ingest.name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+}
+
+# =============================================================================
+# Experiment execution — Cloud Run Job backend (ADR-0010)
+# =============================================================================
+# The EvaluationAgent writes generated scripts and inputs to GCS, invokes this
+# Job with the script's gs:// URI, and reads stdout/stderr/metrics back from the
+# same prefix. Everything is created only when var.experiment_bucket is set;
+# environments that keep the local Docker backend create nothing here.
+#
+# Isolation model (ADR-0010):
+#   * dedicated runtime SA; no secret access, no project roles
+#   * bucket-only objectViewer/objectCreator, scoped to a single prefix
+#   * a dedicated VPC with ALL_TRAFFIC Direct VPC egress that has no route to
+#     the application network and an explicit deny for all internet egress
+#   * the only egress allow is the Private Google APIs VIP, so the Job can
+#     reach GCS but not Neo4j, the API, or arbitrary hosts
+#   * Cloud Run's filesystem is read-only except /tmp; the image runs as a
+#     non-root user
+
+resource "google_service_account" "experiment" {
+  count = var.experiment_bucket != "" ? 1 : 0
+
+  account_id   = "agentic-kg-experiment-${var.env}"
+  display_name = "Agentic KG experiment runner (${var.env})"
+
+  depends_on = [google_project_iam_member.deploy_service_account_admin]
+}
+
+resource "google_storage_bucket" "experiments" {
+  count = var.experiment_bucket != "" ? 1 : 0
+
+  name                        = var.experiment_bucket
+  location                    = var.region
+  storage_class               = "STANDARD"
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+  force_destroy               = false
+
+  lifecycle_rule {
+    condition {
+      age = 30
+    }
+    action {
+      type = "Delete"
+    }
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_project_iam_member.deploy_storage_admin,
+  ]
+}
+
+# The runner may create objects and read them back, but only under its own
+# experiment prefix. Conditions keep a compromised Job from reading another
+# environment's results in the same bucket.
+resource "google_storage_bucket_iam_member" "experiment_objects" {
+  for_each = var.experiment_bucket != "" ? toset([
+    "roles/storage.objectViewer",
+    "roles/storage.objectCreator",
+  ]) : toset([])
+
+  bucket = google_storage_bucket.experiments[0].name
+  role   = each.value
+  member = "serviceAccount:${google_service_account.experiment[0].email}"
+
+  condition {
+    title = "experiment-prefix-only"
+    expression = (
+      "resource.name.startsWith(\"projects/_/buckets/${google_storage_bucket.experiments[0].name}/objects/${var.experiment_gcs_prefix}/\")"
+    )
+  }
+}
+
+# The API writes the script/inputs and reads the outputs. Same prefix scope.
+resource "google_storage_bucket_iam_member" "experiment_api_objects" {
+  for_each = var.experiment_bucket != "" ? toset([
+    "roles/storage.objectViewer",
+    "roles/storage.objectCreator",
+  ]) : toset([])
+
+  bucket = google_storage_bucket.experiments[0].name
+  role   = each.value
+  member = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+
+  condition {
+    title = "experiment-prefix-only"
+    expression = (
+      "resource.name.startsWith(\"projects/_/buckets/${google_storage_bucket.experiments[0].name}/objects/${var.experiment_gcs_prefix}/\")"
+    )
+  }
+}
+
+resource "google_compute_network" "experiments" {
+  count = var.experiment_bucket != "" ? 1 : 0
+
+  name                    = "agentic-kg-experiments-${var.env}"
+  auto_create_subnetworks = false
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_compute_subnetwork" "experiments" {
+  count = var.experiment_bucket != "" ? 1 : 0
+
+  name                     = "agentic-kg-experiments-${var.env}"
+  ip_cidr_range            = var.experiment_subnet_cidr
+  region                   = var.region
+  network                  = google_compute_network.experiments[0].id
+  private_ip_google_access = true
+}
+
+# Direct VPC egress requires the runtime identity to attach to the subnet.
+# Scope this to the experiment subnet only, never the project or app network.
+resource "google_compute_subnetwork_iam_member" "experiment_network_user" {
+  count = var.experiment_bucket != "" ? 1 : 0
+
+  subnetwork = google_compute_subnetwork.experiments[0].id
+  region     = var.region
+  role       = "roles/compute.networkUser"
+  member     = "serviceAccount:${google_service_account.experiment[0].email}"
+}
+
+# Google creates a 0.0.0.0/0 route for every VPC and it cannot be deleted, so
+# the firewall is the egress control. Deny everything, then allow only the
+# Private/Private Google Access VIPs used by the GCS client.
+resource "google_compute_firewall" "experiment_deny_internet" {
+  count = var.experiment_bucket != "" ? 1 : 0
+
+  name      = "agentic-kg-experiment-deny-internet-${var.env}"
+  network   = google_compute_network.experiments[0].name
+  direction = "EGRESS"
+  priority  = 1000
+
+  deny {
+    protocol = "all"
+  }
+
+  destination_ranges = ["0.0.0.0/0"]
+}
+
+resource "google_compute_firewall" "experiment_allow_google_apis" {
+  count = var.experiment_bucket != "" ? 1 : 0
+
+  name      = "agentic-kg-experiment-allow-google-apis-${var.env}"
+  network   = google_compute_network.experiments[0].name
+  direction = "EGRESS"
+  priority  = 100
+
+  allow {
+    protocol = "tcp"
+    ports    = ["443"]
+  }
+
+  # private.googleapis.com and restricted.googleapis.com.
+  destination_ranges = ["199.36.153.4/30", "199.36.153.8/30"]
+}
+
+resource "google_cloud_run_v2_job" "experiment" {
+  count = var.experiment_bucket != "" ? 1 : 0
+
+  name     = "agentic-kg-experiment-${var.env}"
+  location = var.region
+
+  template {
+    parallelism = 1
+    task_count  = 1
+
+    template {
+      service_account = google_service_account.experiment[0].email
+      timeout         = "${var.experiment_job_timeout}s"
+      max_retries     = 0
+
+      containers {
+        image = "${var.region}-docker.pkg.dev/${var.project_id}/agentic-kg/experiment:latest"
+
+        resources {
+          limits = {
+            memory = var.experiment_job_memory
+            cpu    = var.experiment_job_cpu
+          }
+        }
+
+        env {
+          name  = "EXPERIMENT_BUCKET"
+          value = var.experiment_bucket
+        }
+
+        env {
+          name  = "EXPERIMENT_GCS_PREFIX"
+          value = var.experiment_gcs_prefix
+        }
+
+        # The Job has no internet egress; force the GCS client onto the Private
+        # Google APIs VIP that the firewall allow-list permits.
+        env {
+          name  = "EXPERIMENT_GCS_ENDPOINT"
+          value = "https://private.googleapis.com"
+        }
+      }
+
+      # ALL_TRAFFIC through a dedicated VPC that has no peering to the
+      # application network. Combined with the deny rule above, generated code
+      # cannot reach Neo4j or arbitrary internet hosts.
+      vpc_access {
+        network_interfaces {
+          network    = google_compute_network.experiments[0].id
+          subnetwork = google_compute_subnetwork.experiments[0].id
+        }
+        egress = "ALL_TRAFFIC"
+      }
+    }
+  }
+
+  # The experiment image is rolled by the deploy workflows, like the other Jobs.
+  lifecycle {
+    ignore_changes = [
+      client,
+      client_version,
+      template[0].template[0].containers[0].image,
+      template[0].labels,
+      template[0].annotations,
+    ]
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_service_account.experiment,
+    google_storage_bucket_iam_member.experiment_objects,
+    google_compute_subnetwork_iam_member.experiment_network_user,
+    google_compute_firewall.experiment_deny_internet,
+    google_compute_firewall.experiment_allow_google_apis,
+  ]
+}
+
+# The API may run this one Job with args/env overrides and poll its execution.
+resource "google_cloud_run_v2_job_iam_member" "api_can_run_experiment" {
+  count = var.experiment_bucket != "" ? 1 : 0
+
+  name     = google_cloud_run_v2_job.experiment[0].name
+  location = var.region
+  role     = "roles/run.jobsExecutorWithOverrides"
+  member   = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+}
+
+resource "google_cloud_run_v2_job_iam_member" "api_can_invoke_experiment" {
+  count = var.experiment_bucket != "" ? 1 : 0
+
+  name     = google_cloud_run_v2_job.experiment[0].name
   location = var.region
   role     = "roles/run.invoker"
   member   = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"

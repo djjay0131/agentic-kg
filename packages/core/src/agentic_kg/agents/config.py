@@ -23,7 +23,7 @@ class AgentLLMConfig:
 
 @dataclass
 class SandboxConfig:
-    """Docker sandbox configuration for the Evaluation Agent."""
+    """Execution sandbox configuration for the Evaluation Agent."""
 
     image: str = field(
         default_factory=lambda: os.getenv(
@@ -49,6 +49,41 @@ class SandboxConfig:
             "pandas",
         ]
     )
+
+    # Backend selection. ``docker`` is the local/dev default; staging sets
+    # ``cloudrun_job`` because Cloud Run has no Docker daemon.
+    backend: str = field(
+        default_factory=lambda: os.getenv("EXPERIMENT_BACKEND", "docker")
+    )
+    gcs_bucket: str = field(
+        default_factory=lambda: os.getenv("EXPERIMENT_GCS_BUCKET", "")
+    )
+    gcs_prefix: str = field(
+        default_factory=lambda: os.getenv("EXPERIMENT_GCS_PREFIX", "experiments")
+    )
+    gcs_endpoint: str = field(
+        default_factory=lambda: os.getenv(
+            "EXPERIMENT_GCS_ENDPOINT", "https://storage.googleapis.com"
+        )
+    )
+    project_id: str = field(
+        default_factory=lambda: os.getenv("GCP_PROJECT", "")
+    )
+    region: str = field(
+        default_factory=lambda: os.getenv("GCP_REGION", "us-central1")
+    )
+    job_name: str = field(
+        default_factory=lambda: os.getenv("EXPERIMENT_JOB_NAME", "")
+    )
+    image_digest: str | None = field(
+        default_factory=lambda: os.getenv("EXPERIMENT_IMAGE_DIGEST") or None
+    )
+    poll_interval_seconds: float = field(
+        default_factory=lambda: float(
+            os.getenv("EXPERIMENT_POLL_INTERVAL_SECONDS", "2")
+        )
+    )
+    max_output_chars: int = 50000
 
 
 @dataclass
@@ -81,7 +116,7 @@ class AgentConfig:
     ))
     sandbox: SandboxConfig = field(default_factory=SandboxConfig)
     checkpoints: CheckpointConfig = field(default_factory=CheckpointConfig)
-    #: ``AGENT_GRAPH_SOURCE``: legacy (default) or canonical (ADR-0009).
+    #: ``AGENT_GRAPH_SOURCE``: legacy (default) or canonical (ADR-0010).
     graph_source: str = field(default_factory=graph_source_from_env)
 
 

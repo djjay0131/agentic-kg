@@ -1,6 +1,6 @@
 """Turn synthesis output into review-queue candidates — never canonical writes.
 
-ADR-0009: on the canonical path the SynthesisAgent proposes, and a human
+ADR-0010: on the canonical path the SynthesisAgent proposes, and a human
 approves. This module builds the same ``kg_contracts`` candidate shapes the
 nightly ingest produces and wraps each one in a ``ReviewItem``. It imports the
 opt-in ``migration`` extra, so it is only imported *inside* a canonical-path

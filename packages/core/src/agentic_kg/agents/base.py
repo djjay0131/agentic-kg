@@ -36,7 +36,7 @@ class BaseAgent(ABC):
     The run() method takes the shared ResearchState, performs its work,
     and returns the updated state.
 
-    ``graph_port`` is the graph the agent reads (ADR-0009). When it is not
+    ``graph_port`` is the graph the agent reads (ADR-0010). When it is not
     supplied, a :class:`LegacyGraphPort` wraps the historical repository/search
     /relation dependencies, so existing call sites keep their exact behaviour.
     """

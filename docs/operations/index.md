@@ -17,5 +17,6 @@ that change its behavior.
 - [Semantic Scholar API key (staging ingest Job)](semantic-scholar-key-runbook.html)
 - [API key rotation (staging gated endpoints)](api-key-rotation-runbook.html)
 - [Reviewing the nightly queue](review-queue-runbook.html)
+- [Experiment execution (EvaluationAgent)](experiment-execution-runbook.html)
 - [Research agents on the canonical graph](agents-canonical-runbook.html)
 - [Deploy paths (automatic vs manual)](deploy-runbook.html)

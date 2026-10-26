@@ -36,6 +36,16 @@ output "ingest_ledger_bucket" {
   value       = var.ingest_ledger_bucket != "" ? google_storage_bucket.ledger[0].name : null
 }
 
+output "experiment_bucket" {
+  description = "GCS bucket for experiment execution artifacts (null when unset)"
+  value       = var.experiment_bucket != "" ? google_storage_bucket.experiments[0].name : null
+}
+
+output "experiment_job" {
+  description = "Cloud Run Job that executes EvaluationAgent experiments (null when unset)"
+  value       = var.experiment_bucket != "" ? google_cloud_run_v2_job.experiment[0].name : null
+}
+
 output "cloudbuild_trigger_api" {
   description = "Cloud Build trigger URL for API"
   value       = var.enable_build_triggers ? "https://console.cloud.google.com/cloud-build/triggers/edit/${google_cloudbuild_trigger.api[0].trigger_id}?project=${var.project_id}" : null
