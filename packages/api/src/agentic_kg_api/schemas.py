@@ -1,7 +1,7 @@
 """API request/response schemas."""
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Literal, Optional
 
 from agentic_kg.knowledge_graph.models.pipeline_run import PipelineTotals
 from pydantic import BaseModel, Field
@@ -930,3 +930,74 @@ class PipelineRunListResponse(BaseModel):
 
     runs: list[PipelineRunSummary] = Field(default_factory=list)
     next_cursor: Optional[str] = None
+
+
+# =============================================================================
+# Review Queue Schemas (nightly P2)
+# =============================================================================
+#
+# The queue is populated by the adviser stage (packages/core .../pipeline/
+# curate.py) and decided through this API. A decision is append-only: the
+# item's status is its current value, and every decision also writes a
+# :Canon__ReviewDecision node.
+
+
+class ReviewEvidenceRefResponse(BaseModel):
+    """One quoted evidence item shown to the reviewer."""
+
+    evidence_id: str
+    relationship: Optional[str] = None
+    content: Optional[str] = None
+
+
+class ReviewItemSummary(BaseModel):
+    """A compact ReviewItem row for the queue table."""
+
+    id: str
+    run_id: str
+    candidate_id: str
+    candidate_kind: str
+    entity_type: Optional[str] = None
+    candidate_summary: str = ""
+    adviser_verdict: str
+    confidence: Optional[float] = None
+    adviser_abstained: bool = False
+    status: str
+    committable: bool = True
+    commit_blocker: Optional[str] = None
+    created_at: str
+    decided_at: Optional[str] = None
+
+
+class ReviewItemDetail(ReviewItemSummary):
+    """The full review payload: evidence text, rationale and decision."""
+
+    namespace: str
+    candidate_payload: dict[str, Any] = Field(default_factory=dict)
+    evidence_refs: list[ReviewEvidenceRefResponse] = Field(default_factory=list)
+    rationale: str = ""
+    adviser_type: str = ""
+    adviser_version: str = ""
+    adviser_model_id: str = ""
+    adviser_model_version: str = ""
+    prompt_version: str = ""
+    decided_by: Optional[str] = None
+    decision_note: Optional[str] = None
+    committed_epoch: Optional[int] = None
+    committed_identity_ids: list[str] = Field(default_factory=list)
+
+
+class ReviewItemListResponse(BaseModel):
+    """Response for GET /api/review."""
+
+    items: list[ReviewItemSummary] = Field(default_factory=list)
+    total: int = 0
+    limit: int = 50
+    offset: int = 0
+
+
+class ReviewDecisionRequest(BaseModel):
+    """Body for POST /api/review/{id}."""
+
+    decision: Literal["approve", "reject"]
+    note: Optional[str] = None

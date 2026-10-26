@@ -25,6 +25,7 @@ from agentic_kg_api.routers import (
     ingest,
     papers,
     problems,
+    review,
     reviews,
     runs,
     search,
@@ -140,6 +141,7 @@ app.include_router(extract.router)
 app.include_router(graph.router)
 app.include_router(agents.router)
 app.include_router(reviews.router)
+app.include_router(review.router)
 app.include_router(ingest.router)
 app.include_router(topics.router)
 app.include_router(concepts.router)

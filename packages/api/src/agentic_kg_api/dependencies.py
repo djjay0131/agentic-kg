@@ -2,11 +2,16 @@
 
 import hmac
 import logging
+import os
 from typing import Optional
 
 from agentic_kg.knowledge_graph.pipeline_runs import PipelineRunRepository
 from agentic_kg.knowledge_graph.relations import RelationService, get_relation_service
 from agentic_kg.knowledge_graph.repository import Neo4jRepository, get_repository
+from agentic_kg.knowledge_graph.review_items import (
+    CandidateReviewService,
+    ReviewItemRepository,
+)
 from agentic_kg.knowledge_graph.review_queue import (
     ReviewQueueService,
     get_review_queue_service,
@@ -71,6 +76,21 @@ def get_pipeline_runs(
     a dependency override in tests.
     """
     return PipelineRunRepository(repo)
+
+
+def get_review_items(
+    repo: Neo4jRepository = Depends(get_repo),
+) -> CandidateReviewService:
+    """The nightly review-queue service for the canonical namespace.
+
+    Per-request (the object only holds a repository reference), so a test's
+    dependency override is always the one the router uses. The default commit
+    path is KGCS; the API test overrides the service with a fake committer.
+    """
+    namespace = os.getenv("KGCS_CANONICAL_NAMESPACE", "canon")
+    return CandidateReviewService(
+        ReviewItemRepository(repo, namespace=namespace)
+    )
 
 
 def reset_dependencies() -> None:
