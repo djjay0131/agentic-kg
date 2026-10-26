@@ -31,6 +31,10 @@ _review_queue_service: Optional[ReviewQueueService] = None
 #: request; it is released when the worker exits (FastAPI lifespan calls
 #: ``reset_dependencies``).
 _canonical_reader: Optional[object] = None
+#: Research-cycle gate service. Per-request construction is cheap, but the
+#: workflow runner is a process singleton resolved lazily so reading cycles
+#: does not require a configured LLM client.
+_research_cycle_service: Optional[object] = None
 
 
 def get_repo() -> Neo4jRepository:
@@ -93,15 +97,66 @@ def get_review_items(
     )
 
 
+class _LazyWorkflowRunner:
+    """Resolve the agent runner only when a resume actually needs it.
+
+    Listing cycles and pending gates must work even when the LLM client or the
+    workflow runner failed to initialise; only a decision needs the graph.
+    """
+
+    async def rank_candidates(self, *, max_problems: int = 20) -> list[dict]:
+        from agentic_kg_api.routers.agents import _get_runner
+
+        return await _get_runner().rank_candidates(max_problems=max_problems)
+
+    async def start_workflow(
+        self, *, candidate_problem_ids: list[str], max_problems: int = 20
+    ) -> str:
+        from agentic_kg_api.routers.agents import _get_runner
+
+        return await _get_runner().start_workflow(
+            candidate_problem_ids=candidate_problem_ids,
+            max_problems=max_problems,
+        )
+
+    async def get_state(self, run_id: str) -> dict:
+        from agentic_kg_api.routers.agents import _get_runner
+
+        return dict(await _get_runner().get_state(run_id))
+
+    async def resume_workflow(self, run_id: str, **kwargs):
+        from agentic_kg_api.routers.agents import _get_runner
+
+        return dict(await _get_runner().resume_workflow(run_id, **kwargs))
+
+
+def get_research_cycles(
+    repo: Neo4jRepository = Depends(get_repo),
+):
+    """The research-cycle gate service for the canonical namespace."""
+    global _research_cycle_service
+    if _research_cycle_service is None:
+        from agentic_kg.knowledge_graph.research_cycles import ResearchCycleRepository
+        from agentic_kg.pipeline.cycle import ResearchCycleService
+
+        namespace = os.getenv("KGCS_CANONICAL_NAMESPACE", "canon")
+        _research_cycle_service = ResearchCycleService(
+            ResearchCycleRepository(repo, namespace=namespace),
+            _LazyWorkflowRunner(),
+        )
+    return _research_cycle_service
+
+
 def reset_dependencies() -> None:
     """Reset all dependency singletons (for testing)."""
     global _repository, _search_service, _relation_service, _review_queue_service
-    global _canonical_reader
+    global _canonical_reader, _research_cycle_service
     _repository = None
     _search_service = None
     _relation_service = None
     _review_queue_service = None
     _canonical_reader = None
+    _research_cycle_service = None
     reset_review_queue_service()
 
 

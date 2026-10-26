@@ -1001,3 +1001,104 @@ class ReviewDecisionRequest(BaseModel):
 
     decision: Literal["approve", "reject"]
     note: Optional[str] = None
+
+
+# =============================================================================
+# Research-progression cycle schemas
+# =============================================================================
+#
+# A cycle is the durable record of one scheduling tick; its workflows stop at
+# human gates. The API exposes cycles and pending gates, and a decision resumes
+# the workflow through the durable checkpoint store. The decision is audited on
+# the cycle node (``decided_by`` / ``decided_at`` / ``note``).
+
+
+class ResearchGateDecisionResponse(BaseModel):
+    """One recorded gate decision."""
+
+    gate: str
+    decision: str
+    decided_by: str
+    decided_at: str
+    note: str = ""
+    edited_data: Optional[dict[str, Any]] = None
+
+
+class ResearchWorkflowResponse(BaseModel):
+    """One workflow started by a cycle."""
+
+    workflow_run_id: str
+    problem_id: str
+    problem_statement: str = ""
+    state: str
+    current_step: str = ""
+    pending_gate: Optional[str] = None
+    started_at: str = ""
+    updated_at: str = ""
+    finished_at: Optional[str] = None
+    gate_decisions: list[ResearchGateDecisionResponse] = Field(default_factory=list)
+    error: Optional[str] = None
+
+
+class ResearchCycleBudgetResponse(BaseModel):
+    max_llm_usd: float = 0.0
+    est_llm_usd: float = 0.0
+    max_experiments: int = 0
+    experiments: int = 0
+    max_wall_seconds: int = 0
+    wall_seconds: float = 0.0
+    stopped_by_budget: bool = False
+
+
+class ResearchCycleResponse(BaseModel):
+    """The full detail payload for one cycle."""
+
+    cycle_id: str
+    namespace: str
+    started_at: str
+    finished_at: Optional[str] = None
+    status: str
+    trigger: str
+    policy_version: str = ""
+    selected_problems: list[str] = Field(default_factory=list)
+    workflow_runs: list[ResearchWorkflowResponse] = Field(default_factory=list)
+    budget: ResearchCycleBudgetResponse = Field(
+        default_factory=ResearchCycleBudgetResponse
+    )
+    git_sha: str = ""
+    image: str = ""
+    note: Optional[str] = None
+
+
+class ResearchCycleListResponse(BaseModel):
+    """Response for GET /api/research/cycles."""
+
+    cycles: list[ResearchCycleResponse] = Field(default_factory=list)
+    total: int = 0
+
+
+class PendingResearchGate(BaseModel):
+    """A pending gate flattened for the Research page."""
+
+    cycle_id: str
+    workflow_run_id: str
+    problem_id: str
+    problem_statement: str = ""
+    gate: str
+    updated_at: str = ""
+
+
+class PendingResearchGateListResponse(BaseModel):
+    """Response for GET /api/research/gates."""
+
+    gates: list[PendingResearchGate] = Field(default_factory=list)
+    total: int = 0
+
+
+class ResearchGateDecisionRequest(BaseModel):
+    """Body for POST /api/research/gates/{cycle_id}/{workflow_run_id}."""
+
+    gate: Literal["select_problem", "approve_proposal", "review_evaluation"]
+    decision: Literal["approve", "reject", "edit"]
+    note: str = ""
+    edited_data: Optional[dict[str, Any]] = None

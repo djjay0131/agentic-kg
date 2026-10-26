@@ -25,6 +25,7 @@ from agentic_kg_api.routers import (
     ingest,
     papers,
     problems,
+    research,
     review,
     reviews,
     runs,
@@ -60,13 +61,21 @@ async def lifespan(app: FastAPI):
         search_svc = get_search()
         relation_svc = get_relations()
 
+        from agentic_kg.agents.checkpoint_store import create_durable_checkpointer
         from agentic_kg.agents.runner import WorkflowRunner
 
+        # Gate decisions resume days later and may be made in a different
+        # process than the one that started the workflow, so the API uses the
+        # Neo4j-backed checkpoint store rather than an in-memory saver.
+        checkpointer = create_durable_checkpointer(
+            repo, namespace=os.getenv("KGCS_CANONICAL_NAMESPACE", "canon")
+        )
         runner = WorkflowRunner(
             llm_client=llm_client,
             repository=repo,
             search_service=search_svc,
             relation_service=relation_svc,
+            checkpointer=checkpointer,
         )
         agents.set_workflow_runner(runner)
         setup_event_bridge()
@@ -142,6 +151,7 @@ app.include_router(graph.router)
 app.include_router(agents.router)
 app.include_router(reviews.router)
 app.include_router(review.router)
+app.include_router(research.router)
 app.include_router(ingest.router)
 app.include_router(topics.router)
 app.include_router(concepts.router)
