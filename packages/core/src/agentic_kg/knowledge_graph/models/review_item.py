@@ -126,7 +126,7 @@ class ReviewItem(BaseModel):
     adviser_model_version: str = ""
     prompt_version: str = ""
     #: ``adviser`` for the nightly KGIS adviser stage, ``agent`` for a research
-    #: agent that proposed the item (ADR-0009).
+    #: agent that proposed the item (ADR-0010).
     source: str = "adviser"
     agent_name: str = ""
     agent_output_id: str = ""
