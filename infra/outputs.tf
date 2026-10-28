@@ -81,3 +81,8 @@ output "nightly_service_account" {
   description = "Runtime/OAuth service account for the nightly pipeline (null when disabled)"
   value       = var.nightly_enabled ? local.nightly_sa_email : null
 }
+
+output "nightly_notification_channel" {
+  description = "Email notification channel for nightly run alerts (null when notifications or nightly are disabled)"
+  value       = var.nightly_enabled && var.nightly_notify_enabled ? google_monitoring_notification_channel.nightly_email[0].name : null
+}

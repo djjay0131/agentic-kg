@@ -18,3 +18,4 @@ that change its behavior.
 - [API key rotation (staging gated endpoints)](api-key-rotation-runbook.html)
 - [Experiment execution (EvaluationAgent)](experiment-execution-runbook.html)
 - [Deploy paths (automatic vs manual)](deploy-runbook.html)
+- [Nightly pipeline notifications](nightly-runbook.html)
