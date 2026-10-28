@@ -152,16 +152,77 @@ export default function RunDetailPage() {
 
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <h2 className="text-sm font-medium text-gray-500 mb-4">Review queue</h2>
-          <p className="text-3xl font-semibold text-gray-900">
-            {run.review_queue_size === null ? '—' : run.review_queue_size}
-          </p>
+          {run.review_queue_size === null ? (
+            <p className="text-3xl font-semibold text-gray-900">—</p>
+          ) : (
+            <Link
+              href={`/review?run_id=${encodeURIComponent(run.run_id)}`}
+              className="text-3xl font-semibold text-primary-600 hover:underline"
+            >
+              {run.review_queue_size}
+            </Link>
+          )}
           <p className="text-xs text-gray-500 mt-1">
             {run.review_queue_size === null
-              ? 'Not available until the review-queue stage ships.'
+              ? 'The adviser stage did not run for this nightly (for example, legacy ingest writes no KGIS ledger).'
               : 'Items pending human review.'}
           </p>
+          {Object.keys(run.adviser_verdicts ?? {}).length > 0 && (
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                Adviser verdicts
+              </h3>
+              <ul className="space-y-1 text-sm">
+                {Object.entries(run.adviser_verdicts).map(([verdict, count]) => (
+                  <li key={verdict} className="flex justify-between">
+                    <span className="text-gray-700">{verdict}</span>
+                    <span className="text-gray-900 font-medium">{count}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </div>
+
+      {Object.keys(run.adviser_human_agreement ?? {}).length > 0 && (
+        <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
+          <h2 className="text-sm font-medium text-gray-500 mb-3">
+            Adviser–human agreement to date
+          </h2>
+          <div className="overflow-x-auto">
+            <table className="min-w-full">
+              <thead>
+                <tr>
+                  <th scope="col">Entity type</th>
+                  <th scope="col">Decided</th>
+                  <th scope="col">Agreed</th>
+                  <th scope="col">Rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.values(run.adviser_human_agreement).map((row) => (
+                  <tr key={row.entity_type}>
+                    <td className="text-gray-900">{row.entity_type}</td>
+                    <td className="text-gray-700">{row.decided}</td>
+                    <td className="text-gray-700">{row.agreed}</td>
+                    <td className="text-gray-700">
+                      {row.agreement_rate === null
+                        ? '—'
+                        : `${(row.agreement_rate * 100).toFixed(0)}%`}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            Agreement compares the adviser&apos;s verdict with the human decision
+            across every decided item in this namespace; it is not scoped to this
+            run.
+          </p>
+        </div>
+      )}
 
       {/* Queries */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden mb-6">

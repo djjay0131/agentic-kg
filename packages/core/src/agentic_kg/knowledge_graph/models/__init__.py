@@ -59,6 +59,13 @@ from .relationships import (
     ProblemRelation,
     ReframesRelation,
 )
+from .review_item import (
+    ReviewAgreement,
+    ReviewDecisionRecord,
+    ReviewEvidenceRef,
+    ReviewItem,
+    ReviewItemStatus,
+)
 
 # Supporting models
 from .supporting import (
@@ -121,6 +128,12 @@ __all__ = [
     "PipelineRunStatus",
     "PipelineRunTrigger",
     "PipelineTotals",
+    # Review-queue models (P2 nightly review queue)
+    "ReviewAgreement",
+    "ReviewDecisionRecord",
+    "ReviewEvidenceRef",
+    "ReviewItem",
+    "ReviewItemStatus",
     # Relationship models
     "AuthoredByRelation",
     "ContradictsRelation",

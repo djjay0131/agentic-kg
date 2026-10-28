@@ -1673,6 +1673,9 @@ locals {
     ? var.nightly_service_account_email
     : "agentic-kg-nightly@${var.project_id}.iam.gserviceaccount.com"
   )
+  # The workflow always names this Job; when the stage is disabled the Job does
+  # not exist and the `curate` argument is false, so the step is skipped.
+  adviser_job_id = var.nightly_enabled && var.nightly_curate_enabled ? google_cloud_run_v2_job.adviser[0].id : ""
 }
 
 resource "google_service_account" "nightly" {
@@ -1986,6 +1989,203 @@ resource "google_cloud_run_v2_job" "nightly" {
   ]
 }
 
+# ---- Cloud Run Job: adviser / review queue (P2) ---------------------------
+# Runs after the ingest Job in the same workflow. It reads the run's ledger and
+# writes canonical-path ReviewItems; an approval later commits through KGCS from
+# the API. Same image, same secrets, same ledger/runs volumes, same SA.
+resource "google_cloud_run_v2_job" "adviser" {
+  provider = google-beta
+  count    = var.nightly_enabled && var.nightly_curate_enabled ? 1 : 0
+
+  name         = "agentic-kg-adviser-${var.env}"
+  location     = var.region
+  launch_stage = "BETA"
+
+  template {
+    parallelism = 1
+    task_count  = 1
+
+    template {
+      service_account = local.nightly_sa_email
+
+      dynamic "volumes" {
+        for_each = var.ingest_ledger_bucket != "" ? [1] : []
+        content {
+          name = "ledger"
+          gcs {
+            bucket    = var.ingest_ledger_bucket
+            read_only = false
+          }
+        }
+      }
+
+      dynamic "volumes" {
+        for_each = var.nightly_runs_bucket != "" ? [1] : []
+        content {
+          name = "runs"
+          gcs {
+            bucket    = var.nightly_runs_bucket
+            read_only = false
+          }
+        }
+      }
+
+      containers {
+        image = "${var.region}-docker.pkg.dev/${var.project_id}/agentic-kg/job:latest"
+
+        command = ["python", "-m", "agentic_kg.pipeline.curate"]
+
+        dynamic "volume_mounts" {
+          for_each = var.ingest_ledger_bucket != "" ? [1] : []
+          content {
+            name       = "ledger"
+            mount_path = var.ingest_ledger_mount_path
+          }
+        }
+
+        dynamic "volume_mounts" {
+          for_each = var.nightly_runs_bucket != "" ? [1] : []
+          content {
+            name       = "runs"
+            mount_path = var.nightly_runs_mount_path
+          }
+        }
+
+        resources {
+          limits = {
+            memory = var.ingest_job_memory
+            cpu    = var.ingest_job_cpu
+          }
+        }
+
+        env {
+          name = "NEO4J_URI"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.neo4j_uri.secret_id
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "NEO4J_PASSWORD"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.neo4j_password.secret_id
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "OPENAI_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = "OPENAI_API_KEY"
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "ANTHROPIC_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = "ANTHROPIC_API_KEY"
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name  = "NIGHTLY_LEDGER_DIR"
+          value = var.ingest_ledger_dir
+        }
+
+        dynamic "env" {
+          for_each = var.kgis_kgcs_enabled ? [1] : []
+          content {
+            name  = "KGIS_INGESTION_ENABLED"
+            value = "1"
+          }
+        }
+
+        dynamic "env" {
+          for_each = var.kgis_kgcs_enabled ? [1] : []
+          content {
+            name  = "KGCS_RESOLUTION_ENABLED"
+            value = "1"
+          }
+        }
+
+        env {
+          name  = "KGCS_CANONICAL_NAMESPACE"
+          value = var.canonical_namespace
+        }
+
+        env {
+          name  = "NIGHTLY_RUNS_DIR"
+          value = var.nightly_runs_mount_path
+        }
+
+        env {
+          name  = "NIGHTLY_RUNS_BUCKET"
+          value = var.nightly_runs_bucket
+        }
+
+        env {
+          name  = "NIGHTLY_MAX_LLM_USD"
+          value = tostring(var.nightly_max_llm_usd)
+        }
+
+        env {
+          name  = "NIGHTLY_CURATE_MAX_ITEMS"
+          value = tostring(var.nightly_curate_max_items)
+        }
+      }
+
+      vpc_access {
+        network_interfaces {
+          network    = var.network
+          subnetwork = data.google_compute_subnetwork.neo4j.id
+        }
+        egress = var.neo4j_vpc_egress
+      }
+
+      timeout     = "${var.nightly_timeout}s"
+      max_retries = 0
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [
+      client,
+      client_version,
+      template[0].template[0].containers[0].image,
+      template[0].labels,
+      template[0].annotations,
+    ]
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_project_iam_member.nightly_secret_accessor,
+    google_project_iam_member.nightly_network_user,
+    google_secret_manager_secret_version.neo4j_uri,
+  ]
+}
+
+# The workflow's SA (also both Jobs' runtime SA) may invoke the adviser Job.
+resource "google_cloud_run_v2_job_iam_member" "adviser_runner" {
+  count = var.nightly_enabled && var.nightly_curate_enabled ? 1 : 0
+
+  name     = google_cloud_run_v2_job.adviser[0].name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${local.nightly_sa_email}"
+}
+
 # The workflow's SA (also the Job's runtime SA) may invoke the nightly Job.
 resource "google_cloud_run_v2_job_iam_member" "nightly_runner" {
   count = var.nightly_enabled ? 1 : 0
@@ -2015,7 +2215,10 @@ resource "google_workflows_workflow" "nightly" {
         - init:
             assign:
               - trigger: $${default(args.trigger, "schedule")}
-        - runJob:
+              - curate: $${default(args.curate, ${var.nightly_curate_enabled})}
+              - resultOperation: null
+              - failure: null
+        - runIngest:
             try:
               call: googleapis.run.v2.projects.locations.jobs.run
               args:
@@ -2026,41 +2229,101 @@ resource "google_workflows_workflow" "nightly" {
                       - env:
                           - name: NIGHTLY_TRIGGER
                             value: $${trigger}
-              result: operation
+              result: ingestOperation
             except:
               as: error
               steps:
-                - logFailure:
+                - logIngestFailure:
                     call: sys.log
                     args:
                       severity: ERROR
                       text: $${"pipeline_run_failed " + json.encode_to_string(error)}
-                - fail:
+                - failIngest:
                     raise: $${error}
-        - poll:
+        - rememberIngest:
+            assign:
+              - resultOperation: $${ingestOperation.name}
+            next: pollIngest
+        - pollIngest:
             call: googleapis.run.v2.projects.locations.operations.get
             args:
-              name: $${operation.name}
-            result: status
-        - checkDone:
+              name: $${ingestOperation.name}
+            result: ingestStatus
+        - checkIngestDone:
             switch:
-              - condition: $${status.done != true}
-                next: wait
-            next: checkResult
-        - wait:
+              - condition: $${ingestStatus.done != true}
+                next: waitIngest
+            next: checkIngestResult
+        - waitIngest:
             call: sys.sleep
             args:
               seconds: 30
-            next: poll
-        - checkResult:
+            next: pollIngest
+        - checkIngestResult:
             switch:
-              - condition: $${status.error != null}
-                next: failed
+              - condition: $${ingestStatus.error != null}
+                next: ingestFailed
+              - condition: $${curate == true}
+                next: runAdviser
             next: succeeded
+        - ingestFailed:
+            assign:
+              - failure: $${ingestStatus.error}
+            next: failed
+        - runAdviser:
+            try:
+              call: googleapis.run.v2.projects.locations.jobs.run
+              args:
+                name: ${local.adviser_job_id}
+                body:
+                  overrides:
+                    containerOverrides:
+                      - env:
+                          - name: NIGHTLY_TRIGGER
+                            value: $${trigger}
+              result: adviserOperation
+            except:
+              as: error
+              steps:
+                - logAdviserFailure:
+                    call: sys.log
+                    args:
+                      severity: ERROR
+                      text: $${"adviser_stage_failed " + json.encode_to_string(error)}
+                - failAdviser:
+                    raise: $${error}
+        - rememberAdviser:
+            assign:
+              - resultOperation: $${adviserOperation.name}
+            next: pollAdviser
+        - pollAdviser:
+            call: googleapis.run.v2.projects.locations.operations.get
+            args:
+              name: $${adviserOperation.name}
+            result: adviserStatus
+        - checkAdviserDone:
+            switch:
+              - condition: $${adviserStatus.done != true}
+                next: waitAdviser
+            next: checkAdviserResult
+        - waitAdviser:
+            call: sys.sleep
+            args:
+              seconds: 30
+            next: pollAdviser
+        - checkAdviserResult:
+            switch:
+              - condition: $${adviserStatus.error != null}
+                next: adviserFailed
+            next: succeeded
+        - adviserFailed:
+            assign:
+              - failure: $${adviserStatus.error}
+            next: failed
         - succeeded:
-            return: $${operation.name}
+            return: $${resultOperation}
         - failed:
-            raise: $${status.error}
+            raise: $${failure}
   YAML
 
   depends_on = [google_project_service.apis]
@@ -2106,7 +2369,10 @@ resource "google_cloud_scheduler_job" "nightly" {
       "Content-Type" = "application/json"
     }
     body = base64encode(jsonencode({
-      argument = jsonencode({ trigger = "schedule" })
+      argument = jsonencode({
+        trigger = "schedule"
+        curate  = var.nightly_curate_enabled
+      })
     }))
     oauth_token {
       service_account_email = local.nightly_sa_email

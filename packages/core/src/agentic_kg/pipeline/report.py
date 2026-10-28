@@ -45,6 +45,22 @@ def report_json(run: PipelineRun) -> str:
     return json.dumps(run.model_dump(mode="json"), indent=2, sort_keys=False)
 
 
+def write_latest_run_id(run_id: str, *, runs_dir: str | Path) -> Path:
+    """Write the ``.latest_run_id`` marker the adviser Job reads.
+
+    Cloud Workflows does not parse a Job's stdout, so the run id cannot be
+    handed from the ingest Job to the adviser Job through the workflow. Both
+    Jobs mount the same runs bucket; this marker is the handoff. It is written
+    in the same ``nightly/`` directory as the report and is deliberately not a
+    ``.json`` file, so nothing lists it as a run.
+    """
+    target_dir = Path(runs_dir) / "nightly"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / ".latest_run_id"
+    target.write_text(run_id + "\n", encoding="utf-8")
+    return target
+
+
 def write_report_json(
     run: PipelineRun,
     *,
@@ -70,5 +86,6 @@ __all__ = [
     "new_run_id",
     "report_json",
     "utc_now",
+    "write_latest_run_id",
     "write_report_json",
 ]

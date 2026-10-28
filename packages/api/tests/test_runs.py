@@ -19,7 +19,7 @@ from agentic_kg.knowledge_graph.pipeline_runs import (
     InvalidCursorError,
     PipelineRunNotFoundError,
 )
-from agentic_kg_api.dependencies import get_pipeline_runs
+from agentic_kg_api.dependencies import get_pipeline_runs, get_review_items
 from agentic_kg_api.main import app
 from fastapi.testclient import TestClient
 
@@ -94,9 +94,17 @@ def store() -> FakeRunStore:
     return FakeRunStore()
 
 
+class FakeReviewService:
+    """The run detail's agreement projection, without a Neo4j connection."""
+
+    def agreement_by_entity_type(self):
+        return {}
+
+
 @pytest.fixture
 def runs_client(store):
     app.dependency_overrides[get_pipeline_runs] = lambda: store
+    app.dependency_overrides[get_review_items] = lambda: FakeReviewService()
     try:
         yield TestClient(app)
     finally:
