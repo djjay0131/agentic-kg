@@ -168,7 +168,7 @@ READ_PATHS: tuple[ReadPath, ...] = (
         id="agent.ranking.candidates_by_topic",
         surface="LegacyGraphPort.list_candidates (topic_filter set)",
         source_file=f"{CORE}/agents/graph_port.py",
-        snippet="topic_id=topic_filter, status=status, top_k=max_problems",
+        snippet="topic_id=topic_filter, status=status_filter, top_k=max_problems",
         labels=("Problem", "ProblemConcept", "ProblemMention", "Paper", "Topic"),
         relationships=(
             "BELONGS_TO",

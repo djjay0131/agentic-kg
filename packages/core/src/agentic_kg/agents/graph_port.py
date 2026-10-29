@@ -178,17 +178,20 @@ class LegacyGraphPort:
         status_filter: str | None,
         max_problems: int,
     ) -> list[GraphProblem]:
-        status = status_filter or "open"
         if self._search:
             if topic_filter:
                 results = self._search.structured_search(
-                    topic_id=topic_filter, status=status, top_k=max_problems
+                    topic_id=topic_filter, status=status_filter, top_k=max_problems
                 )
             else:
-                results = self._search.structured_search(status=status, top_k=max_problems)
+                results = self._search.structured_search(
+                    status=status_filter, top_k=max_problems
+                )
             problems = [r.problem for r in results]
         else:
-            problems = self._repo.list_problems(status=status, limit=max_problems)
+            problems = self._repo.list_problems(
+                status=status_filter, limit=max_problems
+            )
 
         out: list[GraphProblem] = []
         for problem in problems:

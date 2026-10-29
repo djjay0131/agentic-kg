@@ -220,7 +220,10 @@ class TestLegacyGraphPort:
         port = LegacyGraphPort(repository=None, search_service=search)
         problems = port.list_candidates(topic_filter="t1", status_filter=None, max_problems=5)
         assert [p.problem_id for p in problems] == ["p1"]
-        assert search.calls == [{"topic_id": "t1", "status": "open", "top_k": 5}]
+        # Pre-ADR behaviour: a missing status is ``None`` (unfiltered), not the
+        # "open" string, which ``structured_search`` would dereference as an
+        # enum and raise on (defect D-4).
+        assert search.calls == [{"topic_id": "t1", "status": None, "top_k": 5}]
         assert problems[0].graph_native_score is None
 
     def test_falls_back_to_repository(self):
@@ -228,7 +231,7 @@ class TestLegacyGraphPort:
 
         class Repo:
             def list_problems(self, **kwargs):
-                assert kwargs == {"status": "open", "limit": 3}
+                assert kwargs == {"status": None, "limit": 3}
                 return [
                     SimpleNamespace(
                         id="p2",
