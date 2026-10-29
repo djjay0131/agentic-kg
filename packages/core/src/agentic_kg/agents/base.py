@@ -11,9 +11,15 @@ import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
+from agentic_kg.agents.graph_port import (
+    SOURCE_LEGACY,
+    GraphPort,
+    LegacyGraphPort,
+)
 from agentic_kg.agents.state import ResearchState
 
 if TYPE_CHECKING:
+    from agentic_kg.agents.provenance import AgentOutputStore
     from agentic_kg.extraction.llm_client import BaseLLMClient
     from agentic_kg.knowledge_graph.relations import RelationService
     from agentic_kg.knowledge_graph.repository import Neo4jRepository
@@ -29,6 +35,10 @@ class BaseAgent(ABC):
     Each agent receives injectable dependencies for KG access and LLM calls.
     The run() method takes the shared ResearchState, performs its work,
     and returns the updated state.
+
+    ``graph_port`` is the graph the agent reads (ADR-0010). When it is not
+    supplied, a :class:`LegacyGraphPort` wraps the historical repository/search
+    /relation dependencies, so existing call sites keep their exact behaviour.
     """
 
     def __init__(
@@ -37,11 +47,24 @@ class BaseAgent(ABC):
         repository: Neo4jRepository,
         search_service: SearchService | None = None,
         relation_service: RelationService | None = None,
+        *,
+        graph_port: GraphPort | None = None,
+        output_store: AgentOutputStore | None = None,
+        source: str = SOURCE_LEGACY,
+        model: str | None = None,
+        prompt_version: str = "",
     ) -> None:
         self.llm = llm_client
         self.repo = repository
         self.search = search_service
         self.relations = relation_service
+        self.port: GraphPort = graph_port or LegacyGraphPort(
+            repository, search_service, relation_service
+        )
+        self.output_store = output_store
+        self.source = source
+        self.model = model
+        self.prompt_version = prompt_version
 
     @property
     @abstractmethod

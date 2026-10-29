@@ -199,6 +199,24 @@ variable "kgis_kgcs_enabled" {
   default     = false
 }
 
+variable "agent_graph_source" {
+  description = <<-EOT
+    Which graph the research agents read (ADR-0010): "legacy" (the Neo4j
+    problem projection, the historical behaviour) or "canonical" (KGCS
+    Canon__Problem identities at the latest epoch). Defaults to legacy so
+    staging is unchanged until an operator flips it. A canonical run also
+    needs the migration extra and a canonical reader; agents never write
+    canonical state directly — synthesis queues review items.
+  EOT
+  type        = string
+  default     = "legacy"
+
+  validation {
+    condition     = contains(["legacy", "canonical"], var.agent_graph_source)
+    error_message = "agent_graph_source must be \"legacy\" or \"canonical\"."
+  }
+}
+
 variable "canonical_namespace" {
   description = "KGCS canonical namespace, shared by the API and the ingest Job (ADR-0005 isolation boundary)"
   type        = string
@@ -235,7 +253,7 @@ variable "ingest_ledger_mount_path" {
   default     = "/mnt/ledger"
 }
 
-# Experiment execution backend (ADR-0009) ----------------------------------------
+# Experiment execution backend (ADR-0010) ----------------------------------------
 
 variable "experiment_backend" {
   description = "EvaluationAgent execution backend: docker (local default) or cloudrun_job"

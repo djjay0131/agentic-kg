@@ -458,7 +458,7 @@ resource "google_cloud_run_v2_service" "api" {
       }
 
       # Experiment execution backend. Terraform sets `cloudrun_job` in staging
-      # because a Cloud Run service has no Docker daemon (ADR-0009). The API
+      # because a Cloud Run service has no Docker daemon (ADR-0010). The API
       # only receives the bucket/job coordinates when the Job exists.
       env {
         name  = "EXPERIMENT_BACKEND"
@@ -500,6 +500,13 @@ resource "google_cloud_run_v2_service" "api" {
       env {
         name  = "CORS_ORIGINS"
         value = "*"
+      }
+
+      # ADR-0010: the research agents' graph source. Terraform owns it so a
+      # deploy that only rolls the image cannot silently flip it.
+      env {
+        name  = "AGENT_GRAPH_SOURCE"
+        value = var.agent_graph_source
       }
 
       # KGIS/KGCS opt-in seam (ADR-0004/ADR-0005, issue #112). Declared here so
@@ -823,14 +830,14 @@ resource "google_cloud_run_v2_job_iam_member" "api_can_run_ingest" {
 }
 
 # =============================================================================
-# Experiment execution — Cloud Run Job backend (ADR-0009)
+# Experiment execution — Cloud Run Job backend (ADR-0010)
 # =============================================================================
 # The EvaluationAgent writes generated scripts and inputs to GCS, invokes this
 # Job with the script's gs:// URI, and reads stdout/stderr/metrics back from the
 # same prefix. Everything is created only when var.experiment_bucket is set;
 # environments that keep the local Docker backend create nothing here.
 #
-# Isolation model (ADR-0009):
+# Isolation model (ADR-0010):
 #   * dedicated runtime SA; no secret access, no project roles
 #   * bucket-only objectViewer/objectCreator, scoped to a single prefix
 #   * a dedicated VPC with ALL_TRAFFIC Direct VPC egress that has no route to

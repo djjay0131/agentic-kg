@@ -8,13 +8,13 @@ evaluation code in a sandboxed Docker environment.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from agentic_kg.agents.base import BaseAgent
 from agentic_kg.agents.prompts import (
     EVALUATION_CODE_PROMPT,
     EVALUATION_SYSTEM_PROMPT,
 )
+from agentic_kg.agents.provenance import build_provenance, record_agent_output
 from agentic_kg.agents.sandbox import (
     ExecutionBackend,
     SandboxResult,
@@ -70,13 +70,11 @@ class EvaluationAgent(BaseAgent):
             proposal = ContinuationProposal.model_validate(proposal_data)
 
             # Load problem context for code generation
-            problem = self.repo.get_problem(proposal.problem_id)
+            context = self.port.load_context(proposal.problem_id)
 
             # Step 1: Generate evaluation code
-            code = await self._generate_code(proposal, problem)
-            state = add_message(
-                state, self.name, f"Generated evaluation code ({len(code)} chars)"
-            )
+            code = await self._generate_code(proposal, context)
+            state = add_message(state, self.name, f"Generated evaluation code ({len(code)} chars)")
 
             # Step 2: Execute in sandbox
             sandbox_result = self._execute_code(code)
@@ -88,12 +86,9 @@ class EvaluationAgent(BaseAgent):
             )
 
             # Step 3: Interpret results with LLM
-            eval_result = await self._interpret_results(
-                proposal, sandbox_result, problem
-            )
-            state = add_message(
-                state, self.name, f"Verdict: {eval_result.verdict}"
-            )
+            eval_result = await self._interpret_results(proposal, sandbox_result, context)
+            self._attach_provenance(eval_result, proposal, context, state=state)
+            state = add_message(state, self.name, f"Verdict: {eval_result.verdict}")
 
             return {
                 **state,
@@ -106,20 +101,52 @@ class EvaluationAgent(BaseAgent):
             state = add_message(state, self.name, f"Error: {e}")
             return {**state, "errors": state.get("errors", []) + [str(e)]}
 
-    async def _generate_code(self, proposal: ContinuationProposal, problem: Any) -> str:
+    def _attach_provenance(self, eval_result, proposal, context, *, state) -> None:
+        run_id = state.get("run_id") or ""
+        trace_id = state.get("trace_id") or run_id
+        upstream = [proposal.output_id] if proposal.output_id else []
+        provenance = build_provenance(
+            agent=self.name,
+            run_id=run_id,
+            trace_id=trace_id,
+            source=self.source,
+            assertion_ids=context.assertion_ids,
+            assertion_evidence=context.assertion_evidence,
+            evidence_ids=context.evidence_ids,
+            derived_from=upstream,
+            problem_ids=[proposal.problem_id],
+            model=self.model,
+            prompt_version=self.prompt_version,
+            rationale=(
+                f"{eval_result.verdict}: feasibility "
+                f"{eval_result.feasibility_score:.2f}; execution "
+                f"success={eval_result.execution_success}"
+            ),
+        )
+        payload = eval_result.model_dump(mode="json", exclude={"provenance"})
+        eval_result.output_id = record_agent_output(
+            self.output_store,
+            agent=self.name,
+            run_id=run_id,
+            source=self.source,
+            output_kind="evaluation_result",
+            payload=payload,
+            provenance=provenance,
+            model=self.model,
+            prompt_version=self.prompt_version,
+        )
+        eval_result.provenance = provenance
+
+    async def _generate_code(self, proposal: ContinuationProposal, context) -> str:
         """Generate Python evaluation script via LLM."""
         steps_text = "\n".join(
             f"  {s.step_number}. {s.description}" for s in proposal.experimental_steps
         )
-        datasets_text = "\n".join(
-            f"  - {d.name}" for d in (problem.datasets or [])
-        ) or "None specified"
-        metrics_text = "\n".join(
-            f"  - {m.name}" for m in (problem.metrics or [])
-        ) or "None specified"
+        datasets_text = "\n".join(f"  - {d.name}" for d in context.datasets) or "None specified"
+        metrics_text = "\n".join(f"  - {m.name}" for m in context.metrics) or "None specified"
 
         user_prompt = EVALUATION_CODE_PROMPT.format(
-            statement=problem.statement,
+            statement=context.statement,
             methodology=proposal.methodology,
             expected_outcome=proposal.expected_outcome,
             metrics=metrics_text,
@@ -152,7 +179,7 @@ class EvaluationAgent(BaseAgent):
         self,
         proposal: ContinuationProposal,
         sandbox_result: SandboxResult,
-        problem: Any,
+        context,
     ) -> EvaluationResult:
         """Use LLM to interpret sandbox results and produce final evaluation."""
         metrics_data = sandbox_result.parse_metrics()
@@ -162,7 +189,7 @@ class EvaluationAgent(BaseAgent):
             for name, value in metrics_data["metrics"].items():
                 # Try to find baseline for this metric
                 baseline = None
-                for m in problem.metrics or []:
+                for m in context.metrics:
                     if m.name.lower() == name.lower():
                         baseline = m.baseline_value
                         break
@@ -187,9 +214,7 @@ class EvaluationAgent(BaseAgent):
         elif not sandbox_result.success:
             verdict = "inconclusive"
             feasibility = 0.3
-        elif metrics_results and any(
-            r.improvement and r.improvement > 0 for r in metrics_results
-        ):
+        elif metrics_results and any(r.improvement and r.improvement > 0 for r in metrics_results):
             verdict = "promising"
             feasibility = 0.8
         else:

@@ -140,9 +140,9 @@ READ_PATHS: tuple[ReadPath, ...] = (
     # ------------------------------------------------------------------
     ReadPath(
         id="agent.ranking.candidates",
-        surface="RankingAgent._query_candidates (no topic filter)",
-        source_file=f"{CORE}/agents/ranking.py",
-        snippet="results = self.search.structured_search(",
+        surface="LegacyGraphPort.list_candidates (no topic filter)",
+        source_file=f"{CORE}/agents/graph_port.py",
+        snippet="results = self._search.structured_search(",
         labels=("Problem", "ProblemConcept", "ProblemMention"),
         relationships=("INSTANCE_OF",),
         properties=("id", "statement", "status", "created_at", "extraction_metadata"),
@@ -166,9 +166,9 @@ READ_PATHS: tuple[ReadPath, ...] = (
     ),
     ReadPath(
         id="agent.ranking.candidates_by_topic",
-        surface="RankingAgent._query_candidates (topic_filter set)",
-        source_file=f"{CORE}/agents/ranking.py",
-        snippet="topic_id=topic_id,",
+        surface="LegacyGraphPort.list_candidates (topic_filter set)",
+        source_file=f"{CORE}/agents/graph_port.py",
+        snippet="topic_id=topic_filter, status=status_filter, top_k=max_problems",
         labels=("Problem", "ProblemConcept", "ProblemMention", "Paper", "Topic"),
         relationships=(
             "BELONGS_TO",
@@ -188,8 +188,8 @@ READ_PATHS: tuple[ReadPath, ...] = (
     ),
     ReadPath(
         id="agent.continuation.topic_name",
-        surface="ContinuationAgent._lookup_topic_name",
-        source_file=f"{CORE}/agents/continuation.py",
+        surface="LegacyGraphPort._lookup_topic_name",
+        source_file=f"{CORE}/agents/graph_port.py",
         snippet="MATCH (n {id: $id})",
         also=(
             "OPTIONAL MATCH (n)-[:BELONGS_TO]->(t1:Topic)",
@@ -216,9 +216,9 @@ READ_PATHS: tuple[ReadPath, ...] = (
     ),
     ReadPath(
         id="agent.continuation.problem_context",
-        surface="ContinuationAgent._load_problem_context",
-        source_file=f"{CORE}/agents/continuation.py",
-        snippet="problem = self.repo.get_problem(problem_id)",
+        surface="LegacyGraphPort.load_context (continuation)",
+        source_file=f"{CORE}/agents/graph_port.py",
+        snippet="for c in problem.constraints or []:",
         labels=("Problem",),
         relationships=(),
         properties=(
@@ -267,9 +267,9 @@ READ_PATHS: tuple[ReadPath, ...] = (
     ),
     ReadPath(
         id="agent.evaluation.problem_context",
-        surface="EvaluationAgent._generate_code (pre-LLM read)",
-        source_file=f"{CORE}/agents/evaluation.py",
-        snippet="problem = self.repo.get_problem(proposal.problem_id)",
+        surface="LegacyGraphPort.load_context (evaluation)",
+        source_file=f"{CORE}/agents/graph_port.py",
+        snippet="for m in problem.metrics or []:",
         labels=("Problem",),
         relationships=(),
         properties=("id", "statement", "datasets", "metrics"),
@@ -278,9 +278,9 @@ READ_PATHS: tuple[ReadPath, ...] = (
     ),
     ReadPath(
         id="agent.synthesis.problem_context",
-        surface="SynthesisAgent.run (pre-LLM read)",
+        surface="SynthesisAgent.run (pre-LLM read through the port)",
         source_file=f"{CORE}/agents/synthesis.py",
-        snippet="problem = self.repo.get_problem(problem_id or proposal.problem_id)",
+        snippet="context = self.port.load_context(problem_id or proposal.problem_id)",
         labels=("Problem",),
         relationships=(),
         properties=("id", "statement"),

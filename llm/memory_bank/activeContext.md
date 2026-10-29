@@ -7,6 +7,28 @@ Last updated: 2026-10-26
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
 
+## Research agents on the canonical graph (2026-10-26, T44)
+
+`feat/agents-canonical-kgps` gives the ranking/continuation/evaluation/
+synthesis agents a `GraphPort` (ADR-0010). `AGENT_GRAPH_SOURCE=legacy|canonical`
+selects `LegacyGraphPort` (unchanged behaviour) or `CanonicalGraphPort`, which
+reads `Canon__Problem` identities/assertions/evidence through
+`migration/canonical_read.py` and holds no write surface. Terraform owns
+`agent_graph_source` (default `legacy`) and injects it into the API.
+
+On the canonical path SynthesisAgent writes nothing: every proposed problem,
+refinement, relation or status change becomes a pending `:Canon__ReviewItem`
+with `source=agent`, run id, agent name, model and prompt version; approval
+re-enters `commit_candidate` -> KGCS. Status changes are queued
+`committable=false` (no KGCS operation). Every agent output carries an
+`AgentProvenance` (KGPS `ProvenanceEnvelope` shape) with canonical assertion/
+evidence ids, an honest abstain on legacy, and `derived_from` upstream output
+ids. Outputs live in the runner's in-memory `AgentOutputStore`; `GET
+/api/agents/outputs/{id}/provenance` returns the envelope plus KGPS `explain`
+payloads. Durable output storage is a follow-up. Canonical ranking blends a documented graph-native score (evidence,
+data availability, connectivity, freshness). Runbook:
+`docs/operations/agents-canonical-runbook.md`.
+
 ## P2 nightly review queue (2026-10-26)
 
 `feat/review-queue-p2` adds the adviser/human loop on top of P1 (#127, now
