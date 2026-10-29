@@ -1406,7 +1406,7 @@ resource "google_cloud_run_v2_job" "check_api_key" {
 
         resources {
           limits = {
-            memory = "256Mi"
+            memory = "512Mi"
             cpu    = "1"
           }
         }
