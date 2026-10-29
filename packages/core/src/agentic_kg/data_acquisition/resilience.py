@@ -260,15 +260,22 @@ async def retry_with_backoff(
     max_retries: int = 3,
     config: RateLimitConfig | None = None,
     source: str = "default",
+    rate_limit_max_retries: int | None = None,
 ) -> Any:
     """
     Execute function with retry and exponential backoff.
 
     Args:
         func: Async function to execute
-        max_retries: Maximum number of retries
+        max_retries: Maximum number of retries for retryable errors
         config: Rate limit configuration
         source: Source identifier for logging
+        rate_limit_max_retries: Optional separate retry budget for
+            ``RateLimitError``. S2 can ask for a ``Retry-After`` far longer
+            than the generic server-error budget, so a caller may grant
+            throttling more attempts without also extending 5xx retries.
+            ``None`` keeps the historic behaviour (``max_retries`` for every
+            retryable error).
 
     Returns:
         Result from successful function call
@@ -279,7 +286,11 @@ async def retry_with_backoff(
     config = config or RateLimitConfig()
     last_exception: Exception | None = None
 
-    for attempt in range(max_retries + 1):
+    total_attempts = max_retries + 1
+    if rate_limit_max_retries is not None:
+        total_attempts = max(total_attempts, rate_limit_max_retries + 1)
+
+    for attempt in range(total_attempts):
         try:
             return await func()
 
@@ -289,11 +300,15 @@ async def retry_with_backoff(
             if not is_retryable_error(e):
                 raise
 
-            if attempt >= max_retries:
+            limit = max_retries
+            if isinstance(e, RateLimitError) and rate_limit_max_retries is not None:
+                limit = rate_limit_max_retries
+
+            if attempt >= limit:
                 logger.warning(
                     "[%s] Max retries (%d) exceeded",
                     source,
-                    max_retries,
+                    limit,
                 )
                 raise
 
@@ -308,7 +323,7 @@ async def retry_with_backoff(
                 "[%s] Retry %d/%d after %.2fs: %s",
                 source,
                 attempt + 1,
-                max_retries,
+                limit,
                 backoff,
                 str(e),
             )
