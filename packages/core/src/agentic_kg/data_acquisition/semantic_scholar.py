@@ -7,6 +7,9 @@ paper metadata, citations, and author information.
 from __future__ import annotations
 
 import logging
+import time
+from datetime import timezone
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 from agentic_kg.data_acquisition.base import BaseAPIClient
@@ -60,6 +63,36 @@ DEFAULT_AUTHOR_FIELDS = [
     "citationCount",
     "hIndex",
 ]
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    """Parse a ``Retry-After`` header into seconds.
+
+    RFC 9110 allows either delay-seconds (``"30"``) or an HTTP-date. S2
+    sends seconds today, but an HTTP-date used to raise ``ValueError`` from
+    ``float()`` inside ``_handle_response`` and escape as a non-retryable
+    error — turning a transient throttle into a hard failure.
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+
+    try:
+        return max(0.0, float(text))
+    except ValueError:
+        pass
+
+    try:
+        parsed = parsedate_to_datetime(text)
+    except (TypeError, ValueError):
+        return None
+    if parsed is None:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return max(0.0, parsed.timestamp() - time.time())
 
 
 class SemanticScholarClient(BaseAPIClient):
@@ -161,6 +194,7 @@ class SemanticScholarClient(BaseAPIClient):
             result = await retry_with_backoff(
                 do_request,
                 max_retries=self.config.max_retries,
+                rate_limit_max_retries=self.config.rate_limit_max_retries,
                 source=self.SOURCE,
             )
 
@@ -173,6 +207,14 @@ class SemanticScholarClient(BaseAPIClient):
 
             return result
 
+        except RateLimitError:
+            # Backpressure is not an outage. Counting 429s as breaker
+            # failures turned a short throttle into a permanent cascade:
+            # five throttled papers opened the breaker, and every remaining
+            # paper failed with CircuitOpenError without S2 ever being
+            # asked. Leave the breaker state untouched so a retry can
+            # actually reach the service.
+            raise
         except NotFoundError:
             # I-58 R5: a 404 means Semantic Scholar answered — it simply has
             # no record of this identifier. Counting it as a breaker failure
@@ -188,9 +230,11 @@ class SemanticScholarClient(BaseAPIClient):
     def _handle_response(self, response: Any) -> dict[str, Any]:
         """Override to handle Semantic Scholar specific errors."""
         if response.status_code == 429:
-            # Extract retry-after header if present
-            retry_after = response.headers.get("retry-after")
-            retry_seconds = float(retry_after) if retry_after else None
+            # Extract retry-after header if present. Accept both the
+            # delay-seconds form and an HTTP-date (RFC 9110).
+            retry_seconds = _parse_retry_after(
+                response.headers.get("retry-after")
+            )
             raise RateLimitError(source=self.SOURCE, retry_after=retry_seconds)
 
         return super()._handle_response(response)
@@ -537,6 +581,7 @@ class SemanticScholarClient(BaseAPIClient):
             result = await retry_with_backoff(
                 do_request,
                 max_retries=self.config.max_retries,
+                rate_limit_max_retries=self.config.rate_limit_max_retries,
                 source=self.SOURCE,
             )
 
@@ -555,6 +600,9 @@ class SemanticScholarClient(BaseAPIClient):
 
             return result
 
+        except RateLimitError:
+            # See _make_request: backpressure is not an outage.
+            raise
         except NotFoundError:
             # See _make_request: a 404 is an answer, not an outage.
             await self._circuit_breaker.record_success()

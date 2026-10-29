@@ -53,6 +53,16 @@ class SemanticScholarConfig:
     # Request settings
     timeout: float = 30.0
     max_retries: int = 3
+    # Rate-limit retries are a separate, deliberately larger budget: S2's
+    # Retry-After can be tens of seconds, and exhausting three attempts turns
+    # a transient throttle into a red smoke run. The attempt count is bounded
+    # here; between-attempt waits honour Retry-After or use bounded
+    # exponential backoff.
+    rate_limit_max_retries: int = field(
+        default_factory=lambda: int(
+            os.getenv("SEMANTIC_SCHOLAR_RATE_LIMIT_RETRIES", "5")
+        )
+    )
 
     @property
     def is_authenticated(self) -> bool:

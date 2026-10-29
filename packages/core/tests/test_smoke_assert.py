@@ -576,6 +576,134 @@ class TestCoverageVerdict:
         assert "429 Too Many Requests" in out
 
 
+class TestRateLimitClassification:
+    """Rate-limited lookups are DEFERRED, not outages — within tight bounds.
+
+    The smoke must tolerate transient throttling without weakening the
+    gate: zero measured papers, any hard failure, or more than half the
+    attempts deferred is still red.
+    """
+
+    def test_rate_limited_above_cap_fails_coverage(self, tmp_path, capsys):
+        payload = _citation_result_json(
+            attempted=3, succeeded=1, failed=2, edges=19,
+            refs_seen=40, refs_no_doi=5,
+            failures={"s2_rate_limited": 2},
+        )
+        rc = _run_smoke(tmp_path, payload, _happy_counts())
+        out = capsys.readouterr().out
+
+        assert rc == 1
+        assert "COVERAGE: DEFERRED (RATE LIMITED) -- 2 of 3 attempts" in out
+        assert "67%" in out
+        assert "above the 50% cap" in out
+        assert "FAIL: citation coverage complete" in out
+        assert "PASS: CITES edges >= 1" in out
+        assert "deferred (rate limited)=2" in out
+
+    def test_rate_limited_within_cap_is_deferred_not_failed(
+        self, tmp_path, capsys,
+    ):
+        payload = _citation_result_json(
+            attempted=4, succeeded=3, failed=1, edges=19,
+            refs_seen=40, refs_no_doi=5,
+            failures={"s2_rate_limited": 1},
+        )
+        rc = _run_smoke(tmp_path, payload, _happy_counts())
+        out = capsys.readouterr().out
+
+        assert rc == 0
+        assert "COVERAGE: COMPLETE (3 of 4 measured)." in out
+        assert "1 lookup(s) deferred (rate limited) (25% of attempts)." in out
+        assert "citation classification: deferred (rate limited)=1" in out
+        assert "non-rate-limit failures=0" in out
+        assert "PASS: citation coverage complete" in out
+
+    def test_exactly_half_is_tolerated(self, tmp_path, capsys):
+        payload = _citation_result_json(
+            attempted=2, succeeded=1, failed=1, edges=19,
+            refs_seen=40, refs_no_doi=5,
+            failures={"s2_rate_limited": 1},
+        )
+        rc = _run_smoke(tmp_path, payload, _happy_counts())
+        out = capsys.readouterr().out
+
+        assert rc == 0
+        assert "50% of attempts" in out
+        assert "PASS: citation coverage complete" in out
+
+    def test_zero_successes_still_fails_even_if_all_deferred(
+        self, tmp_path, capsys,
+    ):
+        payload = _citation_result_json(
+            attempted=2, succeeded=0, failed=2,
+            failures={"s2_rate_limited": 2},
+            status="completed_with_errors",
+        )
+        rc = _run_smoke(tmp_path, payload, _zero_cites())
+        out = capsys.readouterr().out
+
+        assert rc == 1
+        assert "COVERAGE: NONE (0 of 2 measured)" in out
+        assert "every attempt was deferred (rate limited)" in out
+        assert "zero citations succeeded" in out
+        assert "FAIL: citation coverage complete" in out
+
+    def test_unknown_failure_reason_fails_closed(self, tmp_path, capsys):
+        """A failure reason the gate does not recognise is never excused.
+
+        Only ``no_s2_id`` is a deliberate corpus-gap carve-out. A new
+        reason must be classified before it can pass coverage.
+        """
+        payload = _citation_result_json(
+            attempted=3, succeeded=2, failed=1, edges=19,
+            refs_seen=40, refs_no_doi=5,
+            failures={"s2_some_future_reason": 1},
+            status="completed_with_errors",
+        )
+        rc = _run_smoke(tmp_path, payload, _happy_counts())
+        out = capsys.readouterr().out
+
+        assert rc == 1
+        assert "COVERAGE: UNCLASSIFIED FAILURES" in out
+        assert "FAIL: citation coverage complete" in out
+
+    def test_hard_failure_still_fails_alongside_deferrals(
+        self, tmp_path, capsys,
+    ):
+        payload = _citation_result_json(
+            attempted=4, succeeded=2, failed=2, edges=19,
+            refs_seen=40, refs_no_doi=5,
+            failures={"s2_rate_limited": 1, "s2_fetch_failed": 1},
+            status="completed_with_errors",
+        )
+        rc = _run_smoke(tmp_path, payload, _happy_counts())
+        out = capsys.readouterr().out
+
+        assert rc == 1
+        assert "COVERAGE: PARTIAL (2 of 4 measured)" in out
+        assert "could not reach Semantic" in out
+        assert "non-rate-limit failures=1" in out
+        assert "FAIL: citation coverage complete" in out
+
+    def test_other_infra_reason_is_not_excused_by_a_rate_limit(
+        self, tmp_path, capsys,
+    ):
+        payload = _citation_result_json(
+            attempted=4, succeeded=3, failed=1, edges=19,
+            refs_seen=40, refs_no_doi=5,
+            failures={"s2_lookup_failed": 1},
+            status="completed_with_errors",
+        )
+        rc = _run_smoke(tmp_path, payload, _happy_counts())
+        out = capsys.readouterr().out
+
+        assert rc == 1
+        assert "COVERAGE: PARTIAL (3 of 4 measured)" in out
+        assert "lookup(s) deferred (rate limited)" not in out
+        assert "non-rate-limit failures=1" in out
+
+
 class TestEvidenceVerdict:
     def test_regression_only_when_doi_bearing_refs_produced_no_edge(
         self, tmp_path, capsys,
