@@ -46,6 +46,7 @@ from agentic_kg.knowledge_graph.citation_graph import (
     CITATION_OUTCOME_NO_S2_ID,
     CITATION_OUTCOME_NOT_ATTEMPTED,
     CITATION_OUTCOME_POPULATE_RAISED,
+    CITATION_OUTCOME_RATE_LIMITED,
     CITATION_OUTCOME_SUCCEEDED,
     CitationPopulationResult,
     classify_citation_population,
@@ -200,8 +201,14 @@ class TestNoRecordIsNotAnOutage:
         assert citation_infrastructure_failures(result) == 0
 
     @pytest.mark.asyncio
-    async def test_429_is_still_infrastructure(self):
-        """The carve-out must not become a hole for real outages."""
+    async def test_429_is_classified_as_a_deferral_not_an_outage(self):
+        """A 429 is backpressure the client retried, not unreachability.
+
+        It still fails the smoke when it is the only outcome (zero
+        citations succeeded) or when it exceeds the 50% cap; the smoke
+        classifier owns those rules. Here it must be distinguishable from
+        a hard infrastructure failure.
+        """
         s2 = MagicMock()
         s2.get_paper_by_doi = AsyncMock(
             side_effect=RateLimitError(source="semantic_scholar")
@@ -210,7 +217,8 @@ class TestNoRecordIsNotAnOutage:
             repo=MagicMock(), s2_client=s2, paper_doi="10.1/a",
         )
         assert res.lookup_failed is True
-        assert classify_citation_population(res) == CITATION_OUTCOME_LOOKUP_FAILED
+        assert res.rate_limited is True
+        assert classify_citation_population(res) == CITATION_OUTCOME_RATE_LIMITED
 
     @pytest.mark.asyncio
     async def test_generic_api_error_is_still_infrastructure(self):
@@ -253,7 +261,9 @@ class TestCircuitBreakerNotTrippedBy404:
         breaker.record_success.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_other_errors_still_record_failure(self):
+    async def test_rate_limit_does_not_trip_the_breaker(self):
+        """Backpressure is not an outage: a throttled batch must not turn
+        into a CircuitOpenError cascade for every remaining paper."""
         from agentic_kg.data_acquisition.semantic_scholar import (
             SemanticScholarClient,
         )
@@ -270,6 +280,29 @@ class TestCircuitBreakerNotTrippedBy404:
             AsyncMock(side_effect=RateLimitError(source="semantic_scholar")),
         ):
             with pytest.raises(RateLimitError):
+                await client._make_request("GET", "/paper/10.1/a")
+
+        breaker.record_failure.assert_not_awaited()
+        breaker.record_success.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_other_errors_still_record_failure(self):
+        from agentic_kg.data_acquisition.semantic_scholar import (
+            SemanticScholarClient,
+        )
+
+        client = SemanticScholarClient()
+        breaker = MagicMock()
+        breaker.check = AsyncMock()
+        breaker.record_success = AsyncMock()
+        breaker.record_failure = AsyncMock()
+        client._circuit_breaker = breaker
+
+        with patch(
+            "agentic_kg.data_acquisition.semantic_scholar.retry_with_backoff",
+            AsyncMock(side_effect=RuntimeError("500")),
+        ):
+            with pytest.raises(RuntimeError):
                 await client._make_request("GET", "/paper/10.1/a")
 
         breaker.record_failure.assert_awaited_once()

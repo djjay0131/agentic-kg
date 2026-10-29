@@ -23,6 +23,9 @@ from typing import TYPE_CHECKING, Any, Optional
 from agentic_kg.data_acquisition.exceptions import (
     NotFoundError as SourceNotFoundError,
 )
+from agentic_kg.data_acquisition.exceptions import (
+    RateLimitError as SourceRateLimitError,
+)
 from agentic_kg.knowledge_graph.repository import NotFoundError
 
 if TYPE_CHECKING:
@@ -54,6 +57,11 @@ class CitationPopulationResult:
     # I-58 R4: True when populate_citations itself (or client construction)
     # raised and the caller absorbed it. Distinct from "never ran".
     populate_raised: bool = False
+    # True when the lookup/fetch failed *only* because Semantic Scholar
+    # rate-limited us after the client exhausted its bounded retries. A
+    # deferred measurement, not an infrastructure outage: the smoke gate
+    # may tolerate it (within a cap) without calling the corpus unmeasured.
+    rate_limited: bool = False
     # I-58 R4 (MAJOR-2 root cause): how many reference entries Semantic
     # Scholar actually returned. Without this, "S2 returned nothing",
     # "S2 returned 40 refs that all lack a DOI" and "the linker is broken"
@@ -78,6 +86,7 @@ class CitationPopulationResult:
 CITATION_OUTCOME_SUCCEEDED = "succeeded"
 CITATION_OUTCOME_LOOKUP_FAILED = "s2_lookup_failed"
 CITATION_OUTCOME_FETCH_FAILED = "s2_fetch_failed"
+CITATION_OUTCOME_RATE_LIMITED = "s2_rate_limited"
 CITATION_OUTCOME_NO_S2_ID = "no_s2_id"
 CITATION_OUTCOME_POPULATE_RAISED = "populate_raised"
 CITATION_OUTCOME_NOT_ATTEMPTED = "not_attempted"
@@ -106,6 +115,10 @@ def classify_citation_population(result: Optional["CitationPopulationResult"]) -
         return CITATION_OUTCOME_NOT_ATTEMPTED
     if getattr(result, "populate_raised", False):
         return CITATION_OUTCOME_POPULATE_RAISED
+    # Rate limiting is a deferral, not an outage. Check it before the
+    # lookup/fetch flags, which are also set for a throttled attempt.
+    if getattr(result, "rate_limited", False):
+        return CITATION_OUTCOME_RATE_LIMITED
     if getattr(result, "fetch_failed", False):
         return CITATION_OUTCOME_FETCH_FAILED
     if getattr(result, "lookup_failed", False):
@@ -113,6 +126,17 @@ def classify_citation_population(result: Optional["CitationPopulationResult"]) -
     if getattr(result, "skipped_no_s2_id", False):
         return CITATION_OUTCOME_NO_S2_ID
     return CITATION_OUTCOME_SUCCEEDED
+
+
+def _is_rate_limit_error(error: BaseException) -> bool:
+    """True only when the failure is Semantic Scholar throttling us.
+
+    A 429 is a transient deferral; a timeout, 5xx or circuit-open is an
+    infrastructure failure and must not be excused by the smoke gate.
+    """
+    if isinstance(error, SourceRateLimitError):
+        return True
+    return getattr(error, "status_code", None) == 429
 
 
 def _extract_doi(ext_ids: Optional[dict[str, Any]]) -> Optional[str]:
@@ -184,6 +208,7 @@ async def populate_citations(
             result.errors.append(f"s2_id_lookup_failed: {e}")
             result.skipped_no_s2_id = True
             result.lookup_failed = True
+            result.rate_limited = _is_rate_limit_error(e)
             return result
 
     if not paper_s2_id:
@@ -206,6 +231,7 @@ async def populate_citations(
         )
         result.errors.append(f"fetch_failed: {e}")
         result.fetch_failed = True
+        result.rate_limited = _is_rate_limit_error(e)
         return result
 
     # 3. For each reference, create-or-promote a stub + link CITES.
