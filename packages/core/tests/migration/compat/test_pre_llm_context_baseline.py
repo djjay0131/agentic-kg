@@ -175,7 +175,8 @@ def test_ranking_agent_retrieves_the_baseline_candidates(
 ) -> None:
     """The real RankingAgent, the real SearchService, no model call.
 
-    ``_query_candidates`` is the whole deterministic half of the agent: what it
+    The ranking agent reads candidates through its ``GraphPort`` (ADR-0010);
+    the legacy port is the whole deterministic half of the agent: what it
     returns is exactly what gets formatted into the prompt. Comparing it to the
     ``ranking.candidates`` probe proves the probe models the agent rather than
     an idealised version of it.
@@ -198,7 +199,11 @@ def test_ranking_agent_retrieves_the_baseline_candidates(
     # baseline records what production does rather than what a hand-built dict
     # would make it do.
     state = create_initial_state(max_problems=20)
-    candidates = agent._query_candidates(state)
+    candidates = agent.port.list_candidates(
+        topic_filter=state.get("topic_filter"),
+        status_filter=state.get("status_filter", "open"),
+        max_problems=state.get("max_problems", 20),
+    )
 
     # #110: the read model unions canonical ProblemConcept nodes with legacy
     # :Problem nodes, so the candidate set now also carries the fixture's
@@ -207,7 +212,9 @@ def test_ranking_agent_retrieves_the_baseline_candidates(
     # legacy graph), so compare the legacy subset to it in order and assert the
     # canonical rows are surfaced too.
     legacy_ids = [
-        c["id"] for c in candidates if c["id"] in set(compat_graph.problem_ids)
+        c.problem_id
+        for c in candidates
+        if c.problem_id in set(compat_graph.problem_ids)
     ]
     assert legacy_ids, "the RankingAgent retrieved none of the fixture problems"
 
@@ -219,7 +226,9 @@ def test_ranking_agent_retrieves_the_baseline_candidates(
     )
 
     surfaced_concepts = {
-        c["id"] for c in candidates if c["id"] in set(compat_graph.problem_concept_ids)
+        c.problem_id
+        for c in candidates
+        if c.problem_id in set(compat_graph.problem_concept_ids)
     }
     assert surfaced_concepts == set(compat_graph.problem_concept_ids), (
         "the canonical ProblemConcept problems were not surfaced by the "
@@ -256,7 +265,11 @@ def test_ranking_agent_cannot_apply_a_status_filter(
     )
     state = create_initial_state(status_filter="open", max_problems=20)
     with pytest.raises(AttributeError, match="'str' object has no attribute 'value'"):
-        agent._query_candidates(state)
+        agent.port.list_candidates(
+            topic_filter=state.get("topic_filter"),
+            status_filter=state.get("status_filter", "open"),
+            max_problems=state.get("max_problems", 20),
+        )
 
 
 def test_continuation_agent_assembles_the_baseline_context(
