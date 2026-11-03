@@ -30,3 +30,4 @@ individually numbered here.
 | [0007](0007-machine-only-secrets.md) | Secrets are machine-generated, machine-stored and never seen | Accepted |
 | [0008](0008-nightly-ingestion-pipeline.md) | Nightly ingestion pipeline on Cloud Scheduler + Workflows | Proposed |
 | [0009](0009-cloud-run-job-execution-backend.md) | Cloud Run Job execution backend for evaluation agents | Proposed |
+| [0010](0010-research-agents-canonical-graph.md) | Research agents over the canonical graph | Proposed |
