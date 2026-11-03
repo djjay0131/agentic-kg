@@ -119,8 +119,11 @@ jobs:
           set -euo pipefail
           API_URL="$(gcloud run services describe "agentic-kg-api-$ENVIRONMENT" \
             --region="$REGION" --project="$PROJECT_ID" --format='value(status.url)')"
+          # ADR-0011: the API is private, so the deploy identity mints a
+          # Cloud Run ID token for the health probe.
+          TOKEN="$(gcloud auth print-identity-token --audiences="$API_URL")"
           for _ in $(seq 1 20); do
-            if curl -fsS "$API_URL/health" >/dev/null; then echo "API healthy."; exit 0; fi
+            if curl -fsS -H "Authorization: Bearer $TOKEN" "$API_URL/health" >/dev/null; then echo "API healthy."; exit 0; fi
             sleep 6
           done
           echo "::error::API not healthy after rolling $SECRET"

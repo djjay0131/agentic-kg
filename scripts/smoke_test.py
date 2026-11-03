@@ -15,6 +15,10 @@ Usage:
     # Against custom URL
     STAGING_API_URL=https://custom.url python scripts/smoke_test.py
 
+    # Staging API is private (ADR-0011): supply a Cloud Run ID token
+    STAGING_ID_TOKEN="$(gcloud auth print-identity-token --audiences=$STAGING_API_URL)" \
+        python scripts/smoke_test.py
+
     # With verbose output
     python scripts/smoke_test.py -v
 
@@ -182,8 +186,14 @@ def main() -> int:
     print(f"Running smoke tests against: {api_url}")
     print("=" * 60)
 
+    # The staging API is private (ADR-0011). A caller running as an allowlisted
+    # service account can mint an ID token for the service URL; local dev
+    # against a public API omits it.
+    id_token = os.environ.get("STAGING_ID_TOKEN")
+    headers = {"Authorization": f"Bearer {id_token}"} if id_token else {}
+
     # Create HTTP client
-    client = httpx.Client(base_url=api_url, timeout=30.0)
+    client = httpx.Client(base_url=api_url, timeout=30.0, headers=headers)
 
     # Define checks
     checks = [

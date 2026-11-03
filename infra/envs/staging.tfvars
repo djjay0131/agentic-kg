@@ -38,6 +38,13 @@ canonical_namespace = "staging"
 # trusted; the agents never write canonical state directly.
 agent_graph_source = "legacy"
 
+# ADR-0011: real Google sign-in for staging. IAP sits directly on the UI Cloud
+# Run service; the API becomes private and is reached only through the UI's
+# server-side proxy. Add a tester by appending one `"user:email"` entry to
+# app_allowed_members (default: djjay@vt.edu) and applying Terraform.
+app_iap_enabled     = true
+app_allowed_members = ["user:djjay@vt.edu"]
+
 # Durable KGIS ledger (nightly-pipeline design P0-2). The ingest Job mounts this
 # bucket with a Cloud Run GCS volume and writes the ledger/evidence under the
 # namespace subdirectory, so it survives scale-in instead of vanishing with

@@ -437,9 +437,23 @@ jobs:
           pip install -e ./packages/core
           pip install -e ./packages/api
 
+      - name: Authenticate as the CI reader
+        id: ci_auth
+        # ADR-0007 rule 3: vendor keys live only in Secret Manager. This
+        # identity can read exactly those keys and nothing else. ADR-0011 also
+        # gives it run.invoker on the private staging API so this workflow can
+        # mint the ID token the API now requires.
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: gh-ci-vendor-keys-staging@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+          token_format: id_token
+          id_token_audience: ${{ secrets.STAGING_API_URL }}
+
       - name: Run API E2E tests
         env:
           STAGING_API_URL: ${{ secrets.STAGING_API_URL }}
+          STAGING_ID_TOKEN: ${{ steps.ci_auth.outputs.id_token }}
         run: |
           # Fail loudly if a required secret is absent. conftest.py skips
           # when STAGING_API_URL is unset, which would let pytest exit 0 on an
@@ -452,14 +466,6 @@ jobs:
             -v --tb=short \
             --junitxml=test-results/api-e2e-tests.xml
 
-      - name: Authenticate as the CI vendor-key reader
-        # ADR-0007 rule 3: vendor keys live only in Secret Manager. This
-        # identity can read exactly those keys and nothing else.
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: gh-ci-vendor-keys-staging@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
-
       - name: Fetch vendor keys (masked, step outputs only)
         id: vendor
         uses: google-github-actions/get-secretmanager-secrets@v2
@@ -470,6 +476,7 @@ jobs:
       - name: Run live-source E2E tests
         env:
           STAGING_API_URL: ${{ secrets.STAGING_API_URL }}
+          STAGING_ID_TOKEN: ${{ steps.ci_auth.outputs.id_token }}
           # #80 finding 5: these tests hit the live Semantic Scholar API;
           # unauthenticated callers share one anonymous pool and flake on 429s.
           # Step-scoped, never job-wide (#80).

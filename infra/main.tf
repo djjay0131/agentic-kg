@@ -10,6 +10,8 @@ resource "google_project_service" "apis" {
     "artifactregistry.googleapis.com",
     "secretmanager.googleapis.com",
     "iam.googleapis.com",
+    # Human sign-in (ADR-0011): IAP directly on the UI Cloud Run service.
+    "iap.googleapis.com",
     # Nightly pipeline (ADR-0008): Cloud Workflows orchestrates the nightly Job
     # and Cloud Scheduler triggers it at 02:30 America/New_York.
     "workflows.googleapis.com",
@@ -171,6 +173,10 @@ locals {
   neo4j_password_next_secret_id      = "NEO4J_PASSWORD_NEXT${var.env == "prod" ? "_PROD" : ""}"
   semantic_scholar_api_key_secret_id = "SEMANTIC_SCHOLAR_API_KEY${var.env == "prod" ? "_PROD" : ""}"
   api_key_secret_id                  = "API_KEY${var.env == "prod" ? "_PROD" : ""}"
+
+  # Referenced by both services' env, so it must not depend on either resource
+  # (the API -> UI -> API dependency would be a cycle).
+  ui_service_name = "agentic-kg-ui-${var.env}"
 
   # Placeholder value seeded as the first version of the S2 key secret so the
   # ingest Job can be created before the sync workflow runs (Cloud Run refuses
@@ -441,6 +447,23 @@ resource "google_cloud_run_v2_service" "api" {
         }
       }
 
+      # Human identity (ADR-0011). Staging is `iap`: decisions must carry a
+      # verified IAP assertion whose audience is the UI service. Dev keeps the
+      # historical X-User-ID fallback. Terraform owns this so a deploy that
+      # rolls the image cannot silently downgrade it.
+      env {
+        name  = "AUTH_MODE"
+        value = var.app_iap_enabled ? "iap" : "dev"
+      }
+
+      dynamic "env" {
+        for_each = var.app_iap_enabled ? [1] : []
+        content {
+          name  = "IAP_AUDIENCE"
+          value = "/projects/${data.google_project.current.number}/locations/${var.region}/services/${local.ui_service_name}"
+        }
+      }
+
       # GCP config for Cloud Run Jobs trigger
       env {
         name  = "GCP_PROJECT"
@@ -551,12 +574,61 @@ resource "google_cloud_run_v2_service" "api" {
   ]
 }
 
-# Allow unauthenticated access to API
+# Public access only while human sign-in is disabled. With ADR-0011 enabled the
+# API is private: browsers never call it directly, the UI server proxies every
+# request with the human's IAP assertion and its own service-account ID token.
+moved {
+  from = google_cloud_run_v2_service_iam_member.api_public
+  to   = google_cloud_run_v2_service_iam_member.api_public[0]
+}
+
 resource "google_cloud_run_v2_service_iam_member" "api_public" {
+  count = var.app_iap_enabled ? 0 : 1
+
   name     = google_cloud_run_v2_service.api.name
   location = var.region
   role     = "roles/run.invoker"
   member   = "allUsers"
+}
+
+# Least-privilege machine callers of the private API.
+resource "google_cloud_run_v2_service_iam_member" "api_ui_invoker" {
+  count = var.app_iap_enabled ? 1 : 0
+
+  name     = google_cloud_run_v2_service.api.name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${one(google_service_account.ui[*].email)}"
+}
+
+# The API-key check Job runs as the API's own runtime identity.
+resource "google_cloud_run_v2_service_iam_member" "api_check_invoker" {
+  count = var.app_iap_enabled ? 1 : 0
+
+  name     = google_cloud_run_v2_service.api.name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+}
+
+# The deploy identity runs smoke/E2E against staging and mints an ID token.
+resource "google_cloud_run_v2_service_iam_member" "api_ci_invoker" {
+  count = var.app_iap_enabled && var.deploy_service_account_email != "" ? 1 : 0
+
+  name     = google_cloud_run_v2_service.api.name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${var.deploy_service_account_email}"
+}
+
+# The E2E job authenticates as the vendor-key reader to fetch the S2 key.
+resource "google_cloud_run_v2_service_iam_member" "api_ci_vendor_keys_invoker" {
+  count = var.app_iap_enabled ? 1 : 0
+
+  name     = google_cloud_run_v2_service.api.name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.ci_vendor_keys.email}"
 }
 
 # =============================================================================
@@ -1083,13 +1155,63 @@ resource "google_cloud_run_v2_job_iam_member" "api_can_invoke_experiment" {
 }
 
 # =============================================================================
+# Human sign-in — IAP directly on the UI Cloud Run service (ADR-0011)
+# =============================================================================
+# Enabling IAP is the `run.googleapis.com/iap-enabled` service annotation, the
+# same switch `gcloud run services update --iap` flips. The provider version
+# this repo pins does not expose `iap_enabled`, so the annotation is used
+# instead; the Cloud Run API accepts it.
+#
+# Access is a project-level grant of roles/iap.httpsResourceAccessor. Per the
+# IAP docs, project-level principals apply to every IAP-secured resource in the
+# project, and this project has exactly one such app.
+resource "google_project_service_identity" "iap" {
+  provider = google-beta
+  count    = var.app_iap_enabled ? 1 : 0
+
+  project = var.project_id
+  service = "iap.googleapis.com"
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_project_iam_member" "iap_web_user" {
+  for_each = var.app_iap_enabled ? toset(var.app_allowed_members) : toset([])
+
+  project = var.project_id
+  role    = "roles/iap.httpsResourceAccessor"
+  member  = each.value
+
+  depends_on = [google_project_service.apis]
+}
+
+# The UI runtime identity. It is the only caller of the private API besides
+# the check Job and CI.
+resource "google_service_account" "ui" {
+  count = var.app_iap_enabled ? 1 : 0
+
+  account_id   = "agentic-kg-ui-${var.env}"
+  display_name = "Agentic KG UI (${var.env})"
+
+  depends_on = [google_project_iam_member.deploy_service_account_admin]
+}
+
+# =============================================================================
 # Cloud Run — UI service (Next.js)
 # =============================================================================
 resource "google_cloud_run_v2_service" "ui" {
-  name     = "agentic-kg-ui-${var.env}"
+  name     = local.ui_service_name
   location = var.region
 
+  annotations = var.app_iap_enabled ? {
+    "run.googleapis.com/iap-enabled" = "true"
+  } : {}
+
   template {
+    # With IAP enabled the UI runs as its own service account so it can be
+    # granted run.invoker on the private API and nothing else.
+    service_account = one(google_service_account.ui[*].email)
+
     scaling {
       min_instance_count = var.ui_min_instances
       max_instance_count = var.ui_max_instances
@@ -1112,6 +1234,12 @@ resource "google_cloud_run_v2_service" "ui" {
       env {
         name  = "API_URL"
         value = google_cloud_run_v2_service.api.uri
+      }
+
+      # Keeps the proxy from injecting the dev X-User-ID header on staging.
+      env {
+        name  = "AUTH_MODE"
+        value = var.app_iap_enabled ? "iap" : "dev"
       }
 
       env {
@@ -1140,12 +1268,32 @@ resource "google_cloud_run_v2_service" "ui" {
   ]
 }
 
-# Allow unauthenticated access to UI
+# Public access only while IAP is disabled.
+moved {
+  from = google_cloud_run_v2_service_iam_member.ui_public
+  to   = google_cloud_run_v2_service_iam_member.ui_public[0]
+}
+
 resource "google_cloud_run_v2_service_iam_member" "ui_public" {
+  count = var.app_iap_enabled ? 0 : 1
+
   name     = google_cloud_run_v2_service.ui.name
   location = var.region
   role     = "roles/run.invoker"
   member   = "allUsers"
+}
+
+# IAP's own service agent must be allowed to forward the authenticated request
+# to the UI container.
+resource "google_cloud_run_v2_service_iam_member" "ui_iap_invoker" {
+  count = var.app_iap_enabled ? 1 : 0
+
+  name     = google_cloud_run_v2_service.ui.name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = google_project_service_identity.iap[0].member
+
+  depends_on = [google_project_service_identity.iap]
 }
 
 # =============================================================================

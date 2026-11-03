@@ -152,6 +152,29 @@ variable "ui_max_instances" {
   default     = 3
 }
 
+# Human sign-in (ADR-0011) ------------------------------------------------
+variable "app_iap_enabled" {
+  description = <<-EOT
+    Put the UI Cloud Run service behind Identity-Aware Proxy and make the API
+    private (invokable only by the UI runtime service account, the API-key
+    check Job and the CI deploy identity). Staging sets true; this defaults
+    false so a prod apply is unchanged until it is deliberately opted in.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "app_allowed_members" {
+  description = <<-EOT
+    Humans allowed through IAP, as IAM member strings ("user:email",
+    "group:...", "domain:..."). The role is the project-level
+    roles/iap.httpsResourceAccessor, which IAM inherits for every IAP-secured
+    resource. Adding a tester is one entry plus an apply.
+  EOT
+  type        = list(string)
+  default     = ["user:djjay@vt.edu"]
+}
+
 # GitHub
 variable "github_owner" {
   description = "GitHub repository owner (user or organization)"
