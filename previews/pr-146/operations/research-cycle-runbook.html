@@ -4,13 +4,13 @@
 workflows, re-ranks the graph, starts up to <code class="language-plaintext highlighter-rouge">RESEARCH_CYCLE_TOP_K</code> workflows and
 stops each at its next human gate. Infrastructure is in <code class="language-plaintext highlighter-rouge">infra/main.tf</code>
 (<code class="language-plaintext highlighter-rouge">agentic-kg-research-cycle-&lt;env&gt;</code>), gated by <code class="language-plaintext highlighter-rouge">research_cycle_enabled</code>, which
-<strong>defaults false</strong>. ADR-0010 governs autonomy.</p>
+<strong>defaults false</strong>. ADR-0011 governs autonomy.</p>
 
 <h2 id="turning-it-on">Turning it on</h2>
 
 <ol>
   <li>Review <code class="language-plaintext highlighter-rouge">config/research-autonomy.yaml</code>. It ships with every gate <code class="language-plaintext highlighter-rouge">human</code>; a
-test pins that default. Changing a gate requires ADR-0010’s evidence and an
+test pins that default. Changing a gate requires ADR-0011’s evidence and an
 owner decision.</li>
   <li>In <code class="language-plaintext highlighter-rouge">infra/envs/&lt;env&gt;.tfvars</code> set <code class="language-plaintext highlighter-rouge">research_cycle_enabled = true</code> and apply
 (owner bootstrap may be needed; see ADR-0008 for the CI principal limits).</li>
@@ -25,7 +25,11 @@ weekly tick (<code class="language-plaintext highlighter-rouge">research_cycle_w
   <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="nt">--wait</span>
 </code></pre></div></div>
 
-<p>The Job runs <code class="language-plaintext highlighter-rouge">python -m agentic_kg.pipeline.cycle</code>. It writes:</p>
+<p>The Job runs <code class="language-plaintext highlighter-rouge">python -m agentic_kg.pipeline.cycle</code>. It reads the graph through
+the agents’ <code class="language-plaintext highlighter-rouge">GraphPort</code>, using the same <code class="language-plaintext highlighter-rouge">AGENT_GRAPH_SOURCE</code> Terraform value as
+the API (<code class="language-plaintext highlighter-rouge">agent_graph_source</code>, default <code class="language-plaintext highlighter-rouge">legacy</code>). On <code class="language-plaintext highlighter-rouge">canonical</code>, synthesis
+writes nothing directly: proposals become pending <code class="language-plaintext highlighter-rouge">:Canon__ReviewItem</code>s for the
+review queue. The Job writes:</p>
 
 <ul>
   <li>a <code class="language-plaintext highlighter-rouge">:Canon__ResearchCycle</code> node (<code class="language-plaintext highlighter-rouge">ns</code>, <code class="language-plaintext highlighter-rouge">cycle_id</code>), and</li>
