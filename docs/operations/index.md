@@ -19,4 +19,5 @@ that change its behavior.
 - [Reviewing the nightly queue](review-queue-runbook.html)
 - [Research-progression cycle (gated loop)](research-cycle-runbook.html)
 - [Experiment execution (EvaluationAgent)](experiment-execution-runbook.html)
+- [Research agents on the canonical graph](agents-canonical-runbook.html)
 - [Deploy paths (automatic vs manual)](deploy-runbook.html)

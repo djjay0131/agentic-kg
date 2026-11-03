@@ -1,8 +1,12 @@
 """
 Synthesis Agent.
 
-Summarizes workflow outcomes, identifies new research directions,
-and writes new problems and relations back to the knowledge graph.
+Summarizes workflow outcomes, identifies new research directions, and writes
+new problems and relations back to the knowledge graph.
+
+On the canonical source (ADR-0010) it writes **nothing** directly: every
+proposed change becomes a review-queue item, and only a human approval
+re-enters the KGCS ``run_curation`` -> ``PlanExecutor`` path.
 """
 
 from __future__ import annotations
@@ -12,11 +16,18 @@ import uuid
 from typing import Any
 
 from agentic_kg.agents.base import BaseAgent
+from agentic_kg.agents.graph_port import SOURCE_CANONICAL
 from agentic_kg.agents.prompts import SYNTHESIS_SYSTEM_PROMPT, SYNTHESIS_USER_PROMPT
+from agentic_kg.agents.provenance import (
+    build_provenance,
+    new_output_id,
+    record_agent_output,
+)
 from agentic_kg.agents.schemas import (
     ContinuationProposal,
     EvaluationResult,
     GraphUpdate,
+    SynthesisItem,
     SynthesisReport,
     WorkflowStatus,
 )
@@ -42,7 +53,18 @@ _EXTENDS_CONFIDENCE = 0.8
 
 
 class SynthesisAgent(BaseAgent):
-    """Synthesizes workflow results and writes new discoveries back to the KG."""
+    """Synthesizes workflow results; writes legacy, queues canonical changes."""
+
+    def __init__(
+        self,
+        *args: Any,
+        canonical_sink: Any | None = None,
+        namespace: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._canonical_sink = canonical_sink
+        self._namespace = namespace
 
     @property
     def name(self) -> str:
@@ -50,7 +72,7 @@ class SynthesisAgent(BaseAgent):
 
     async def run(self, state: ResearchState) -> ResearchState:
         """
-        Summarize the workflow, identify new problems, and update the KG.
+        Summarize the workflow, identify new problems, and update the graph.
         """
         self._log("Starting synthesis")
         state = {
@@ -64,39 +86,78 @@ class SynthesisAgent(BaseAgent):
         problem_id = state.get("selected_problem_id")
 
         if not eval_data or not proposal_data:
-            state = add_message(
-                state, self.name, "Missing evaluation or proposal data"
-            )
+            state = add_message(state, self.name, "Missing evaluation or proposal data")
             return {
                 **state,
-                "errors": state.get("errors", [])
-                + ["Missing evaluation or proposal data"],
+                "errors": state.get("errors", []) + ["Missing evaluation or proposal data"],
             }
 
         try:
             proposal = ContinuationProposal.model_validate(proposal_data)
             eval_result = EvaluationResult.model_validate(eval_data)
-            problem = self.repo.get_problem(problem_id or proposal.problem_id)
+            context = self.port.load_context(problem_id or proposal.problem_id)
 
             # Step 1: Generate synthesis report via LLM
-            report = await self._generate_report(problem, proposal, eval_result)
+            report = await self._generate_report(context, proposal, eval_result)
             state = add_message(
                 state,
                 self.name,
                 f"Generated report: {len(report.new_problems)} new problems identified",
             )
 
-            # Step 2: Write new problems to KG
-            graph_updates = await self._apply_graph_updates(
-                problem,
-                report,
-                eval_result,
-                run_id=state.get("run_id"),
-                trace_id=state.get("trace_id") or state.get("run_id"),
+            run_id = state.get("run_id") or ""
+            trace_id = state.get("trace_id") or run_id
+            evidence_ids = self._evidence_ids(context, proposal, eval_result)
+            provenance = self._report_provenance(
+                context=context,
+                proposal=proposal,
+                eval_result=eval_result,
+                report=report,
+                run_id=run_id,
+                trace_id=trace_id,
             )
+            report.output_id = new_output_id()
+            report.provenance = provenance
+
+            # Step 2: write back (legacy) or queue for approval (canonical)
+            if self.source == SOURCE_CANONICAL:
+                graph_updates = self._queue_canonical_updates(
+                    report=report,
+                    context=context,
+                    run_id=run_id,
+                    trace_id=trace_id,
+                    evidence_ids=evidence_ids,
+                )
+                state = add_message(
+                    state,
+                    self.name,
+                    f"Queued {len(report.review_item_ids)} review item(s); no "
+                    "canonical write was made",
+                )
+            else:
+                graph_updates = await self._apply_graph_updates(
+                    context,
+                    report,
+                    eval_result,
+                    run_id=run_id,
+                    trace_id=trace_id,
+                    provenance=provenance,
+                )
+                state = add_message(state, self.name, f"Applied {len(graph_updates)} graph updates")
+
             report.graph_updates = graph_updates
-            state = add_message(
-                state, self.name, f"Applied {len(graph_updates)} graph updates"
+            payload = report.model_dump(mode="json", exclude={"provenance"})
+            record_agent_output(
+                self.output_store,
+                agent=self.name,
+                run_id=run_id,
+                source=self.source,
+                output_kind="synthesis_report",
+                payload=payload,
+                provenance=provenance,
+                model=self.model,
+                prompt_version=self.prompt_version,
+                output_id=report.output_id,
             )
 
             return {
@@ -110,14 +171,81 @@ class SynthesisAgent(BaseAgent):
             state = add_message(state, self.name, f"Error: {e}")
             return {**state, "errors": state.get("errors", []) + [str(e)]}
 
+    # -- provenance --------------------------------------------------------
+
+    def _evidence_ids(self, context, proposal, eval_result) -> list[str]:
+        ids = list(context.evidence_ids)
+        for source in (proposal.provenance, eval_result.provenance):
+            if source is None:
+                continue
+            ids.extend(source.used_evidence_ids)
+            for citation in source.citations:
+                ids.extend(citation.evidence_ids)
+        return list(dict.fromkeys(i for i in ids if i))
+
+    def _report_provenance(self, *, context, proposal, eval_result, report, run_id, trace_id):
+        upstream = [oid for oid in (proposal.output_id, eval_result.output_id) if oid]
+        return build_provenance(
+            agent=self.name,
+            run_id=run_id,
+            trace_id=trace_id,
+            source=self.source,
+            assertion_ids=context.assertion_ids,
+            assertion_evidence=context.assertion_evidence,
+            evidence_ids=self._evidence_ids(context, proposal, eval_result),
+            derived_from=upstream,
+            problem_ids=[context.problem_id],
+            model=self.model,
+            prompt_version=self.prompt_version,
+            rationale=report.summary,
+        )
+
+    # -- canonical path: queue, never write --------------------------------
+
+    def _queue_canonical_updates(
+        self, *, report, context, run_id, trace_id, evidence_ids
+    ) -> list[GraphUpdate]:
+        if self._canonical_sink is None:
+            raise RuntimeError(
+                "canonical synthesis requires a review-queue sink; refusing to "
+                "fall back to a direct canonical write"
+            )
+        from agentic_kg.agents.canonical_write import (
+            build_synthesis_review_items,
+            graph_updates_from_items,
+        )
+
+        namespace = self._namespace or getattr(self._canonical_sink, "namespace", None)
+        if not namespace:
+            raise RuntimeError("canonical synthesis sink has no namespace")
+
+        items, outputs = build_synthesis_review_items(
+            report,
+            namespace=namespace,
+            run_id=run_id,
+            trace_id=trace_id,
+            source_problem_id=context.problem_id,
+            model=self.model,
+            prompt_version=self.prompt_version,
+            output_id=report.output_id,
+            provenance=report.provenance,
+            evidence_ids=evidence_ids,
+        )
+        for item in items:
+            self._canonical_sink.save(item)
+        report.review_item_ids = [item.id for item in items]
+        report.items = outputs
+        return graph_updates_from_items(items, outputs)
+
+    # -- report generation -------------------------------------------------
+
     async def _generate_report(
         self,
-        problem: Any,
+        context,
         proposal: ContinuationProposal,
         eval_result: EvaluationResult,
     ) -> SynthesisReport:
         """Use LLM to synthesize workflow results."""
-        # Format proposal summary
         steps_text = "\n".join(
             f"  {s.step_number}. {s.description}" for s in proposal.experimental_steps
         )
@@ -129,7 +257,6 @@ class SynthesisAgent(BaseAgent):
             f"Confidence: {proposal.confidence}"
         )
 
-        # Format metrics results
         metrics_text = "None"
         if eval_result.metrics_results:
             metrics_text = "\n".join(
@@ -140,8 +267,8 @@ class SynthesisAgent(BaseAgent):
             )
 
         user_prompt = SYNTHESIS_USER_PROMPT.format(
-            statement=problem.statement,
-            topic="unspecified",
+            statement=context.statement,
+            topic=context.topic,
             proposal_summary=proposal_summary,
             feasibility_score=eval_result.feasibility_score,
             verdict=eval_result.verdict,
@@ -157,13 +284,12 @@ class SynthesisAgent(BaseAgent):
         )
         return response.content
 
+    # -- legacy path (unchanged semantics) ---------------------------------
+
     @staticmethod
     def _build_derivations(source_problem: Any) -> list[Derivation]:
         """Build the ``Derivation`` lineage for problems synthesized from
         ``source_problem``: the source problem id plus any evidence DOI used.
-
-        Shaped like ``kg_contracts.Derivation`` so it maps onto KGIS/KGCS
-        once the adopter layer lands.
         """
         inputs: list[DerivationInput] = []
         source_id = getattr(source_problem, "id", None)
@@ -187,11 +313,7 @@ class SynthesisAgent(BaseAgent):
 
     @staticmethod
     def _coerce_relation_type(value: Any) -> RelationType:
-        """Coerce an LLM-reported relation type into the KG enum.
-
-        Unknown types degrade to ``RELATED_TO`` rather than raising, so a
-        single bad relation never drops the rest of the report.
-        """
+        """Coerce an LLM-reported relation type into the KG enum."""
         if isinstance(value, RelationType):
             return value
         if not value:
@@ -213,19 +335,22 @@ class SynthesisAgent(BaseAgent):
         *,
         run_id: str | None = None,
         trace_id: str | None = None,
+        provenance: Any | None = None,
     ) -> list[GraphUpdate]:
-        """Write new problems and relations to the KG.
+        """Write new problems and relations to the legacy graph.
 
         Every problem created here carries agent provenance (``origin``,
         ``workflow_run_id``, ``trace_id``, ``derived_from``) and a
-        ``DERIVED_FROM`` edge to each source problem, so it is never mistaken
-        for an extracted problem.
+        ``DERIVED_FROM`` edge to each source problem.
         """
         updates: list[GraphUpdate] = []
-        source_id = getattr(source_problem, "id", None)
-        derivations = self._build_derivations(source_problem)
+        # The legacy path deals in the repository's Problem model; the port's
+        # context is a safe view of the same row.
+        raw_problem = self.repo.get_problem(source_problem.problem_id)
+        source_id = getattr(raw_problem, "id", None)
+        derivations = self._build_derivations(raw_problem)
+        items: list[SynthesisItem] = []
 
-        # Create new problem nodes
         for statement in report.new_problems:
             try:
                 new_id = f"synth-{uuid.uuid4().hex[:12]}"
@@ -246,8 +371,15 @@ class SynthesisAgent(BaseAgent):
                         details=f"New problem: {statement[:80]}",
                     )
                 )
+                items.append(
+                    SynthesisItem(
+                        action="create_problem",
+                        target_id=new_id,
+                        statement=statement,
+                        provenance=provenance,
+                    )
+                )
 
-                # Provenance: DERIVED_FROM edges to each source problem.
                 for derivation in derivations:
                     for inp in derivation.inputs:
                         if inp.kind != "problem":
@@ -262,11 +394,9 @@ class SynthesisAgent(BaseAgent):
                             )
                         except Exception as e:
                             logger.warning(
-                                f"Failed to create DERIVED_FROM edge "
-                                f"{new_id} -> {inp.ref}: {e}"
+                                f"Failed to create DERIVED_FROM edge {new_id} -> {inp.ref}: {e}"
                             )
 
-                # Create relation from source problem
                 if self.relations and source_id:
                     self.relations.create_relation(
                         source_id,
@@ -289,7 +419,6 @@ class SynthesisAgent(BaseAgent):
             except Exception as e:
                 logger.warning(f"Failed to create problem '{statement[:50]}': {e}")
 
-        # Create any additional relations from the report
         for rel in report.new_relations:
             try:
                 if self.relations and rel.get("source_id") and rel.get("target_id"):
@@ -311,17 +440,20 @@ class SynthesisAgent(BaseAgent):
                             details=f"{rel_type.value} from {rel['source_id']}",
                         )
                     )
+                    items.append(
+                        SynthesisItem(
+                            action="create_relation",
+                            target_id=str(rel["target_id"]),
+                            relation_type=rel_type.value,
+                            provenance=provenance,
+                        )
+                    )
             except Exception as e:
                 logger.warning(f"Failed to create relation: {e}")
 
-        # Update source problem status if evaluation was conclusive. The
-        # source may be a legacy :Problem or a canonical :ProblemConcept, so
-        # the repository resolves the label.
         if eval_result.verdict == "promising" and source_id:
             try:
-                self.repo.set_problem_status(
-                    source_id, ProblemStatus.IN_PROGRESS
-                )
+                self.repo.set_problem_status(source_id, ProblemStatus.IN_PROGRESS)
                 updates.append(
                     GraphUpdate(
                         action="update_status",
@@ -329,7 +461,15 @@ class SynthesisAgent(BaseAgent):
                         details="Status updated to in_progress (promising evaluation)",
                     )
                 )
+                items.append(
+                    SynthesisItem(
+                        action="update_status",
+                        target_id=source_id,
+                        provenance=provenance,
+                    )
+                )
             except Exception as e:
                 logger.warning(f"Failed to update problem status: {e}")
 
+        report.items = items
         return updates

@@ -25,18 +25,23 @@ close finished workflows
   decisions (who/when/note/edit) and outcomes. App-namespace per ADR-0004/0005.
 - **AC-2** `python -m agentic_kg.pipeline.cycle` closes finished workflows,
   re-ranks, and starts at most `RESEARCH_CYCLE_TOP_K` (default 3) workflows,
-  each running to its next gate. A new cycle never starts while another is
-  `running`; a cycle waiting at a gate does not block the next tick.
+  each running to its next gate. Ranking and every later agent read go through
+  the agents' `GraphPort`, selected by `AGENT_GRAPH_SOURCE` (ADR-0010), so the
+  cycle and a workflow cannot disagree about the graph they see. A new cycle
+  never starts while another is `running`; a cycle waiting at a gate does not
+  block the next tick.
 - **AC-3** Workflow checkpoints are durable across process restarts: a workflow
   stopped at a gate can be resumed by a different process (Neo4j-backed store;
   in-memory store for offline tests).
 - **AC-4** Autonomy is policy, not a prompt: `config/research-autonomy.yaml` is
   versioned, every gate ships `human`, the policy fails closed, and a test pins
-  the shipped default `human`. ADR-0010 records the evidence required before a
+  the shipped default `human`. ADR-0011 records the evidence required before a
   gate may change.
 - **AC-5** A gate decision is audited on the cycle and resumes the workflow.
   Only an approval may reach synthesis; a rejection closes the workflow without
-  a canonical write.
+  a canonical write. On the canonical graph source synthesis writes nothing:
+  every proposal lands as a pending `:Canon__ReviewItem` for the review queue
+  (ADR-0010), exactly as a non-cycle workflow does.
 - **AC-6** Budgets are honest stops: per-cycle LLM USD cap, max experiments and
   max wall time set `stopped_by_budget` and a note; the kill switch
   (`RESEARCH_CYCLE_ENABLED`, Terraform `research_cycle_enabled`) defaults false.
@@ -55,5 +60,7 @@ close finished workflows
   Docker locally, Cloud Run Job in GCP). This loop does not add a second
   execution path.
 - No gate is auto. No auto path is enabled in staging.
+- The cycle inherits `AGENT_GRAPH_SOURCE`; it does not choose a graph source of
+  its own. Staging defaults to `legacy`.
 - The cycle's USD figure is an explicit per-workflow estimate, not a billing
   measurement (the agent client does not report token usage through this path).

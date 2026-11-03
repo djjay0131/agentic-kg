@@ -1,9 +1,9 @@
 ---
-title: "ADR-0010: Autonomy policy for the research loop"
+title: "ADR-0011: Autonomy policy for the research loop"
 nav_exclude: true
 ---
 
-# ADR-0010: Autonomy policy for the research loop
+# ADR-0011: Autonomy policy for the research loop
 
 Status: Proposed
 Date: 2026-10-26

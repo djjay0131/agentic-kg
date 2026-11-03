@@ -8,12 +8,12 @@ The research-progression loop runs one **cycle** at a time: it closes finished
 workflows, re-ranks the graph, starts up to `RESEARCH_CYCLE_TOP_K` workflows and
 stops each at its next human gate. Infrastructure is in `infra/main.tf`
 (`agentic-kg-research-cycle-<env>`), gated by `research_cycle_enabled`, which
-**defaults false**. ADR-0010 governs autonomy.
+**defaults false**. ADR-0011 governs autonomy.
 
 ## Turning it on
 
 1. Review `config/research-autonomy.yaml`. It ships with every gate `human`; a
-   test pins that default. Changing a gate requires ADR-0010's evidence and an
+   test pins that default. Changing a gate requires ADR-0011's evidence and an
    owner decision.
 2. In `infra/envs/<env>.tfvars` set `research_cycle_enabled = true` and apply
    (owner bootstrap may be needed; see ADR-0008 for the CI principal limits).
@@ -28,7 +28,11 @@ gcloud run jobs execute agentic-kg-research-cycle-staging \
   --region=us-central1 --wait
 ```
 
-The Job runs `python -m agentic_kg.pipeline.cycle`. It writes:
+The Job runs `python -m agentic_kg.pipeline.cycle`. It reads the graph through
+the agents' `GraphPort`, using the same `AGENT_GRAPH_SOURCE` Terraform value as
+the API (`agent_graph_source`, default `legacy`). On `canonical`, synthesis
+writes nothing directly: proposals become pending `:Canon__ReviewItem`s for the
+review queue. The Job writes:
 
 - a `:Canon__ResearchCycle` node (`ns`, `cycle_id`), and
 - a `:PipelineRun` node plus a JSON report under

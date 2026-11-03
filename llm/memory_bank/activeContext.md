@@ -20,6 +20,11 @@ budget, selected problems, per-workflow ids/states, every gate decision
 `research-cycles/`), so the Runs page and the existing
 `pipeline_run_completed`/`failed` log events cover it.
 
+- **One graph view.** Ranking and the later agents read through the merged
+  `GraphPort` (ADR-0010), selected by `AGENT_GRAPH_SOURCE`; the cycle Job gets
+  the same Terraform value as the API. On the canonical source synthesis writes
+  nothing directly — proposals become pending `:Canon__ReviewItem`s, as in a
+  non-cycle workflow.
 - **Durable gates.** `DurableCheckpointSaver` persists LangGraph checkpoints in
   `:Canon__AgentCheckpoint` nodes, so the API (or a later cycle Job) can resume
   a gate started by a different process days earlier. The API now builds its
@@ -27,7 +32,7 @@ budget, selected problems, per-workflow ids/states, every gate decision
   in a fresh saver over the same store.
 - **Autonomy is policy.** `config/research-autonomy.yaml` (v1) ships every gate
   `human`; a test pins it. `AutonomyPolicy` fails closed (`auto_if` needs a
-  threshold; unknown/missing gates raise). ADR-0010 records the options and the
+  threshold; unknown/missing gates raise). ADR-0011 records the options and the
   evidence (P2 adviser/human agreement, shadow period, false-approval bound)
   required before the owner may enable auto. `auto`/`auto_if` are wired into the
   cycle's advance loop but not enabled.
@@ -49,7 +54,28 @@ Honest limits: evaluation rides the ADR-0009 execution backend merged from the
 base branch (Docker locally, Cloud Run Job in GCP); the cycle's USD number is a
 documented per-workflow estimate, not billing.
 
-## P2 nightly review queue (2026-10-26)
+## Research agents on the canonical graph (2026-10-26, T44)
+
+`feat/agents-canonical-kgps` gives the ranking/continuation/evaluation/
+synthesis agents a `GraphPort` (ADR-0010). `AGENT_GRAPH_SOURCE=legacy|canonical`
+selects `LegacyGraphPort` (unchanged behaviour) or `CanonicalGraphPort`, which
+reads `Canon__Problem` identities/assertions/evidence through
+`migration/canonical_read.py` and holds no write surface. Terraform owns
+`agent_graph_source` (default `legacy`) and injects it into the API.
+
+On the canonical path SynthesisAgent writes nothing: every proposed problem,
+refinement, relation or status change becomes a pending `:Canon__ReviewItem`
+with `source=agent`, run id, agent name, model and prompt version; approval
+re-enters `commit_candidate` -> KGCS. Status changes are queued
+`committable=false` (no KGCS operation). Every agent output carries an
+`AgentProvenance` (KGPS `ProvenanceEnvelope` shape) with canonical assertion/
+evidence ids, an honest abstain on legacy, and `derived_from` upstream output
+ids. Outputs live in the runner's in-memory `AgentOutputStore`; `GET
+/api/agents/outputs/{id}/provenance` returns the envelope plus KGPS `explain`
+payloads. Durable output storage is a follow-up. Canonical ranking blends a documented graph-native score (evidence,
+data availability, connectivity, freshness). Runbook:
+`docs/operations/agents-canonical-runbook.md`.
+
 ## P2 nightly review queue (2026-10-26)
 
 `feat/review-queue-p2` adds the adviser/human loop on top of P1 (#127, now

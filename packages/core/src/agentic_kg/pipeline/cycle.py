@@ -510,7 +510,7 @@ def gate_confidence(gate: str, state: dict) -> Optional[float]:
     """The confidence the autonomy policy may use for ``gate``.
 
     These are model self-reports, not calibrated probabilities. The shipped
-    policy is ``human`` so no threshold is consulted; ADR-0010 requires
+    policy is ``human`` so no threshold is consulted; ADR-0011 requires
     measured agreement before a gate may use one.
     """
     if gate == CheckpointType.SELECT_PROBLEM.value:
@@ -539,7 +539,7 @@ async def _auto_advance(
     """Resolve gates the policy says may proceed without a human.
 
     The shipped policy is all ``human``, so this returns immediately. It exists
-    so ``auto_if``/``auto`` are a data change, not a code change, once ADR-0010's
+    so ``auto_if``/``auto`` are a data change, not a code change, once ADR-0011's
     evidence is accepted. Every automatic decision is recorded on the cycle with
     ``decided_by="policy:<mode>"``.
     """

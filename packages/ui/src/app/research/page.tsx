@@ -88,7 +88,7 @@ export default function ResearchPage() {
         <h1 className="text-2xl font-bold text-gray-900">Research Loop</h1>
         <p className="text-gray-500 mt-1">
           Scheduled cycles re-rank the graph and stop at human gates. Every gate
-          is human by policy (ADR-0010); approving is the only path that lets a
+          is human by policy (ADR-0011); approving is the only path that lets a
           workflow write.
         </p>
       </div>
