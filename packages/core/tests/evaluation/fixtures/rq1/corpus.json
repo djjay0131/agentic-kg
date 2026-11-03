@@ -1,0 +1,13 @@
+{
+  "corpus": "ground_truth_chain",
+  "papers": [
+    {"slug": "cskg", "doi": "10.1007/978-3-031-19433-7_39"},
+    {"slug": "cskg2", "doi": "10.1038/s41597-025-05200-8"},
+    {"slug": "kg_construction_survey", "doi": "10.2139/ssrn.4605059"},
+    {"slug": "llm_ontology_gen", "doi": "10.1016/j.ipm.2025.104262"},
+    {"slug": "fact_completion", "doi": "10.1109/access.2022.3220241"},
+    {"slug": "kg_validation_hitl", "doi": "10.1016/j.ipm.2025.104145"},
+    {"slug": "hypothesis_generation", "doi": "10.1016/j.knosys.2025.113280"},
+    {"slug": "empire", "doi": "10.1109/esem56168.2023.10304795"}
+  ]
+}

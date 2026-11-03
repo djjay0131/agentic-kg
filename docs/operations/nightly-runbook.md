@@ -6,9 +6,9 @@ nav_order: 7
 
 # Nightly pipeline run notifications
 
-The nightly Cloud Run Job writes exactly one structured JSON line per finished
-run. Cloud Logging stores it as `jsonPayload`, and two Terraform-managed
-log-based alert policies notify on it:
+The nightly run writes exactly one structured JSON line per finished run.
+Cloud Logging stores it as `jsonPayload`, and two Terraform-managed log-based
+alert policies notify on it:
 
 | Event | Log severity | Alert policy |
 |---|---|---|
@@ -19,6 +19,13 @@ The email summary includes the run id, status, papers seen/new, committed and
 deferred counts, review-queue size, estimated LLM spend, failure count and a
 link to `<UI base>/runs/<run_id>`. The application holds **no mail
 credentials**; Cloud Monitoring owns the email notification channel.
+
+The event is emitted by whichever stage ends the run. When
+`nightly_curate_enabled` is true and the ingest Job exits 0, the workflow runs
+the adviser stage; that stage updates the run with the review-queue summary and
+emits the event, and the ingest Job deliberately defers its own. A failed or
+partial ingest never reaches the adviser stage, so it emits the event itself.
+`agentic_kg.pipeline.report` is the single event builder and emitter.
 
 ## Change the recipient
 

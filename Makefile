@@ -1,4 +1,4 @@
-.PHONY: install test test-core test-api test-e2e smoke-test smoke-local lint build-ui dev docker-up docker-down clean
+.PHONY: install test test-core test-api test-e2e smoke-test smoke-local lint rq1-eval build-ui dev docker-up docker-down clean
 
 # Install all packages in development mode
 install:
@@ -65,6 +65,14 @@ lint:
 # Format
 format:
 	ruff format packages/core/src packages/api/src
+
+# RQ1 extraction-reliability harness on the frozen 8-paper fixture (no LLM calls).
+rq1-eval:
+	python -m agentic_kg.evaluation.rq1 \
+		--gold packages/core/tests/evaluation/fixtures/rq1/gold.jsonl \
+		--pred packages/core/tests/evaluation/fixtures/rq1/predictions.jsonl \
+		--corpus packages/core/tests/evaluation/fixtures/rq1/corpus.json \
+		--out rq1-report.json --markdown rq1-report.md
 
 # Build UI
 build-ui:

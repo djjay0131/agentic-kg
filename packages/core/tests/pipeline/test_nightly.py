@@ -322,3 +322,55 @@ def test_run_url_is_null_without_a_ui_base(tmp_path, capsys):
     )
 
     assert _only_stdout_line(capsys)["run_url"] is None
+
+
+def test_curate_pending_defers_a_successful_run_event(tmp_path, capsys):
+    """The adviser stage ends a successful run and emits the single event."""
+    catalog = _catalog(("a", 3))
+    result = run_nightly(
+        now=NOW,
+        catalog=catalog,
+        runner=_runner({"query a": QueryOutcome()}),
+        runs_dir=tmp_path,
+        write_neo4j=False,
+        defer_event_on_success=True,
+    )
+
+    assert result.exit_code == 0
+    assert capsys.readouterr().out.strip() == ""
+
+
+def test_failed_run_emits_even_when_curate_would_follow(tmp_path, capsys):
+    """The workflow skips the adviser stage on a non-zero ingest exit."""
+    catalog = _catalog(("a", 3), ("b", 3))
+    outcomes = {"query a": QueryOutcome(error="x"), "query b": QueryOutcome(error="y")}
+    result = run_nightly(
+        now=NOW,
+        catalog=catalog,
+        runner=_runner(outcomes),
+        runs_dir=tmp_path,
+        write_neo4j=False,
+        defer_event_on_success=True,
+    )
+
+    assert result.exit_code == 2
+    assert _only_stdout_line(capsys)["event"] == "pipeline_run_failed"
+
+
+def test_partial_run_emits_even_when_curate_would_follow(tmp_path, capsys):
+    """A partial ingest exits 1, so the workflow cannot run the adviser stage."""
+    catalog = _catalog(("a", 3), ("b", 3))
+    outcomes = {"query a": QueryOutcome(), "query b": QueryOutcome(error="y")}
+    result = run_nightly(
+        now=NOW,
+        catalog=catalog,
+        runner=_runner(outcomes),
+        runs_dir=tmp_path,
+        write_neo4j=False,
+        defer_event_on_success=True,
+    )
+
+    assert result.exit_code == 1
+    event = _only_stdout_line(capsys)
+    assert event["event"] == "pipeline_run_completed"
+    assert event["status"] == "partial"

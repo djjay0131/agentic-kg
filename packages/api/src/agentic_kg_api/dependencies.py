@@ -2,11 +2,16 @@
 
 import hmac
 import logging
+import os
 from typing import Optional
 
 from agentic_kg.knowledge_graph.pipeline_runs import PipelineRunRepository
 from agentic_kg.knowledge_graph.relations import RelationService, get_relation_service
 from agentic_kg.knowledge_graph.repository import Neo4jRepository, get_repository
+from agentic_kg.knowledge_graph.review_items import (
+    CandidateReviewService,
+    ReviewItemRepository,
+)
 from agentic_kg.knowledge_graph.review_queue import (
     ReviewQueueService,
     get_review_queue_service,
@@ -21,6 +26,7 @@ _repository: Optional[Neo4jRepository] = None
 _search_service: Optional[SearchService] = None
 _relation_service: Optional[RelationService] = None
 _review_queue_service: Optional[ReviewQueueService] = None
+_agent_output_store: Optional[object] = None
 #: One read-only canonical reader per worker process. The Neo4j driver it holds
 #: is lazy and pool-backed, so caching it avoids opening a fresh driver on every
 #: request; it is released when the worker exits (FastAPI lifespan calls
@@ -73,15 +79,48 @@ def get_pipeline_runs(
     return PipelineRunRepository(repo)
 
 
+def get_review_items(
+    repo: Neo4jRepository = Depends(get_repo),
+) -> CandidateReviewService:
+    """The nightly review-queue service for the canonical namespace.
+
+    Per-request (the object only holds a repository reference), so a test's
+    dependency override is always the one the router uses. The default commit
+    path is KGCS; the API test overrides the service with a fake committer.
+    """
+    namespace = os.getenv("KGCS_CANONICAL_NAMESPACE", "canon")
+    return CandidateReviewService(
+        ReviewItemRepository(repo, namespace=namespace)
+    )
+
+
+def get_agent_outputs(
+    repo: Neo4jRepository = Depends(get_repo),
+) -> object:
+    """The agent-output store, shared by the runner and the provenance route.
+
+    A module singleton (not per-request) because the runner writes into it and
+    the route reads from it; both live in the same worker process. Tests
+    override this dependency with an in-memory store.
+    """
+    from agentic_kg.agents.provenance import InMemoryAgentOutputStore
+
+    global _agent_output_store
+    if _agent_output_store is None:
+        _agent_output_store = InMemoryAgentOutputStore()
+    return _agent_output_store
+
+
 def reset_dependencies() -> None:
     """Reset all dependency singletons (for testing)."""
     global _repository, _search_service, _relation_service, _review_queue_service
-    global _canonical_reader
+    global _canonical_reader, _agent_output_store
     _repository = None
     _search_service = None
     _relation_service = None
     _review_queue_service = None
     _canonical_reader = None
+    _agent_output_store = None
     reset_review_queue_service()
 
 

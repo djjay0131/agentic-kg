@@ -4,6 +4,11 @@
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || 'http://localhost:8000';
 
+// The mutating review routes require X-User-ID (the same mechanism the legacy
+// review queue uses). There is no sign-in UI in this slice, so the operator
+// name is configuration, with a neutral default that is visible in the audit.
+const REVIEW_USER = process.env.NEXT_PUBLIC_REVIEW_USER || 'operator';
+
 export interface ProblemSummary {
   id: string;
   statement: string;
@@ -171,6 +176,13 @@ export interface PipelineFailure {
   log_url: string | null;
 }
 
+export interface ReviewAgreement {
+  entity_type: string;
+  decided: number;
+  agreed: number;
+  agreement_rate: number | null;
+}
+
 export interface PipelineRun {
   run_id: string;
   started_at: string;
@@ -183,10 +195,59 @@ export interface PipelineRun {
   deferral_reasons: Record<string, number>;
   budget: PipelineBudget;
   review_queue_size: number | null;
+  adviser_verdicts: Record<string, number>;
+  adviser_human_agreement: Record<string, ReviewAgreement>;
   proposed_queries: Record<string, unknown>[];
   failures: PipelineFailure[];
   git_sha: string;
   image: string;
+}
+
+// Review queue (nightly P2)
+export interface ReviewEvidenceRef {
+  evidence_id: string;
+  relationship: string | null;
+  content: string | null;
+}
+
+export interface ReviewItemSummary {
+  id: string;
+  run_id: string;
+  candidate_id: string;
+  candidate_kind: string;
+  entity_type: string | null;
+  candidate_summary: string;
+  adviser_verdict: string;
+  confidence: number | null;
+  adviser_abstained: boolean;
+  status: string;
+  committable: boolean;
+  commit_blocker: string | null;
+  created_at: string;
+  decided_at: string | null;
+}
+
+export interface ReviewItemDetail extends ReviewItemSummary {
+  namespace: string;
+  candidate_payload: Record<string, unknown>;
+  evidence_refs: ReviewEvidenceRef[];
+  rationale: string;
+  adviser_type: string;
+  adviser_version: string;
+  adviser_model_id: string;
+  adviser_model_version: string;
+  prompt_version: string;
+  decided_by: string | null;
+  decision_note: string | null;
+  committed_epoch: number | null;
+  committed_identity_ids: string[];
+}
+
+export interface ReviewItemListResponse {
+  items: ReviewItemSummary[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface PipelineRunListResponse {
@@ -326,6 +387,34 @@ export const api = {
   },
 
   getRun: (runId: string) => fetchAPI<PipelineRun>(`/api/runs/${encodeURIComponent(runId)}`),
+
+  // Review queue (nightly P2)
+  listReview: (params?: {
+    status?: string;
+    type?: string;
+    run_id?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.status) searchParams.set('status', params.status);
+    if (params?.type) searchParams.set('type', params.type);
+    if (params?.run_id) searchParams.set('run_id', params.run_id);
+    if (params?.limit) searchParams.set('limit', String(params.limit));
+    if (params?.offset) searchParams.set('offset', String(params.offset));
+    const query = searchParams.toString();
+    return fetchAPI<ReviewItemListResponse>(`/api/review${query ? `?${query}` : ''}`);
+  },
+
+  getReview: (id: string) =>
+    fetchAPI<ReviewItemDetail>(`/api/review/${encodeURIComponent(id)}`),
+
+  decideReview: (id: string, decision: 'approve' | 'reject', note?: string) =>
+    fetchAPI<ReviewItemDetail>(`/api/review/${encodeURIComponent(id)}`, {
+      method: 'POST',
+      headers: { 'X-User-ID': REVIEW_USER },
+      body: JSON.stringify({ decision, note: note || null }),
+    }),
 
   // Workflows
   startWorkflow: (params?: { domain_filter?: string; status_filter?: string; max_problems?: number }) =>

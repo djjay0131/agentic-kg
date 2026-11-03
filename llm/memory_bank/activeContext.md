@@ -1,11 +1,80 @@
 # Active Context
 
-Last updated: 2026-10-21
+Last updated: 2026-10-26
 
 > Newest entries at the top. History through 2026-07 lives in
 > [`archive/activeContext-through-2026-07.md`](archive/activeContext-through-2026-07.md)
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
+
+## Research agents on the canonical graph (2026-10-26, T44)
+
+`feat/agents-canonical-kgps` gives the ranking/continuation/evaluation/
+synthesis agents a `GraphPort` (ADR-0010). `AGENT_GRAPH_SOURCE=legacy|canonical`
+selects `LegacyGraphPort` (unchanged behaviour) or `CanonicalGraphPort`, which
+reads `Canon__Problem` identities/assertions/evidence through
+`migration/canonical_read.py` and holds no write surface. Terraform owns
+`agent_graph_source` (default `legacy`) and injects it into the API.
+
+On the canonical path SynthesisAgent writes nothing: every proposed problem,
+refinement, relation or status change becomes a pending `:Canon__ReviewItem`
+with `source=agent`, run id, agent name, model and prompt version; approval
+re-enters `commit_candidate` -> KGCS. Status changes are queued
+`committable=false` (no KGCS operation). Every agent output carries an
+`AgentProvenance` (KGPS `ProvenanceEnvelope` shape) with canonical assertion/
+evidence ids, an honest abstain on legacy, and `derived_from` upstream output
+ids. Outputs live in the runner's in-memory `AgentOutputStore`; `GET
+/api/agents/outputs/{id}/provenance` returns the envelope plus KGPS `explain`
+payloads. Durable output storage is a follow-up. Canonical ranking blends a documented graph-native score (evidence,
+data availability, connectivity, freshness). Runbook:
+`docs/operations/agents-canonical-runbook.md`.
+
+## P2 nightly review queue (2026-10-26)
+
+`feat/review-queue-p2` adds the adviser/human loop on top of P1 (#127, now
+merged, so this branch is based directly on master). The new Cloud Run Job
+`agentic-kg-adviser-<env>` runs `python -m agentic_kg.pipeline.curate` after the
+nightly ingest in the same Workflow, reads the run's KGIS ledger, re-runs the
+deterministic policy, and grades deferred candidates with a bounded KGCS
+`StructuredAdviser` wired to the ledger's evidence registry (evidence **text**,
+not ids). It writes `:Canon__ReviewItem` nodes in the canonical namespace
+(idempotent on `(run_id, candidate_id)`); `GET/POST /api/review` and the
+Review page decide them. Approval re-enters `run_curation` with the candidate
+marked human-approved, so KGCS still plans and `PlanExecutor` still writes.
+Rejections write nothing canonical. Both append a `:Canon__ReviewDecision`.
+Only entity candidates and assertions with identity endpoints are queued;
+artifacts and alias-endpoint assertions stay in `deferral_reasons`. The stage
+reuses `NIGHTLY_MAX_LLM_USD` with a documented per-call estimate. It does not
+change `nightly_ingest_mode` (staging is still `legacy`, so the queue is
+honestly empty until the nightly opts into KGIS). Runbook:
+`docs/operations/review-queue-runbook.md`.
+
+## RQ1 extraction-reliability harness (2026-10-26, T43)
+
+`agentic_kg.evaluation.rq1` measures precision/recall/F1 of extracted problems,
+assumptions, constraints, datasets, metrics and baselines against versioned
+`rq1-annotation/v1` JSONL annotations, overall and stratified by section, with
+per-paper clustered bootstrap CIs, Cohen's kappa / Krippendorff's alpha, and
+five error buckets. It is independent of `kg_eval` and runs on a default install
+with no model call.
+
+- Entry point: `python -m agentic_kg.evaluation.rq1 ...`; `make rq1-eval`;
+  CI `.github/workflows/rq1-eval.yml` runs the frozen fixtures and uploads the
+  JSON + Markdown report as an artifact.
+- Annotation guide: `docs/evaluation/rq1-annotation-guide.md`. Converter:
+  `agentic_kg.evaluation.annotations`, exposed as the `convert` subcommand.
+- Frozen fixtures: `packages/core/tests/evaluation/fixtures/rq1/` (gold,
+  predictions, corpus manifest). A regeneration test fails if they drift.
+- **Honest coverage today:** the 8-paper corpus has annotations for 4 papers
+  (`cskg`, `cskg2` reconciled; `empire`, `fact_completion` human) and only the
+  `problem` field. The other four papers and five structured fields are reported
+  as honest nulls, never `0.0` or false positives.
+- **kg_eval bug:** the named `_unsupported_assertions` SUPPORTS-only bug is
+  already fixed at the pinned agentic-kgis v0.6.0 (`285ca1d`; upstream #60/#62).
+  No upstream PR was needed. The new
+  `tests/migration/evaluation/test_kg_eval_grounding_support.py` pins the
+  resolved dependency's `SUPPORTS` vs `DERIVED_FROM` semantics in the migration
+  CI job.
 
 ## Enforced API-key auth + machine-only rotation (2026-10-21, R-3 PR-2)
 

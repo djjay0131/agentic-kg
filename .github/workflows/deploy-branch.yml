@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       services:
-        description: 'Services to deploy (all, api, ui, job, or comma-separated)'
+        description: 'Services to deploy (all, api, ui, job, experiment, or comma-separated)'
         required: true
         default: 'all'
         type: choice
@@ -17,6 +17,7 @@ on:
           - api
           - ui
           - job
+          - experiment
           - api,ui
           - api,job
           - ui,job
@@ -120,10 +121,12 @@ jobs:
             echo "deploy_api=true" >> $GITHUB_OUTPUT
             echo "deploy_ui=true" >> $GITHUB_OUTPUT
             echo "deploy_job=true" >> $GITHUB_OUTPUT
+            echo "deploy_experiment=true" >> $GITHUB_OUTPUT
           else
             echo "deploy_api=$(echo $SERVICES | grep -q 'api' && echo true || echo false)" >> $GITHUB_OUTPUT
             echo "deploy_ui=$(echo $SERVICES | grep -q 'ui' && echo true || echo false)" >> $GITHUB_OUTPUT
             echo "deploy_job=$(echo $SERVICES | grep -q 'job' && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "deploy_experiment=$(echo $SERVICES | grep -q 'experiment' && echo true || echo false)" >> $GITHUB_OUTPUT
           fi
 
       - name: Set environment suffix
@@ -220,6 +223,19 @@ jobs:
               --max-retries=0 \
               --set-secrets=NEO4J_URI=NEO4J_URI:latest,NEO4J_PASSWORD=NEO4J_PASSWORD:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest \
               --labels=environment=${{ inputs.environment }},branch=${{ steps.branch_label.outputs.label }}
+          fi
+
+      - name: Deploy experiment Job
+        if: steps.parse.outputs.deploy_experiment == 'true'
+        run: |
+          JOB="agentic-kg-experiment${{ steps.env.outputs.suffix }}"
+          if gcloud run jobs describe "$JOB" --region="$REGION" >/dev/null 2>&1; then
+            gcloud run jobs update "$JOB" \
+              --image=${{ needs.build.outputs.experiment_image }} \
+              --region=${{ env.REGION }} \
+              --update-labels=environment=${{ inputs.environment }},branch=${{ steps.branch_label.outputs.label }}
+          else
+            echo "$JOB not created yet; Terraform owns creation"
           fi
 
       - name: Get service URLs

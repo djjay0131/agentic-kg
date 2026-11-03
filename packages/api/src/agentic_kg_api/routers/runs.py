@@ -8,6 +8,7 @@ reads ``:PipelineRun`` nodes from Neo4j (no GCS access).
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from agentic_kg.knowledge_graph.models.pipeline_run import PipelineRun
@@ -18,11 +19,13 @@ from agentic_kg.knowledge_graph.pipeline_runs import (
     PipelineRunNotFoundError,
     PipelineRunRepository,
 )
+from agentic_kg.knowledge_graph.review_items import CandidateReviewService
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from agentic_kg_api.dependencies import get_pipeline_runs
+from agentic_kg_api.dependencies import get_pipeline_runs, get_review_items
 from agentic_kg_api.schemas import PipelineRunListResponse, PipelineRunSummary
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 
@@ -66,12 +69,27 @@ def list_runs(
 def get_run(
     run_id: str,
     store: PipelineRunRepository = Depends(get_pipeline_runs),
+    review_service: CandidateReviewService = Depends(get_review_items),
 ) -> PipelineRun:
-    """Return the full record for one run, or 404 if unknown."""
+    """Return the full record for one run, or 404 if unknown.
+
+    ``adviser_human_agreement`` is computed at read time across every decided
+    review item in the namespace (it is a "to date" figure, not a property of
+    this run). A review-store failure degrades to an empty map rather than
+    turning a run read into a 500; the missing figure is the honest null.
+    """
     try:
-        return store.get(run_id)
+        run = store.get(run_id)
     except PipelineRunNotFoundError:
         raise HTTPException(status_code=404, detail=f"Pipeline run not found: {run_id}")
+    try:
+        agreement = review_service.agreement_by_entity_type()
+    except Exception as exc:  # noqa: BLE001 - a read projection must not 500 the run
+        logger.warning("could not compute adviser/human agreement: %s", exc)
+        agreement = {}
+    if agreement:
+        run = run.model_copy(update={"adviser_human_agreement": agreement})
+    return run
 
 
 __all__ = ["router"]

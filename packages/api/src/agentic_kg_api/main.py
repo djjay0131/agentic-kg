@@ -14,7 +14,13 @@ from fastapi.responses import JSONResponse
 
 from agentic_kg_api import __version__
 from agentic_kg_api.config import get_api_config
-from agentic_kg_api.dependencies import get_relations, get_repo, get_search, reset_dependencies
+from agentic_kg_api.dependencies import (
+    get_agent_outputs,
+    get_relations,
+    get_repo,
+    get_search,
+    reset_dependencies,
+)
 from agentic_kg_api.routers import (
     agents,
     auth,
@@ -25,6 +31,7 @@ from agentic_kg_api.routers import (
     ingest,
     papers,
     problems,
+    review,
     reviews,
     runs,
     search,
@@ -61,17 +68,23 @@ async def lifespan(app: FastAPI):
 
         from agentic_kg.agents.runner import WorkflowRunner
 
+        graph_source = os.getenv("AGENT_GRAPH_SOURCE", "legacy")
         runner = WorkflowRunner(
             llm_client=llm_client,
             repository=repo,
             search_service=search_svc,
             relation_service=relation_svc,
+            graph_source=graph_source,
+            output_store=get_agent_outputs(repo),
         )
         agents.set_workflow_runner(runner)
         setup_event_bridge()
         logger.info("WorkflowRunner initialized successfully")
     except Exception as e:
-        logger.warning(f"WorkflowRunner initialization failed: {e}. Agent workflows will be unavailable.")
+        logger.warning(
+            f"WorkflowRunner initialization failed: {e}. "
+            "Agent workflows will be unavailable."
+        )
 
     yield
 
@@ -140,6 +153,7 @@ app.include_router(extract.router)
 app.include_router(graph.router)
 app.include_router(agents.router)
 app.include_router(reviews.router)
+app.include_router(review.router)
 app.include_router(ingest.router)
 app.include_router(topics.router)
 app.include_router(concepts.router)

@@ -33,12 +33,26 @@ deploy_service_account_email = "gh-deploy@vt-gcp-00042.iam.gserviceaccount.com"
 kgis_kgcs_enabled   = true
 canonical_namespace = "staging"
 
+# ADR-0010: research agents stay on the legacy graph on staging by default.
+# Flip to "canonical" once the canonical Problem read and review queue are
+# trusted; the agents never write canonical state directly.
+agent_graph_source = "legacy"
+
 # Durable KGIS ledger (nightly-pipeline design P0-2). The ingest Job mounts this
 # bucket with a Cloud Run GCS volume and writes the ledger/evidence under the
 # namespace subdirectory, so it survives scale-in instead of vanishing with
 # /tmp. See infra/README.md §Durable KGIS ledger.
 ingest_ledger_bucket = "vt-gcp-00042-agentic-kg-ledger-staging"
 ingest_ledger_dir    = "/mnt/ledger/staging"
+
+# Experiment execution (ADR-0010). Cloud Run has no Docker daemon, so staging
+# runs the EvaluationAgent's generated code in a dedicated Cloud Run Job.
+experiment_backend     = "cloudrun_job"
+experiment_bucket      = "vt-gcp-00042-agentic-kg-experiments"
+experiment_gcs_prefix  = "staging"
+experiment_job_memory  = "2Gi"
+experiment_job_cpu     = "1"
+experiment_job_timeout = 300
 
 # Nightly pipeline (nightly-pipeline P1, ADR-0008). Enabled for staging only;
 # creates the runs bucket, the nightly SA, the nightly Cloud Run Job, the
@@ -49,3 +63,10 @@ nightly_runs_bucket = "vt-gcp-00042-agentic-kg-runs-staging"
 nightly_max_papers  = 50
 nightly_max_llm_usd = 0
 nightly_timeout     = 3600
+
+# P2 adviser/review-queue stage. Enabled for staging; it runs after the nightly
+# ingest in the same workflow. With the default legacy ingest mode there is no
+# KGIS ledger, so the stage honestly reports zero candidates rather than
+# inventing a queue.
+nightly_curate_enabled   = true
+nightly_curate_max_items = 500

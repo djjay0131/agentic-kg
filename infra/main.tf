@@ -461,9 +461,56 @@ resource "google_cloud_run_v2_service" "api" {
         value = var.env
       }
 
+      # Experiment execution backend. Terraform sets `cloudrun_job` in staging
+      # because a Cloud Run service has no Docker daemon (ADR-0010). The API
+      # only receives the bucket/job coordinates when the Job exists.
+      env {
+        name  = "EXPERIMENT_BACKEND"
+        value = var.experiment_backend
+      }
+
+      dynamic "env" {
+        for_each = var.experiment_bucket != "" ? [1] : []
+        content {
+          name  = "EXPERIMENT_GCS_BUCKET"
+          value = var.experiment_bucket
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.experiment_bucket != "" ? [1] : []
+        content {
+          name  = "EXPERIMENT_GCS_PREFIX"
+          value = var.experiment_gcs_prefix
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.experiment_bucket != "" ? [1] : []
+        content {
+          name  = "EXPERIMENT_GCS_ENDPOINT"
+          value = "https://private.googleapis.com"
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.experiment_bucket != "" ? [1] : []
+        content {
+          name  = "EXPERIMENT_JOB_NAME"
+          value = google_cloud_run_v2_job.experiment[0].name
+        }
+      }
+
       env {
         name  = "CORS_ORIGINS"
         value = "*"
+      }
+
+      # ADR-0010: the research agents' graph source. Terraform owns it so a
+      # deploy that only rolls the image cannot silently flip it.
+      env {
+        name  = "AGENT_GRAPH_SOURCE"
+        value = var.agent_graph_source
       }
 
       # KGIS/KGCS opt-in seam (ADR-0004/ADR-0005, issue #112). Declared here so
@@ -533,7 +580,11 @@ resource "google_cloud_run_v2_service_iam_member" "api_public" {
 # Granted through the reviewed plan/apply path (ADR-0007: no hand-run IAM),
 # like deploy_service_account_admin; owner-approved 2026-10-11.
 resource "google_project_iam_member" "deploy_storage_admin" {
-  count   = var.deploy_service_account_email != "" && var.ingest_ledger_bucket != "" ? 1 : 0
+  count = (
+    var.deploy_service_account_email != ""
+    && (var.ingest_ledger_bucket != "" || var.experiment_bucket != "")
+    ? 1 : 0
+  )
   project = var.project_id
   role    = "roles/storage.admin"
   member  = "serviceAccount:${var.deploy_service_account_email}"
@@ -777,6 +828,259 @@ resource "google_cloud_run_v2_job" "ingest" {
 # IAM — API service account can trigger and poll ingest job (minimum permissions)
 resource "google_cloud_run_v2_job_iam_member" "api_can_run_ingest" {
   name     = google_cloud_run_v2_job.ingest.name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+}
+
+# =============================================================================
+# Experiment execution — Cloud Run Job backend (ADR-0010)
+# =============================================================================
+# The EvaluationAgent writes generated scripts and inputs to GCS, invokes this
+# Job with the script's gs:// URI, and reads stdout/stderr/metrics back from the
+# same prefix. Everything is created only when var.experiment_bucket is set;
+# environments that keep the local Docker backend create nothing here.
+#
+# Isolation model (ADR-0010):
+#   * dedicated runtime SA; no secret access, no project roles
+#   * bucket-only objectViewer/objectCreator, scoped to a single prefix
+#   * a dedicated VPC with ALL_TRAFFIC Direct VPC egress that has no route to
+#     the application network and an explicit deny for all internet egress
+#   * the only egress allow is the Private Google APIs VIP, so the Job can
+#     reach GCS but not Neo4j, the API, or arbitrary hosts
+#   * Cloud Run's filesystem is read-only except /tmp; the image runs as a
+#     non-root user
+
+resource "google_service_account" "experiment" {
+  count = var.experiment_bucket != "" ? 1 : 0
+
+  account_id   = "agentic-kg-experiment-${var.env}"
+  display_name = "Agentic KG experiment runner (${var.env})"
+
+  depends_on = [google_project_iam_member.deploy_service_account_admin]
+}
+
+resource "google_storage_bucket" "experiments" {
+  count = var.experiment_bucket != "" ? 1 : 0
+
+  name                        = var.experiment_bucket
+  location                    = var.region
+  storage_class               = "STANDARD"
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+  force_destroy               = false
+
+  lifecycle_rule {
+    condition {
+      age = 30
+    }
+    action {
+      type = "Delete"
+    }
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_project_iam_member.deploy_storage_admin,
+  ]
+}
+
+# The runner may create objects and read them back, but only under its own
+# experiment prefix. Conditions keep a compromised Job from reading another
+# environment's results in the same bucket.
+resource "google_storage_bucket_iam_member" "experiment_objects" {
+  for_each = var.experiment_bucket != "" ? toset([
+    "roles/storage.objectViewer",
+    "roles/storage.objectCreator",
+  ]) : toset([])
+
+  bucket = google_storage_bucket.experiments[0].name
+  role   = each.value
+  member = "serviceAccount:${google_service_account.experiment[0].email}"
+
+  condition {
+    title = "experiment-prefix-only"
+    expression = (
+      "resource.name.startsWith(\"projects/_/buckets/${google_storage_bucket.experiments[0].name}/objects/${var.experiment_gcs_prefix}/\")"
+    )
+  }
+}
+
+# The API writes the script/inputs and reads the outputs. Same prefix scope.
+resource "google_storage_bucket_iam_member" "experiment_api_objects" {
+  for_each = var.experiment_bucket != "" ? toset([
+    "roles/storage.objectViewer",
+    "roles/storage.objectCreator",
+  ]) : toset([])
+
+  bucket = google_storage_bucket.experiments[0].name
+  role   = each.value
+  member = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+
+  condition {
+    title = "experiment-prefix-only"
+    expression = (
+      "resource.name.startsWith(\"projects/_/buckets/${google_storage_bucket.experiments[0].name}/objects/${var.experiment_gcs_prefix}/\")"
+    )
+  }
+}
+
+resource "google_compute_network" "experiments" {
+  count = var.experiment_bucket != "" ? 1 : 0
+
+  name                    = "agentic-kg-experiments-${var.env}"
+  auto_create_subnetworks = false
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_compute_subnetwork" "experiments" {
+  count = var.experiment_bucket != "" ? 1 : 0
+
+  name                     = "agentic-kg-experiments-${var.env}"
+  ip_cidr_range            = var.experiment_subnet_cidr
+  region                   = var.region
+  network                  = google_compute_network.experiments[0].id
+  private_ip_google_access = true
+}
+
+# Direct VPC egress requires the runtime identity to attach to the subnet.
+# Scope this to the experiment subnet only, never the project or app network.
+resource "google_compute_subnetwork_iam_member" "experiment_network_user" {
+  count = var.experiment_bucket != "" ? 1 : 0
+
+  subnetwork = google_compute_subnetwork.experiments[0].id
+  region     = var.region
+  role       = "roles/compute.networkUser"
+  member     = "serviceAccount:${google_service_account.experiment[0].email}"
+}
+
+# Google creates a 0.0.0.0/0 route for every VPC and it cannot be deleted, so
+# the firewall is the egress control. Deny everything, then allow only the
+# Private/Private Google Access VIPs used by the GCS client.
+resource "google_compute_firewall" "experiment_deny_internet" {
+  count = var.experiment_bucket != "" ? 1 : 0
+
+  name      = "agentic-kg-experiment-deny-internet-${var.env}"
+  network   = google_compute_network.experiments[0].name
+  direction = "EGRESS"
+  priority  = 1000
+
+  deny {
+    protocol = "all"
+  }
+
+  destination_ranges = ["0.0.0.0/0"]
+}
+
+resource "google_compute_firewall" "experiment_allow_google_apis" {
+  count = var.experiment_bucket != "" ? 1 : 0
+
+  name      = "agentic-kg-experiment-allow-google-apis-${var.env}"
+  network   = google_compute_network.experiments[0].name
+  direction = "EGRESS"
+  priority  = 100
+
+  allow {
+    protocol = "tcp"
+    ports    = ["443"]
+  }
+
+  # private.googleapis.com and restricted.googleapis.com.
+  destination_ranges = ["199.36.153.4/30", "199.36.153.8/30"]
+}
+
+resource "google_cloud_run_v2_job" "experiment" {
+  count = var.experiment_bucket != "" ? 1 : 0
+
+  name     = "agentic-kg-experiment-${var.env}"
+  location = var.region
+
+  template {
+    parallelism = 1
+    task_count  = 1
+
+    template {
+      service_account = google_service_account.experiment[0].email
+      timeout         = "${var.experiment_job_timeout}s"
+      max_retries     = 0
+
+      containers {
+        image = "${var.region}-docker.pkg.dev/${var.project_id}/agentic-kg/experiment:latest"
+
+        resources {
+          limits = {
+            memory = var.experiment_job_memory
+            cpu    = var.experiment_job_cpu
+          }
+        }
+
+        env {
+          name  = "EXPERIMENT_BUCKET"
+          value = var.experiment_bucket
+        }
+
+        env {
+          name  = "EXPERIMENT_GCS_PREFIX"
+          value = var.experiment_gcs_prefix
+        }
+
+        # The Job has no internet egress; force the GCS client onto the Private
+        # Google APIs VIP that the firewall allow-list permits.
+        env {
+          name  = "EXPERIMENT_GCS_ENDPOINT"
+          value = "https://private.googleapis.com"
+        }
+      }
+
+      # ALL_TRAFFIC through a dedicated VPC that has no peering to the
+      # application network. Combined with the deny rule above, generated code
+      # cannot reach Neo4j or arbitrary internet hosts.
+      vpc_access {
+        network_interfaces {
+          network    = google_compute_network.experiments[0].id
+          subnetwork = google_compute_subnetwork.experiments[0].id
+        }
+        egress = "ALL_TRAFFIC"
+      }
+    }
+  }
+
+  # The experiment image is rolled by the deploy workflows, like the other Jobs.
+  lifecycle {
+    ignore_changes = [
+      client,
+      client_version,
+      template[0].template[0].containers[0].image,
+      template[0].labels,
+      template[0].annotations,
+    ]
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_service_account.experiment,
+    google_storage_bucket_iam_member.experiment_objects,
+    google_compute_subnetwork_iam_member.experiment_network_user,
+    google_compute_firewall.experiment_deny_internet,
+    google_compute_firewall.experiment_allow_google_apis,
+  ]
+}
+
+# The API may run this one Job with args/env overrides and poll its execution.
+resource "google_cloud_run_v2_job_iam_member" "api_can_run_experiment" {
+  count = var.experiment_bucket != "" ? 1 : 0
+
+  name     = google_cloud_run_v2_job.experiment[0].name
+  location = var.region
+  role     = "roles/run.jobsExecutorWithOverrides"
+  member   = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+}
+
+resource "google_cloud_run_v2_job_iam_member" "api_can_invoke_experiment" {
+  count = var.experiment_bucket != "" ? 1 : 0
+
+  name     = google_cloud_run_v2_job.experiment[0].name
   location = var.region
   role     = "roles/run.invoker"
   member   = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
@@ -1113,7 +1417,7 @@ resource "google_cloud_run_v2_job" "check_api_key" {
 
         resources {
           limits = {
-            memory = "256Mi"
+            memory = "512Mi"
             cpu    = "1"
           }
         }
@@ -1380,6 +1684,9 @@ locals {
     ? var.nightly_service_account_email
     : "agentic-kg-nightly@${var.project_id}.iam.gserviceaccount.com"
   )
+  # The workflow always names this Job; when the stage is disabled the Job does
+  # not exist and the `curate` argument is false, so the step is skipped.
+  adviser_job_id = var.nightly_enabled && var.nightly_curate_enabled ? google_cloud_run_v2_job.adviser[0].id : ""
 }
 
 resource "google_service_account" "nightly" {
@@ -1700,6 +2007,210 @@ resource "google_cloud_run_v2_job" "nightly" {
   ]
 }
 
+# ---- Cloud Run Job: adviser / review queue (P2) ---------------------------
+# Runs after the ingest Job in the same workflow. It reads the run's ledger and
+# writes canonical-path ReviewItems; an approval later commits through KGCS from
+# the API. Same image, same secrets, same ledger/runs volumes, same SA.
+resource "google_cloud_run_v2_job" "adviser" {
+  provider = google-beta
+  count    = var.nightly_enabled && var.nightly_curate_enabled ? 1 : 0
+
+  name         = "agentic-kg-adviser-${var.env}"
+  location     = var.region
+  launch_stage = "BETA"
+
+  template {
+    parallelism = 1
+    task_count  = 1
+
+    template {
+      service_account = local.nightly_sa_email
+
+      dynamic "volumes" {
+        for_each = var.ingest_ledger_bucket != "" ? [1] : []
+        content {
+          name = "ledger"
+          gcs {
+            bucket    = var.ingest_ledger_bucket
+            read_only = false
+          }
+        }
+      }
+
+      dynamic "volumes" {
+        for_each = var.nightly_runs_bucket != "" ? [1] : []
+        content {
+          name = "runs"
+          gcs {
+            bucket    = var.nightly_runs_bucket
+            read_only = false
+          }
+        }
+      }
+
+      containers {
+        image = "${var.region}-docker.pkg.dev/${var.project_id}/agentic-kg/job:latest"
+
+        command = ["python", "-m", "agentic_kg.pipeline.curate"]
+
+        dynamic "volume_mounts" {
+          for_each = var.ingest_ledger_bucket != "" ? [1] : []
+          content {
+            name       = "ledger"
+            mount_path = var.ingest_ledger_mount_path
+          }
+        }
+
+        dynamic "volume_mounts" {
+          for_each = var.nightly_runs_bucket != "" ? [1] : []
+          content {
+            name       = "runs"
+            mount_path = var.nightly_runs_mount_path
+          }
+        }
+
+        resources {
+          limits = {
+            memory = var.ingest_job_memory
+            cpu    = var.ingest_job_cpu
+          }
+        }
+
+        env {
+          name = "NEO4J_URI"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.neo4j_uri.secret_id
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "NEO4J_PASSWORD"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.neo4j_password.secret_id
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "OPENAI_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = "OPENAI_API_KEY"
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "ANTHROPIC_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = "ANTHROPIC_API_KEY"
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name  = "NIGHTLY_LEDGER_DIR"
+          value = var.ingest_ledger_dir
+        }
+
+        dynamic "env" {
+          for_each = var.kgis_kgcs_enabled ? [1] : []
+          content {
+            name  = "KGIS_INGESTION_ENABLED"
+            value = "1"
+          }
+        }
+
+        dynamic "env" {
+          for_each = var.kgis_kgcs_enabled ? [1] : []
+          content {
+            name  = "KGCS_RESOLUTION_ENABLED"
+            value = "1"
+          }
+        }
+
+        env {
+          name  = "KGCS_CANONICAL_NAMESPACE"
+          value = var.canonical_namespace
+        }
+
+        env {
+          name  = "NIGHTLY_RUNS_DIR"
+          value = var.nightly_runs_mount_path
+        }
+
+        env {
+          name  = "NIGHTLY_RUNS_BUCKET"
+          value = var.nightly_runs_bucket
+        }
+
+        env {
+          name  = "NIGHTLY_MAX_LLM_USD"
+          value = tostring(var.nightly_max_llm_usd)
+        }
+
+        env {
+          name  = "NIGHTLY_CURATE_MAX_ITEMS"
+          value = tostring(var.nightly_curate_max_items)
+        }
+
+        # The adviser stage emits the run-finished event for a successful run,
+        # so it needs the same UI base the ingest Job uses for the run link.
+        env {
+          name  = "NIGHTLY_UI_BASE_URL"
+          value = google_cloud_run_v2_service.ui.uri
+        }
+      }
+
+      vpc_access {
+        network_interfaces {
+          network    = var.network
+          subnetwork = data.google_compute_subnetwork.neo4j.id
+        }
+        egress = var.neo4j_vpc_egress
+      }
+
+      timeout     = "${var.nightly_timeout}s"
+      max_retries = 0
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [
+      client,
+      client_version,
+      template[0].template[0].containers[0].image,
+      template[0].labels,
+      template[0].annotations,
+    ]
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_project_iam_member.nightly_secret_accessor,
+    google_project_iam_member.nightly_network_user,
+    google_secret_manager_secret_version.neo4j_uri,
+  ]
+}
+
+# The workflow's SA (also both Jobs' runtime SA) may invoke the adviser Job.
+resource "google_cloud_run_v2_job_iam_member" "adviser_runner" {
+  count = var.nightly_enabled && var.nightly_curate_enabled ? 1 : 0
+
+  name     = google_cloud_run_v2_job.adviser[0].name
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${local.nightly_sa_email}"
+}
+
 # The workflow's SA (also the Job's runtime SA) may invoke the nightly Job.
 resource "google_cloud_run_v2_job_iam_member" "nightly_runner" {
   count = var.nightly_enabled ? 1 : 0
@@ -1729,7 +2240,11 @@ resource "google_workflows_workflow" "nightly" {
         - init:
             assign:
               - trigger: $${default(args.trigger, "schedule")}
-        - runJob:
+              - curate: $${default(args.curate, ${var.nightly_curate_enabled})}
+              - curateFlag: $${curate ? "true" : "false"}
+              - resultOperation: null
+              - failure: null
+        - runIngest:
             try:
               call: googleapis.run.v2.projects.locations.jobs.run
               args:
@@ -1740,41 +2255,106 @@ resource "google_workflows_workflow" "nightly" {
                       - env:
                           - name: NIGHTLY_TRIGGER
                             value: $${trigger}
-              result: operation
+                          # The adviser stage, when enabled, ends the run and
+                          # emits the run-finished event. Tell the ingest Job
+                          # so it does not emit a second one.
+                          - name: NIGHTLY_CURATE_ENABLED
+                            value: $${curateFlag}
+              result: ingestOperation
             except:
               as: error
               steps:
-                - logFailure:
+                - logIngestFailure:
                     call: sys.log
                     args:
                       severity: ERROR
                       text: $${"pipeline_run_failed " + json.encode_to_string(error)}
-                - fail:
+                - failIngest:
                     raise: $${error}
-        - poll:
+        - rememberIngest:
+            assign:
+              - resultOperation: $${ingestOperation.name}
+            next: pollIngest
+        - pollIngest:
             call: googleapis.run.v2.projects.locations.operations.get
             args:
-              name: $${operation.name}
-            result: status
-        - checkDone:
+              name: $${ingestOperation.name}
+            result: ingestStatus
+        - checkIngestDone:
             switch:
-              - condition: $${status.done != true}
-                next: wait
-            next: checkResult
-        - wait:
+              - condition: $${ingestStatus.done != true}
+                next: waitIngest
+            next: checkIngestResult
+        - waitIngest:
             call: sys.sleep
             args:
               seconds: 30
-            next: poll
-        - checkResult:
+            next: pollIngest
+        - checkIngestResult:
             switch:
-              - condition: $${status.error != null}
-                next: failed
+              - condition: $${ingestStatus.error != null}
+                next: ingestFailed
+              - condition: $${curate == true}
+                next: runAdviser
             next: succeeded
+        - ingestFailed:
+            assign:
+              - failure: $${ingestStatus.error}
+            next: failed
+        - runAdviser:
+            try:
+              call: googleapis.run.v2.projects.locations.jobs.run
+              args:
+                name: ${local.adviser_job_id}
+                body:
+                  overrides:
+                    containerOverrides:
+                      - env:
+                          - name: NIGHTLY_TRIGGER
+                            value: $${trigger}
+              result: adviserOperation
+            except:
+              as: error
+              steps:
+                - logAdviserFailure:
+                    call: sys.log
+                    args:
+                      severity: ERROR
+                      text: $${"adviser_stage_failed " + json.encode_to_string(error)}
+                - failAdviser:
+                    raise: $${error}
+        - rememberAdviser:
+            assign:
+              - resultOperation: $${adviserOperation.name}
+            next: pollAdviser
+        - pollAdviser:
+            call: googleapis.run.v2.projects.locations.operations.get
+            args:
+              name: $${adviserOperation.name}
+            result: adviserStatus
+        - checkAdviserDone:
+            switch:
+              - condition: $${adviserStatus.done != true}
+                next: waitAdviser
+            next: checkAdviserResult
+        - waitAdviser:
+            call: sys.sleep
+            args:
+              seconds: 30
+            next: pollAdviser
+        - checkAdviserResult:
+            switch:
+              - condition: $${adviserStatus.error != null}
+                next: adviserFailed
+            next: succeeded
+        - adviserFailed:
+            assign:
+              - failure: $${adviserStatus.error}
+            next: failed
         - succeeded:
-            return: $${operation.name}
+            return: $${resultOperation}
         - failed:
-            raise: $${status.error}
+            raise: $${failure}
   YAML
 
   depends_on = [google_project_service.apis]
@@ -1820,7 +2400,10 @@ resource "google_cloud_scheduler_job" "nightly" {
       "Content-Type" = "application/json"
     }
     body = base64encode(jsonencode({
-      argument = jsonencode({ trigger = "schedule" })
+      argument = jsonencode({
+        trigger = "schedule"
+        curate  = var.nightly_curate_enabled
+      })
     }))
     oauth_token {
       service_account_email = local.nightly_sa_email

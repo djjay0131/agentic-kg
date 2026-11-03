@@ -80,6 +80,7 @@ export default function RunsPage() {
                   <th scope="col">Papers (new / seen)</th>
                   <th scope="col">Committed</th>
                   <th scope="col">Deferred</th>
+                  <th scope="col">Review</th>
                   <th scope="col">Budget</th>
                   <th scope="col">Failures</th>
                   <th scope="col" className="w-8"></th>
@@ -109,6 +110,18 @@ export default function RunsPage() {
                     </td>
                     <td className="text-gray-700">{run.totals.committed_operations}</td>
                     <td className="text-gray-700">{run.totals.deferred_candidates}</td>
+                    <td className="text-gray-700">
+                      {run.review_queue_size === null ? (
+                        '—'
+                      ) : (
+                        <Link
+                          href={`/review?run_id=${encodeURIComponent(run.run_id)}`}
+                          className="text-primary-600 hover:underline"
+                        >
+                          {run.review_queue_size}
+                        </Link>
+                      )}
+                    </td>
                     <td>
                       {run.budget_stopped ? (
                         <span className="badge bg-orange-100 text-orange-800">

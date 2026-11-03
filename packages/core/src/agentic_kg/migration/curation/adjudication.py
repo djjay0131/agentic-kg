@@ -81,7 +81,7 @@ syntactic half over this module.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import ClassVar
@@ -91,13 +91,16 @@ from agentic_kg.migration.curation._contracts import (
     Adviser,
     AdviserAssessment,
     AdviserQuestion,
+    AttributeAssertionCandidate,
     Candidate,
     EngineResult,
     EntityCandidate,
     IdFactory,
+    RelationCandidate,
     ResolutionDecision,
     ResolvedCandidate,
     StructuredAdviser,
+    is_identity_id,
     score_vector,
 )
 
@@ -344,10 +347,11 @@ def adjudicate_llm_assess_candidates(
     candidates: Sequence[Candidate],
     engine_result: EngineResult,
     *,
-    adviser: Adviser,
+    adviser: Adviser | None,
     policy: AdmissionPolicy = DEFAULT_ADMISSION_POLICY,
     id_factory: IdFactory,
     snapshot_version: str,
+    approved_candidate_ids: Collection[str] = (),
 ) -> AdjudicationResult:
     """Consult the bounded adviser over the deferred entity candidates.
 
@@ -357,19 +361,37 @@ def adjudicate_llm_assess_candidates(
             here — a candidate with no ``ResolutionDecision`` was rejected by
             validation and is never shown to an adviser (law 13).
         adviser: The bounded adviser. Injected, never constructed here, so a
-            test can supply a failing, timeouting or recorded client.
+            test can supply a failing, timeouting or recorded client. May be
+            ``None`` only when every eligible candidate is already approved by a
+            human (``approved_candidate_ids``), because then no advice is
+            needed.
         policy: The deterministic gate. Defaults to ``DEFAULT_ADMISSION_POLICY``.
+            The gate is not applied to a human approval — the human *is* the
+            decision — but eligibility still is: only an ``LLM_ASSESS`` entity
+            candidate can be approved, so a human cannot widen the
+            deterministic surface either.
         id_factory: Mints the identity each admitted candidate resolves to.
             The same factory the deterministic path uses, so a promoted
             identity replays byte-identically.
         snapshot_version: The graph snapshot the promoted decisions assert.
             Health hazard if stale — the executor checks it.
+        approved_candidate_ids: Candidates a human has explicitly approved in
+            the review queue. They are admitted without consulting the adviser,
+            through the same resolving-decision path, so KGCS still plans and
+            executes the operation. An id that is not eligible is ignored here;
+            the caller that owns the approval must treat that as an error.
+
+    Raises:
+        ValueError: an eligible candidate has no human approval and no adviser
+            was injected. Silently skipping would make "the stage ran and held
+            everything" indistinguishable from "no model was consulted".
 
     Returns:
         An :class:`AdjudicationResult`. Nothing here touches a graph; a caller
         that has a store plans and executes the promoted candidates through the
         ordinary ``PlanExecutor`` path.
     """
+    approved = frozenset(approved_candidate_ids)
     promoted: list[ResolvedCandidate] = []
     decisions: list[AdmissionDecision] = []
 
@@ -377,8 +399,20 @@ def adjudicate_llm_assess_candidates(
         # A relation/attribute candidate whose endpoints are unresolved aliases
         # needs entity resolution, not an admission decision, and an artifact
         # has no v1 operation at all; both are absent from eligibility.
-        assessment = adviser.assess(admission_question(candidate))
-        decision = _gate(policy, candidate.candidate_id, assessment)
+        if candidate.candidate_id in approved:
+            decision = AdmissionDecision(
+                candidate_id=candidate.candidate_id,
+                admitted=True,
+                reason="human approved in the review queue",
+            )
+        else:
+            if adviser is None:
+                raise ValueError(
+                    "an eligible candidate has no human approval and no adviser "
+                    "was injected; refusing to silently hold it"
+                )
+            assessment = adviser.assess(admission_question(candidate))
+            decision = _gate(policy, candidate.candidate_id, assessment)
         decisions.append(decision)
         if not decision.admitted:
             continue
@@ -411,6 +445,85 @@ def adjudicate_llm_assess_candidates(
     )
 
 
+def apply_approved_assertions(
+    adjudication: AdjudicationResult,
+    candidates: Sequence[Candidate],
+    engine_result: EngineResult,
+    *,
+    approved_candidate_ids: Collection[str],
+    id_factory: IdFactory,
+    snapshot_version: str,
+) -> AdjudicationResult:
+    """Fold human-approved relation/attribute assertions into the result.
+
+    Entity candidates are handled by :func:`adjudicate_llm_assess_candidates`.
+    A relation or attribute assertion needs no identity minted; the planner
+    needs the already-minted *subject* identity, and both endpoints must
+    already be identity ids. An approval of anything else is ignored here, so
+    the commit path reports "did not commit" rather than inventing a target.
+
+    This is still a decision, not an operation: the planner compiles the
+    ``ATTACH_ASSERTION`` exactly as it does for the deterministic path.
+    """
+    approved = frozenset(approved_candidate_ids)
+    by_id = {candidate.candidate_id: candidate for candidate in candidates}
+    promoted = list(adjudication.promoted)
+    decisions = list(adjudication.decisions)
+    added = 0
+
+    for outcome in engine_result.outcomes:
+        if outcome.candidate_id not in approved:
+            continue
+        resolution = outcome.resolution
+        if resolution is None or resolution.route is not AdjudicationRoute.LLM_ASSESS:
+            continue
+        candidate = by_id[outcome.candidate_id]
+        if isinstance(candidate, EntityCandidate):
+            continue
+        if not isinstance(candidate, (RelationCandidate, AttributeAssertionCandidate)):
+            continue
+        subject = candidate.subject
+        if not (isinstance(subject, str) and is_identity_id(subject)):
+            continue
+        if isinstance(candidate, RelationCandidate) and not (
+            isinstance(candidate.object, str) and is_identity_id(candidate.object)
+        ):
+            continue
+        promoted.append(
+            ResolvedCandidate(
+                candidate=candidate,
+                resolution=ResolutionDecision(
+                    candidate_id=candidate.candidate_id,
+                    resolved_identity=subject,
+                    create_new_identity=False,
+                    route=AdjudicationRoute.AUTO,
+                    score_vector=score_vector(candidate.scores),
+                    matcher_version=None,
+                    snapshot_version=snapshot_version,
+                    trace_id=candidate.trace_id,
+                ),
+            )
+        )
+        decisions.append(
+            AdmissionDecision(
+                candidate_id=candidate.candidate_id,
+                admitted=True,
+                reason="human approved in the review queue",
+            )
+        )
+        added += 1
+
+    if not added:
+        return adjudication
+    return AdjudicationResult(
+        promoted=tuple(promoted),
+        decisions=tuple(decisions),
+        eligible=adjudication.eligible + added,
+        admitted=adjudication.admitted + added,
+        held=adjudication.held,
+    )
+
+
 __all__ = [
     "DEFAULT_ADMISSION_POLICY",
     "AdmissionDecision",
@@ -420,5 +533,6 @@ __all__ = [
     "CandidateAdmissionAdviser",
     "adjudicate_llm_assess_candidates",
     "admission_question",
+    "apply_approved_assertions",
     "eligible_llm_assess_entities",
 ]

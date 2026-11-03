@@ -58,7 +58,7 @@ canonical fact.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -101,6 +101,7 @@ from agentic_kg.migration.curation.adjudication import (
     AdjudicationResult,
     AdmissionPolicy,
     adjudicate_llm_assess_candidates,
+    apply_approved_assertions,
 )
 from agentic_kg.migration.curation.policy import (
     CONTRACT_DEFAULT_POLICY,
@@ -545,6 +546,7 @@ def run_curation(
     executed_by: str = "agentic-kg.migration.curation",
     adviser: Adviser | None = None,
     admission_policy: AdmissionPolicy | None = None,
+    approved_candidate_ids: Collection[str] = (),
 ) -> CurationRunResult:
     """Curate ``candidates`` and, when a store is supplied, apply the plan.
 
@@ -570,6 +572,11 @@ def run_curation(
             :class:`AdjudicationRequiresAdviser`).
         admission_policy: The deterministic gate that folds adviser advice into
             an admission decision. Defaults to ``DEFAULT_ADMISSION_POLICY``.
+        approved_candidate_ids: Candidates a human has approved in the review
+            queue. They are admitted through the same KGCS planning/execution
+            path without consulting the adviser. An approval never widens
+            eligibility: the candidate must still be an ``EntityCandidate`` the
+            deterministic policy routed ``LLM_ASSESS``.
 
     Raises:
         CurationDisabled: ``config.use_kgcs_resolution`` is ``False``.
@@ -650,10 +657,11 @@ def run_curation(
     # for the candidates the policy deferred; the plan is still compiled by
     # KGCS's own CurationPlanner, so the adopter contributes a decision and
     # never an operation (adoption rule 7).
+    approved = frozenset(approved_candidate_ids)
     adjudication: AdjudicationResult | None = None
     plan_override: CurationPlan | None = None
-    if config.use_kgcs_adjudication:
-        if adviser is None:
+    if config.use_kgcs_adjudication or approved:
+        if adviser is None and not approved:
             raise AdjudicationRequiresAdviser(
                 "adjudication is enabled (use_kgcs_adjudication=True) but no "
                 f"adviser was injected. Set {ENV_KGCS_ADJUDICATION}=0 or pass one; "
@@ -667,7 +675,17 @@ def run_curation(
             policy=admission_policy or DEFAULT_ADMISSION_POLICY,
             id_factory=ids,
             snapshot_version=snapshot,
+            approved_candidate_ids=approved,
         )
+        if approved:
+            adjudication = apply_approved_assertions(
+                adjudication,
+                candidates,
+                engine_result,
+                approved_candidate_ids=approved,
+                id_factory=ids,
+                snapshot_version=snapshot,
+            )
         if adjudication.promoted:
             plan_override = _plan_with_promotions(
                 candidates,

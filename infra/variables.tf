@@ -199,6 +199,24 @@ variable "kgis_kgcs_enabled" {
   default     = false
 }
 
+variable "agent_graph_source" {
+  description = <<-EOT
+    Which graph the research agents read (ADR-0010): "legacy" (the Neo4j
+    problem projection, the historical behaviour) or "canonical" (KGCS
+    Canon__Problem identities at the latest epoch). Defaults to legacy so
+    staging is unchanged until an operator flips it. A canonical run also
+    needs the migration extra and a canonical reader; agents never write
+    canonical state directly — synthesis queues review items.
+  EOT
+  type        = string
+  default     = "legacy"
+
+  validation {
+    condition     = contains(["legacy", "canonical"], var.agent_graph_source)
+    error_message = "agent_graph_source must be \"legacy\" or \"canonical\"."
+  }
+}
+
 variable "canonical_namespace" {
   description = "KGCS canonical namespace, shared by the API and the ingest Job (ADR-0005 isolation boundary)"
   type        = string
@@ -233,6 +251,59 @@ variable "ingest_ledger_mount_path" {
   description = "Mount path for the ledger GCS volume inside the ingest Job container"
   type        = string
   default     = "/mnt/ledger"
+}
+
+# Experiment execution backend (ADR-0010) ----------------------------------------
+
+variable "experiment_backend" {
+  description = "EvaluationAgent execution backend: docker (local default) or cloudrun_job"
+  type        = string
+  default     = "docker"
+
+  validation {
+    condition     = contains(["docker", "cloudrun_job"], var.experiment_backend)
+    error_message = "experiment_backend must be docker or cloudrun_job."
+  }
+}
+
+variable "experiment_bucket" {
+  description = <<-EOT
+    GCS bucket for experiment scripts, inputs and outputs. Empty (the default)
+    creates no experiment Job, bucket, service account or VPC. Staging sets
+    "vt-gcp-00042-agentic-kg-experiments".
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "experiment_gcs_prefix" {
+  description = "Object prefix (and IAM scope) under the experiments bucket. Use one per environment."
+  type        = string
+  default     = "experiments"
+}
+
+variable "experiment_subnet_cidr" {
+  description = "CIDR for the dedicated experiment VPC subnet (no route to the app network)"
+  type        = string
+  default     = "10.60.0.0/24"
+}
+
+variable "experiment_job_memory" {
+  description = "Memory cap for the experiment Cloud Run Job"
+  type        = string
+  default     = "2Gi"
+}
+
+variable "experiment_job_cpu" {
+  description = "CPU cap for the experiment Cloud Run Job"
+  type        = string
+  default     = "1"
+}
+
+variable "experiment_job_timeout" {
+  description = "Maximum runtime in seconds for one experiment Cloud Run Job execution"
+  type        = number
+  default     = 300
 }
 
 # =============================================================================
@@ -309,10 +380,22 @@ variable "nightly_notify_enabled" {
   default     = true
 }
 
+variable "nightly_curate_enabled" {
+  description = "Add the adviser/review-queue stage after the nightly ingest (Cloud Run Job agentic-kg-adviser-<env> + workflow step). Default true. It no-ops honestly when the run's ingest path wrote no KGIS ledger."
+  type        = bool
+  default     = true
+}
+
 variable "notify_email" {
   description = "Recipient email address for nightly pipeline run notifications."
   type        = string
   default     = "djjay@vt.edu"
+}
+
+variable "nightly_curate_max_items" {
+  description = "Maximum candidates the adviser stage grades in one invocation (NIGHTLY_CURATE_MAX_ITEMS)."
+  type        = number
+  default     = 500
 }
 
 # ADR-0007: identities for secret handling ---------------------------------------

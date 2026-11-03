@@ -14,6 +14,7 @@ from agentic_kg.agents.prompts import (
     CONTINUATION_SYSTEM_PROMPT,
     CONTINUATION_USER_PROMPT,
 )
+from agentic_kg.agents.provenance import build_provenance, record_agent_output
 from agentic_kg.agents.schemas import ContinuationProposal, WorkflowStatus
 from agentic_kg.agents.state import ResearchState, add_message
 
@@ -29,7 +30,7 @@ class ContinuationAgent(BaseAgent):
 
     async def run(self, state: ResearchState) -> ResearchState:
         """
-        Load full problem context from KG, then generate a structured
+        Load full problem context from the graph, then generate a structured
         continuation proposal via LLM.
         """
         self._log("Starting continuation proposal")
@@ -45,17 +46,17 @@ class ContinuationAgent(BaseAgent):
             return {**state, "errors": state.get("errors", []) + ["No problem selected"]}
 
         try:
-            # Load full problem context
-            context = self._load_problem_context(problem_id)
-            state = add_message(
-                state, self.name, f"Loaded context for problem {problem_id}"
-            )
+            context = self.port.load_context(problem_id)
+            state = add_message(state, self.name, f"Loaded context for problem {problem_id}")
 
-            # Generate proposal
             proposal = await self._generate_proposal(context)
-            state = add_message(
-                state, self.name, f"Generated proposal: {proposal.title}"
+            self._attach_provenance(
+                proposal,
+                context,
+                state=state,
+                problem_id=problem_id,
             )
+            state = add_message(state, self.name, f"Generated proposal: {proposal.title}")
 
             return {
                 **state,
@@ -68,96 +69,97 @@ class ContinuationAgent(BaseAgent):
             state = add_message(state, self.name, f"Error: {e}")
             return {**state, "errors": state.get("errors", []) + [str(e)]}
 
-    def _lookup_topic_name(self, problem_id: str) -> str:
-        """Return the Topic name for a Problem, or 'unspecified' if none."""
-        try:
-            with self.repo.session() as session:
-                result = session.run(
-                    """
-                    MATCH (n {id: $id})
-                    WHERE n:Problem OR n:ProblemConcept
-                    OPTIONAL MATCH (n)-[:BELONGS_TO]->(t1:Topic)
-                    OPTIONAL MATCH (n)<-[:INSTANCE_OF]-(:ProblemMention)
-                          -[:EXTRACTED_FROM]->(:Paper)-[:RESEARCHES]->(t2:Topic)
-                    WITH coalesce(t1, t2) AS t
-                    WHERE t IS NOT NULL
-                    RETURN t.name AS name
-                    LIMIT 1
-                    """,
-                    id=problem_id,
-                )
-                record = result.single()
-                return record["name"] if record else "unspecified"
-        except Exception:
-            return "unspecified"
+    def _attach_provenance(self, proposal, context, *, state, problem_id) -> None:
+        run_id = state.get("run_id") or ""
+        trace_id = state.get("trace_id") or run_id
+        upstream = self._upstream_output_ids(state, problem_id)
+        provenance = build_provenance(
+            agent=self.name,
+            run_id=run_id,
+            trace_id=trace_id,
+            source=self.source,
+            assertion_ids=context.assertion_ids,
+            assertion_evidence=context.assertion_evidence,
+            evidence_ids=context.evidence_ids,
+            derived_from=upstream,
+            problem_ids=[problem_id],
+            model=self.model,
+            prompt_version=self.prompt_version,
+            rationale=proposal.rationale or proposal.methodology,
+        )
+        payload = proposal.model_dump(mode="json", exclude={"provenance"})
+        proposal.output_id = record_agent_output(
+            self.output_store,
+            agent=self.name,
+            run_id=run_id,
+            source=self.source,
+            output_kind="continuation_proposal",
+            payload=payload,
+            provenance=provenance,
+            model=self.model,
+            prompt_version=self.prompt_version,
+        )
+        proposal.provenance = provenance
+
+    @staticmethod
+    def _upstream_output_ids(state: ResearchState, problem_id: str) -> list[str]:
+        for ranked in state.get("ranked_problems", []):
+            if ranked.get("problem_id") == problem_id and ranked.get("output_id"):
+                return [str(ranked["output_id"])]
+        return []
 
     def _load_problem_context(self, problem_id: str) -> dict:
-        """Load full problem context from the KG."""
-        problem = self.repo.get_problem(problem_id)
-
-        context = {
-            "id": problem.id,
-            "statement": problem.statement,
-            "topic": self._lookup_topic_name(problem.id),
-            "status": problem.status.value if problem.status else "open",
-            "constraints": [],
-            "datasets": [],
-            "baselines": [],
-            "metrics": [],
-            "related_problems": [],
+        """Backward-compatible dict view of the port's problem context."""
+        context = self.port.load_context(problem_id)
+        return {
+            "id": context.problem_id,
+            "statement": context.statement,
+            "topic": context.topic,
+            "status": context.status,
+            "constraints": list(context.constraints),
+            "datasets": [
+                f"{d.name} - {'available' if d.available else 'unavailable'}"
+                + (f" ({d.url})" if d.url else "")
+                for d in context.datasets
+            ],
+            "baselines": list(context.baselines),
+            "metrics": [
+                f"{m.name}"
+                + (f" - {m.description}" if m.description else "")
+                + (f" (baseline: {m.baseline_value})" if m.baseline_value else "")
+                for m in context.metrics
+            ],
+            "related_problems": list(context.related_problems),
         }
 
-        # Constraints
-        for c in problem.constraints or []:
-            context["constraints"].append(f"[{c.type.value}] {c.text}")
-
-        # Datasets
-        for d in problem.datasets or []:
-            avail = "available" if d.available else "unavailable"
-            url = f" ({d.url})" if d.url else ""
-            context["datasets"].append(f"{d.name} - {avail}{url}")
-
-        # Baselines
-        for b in problem.baselines or []:
-            doi = f" (DOI: {b.paper_doi})" if b.paper_doi else ""
-            context["baselines"].append(f"{b.name}{doi}")
-
-        # Metrics
-        for m in problem.metrics or []:
-            baseline_val = f" (baseline: {m.baseline_value})" if m.baseline_value else ""
-            desc = f" - {m.description}" if m.description else ""
-            context["metrics"].append(f"{m.name}{desc}{baseline_val}")
-
-        # Related problems
-        if self.relations:
-            try:
-                related = self.relations.get_related_problems(
-                    problem_id, direction="both"
-                )
-                # ``get_related_problems`` returns (Problem, ProblemRelation)
-                # tuples; the previous code treated each entry as a dict and
-                # silently produced an empty list.
-                for related_problem, relation in related:
-                    context["related_problems"].append(
-                        f"[{relation.relation_type.value}] "
-                        f"{related_problem.statement}"
-                    )
-            except Exception as e:
-                logger.warning(f"Could not load related problems: {e}")
-
-        return context
-
-    async def _generate_proposal(self, context: dict) -> ContinuationProposal:
+    async def _generate_proposal(self, context) -> ContinuationProposal:
         """Generate a structured proposal via LLM."""
+        datasets = (
+            "\n".join(
+                f"{d.name} - {'available' if d.available else 'unavailable'}"
+                + (f" ({d.url})" if d.url else "")
+                for d in context.datasets
+            )
+            or "None specified"
+        )
+        metrics = (
+            "\n".join(
+                f"{m.name}"
+                + (f" - {m.description}" if m.description else "")
+                + (f" (baseline: {m.baseline_value})" if m.baseline_value else "")
+                for m in context.metrics
+            )
+            or "None specified"
+        )
         user_prompt = CONTINUATION_USER_PROMPT.format(
-            statement=context["statement"],
-            topic=context["topic"],
-            status=context["status"],
-            constraints="\n".join(context["constraints"]) or "None specified",
-            datasets="\n".join(context["datasets"]) or "None specified",
-            baselines="\n".join(context["baselines"]) or "None specified",
-            metrics="\n".join(context["metrics"]) or "None specified",
-            related_problems="\n".join(context["related_problems"]) or "None found",
+            statement=context.statement,
+            topic=context.topic,
+            status=context.status,
+            constraints="\n".join(context.constraints) or "None specified",
+            datasets=datasets,
+            baselines="\n".join(context.baselines) or "None specified",
+            metrics=metrics,
+            related_problems="\n".join(context.related_problems) or "None found",
         )
 
         response = await self.llm.structured_extract(
@@ -169,5 +171,5 @@ class ContinuationAgent(BaseAgent):
         proposal = response.content
         # Ensure problem_id is set
         if not proposal.problem_id:
-            proposal.problem_id = context["id"]
+            proposal.problem_id = context.problem_id
         return proposal

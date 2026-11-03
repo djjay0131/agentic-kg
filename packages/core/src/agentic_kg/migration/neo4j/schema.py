@@ -61,12 +61,19 @@ LABEL_IDENTITY = "Canon__Identity"
 LABEL_ASSERTION = "Canon__Assertion"
 LABEL_META = "Canon__Meta"
 LABEL_VERSION = "Canon__Version"
+#: Nightly review-queue workflow state (P2). Same canonical label space and
+#: namespace scoping, but never read as an identity/assertion; no canonical
+#: read surface selects it.
+LABEL_REVIEW_ITEM = "Canon__ReviewItem"
+LABEL_REVIEW_DECISION = "Canon__ReviewDecision"
 
 CANONICAL_LABELS: tuple[str, ...] = (
     LABEL_IDENTITY,
     LABEL_ASSERTION,
     LABEL_META,
     LABEL_VERSION,
+    LABEL_REVIEW_ITEM,
+    LABEL_REVIEW_DECISION,
 )
 
 #: Executed once per store construction. ``IF NOT EXISTS`` makes this idempotent
@@ -89,6 +96,18 @@ DDL_STATEMENTS: tuple[str, ...] = (
     # stream). Additive and idempotent, like every statement here.
     f"CREATE INDEX canon_assertion_seq IF NOT EXISTS "
     f"FOR (n:{LABEL_ASSERTION}) ON (n.ns, n.seq)",
+    # Review queue (P2). ``uid`` is the idempotency key; the id is what the API
+    # addresses, and the status/run indexes are the queue's two list filters.
+    f"CREATE CONSTRAINT canon_review_item_uid IF NOT EXISTS "
+    f"FOR (n:{LABEL_REVIEW_ITEM}) REQUIRE n.uid IS UNIQUE",
+    f"CREATE INDEX canon_review_item_id IF NOT EXISTS "
+    f"FOR (n:{LABEL_REVIEW_ITEM}) ON (n.id)",
+    f"CREATE INDEX canon_review_item_ns_status IF NOT EXISTS "
+    f"FOR (n:{LABEL_REVIEW_ITEM}) ON (n.ns, n.status)",
+    f"CREATE INDEX canon_review_item_ns_run IF NOT EXISTS "
+    f"FOR (n:{LABEL_REVIEW_ITEM}) ON (n.ns, n.run_id)",
+    f"CREATE INDEX canon_review_decision_ns IF NOT EXISTS "
+    f"FOR (n:{LABEL_REVIEW_DECISION}) ON (n.ns, n.review_uid)",
 )
 
 
