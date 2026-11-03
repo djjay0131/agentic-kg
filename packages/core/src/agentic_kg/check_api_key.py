@@ -13,6 +13,10 @@ Environment: ``API_URL``, ``GOOGLE_CLOUD_PROJECT``, ``API_KEY_SECRET_ID``
 (default ``API_KEY``), ``API_KEY_CHECK_ATTEMPTS`` (default 8) and
 ``API_KEY_CHECK_INTERVAL_SECONDS`` (default 6) to ride out a cold revision.
 8 x (30 s request timeout + 6 s wait) stays inside the Job's 300 s timeout.
+
+The API is private (ADR-0011), so the check also sends a Google-signed ID token
+for ``API_URL`` from the metadata server. It runs as the API's own runtime
+identity. ``API_ID_TOKEN`` can supply a token explicitly (tests/local runs).
 """
 
 from __future__ import annotations
@@ -24,12 +28,16 @@ import time
 import urllib.request
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import quote
 
 from agentic_kg.rotate_password import SecretStore
 
 PLACEHOLDER = "unset-seed-not-an-api-key"
 DEFAULT_SECRET_ID = "API_KEY"
 CHECK_PATH = "/api/auth/check"
+METADATA_IDENTITY_URL = (
+    "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity"
+)
 
 
 class CheckFailed(RuntimeError):
@@ -40,6 +48,18 @@ def _urlopen(request: urllib.request.Request, *, timeout: float):
     return urllib.request.urlopen(request, timeout=timeout)  # noqa: S310 — API_URL is operator config
 
 
+def _metadata_identity_token(api_url: str, *, http: Callable[..., Any] = _urlopen) -> str | None:
+    """Return an ID token for ``api_url`` from the metadata server, if present."""
+    url = f"{METADATA_IDENTITY_URL}?audience={quote(api_url.rstrip('/'), safe='')}&format=full"
+    request = urllib.request.Request(url, headers={"Metadata-Flavor": "Google"})
+    try:
+        with http(request, timeout=5) as response:
+            token = response.read().decode("utf-8").strip()
+        return token or None
+    except Exception:  # noqa: BLE001 - not on GCP (local tests) is not a failure by itself
+        return None
+
+
 def check_api_key(
     api_url: str,
     api_key: str,
@@ -48,6 +68,7 @@ def check_api_key(
     interval: float = 6.0,
     http: Callable[..., Any] = _urlopen,
     sleep: Callable[[float], None] = time.sleep,
+    identity_token: str | None = None,
 ) -> None:
     """Call ``GET /api/auth/check`` with ``api_key``; raise if it does not pass."""
     if not api_key or api_key == PLACEHOLDER:
@@ -58,7 +79,10 @@ def check_api_key(
 
     for attempt in range(max(1, attempts)):
         try:
-            request = urllib.request.Request(url, headers={"X-API-Key": api_key})
+            headers = {"X-API-Key": api_key}
+            if identity_token:
+                headers["Authorization"] = f"Bearer {identity_token}"
+            request = urllib.request.Request(url, headers=headers)
             with http(request, timeout=30) as response:
                 status = getattr(response, "status", 0)
                 body = response.read()
@@ -88,11 +112,15 @@ def main() -> None:
     secret_id = os.environ.get("API_KEY_SECRET_ID", DEFAULT_SECRET_ID)
     try:
         api_key = SecretStore(os.environ["GOOGLE_CLOUD_PROJECT"]).access_version(secret_id)
+        identity_token = os.environ.get("API_ID_TOKEN") or _metadata_identity_token(
+            os.environ["API_URL"]
+        )
         check_api_key(
             os.environ["API_URL"],
             api_key,
             attempts=int(os.environ.get("API_KEY_CHECK_ATTEMPTS", "8")),
             interval=float(os.environ.get("API_KEY_CHECK_INTERVAL_SECONDS", "6")),
+            identity_token=identity_token,
         )
     except Exception:  # noqa: BLE001 — never print the reason (it could carry a value)
         print("API key check: FAIL")

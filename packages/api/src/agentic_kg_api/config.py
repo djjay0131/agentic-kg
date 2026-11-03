@@ -11,6 +11,19 @@ from dataclasses import dataclass, field
 #: be an open door. It means "auth not configured", exactly like an empty value.
 API_KEY_PLACEHOLDER = "unset-seed-not-an-api-key"
 
+AUTH_MODE_DEV = "dev"
+AUTH_MODE_IAP = "iap"
+
+
+def _auth_mode() -> str:
+    """Return the configured human-auth mode, failing closed on typos."""
+    value = os.getenv("AUTH_MODE", AUTH_MODE_DEV).strip().lower()
+    if value == AUTH_MODE_DEV:
+        return AUTH_MODE_DEV
+    if value == AUTH_MODE_IAP:
+        return AUTH_MODE_IAP
+    return AUTH_MODE_IAP
+
 
 @dataclass
 class APIConfig:
@@ -31,6 +44,14 @@ class APIConfig:
         )
     )
     api_key: str = field(default_factory=lambda: os.getenv("API_KEY", ""))
+    # Human identity (ADR-0011). ``dev`` accepts the development-only
+    # ``X-User-ID`` header; ``iap`` requires a verified IAP signed assertion.
+    # Anything unrecognised is treated as ``iap`` so a typo fails closed.
+    auth_mode: str = field(default_factory=lambda: _auth_mode())
+    # The signed-header audience IAP stamps into the assertion. On staging this
+    # is the UI Cloud Run service's IAP audience; the UI server forwards the
+    # user's assertion to the private API.
+    iap_audience: str = field(default_factory=lambda: os.getenv("IAP_AUDIENCE", "").strip())
     # Read-only canonical projection router. Off by default: every
     # /api/canonical/* route returns 404 unless this is enabled (ADR-0005).
     canonical_api_enabled: bool = field(
