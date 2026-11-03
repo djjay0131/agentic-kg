@@ -69,6 +69,20 @@ then apply the client with:</p>
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud iap settings <span class="nb">set </span>iap_settings.yaml <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042
 </code></pre></div></div>
 
+<p>If the apply itself stops with a permission error while enabling IAP (for
+example <code class="language-plaintext highlighter-rouge">clientauthconfig.clients.create</code> or an IAP policy permission), the
+owner grants the apply identity the missing role once, then re-runs the apply:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud projects add-iam-policy-binding vt-gcp-00042 <span class="se">\</span>
+  <span class="nt">--member</span><span class="o">=</span>serviceAccount:gh-deploy@vt-gcp-00042.iam.gserviceaccount.com <span class="se">\</span>
+  <span class="nt">--role</span><span class="o">=</span>roles/iap.admin
+
+<span class="c"># Only needed when granting access to users outside the organization:</span>
+gcloud projects add-iam-policy-binding vt-gcp-00042 <span class="se">\</span>
+  <span class="nt">--member</span><span class="o">=</span>serviceAccount:gh-deploy@vt-gcp-00042.iam.gserviceaccount.com <span class="se">\</span>
+  <span class="nt">--role</span><span class="o">=</span>roles/oauthconfig.editor
+</code></pre></div></div>
+
 <p>This is the only part an agent/CI identity must not work around. Do not grant
 <code class="language-plaintext highlighter-rouge">allUsers</code> back to either service.</p>
 

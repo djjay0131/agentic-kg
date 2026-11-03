@@ -106,7 +106,7 @@
   },"15": {
     "doc": "Adding a tester (staging Google sign-in)",
     "title": "First-time owner bootstrap (only if IAP has never been enabled)",
-    "content": "The CI apply identity can create Cloud Run and IAM resources, but it cannot create an OAuth client/brand, and IAP cannot create one programmatically in a project without an organization. If the first app_iap_enabled = true apply stops at the UI service, the owner must do this once: . | Open Cloud Run → agentic-kg-ui-staging → Security. | Select Require authentication → Identity-Aware Proxy (IAP) and save. If prompted, configure the OAuth consent screen (audience External for a personal/no-org project; Internal works only for same-org users). | Add user:djjay@vt.edu (and any testers) under the IAP policy, or let the next Terraform apply add them. | Re-run Actions → Terraform → apply: true. The annotation, IAM bindings and API env converge on the second run. | . For a project without an organization, if the console asks for a custom OAuth client, follow Configure a custom OAuth client in https://cloud.google.com/run/docs/securing/identity-aware-proxy-cloud-run, then apply the client with: . gcloud iap settings set iap_settings.yaml --project=vt-gcp-00042 . This is the only part an agent/CI identity must not work around. Do not grant allUsers back to either service. ",
+    "content": "The CI apply identity can create Cloud Run and IAM resources, but it cannot create an OAuth client/brand, and IAP cannot create one programmatically in a project without an organization. If the first app_iap_enabled = true apply stops at the UI service, the owner must do this once: . | Open Cloud Run → agentic-kg-ui-staging → Security. | Select Require authentication → Identity-Aware Proxy (IAP) and save. If prompted, configure the OAuth consent screen (audience External for a personal/no-org project; Internal works only for same-org users). | Add user:djjay@vt.edu (and any testers) under the IAP policy, or let the next Terraform apply add them. | Re-run Actions → Terraform → apply: true. The annotation, IAM bindings and API env converge on the second run. | . For a project without an organization, if the console asks for a custom OAuth client, follow Configure a custom OAuth client in https://cloud.google.com/run/docs/securing/identity-aware-proxy-cloud-run, then apply the client with: . gcloud iap settings set iap_settings.yaml --project=vt-gcp-00042 . If the apply itself stops with a permission error while enabling IAP (for example clientauthconfig.clients.create or an IAP policy permission), the owner grants the apply identity the missing role once, then re-runs the apply: . gcloud projects add-iam-policy-binding vt-gcp-00042 \\ --member=serviceAccount:gh-deploy@vt-gcp-00042.iam.gserviceaccount.com \\ --role=roles/iap.admin # Only needed when granting access to users outside the organization: gcloud projects add-iam-policy-binding vt-gcp-00042 \\ --member=serviceAccount:gh-deploy@vt-gcp-00042.iam.gserviceaccount.com \\ --role=roles/oauthconfig.editor . This is the only part an agent/CI identity must not work around. Do not grant allUsers back to either service. ",
     "url": "/agentic-kg/previews/pr-150/operations/adding-a-tester.html#first-time-owner-bootstrap-only-if-iap-has-never-been-enabled",
     
     "relUrl": "/operations/adding-a-tester.html#first-time-owner-bootstrap-only-if-iap-has-never-been-enabled"
@@ -1420,68 +1420,68 @@
     
     "relUrl": "/operations/"
   },"203": {
-    "doc": "Design",
-    "title": "Design &amp; Architecture",
-    "content": "Human-readable design notes for every completed feature in the project — the why, the key decisions, and how the shipped system actually works. These are distilled from the full engineering specs in llm/features/ and reconciled against the code that shipped, so where the implementation diverged from the original plan, these notes describe what was built, not what was proposed. For the graph’s node/edge definitions these features produced, see the Reference → Domain Model &amp; Taxonomy section. ",
-    "url": "/agentic-kg/previews/pr-150/design/#design--architecture",
-    
-    "relUrl": "/design/#design--architecture"
-  },"204": {
-    "doc": "Design",
-    "title": "How to read these",
-    "content": "Each page follows the same shape: . | Why — the gap it closed. | What shipped — the outcome now in the system. | Design decisions — the choices that mattered, with rationale. | How it works — data model, edges, and flow, with code pointers. | Verification — how we know it’s done (tests, CI smoke, acceptance). | . Status key: VERIFIED = shipped and all quality gates pass. ",
-    "url": "/agentic-kg/previews/pr-150/design/#how-to-read-these",
-    
-    "relUrl": "/design/#how-to-read-these"
-  },"205": {
-    "doc": "Design",
-    "title": "Completed features",
-    "content": "Entity-expansion arc . The arc that turned the graph from problems + papers into a richly typed research graph. Each entity type is a first-class node with embeddings and dedup. | Feature | What it added | . | E-1 · Topic entities | First-class Topic hierarchy; closed-set taxonomy; BELONGS_TO / RESEARCHES | . | E-2 · ResearchConcept entities | Named concepts as nodes; INVOLVES_CONCEPT / DISCUSSES; embedding dedup | . | E-3 · Model entities | ML models as nodes; hybrid open-set + canonical seeds; USES_MODEL | . | E-4 · Method entities | Research methods as nodes; pure open-set; APPLIES_METHOD | . | E-5 · Citation graph | CITES edges from reference lists; stub papers; influence analysis | . | E-6 · Entity descriptions | Create-time descriptions for richer {name}: {description} embeddings | . | E-7 · Cross-entity normalization | LLM router disambiguates Concept vs Model vs Method | . | E-8 · Extraction prompt expansion | Extractors that populate the new entity types from paper text (V1 + V2) | . | Entity pipeline orchestration | Wires the whole arc into production ingestion, default-on with audit | . Ingestion &amp; infrastructure . | Feature | What it added | . | D-1 · Ingest real papers | End-to-end ingestion CLI: search → import → extract → integrate | . | D-1a · Cloud Run Jobs ingestion | Durable async ingestion as a Terraform-managed Cloud Run Job | . | CI smoke test | GHA workflow asserting entity edges land in an ephemeral Neo4j | . Docs &amp; site . | Feature | What it added | . | Enhance GitHub Pages | Docs generator reading llm/memory_bank/; unified nav; auto-published backlog | . ",
-    "url": "/agentic-kg/previews/pr-150/design/#completed-features",
-    
-    "relUrl": "/design/#completed-features"
-  },"206": {
-    "doc": "Design",
-    "title": "Design",
-    "content": " ",
-    "url": "/agentic-kg/previews/pr-150/design/",
-    
-    "relUrl": "/design/"
-  },"207": {
-    "doc": "About",
-    "title": "About Agentic KG",
-    "content": "Project overview, architecture, quickstart, and roadmap. Placeholder landing — Phase A. Individual pages in this section carry their own placeholder content. ",
-    "url": "/agentic-kg/previews/pr-150/about/#about-agentic-kg",
-    
-    "relUrl": "/about/#about-agentic-kg"
-  },"208": {
-    "doc": "About",
-    "title": "About",
-    "content": " ",
-    "url": "/agentic-kg/previews/pr-150/about/",
-    
-    "relUrl": "/about/"
-  },"209": {
     "doc": "Status",
     "title": "Status",
     "content": "Live project-state dashboard, auto-regenerated from llm/memory_bank/ and llm/features/ on every push to master. ",
     "url": "/agentic-kg/previews/pr-150/status/",
     
     "relUrl": "/status/"
-  },"210": {
+  },"204": {
     "doc": "Status",
     "title": "Graph snapshot",
     "content": "| Metric | Value | . | Last updated | 2026-09-17 | . | Graph nodes | 282 | . | Graph edges | 151 | . | Problem mentions | 18 | . | Problem concepts | 18 | . | Sanity checks | 5/5 passing | . | Completed sprints | 11 | . | Tests passing | 2207 | . ",
     "url": "/agentic-kg/previews/pr-150/status/#graph-snapshot",
     
     "relUrl": "/status/#graph-snapshot"
-  },"211": {
+  },"205": {
     "doc": "Status",
     "title": "Drill-down",
     "content": ". | Backlog → — active and resolved features, auto-regenerated from llm/features/BACKLOG.md | Sprints → — all 11 completed sprints with links to source docs | Changelog → — curated highlights | Service inventory → — deployed endpoints and infra components | . ",
     "url": "/agentic-kg/previews/pr-150/status/#drill-down",
     
     "relUrl": "/status/#drill-down"
+  },"206": {
+    "doc": "Design",
+    "title": "Design &amp; Architecture",
+    "content": "Human-readable design notes for every completed feature in the project — the why, the key decisions, and how the shipped system actually works. These are distilled from the full engineering specs in llm/features/ and reconciled against the code that shipped, so where the implementation diverged from the original plan, these notes describe what was built, not what was proposed. For the graph’s node/edge definitions these features produced, see the Reference → Domain Model &amp; Taxonomy section. ",
+    "url": "/agentic-kg/previews/pr-150/design/#design--architecture",
+    
+    "relUrl": "/design/#design--architecture"
+  },"207": {
+    "doc": "Design",
+    "title": "How to read these",
+    "content": "Each page follows the same shape: . | Why — the gap it closed. | What shipped — the outcome now in the system. | Design decisions — the choices that mattered, with rationale. | How it works — data model, edges, and flow, with code pointers. | Verification — how we know it’s done (tests, CI smoke, acceptance). | . Status key: VERIFIED = shipped and all quality gates pass. ",
+    "url": "/agentic-kg/previews/pr-150/design/#how-to-read-these",
+    
+    "relUrl": "/design/#how-to-read-these"
+  },"208": {
+    "doc": "Design",
+    "title": "Completed features",
+    "content": "Entity-expansion arc . The arc that turned the graph from problems + papers into a richly typed research graph. Each entity type is a first-class node with embeddings and dedup. | Feature | What it added | . | E-1 · Topic entities | First-class Topic hierarchy; closed-set taxonomy; BELONGS_TO / RESEARCHES | . | E-2 · ResearchConcept entities | Named concepts as nodes; INVOLVES_CONCEPT / DISCUSSES; embedding dedup | . | E-3 · Model entities | ML models as nodes; hybrid open-set + canonical seeds; USES_MODEL | . | E-4 · Method entities | Research methods as nodes; pure open-set; APPLIES_METHOD | . | E-5 · Citation graph | CITES edges from reference lists; stub papers; influence analysis | . | E-6 · Entity descriptions | Create-time descriptions for richer {name}: {description} embeddings | . | E-7 · Cross-entity normalization | LLM router disambiguates Concept vs Model vs Method | . | E-8 · Extraction prompt expansion | Extractors that populate the new entity types from paper text (V1 + V2) | . | Entity pipeline orchestration | Wires the whole arc into production ingestion, default-on with audit | . Ingestion &amp; infrastructure . | Feature | What it added | . | D-1 · Ingest real papers | End-to-end ingestion CLI: search → import → extract → integrate | . | D-1a · Cloud Run Jobs ingestion | Durable async ingestion as a Terraform-managed Cloud Run Job | . | CI smoke test | GHA workflow asserting entity edges land in an ephemeral Neo4j | . Docs &amp; site . | Feature | What it added | . | Enhance GitHub Pages | Docs generator reading llm/memory_bank/; unified nav; auto-published backlog | . ",
+    "url": "/agentic-kg/previews/pr-150/design/#completed-features",
+    
+    "relUrl": "/design/#completed-features"
+  },"209": {
+    "doc": "Design",
+    "title": "Design",
+    "content": " ",
+    "url": "/agentic-kg/previews/pr-150/design/",
+    
+    "relUrl": "/design/"
+  },"210": {
+    "doc": "About",
+    "title": "About Agentic KG",
+    "content": "Project overview, architecture, quickstart, and roadmap. Placeholder landing — Phase A. Individual pages in this section carry their own placeholder content. ",
+    "url": "/agentic-kg/previews/pr-150/about/#about-agentic-kg",
+    
+    "relUrl": "/about/#about-agentic-kg"
+  },"211": {
+    "doc": "About",
+    "title": "About",
+    "content": " ",
+    "url": "/agentic-kg/previews/pr-150/about/",
+    
+    "relUrl": "/about/"
   },"212": {
     "doc": "Home",
     "title": "Agentic KG",
