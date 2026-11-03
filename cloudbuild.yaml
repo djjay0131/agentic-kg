@@ -91,19 +91,13 @@ steps:
           echo "cloudbuild.yaml is manual-only: build started by trigger '$TRIGGER_NAME'; skipping (override with _ALLOW_TRIGGER_DEPLOY=true)."
           exit 0
         fi
-        API_URL=$(cat /workspace/api_url.txt)
-        echo "Read API URL from file: '$${API_URL}'"
-        BUILD_ARGS=""
-        if [ "${_SERVICE}" = "ui" ] && [ -n "$${API_URL}" ]; then
-          BUILD_ARGS="--build-arg NEXT_PUBLIC_API_URL=$${API_URL}"
-          echo "Build args for UI: $${BUILD_ARGS}"
-        fi
-        echo "Running docker build with args: $${BUILD_ARGS}"
+        # The UI calls same-origin /api/*; the Next.js server proxies to the
+        # private API (ADR-0011), so no NEXT_PUBLIC_API_URL is baked in.
+        echo "Running docker build"
         docker build \
           -f docker/Dockerfile.${_SERVICE} \
           -t ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:$COMMIT_SHA \
           -t ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_SERVICE}:latest \
-          $${BUILD_ARGS} \
           .
 
   # Tag with version if provided

@@ -2,12 +2,14 @@
  * API client for the Agentic KG backend.
  */
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || 'http://localhost:8000';
+// Staging serves the UI and proxies API calls server-side, so the browser
+// uses same-origin paths (`/api/...`). Local development may still point
+// `NEXT_PUBLIC_API_URL` straight at the API.
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
-// The mutating review routes require X-User-ID (the same mechanism the legacy
-// review queue uses). There is no sign-in UI in this slice, so the operator
-// name is configuration, with a neutral default that is visible in the audit.
-const REVIEW_USER = process.env.NEXT_PUBLIC_REVIEW_USER || 'operator';
+export interface AuthMe {
+  email: string;
+}
 
 export interface ProblemSummary {
   id: string;
@@ -307,6 +309,9 @@ export const api = {
   health: () => fetchAPI<Health>('/health'),
   stats: () => fetchAPI<Stats>('/api/stats'),
 
+  // Verified human identity (IAP email in staging; dev user locally).
+  me: () => fetchAPI<AuthMe>('/api/auth/me'),
+
   // Problems
   listProblems: (params?: { status?: string; domain?: string; origin?: string; limit?: number; offset?: number }) => {
     const searchParams = new URLSearchParams();
@@ -412,7 +417,6 @@ export const api = {
   decideReview: (id: string, decision: 'approve' | 'reject', note?: string) =>
     fetchAPI<ReviewItemDetail>(`/api/review/${encodeURIComponent(id)}`, {
       method: 'POST',
-      headers: { 'X-User-ID': REVIEW_USER },
       body: JSON.stringify({ decision, note: note || null }),
     }),
 

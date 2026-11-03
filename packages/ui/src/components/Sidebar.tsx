@@ -2,6 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
 import {
   LayoutDashboard,
   FileQuestion,
@@ -26,6 +28,12 @@ const navItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { data: me } = useQuery({
+    queryKey: ['auth-me'],
+    queryFn: () => api.me(),
+    retry: false,
+    staleTime: 5 * 60 * 1000,
+  });
 
   return (
     <aside className="w-64 bg-white border-r border-gray-200 min-h-screen">
@@ -55,6 +63,12 @@ export default function Sidebar() {
           );
         })}
       </nav>
+      <div className="px-4 py-4 border-t border-gray-200">
+        <p className="text-xs uppercase tracking-wider text-gray-400">Signed in</p>
+        <p className="text-sm text-gray-700 break-all">
+          {me?.email || 'Not signed in'}
+        </p>
+      </div>
     </aside>
   );
 }
