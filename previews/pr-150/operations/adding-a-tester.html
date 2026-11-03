@@ -1,0 +1,122 @@
+<h1 id="adding-a-tester-to-staging">Adding a tester to staging</h1>
+
+<p>Staging is protected by Identity-Aware Proxy (IAP) on the UI Cloud Run service
+(ADR-0011). The API is private: the UI proxies every request server-side and
+forwards the IAP-verified identity, so approvals and research-gate decisions are
+recorded against a real Google email. There is no password and no shared user
+id.</p>
+
+<h2 id="the-normal-case-one-line--apply">The normal case: one line + apply</h2>
+
+<ol>
+  <li>
+    <p>Add the person to <code class="language-plaintext highlighter-rouge">app_allowed_members</code> in
+<code class="language-plaintext highlighter-rouge">infra/envs/staging.tfvars</code>:</p>
+
+    <div class="language-hcl highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nx">app_allowed_members</span> <span class="o">=</span> <span class="p">[</span>
+  <span class="s2">"user:djjay@vt.edu"</span><span class="p">,</span>
+  <span class="s2">"user:new.tester@vt.edu"</span><span class="p">,</span>
+<span class="p">]</span>
+</code></pre></div>    </div>
+
+    <p>The default (when the variable is omitted) is just <code class="language-plaintext highlighter-rouge">user:djjay@vt.edu</code>.</p>
+  </li>
+  <li>
+    <p>Apply Terraform through the reviewed path:</p>
+
+    <p>GitHub → <strong>Actions</strong> → <strong>Terraform</strong> → <strong>Run workflow</strong></p>
+    <ul>
+      <li><code class="language-plaintext highlighter-rouge">environment</code>: <code class="language-plaintext highlighter-rouge">staging</code></li>
+      <li><code class="language-plaintext highlighter-rouge">apply</code>: <code class="language-plaintext highlighter-rouge">true</code></li>
+    </ul>
+
+    <p>The apply grants <code class="language-plaintext highlighter-rouge">roles/iap.httpsResourceAccessor</code> to each member. Per the
+IAP documentation, a project-level principal applies to every IAP-secured
+resource in the project.</p>
+  </li>
+  <li>
+    <p>Ask the tester to open the UI URL in a fresh incognito window, sign in with
+the Google account you added, and confirm the sidebar shows that email.</p>
+  </li>
+</ol>
+
+<p>Removing a tester is the same operation with the line deleted. The apply
+revokes the role; there is no separate deprovisioning step.</p>
+
+<h2 id="first-time-owner-bootstrap-only-if-iap-has-never-been-enabled">First-time owner bootstrap (only if IAP has never been enabled)</h2>
+
+<p>The CI apply identity can create Cloud Run and IAM resources, but it cannot
+create an OAuth client/brand, and IAP cannot create one programmatically in a
+project without an organization. If the first <code class="language-plaintext highlighter-rouge">app_iap_enabled = true</code> apply
+stops at the UI service, the <strong>owner</strong> must do this once:</p>
+
+<ol>
+  <li>Open Cloud Run → <code class="language-plaintext highlighter-rouge">agentic-kg-ui-staging</code> → <strong>Security</strong>.</li>
+  <li>Select <strong>Require authentication</strong> → <strong>Identity-Aware Proxy (IAP)</strong> and save.
+If prompted, configure the OAuth consent screen (audience <strong>External</strong> for a
+personal/no-org project; <strong>Internal</strong> works only for same-org users).</li>
+  <li>Add <code class="language-plaintext highlighter-rouge">user:djjay@vt.edu</code> (and any testers) under the IAP policy, or let the
+next Terraform apply add them.</li>
+  <li>Re-run <strong>Actions → Terraform → apply: true</strong>. The annotation, IAM bindings
+and API env converge on the second run.</li>
+</ol>
+
+<p>For a project without an organization, if the console asks for a custom OAuth
+client, follow <strong>Configure a custom OAuth client</strong> in
+<a href="https://cloud.google.com/run/docs/securing/identity-aware-proxy-cloud-run">https://cloud.google.com/run/docs/securing/identity-aware-proxy-cloud-run</a>,
+then apply the client with:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud iap settings <span class="nb">set </span>iap_settings.yaml <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042
+</code></pre></div></div>
+
+<p>This is the only part an agent/CI identity must not work around. Do not grant
+<code class="language-plaintext highlighter-rouge">allUsers</code> back to either service.</p>
+
+<h2 id="machine-callers-for-operators-not-testers">Machine callers (for operators, not testers)</h2>
+
+<p>The API is private (<code class="language-plaintext highlighter-rouge">allUsers</code> removed) when <code class="language-plaintext highlighter-rouge">app_iap_enabled = true</code>. Automated
+callers authenticate with a Google ID token whose audience is the API URL:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">API_URL</span><span class="o">=</span><span class="s2">"</span><span class="si">$(</span>gcloud run services describe agentic-kg-api-staging <span class="se">\</span>
+  <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="nt">--format</span><span class="o">=</span><span class="s1">'value(status.url)'</span><span class="si">)</span><span class="s2">"</span>
+<span class="nv">TOKEN</span><span class="o">=</span><span class="s2">"</span><span class="si">$(</span>gcloud auth print-identity-token <span class="nt">--audiences</span><span class="o">=</span><span class="s2">"</span><span class="nv">$API_URL</span><span class="s2">"</span><span class="si">)</span><span class="s2">"</span>
+curl <span class="nt">-fsS</span> <span class="nt">-H</span> <span class="s2">"Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">"</span> <span class="s2">"</span><span class="nv">$API_URL</span><span class="s2">/health"</span>
+</code></pre></div></div>
+
+<ul>
+  <li>The UI uses its runtime service account’s metadata token.</li>
+  <li><code class="language-plaintext highlighter-rouge">check_api_key</code> does the same from inside GCP.</li>
+  <li>CI smoke/E2E mints the token with <code class="language-plaintext highlighter-rouge">token_format: id_token</code> and passes it as
+<code class="language-plaintext highlighter-rouge">STAGING_ID_TOKEN</code>.</li>
+  <li><code class="language-plaintext highlighter-rouge">GET /api/auth/check</code> still requires <code class="language-plaintext highlighter-rouge">X-API-Key</code> (ADR-0007), independent of
+the human identity.</li>
+</ul>
+
+<h2 id="troubleshooting">Troubleshooting</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Symptom</th>
+      <th>Likely cause</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">403</code> from the UI <code class="language-plaintext highlighter-rouge">run.app</code> URL</td>
+      <td>The Google account is not in <code class="language-plaintext highlighter-rouge">app_allowed_members</code>, or the user is outside the OAuth brand’s allowed audience.</td>
+    </tr>
+    <tr>
+      <td>Sidebar shows “Not signed in”</td>
+      <td>The UI proxy could not reach <code class="language-plaintext highlighter-rouge">/api/auth/me</code>; check the API is private and the UI service account has <code class="language-plaintext highlighter-rouge">run.invoker</code> on it.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">401 invalid IAP assertion</code></td>
+      <td>The forwarded assertion’s audience does not match <code class="language-plaintext highlighter-rouge">IAP_AUDIENCE</code> on the API; confirm the UI service name/region and re-apply.</td>
+    </tr>
+    <tr>
+      <td>Rollout fails for the API health probe</td>
+      <td>A rotation workflow ran before the API was redeployed with the IAM binding; re-run it.</td>
+    </tr>
+  </tbody>
+</table>
