@@ -1,8 +1,8 @@
 <h1 id="nightly-pipeline-run-notifications">Nightly pipeline run notifications</h1>
 
-<p>The nightly Cloud Run Job writes exactly one structured JSON line per finished
-run. Cloud Logging stores it as <code class="language-plaintext highlighter-rouge">jsonPayload</code>, and two Terraform-managed
-log-based alert policies notify on it:</p>
+<p>The nightly run writes exactly one structured JSON line per finished run.
+Cloud Logging stores it as <code class="language-plaintext highlighter-rouge">jsonPayload</code>, and two Terraform-managed log-based
+alert policies notify on it:</p>
 
 <table>
   <thead>
@@ -30,6 +30,13 @@ log-based alert policies notify on it:</p>
 deferred counts, review-queue size, estimated LLM spend, failure count and a
 link to <code class="language-plaintext highlighter-rouge">&lt;UI base&gt;/runs/&lt;run_id&gt;</code>. The application holds <strong>no mail
 credentials</strong>; Cloud Monitoring owns the email notification channel.</p>
+
+<p>The event is emitted by whichever stage ends the run. When
+<code class="language-plaintext highlighter-rouge">nightly_curate_enabled</code> is true and the ingest Job exits 0, the workflow runs
+the adviser stage; that stage updates the run with the review-queue summary and
+emits the event, and the ingest Job deliberately defers its own. A failed or
+partial ingest never reaches the adviser stage, so it emits the event itself.
+<code class="language-plaintext highlighter-rouge">agentic_kg.pipeline.report</code> is the single event builder and emitter.</p>
 
 <h2 id="change-the-recipient">Change the recipient</h2>
 
