@@ -66,6 +66,21 @@ then apply the client with:
 gcloud iap settings set iap_settings.yaml --project=vt-gcp-00042
 ```
 
+If the apply itself stops with a permission error while enabling IAP (for
+example `clientauthconfig.clients.create` or an IAP policy permission), the
+owner grants the apply identity the missing role once, then re-runs the apply:
+
+```bash
+gcloud projects add-iam-policy-binding vt-gcp-00042 \
+  --member=serviceAccount:gh-deploy@vt-gcp-00042.iam.gserviceaccount.com \
+  --role=roles/iap.admin
+
+# Only needed when granting access to users outside the organization:
+gcloud projects add-iam-policy-binding vt-gcp-00042 \
+  --member=serviceAccount:gh-deploy@vt-gcp-00042.iam.gserviceaccount.com \
+  --role=roles/oauthconfig.editor
+```
+
 This is the only part an agent/CI identity must not work around. Do not grant
 `allUsers` back to either service.
 
