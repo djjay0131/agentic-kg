@@ -43,7 +43,7 @@ agent_graph_source = "legacy"
 # server-side proxy. Add a tester by appending one `"user:email"` entry to
 # app_allowed_members (default: djjay@vt.edu) and applying Terraform.
 app_iap_enabled     = true
-app_allowed_members = ["user:djjay@vt.edu"]
+app_allowed_members = ["user:djjay@vt.edu", "user:yovi26@vt.edu"]
 
 # Durable KGIS ledger (nightly-pipeline design P0-2). The ingest Job mounts this
 # bucket with a Cloud Run GCS volume and writes the ledger/evidence under the
