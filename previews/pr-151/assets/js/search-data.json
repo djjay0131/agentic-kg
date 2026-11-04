@@ -1329,117 +1329,117 @@
     
     "relUrl": "/about/how-it-works.html"
   },"190": {
-    "doc": "Status",
-    "title": "Status",
-    "content": "Live project-state dashboard, auto-regenerated from llm/memory_bank/ and llm/features/ on every push to master. ",
-    "url": "/agentic-kg/previews/pr-151/status/",
-    
-    "relUrl": "/status/"
-  },"191": {
-    "doc": "Status",
-    "title": "Graph snapshot",
-    "content": "| Metric | Value | . | Last updated | 2026-09-17 | . | Graph nodes | 282 | . | Graph edges | 151 | . | Problem mentions | 18 | . | Problem concepts | 18 | . | Sanity checks | 5/5 passing | . | Completed sprints | 11 | . | Tests passing | 2207 | . ",
-    "url": "/agentic-kg/previews/pr-151/status/#graph-snapshot",
-    
-    "relUrl": "/status/#graph-snapshot"
-  },"192": {
-    "doc": "Status",
-    "title": "Drill-down",
-    "content": ". | Backlog → — active and resolved features, auto-regenerated from llm/features/BACKLOG.md | Sprints → — all 11 completed sprints with links to source docs | Changelog → — curated highlights | Service inventory → — deployed endpoints and infra components | . ",
-    "url": "/agentic-kg/previews/pr-151/status/#drill-down",
-    
-    "relUrl": "/status/#drill-down"
-  },"193": {
     "doc": "Reference",
     "title": "Domain Model &amp; Taxonomy",
     "content": "The authoritative, human-readable description of the agentic-kg knowledge graph: the node types (entities), the edge types (relationships), and the Topic taxonomy that classifies research work. Everything here is derived from — and kept in sync with — the Pydantic models and Neo4j schema under packages/core/src/agentic_kg/knowledge_graph/. If the code and this document ever disagree, the code (models/entities.py, models/relationships.py, models/enums.py, schema.py, taxonomy.py) is the source of truth — please open a PR to fix the doc. ",
     "url": "/agentic-kg/previews/pr-151/reference/#domain-model--taxonomy",
     
     "relUrl": "/reference/#domain-model--taxonomy"
-  },"194": {
+  },"191": {
     "doc": "Reference",
     "title": "Document map",
     "content": "| Document | What it defines | Source of truth | . | Entity Catalog | Every node type — definition, purpose, key attributes, status | models/entities.py, schema.py | . | Entity Relationships | Every edge type — endpoints, cardinality, semantics, diagram | models/relationships.py, repository.py Cypher | . | Topic Taxonomy | The 3-level research-topic classification (domain → area → subtopic) | taxonomy.py, data/seed_taxonomy.yml | . ",
     "url": "/agentic-kg/previews/pr-151/reference/#document-map",
     
     "relUrl": "/reference/#document-map"
-  },"195": {
+  },"192": {
     "doc": "Reference",
     "title": "What “taxonomy” means here",
     "content": "The word is used in two complementary senses, both documented above: . | The Topic taxonomy (the literal one) — a hand-curated, three-level hierarchy of research topics (domain → area → subtopic) that acts as a closed-set controlled vocabulary. Extraction is bound to it so papers can only be classified into known topics. See Topic Taxonomy. | The graph ontology (the implicit one) — the fixed, versioned set of ~9 node labels and ~14 edge types that every ingested paper is decomposed into. See the Entity Catalog and Entity Relationships. | . ",
     "url": "/agentic-kg/previews/pr-151/reference/#what-taxonomy-means-here",
     
     "relUrl": "/reference/#what-taxonomy-means-here"
-  },"196": {
+  },"193": {
     "doc": "Reference",
     "title": "Modeling principles",
     "content": "These conventions hold across the whole graph. They are described in prose here and enforced in models/ and schema.py: . | Problems are first-class. A research problem is a node (Problem / ProblemConcept), not a string attached to a paper. This is the central modeling bet of the project (ADR-002). | Mention vs. concept. Paper-specific wording (ProblemMention) is kept separate from the canonical, cross-paper meaning (ProblemConcept), joined by INSTANCE_OF. This preserves provenance while allowing deduplication. | Closed-set vs. open-set vocabularies. Topic is closed-set (only seed taxonomy names). Model is hybrid (open-set + write-protected canonical seeds). ResearchConcept and Method are open-set (any name, deduped by embedding similarity). | Denormalized counts. Nodes cache their own edge counts (mention_count, paper_count, usage_count, citation_count, …) to keep common queries cheap; these are maintained by the repository layer. | Embeddings everywhere. Most nodes carry a 1536-dim embedding backed by a Neo4j vector index for semantic search and dedup. | Provenance is required. Terminal states (a RESOLVED / DEPRECATED problem) require evidence pointing at the paper that justifies them. | Schema is versioned. A SchemaVersion node records the applied schema version (currently 7); SchemaManager applies constraints and indexes idempotently. | . ",
     "url": "/agentic-kg/previews/pr-151/reference/#modeling-principles",
     
     "relUrl": "/reference/#modeling-principles"
-  },"197": {
+  },"194": {
     "doc": "Reference",
     "title": "Node types at a glance",
     "content": "| Node label | Role | Vocabulary | Unit | . | Problem | A research problem extracted from a paper | open | core | . | ProblemMention | Paper-specific statement of a problem | open | canonical | . | ProblemConcept | Canonical, cross-paper problem | open | canonical | . | Paper | A scientific paper (source node) | — | core | . | Author | A paper author | — | core | . | Topic | Research topic in the taxonomy | closed-set | E-1 | . | ResearchConcept | Named intellectual building block | open | E-2 | . | Model | Named ML model / architecture | hybrid | E-3 | . | Method | Named research method / methodology | open | E-4 | . Plus SchemaVersion (schema metadata) and operational review-queue nodes (e.g. PendingReview) that live outside the core research graph. ",
     "url": "/agentic-kg/previews/pr-151/reference/#node-types-at-a-glance",
     
     "relUrl": "/reference/#node-types-at-a-glance"
-  },"198": {
+  },"195": {
     "doc": "Reference",
     "title": "Reference",
     "content": " ",
     "url": "/agentic-kg/previews/pr-151/reference/",
     
     "relUrl": "/reference/"
-  },"199": {
-    "doc": "About",
-    "title": "About Agentic KG",
-    "content": "Project overview, architecture, quickstart, and roadmap. Placeholder landing — Phase A. Individual pages in this section carry their own placeholder content. ",
-    "url": "/agentic-kg/previews/pr-151/about/#about-agentic-kg",
-    
-    "relUrl": "/about/#about-agentic-kg"
-  },"200": {
-    "doc": "About",
-    "title": "About",
-    "content": " ",
-    "url": "/agentic-kg/previews/pr-151/about/",
-    
-    "relUrl": "/about/"
-  },"201": {
+  },"196": {
     "doc": "Operations",
     "title": "Operations",
     "content": "Operator runbooks for running and tuning the agentic-kg pipeline in staging and production — the concrete steps to take when a run misbehaves, and the knobs that change its behavior. | Extraction throughput (OpenAI rate limits) | Structured re-sync (@snapshot= locators) | Neo4j hardening (private staging + password rotation) | Semantic Scholar API key (staging ingest Job) | API key rotation (staging gated endpoints) | Reviewing the nightly queue | Experiment execution (EvaluationAgent) | Research agents on the canonical graph | Deploy paths (automatic vs manual) | Nightly pipeline notifications | . ",
     "url": "/agentic-kg/previews/pr-151/operations/",
     
     "relUrl": "/operations/"
-  },"202": {
+  },"197": {
     "doc": "Design",
     "title": "Design &amp; Architecture",
     "content": "Human-readable design notes for every completed feature in the project — the why, the key decisions, and how the shipped system actually works. These are distilled from the full engineering specs in llm/features/ and reconciled against the code that shipped, so where the implementation diverged from the original plan, these notes describe what was built, not what was proposed. For the graph’s node/edge definitions these features produced, see the Reference → Domain Model &amp; Taxonomy section. ",
     "url": "/agentic-kg/previews/pr-151/design/#design--architecture",
     
     "relUrl": "/design/#design--architecture"
-  },"203": {
+  },"198": {
     "doc": "Design",
     "title": "How to read these",
     "content": "Each page follows the same shape: . | Why — the gap it closed. | What shipped — the outcome now in the system. | Design decisions — the choices that mattered, with rationale. | How it works — data model, edges, and flow, with code pointers. | Verification — how we know it’s done (tests, CI smoke, acceptance). | . Status key: VERIFIED = shipped and all quality gates pass. ",
     "url": "/agentic-kg/previews/pr-151/design/#how-to-read-these",
     
     "relUrl": "/design/#how-to-read-these"
-  },"204": {
+  },"199": {
     "doc": "Design",
     "title": "Completed features",
     "content": "Entity-expansion arc . The arc that turned the graph from problems + papers into a richly typed research graph. Each entity type is a first-class node with embeddings and dedup. | Feature | What it added | . | E-1 · Topic entities | First-class Topic hierarchy; closed-set taxonomy; BELONGS_TO / RESEARCHES | . | E-2 · ResearchConcept entities | Named concepts as nodes; INVOLVES_CONCEPT / DISCUSSES; embedding dedup | . | E-3 · Model entities | ML models as nodes; hybrid open-set + canonical seeds; USES_MODEL | . | E-4 · Method entities | Research methods as nodes; pure open-set; APPLIES_METHOD | . | E-5 · Citation graph | CITES edges from reference lists; stub papers; influence analysis | . | E-6 · Entity descriptions | Create-time descriptions for richer {name}: {description} embeddings | . | E-7 · Cross-entity normalization | LLM router disambiguates Concept vs Model vs Method | . | E-8 · Extraction prompt expansion | Extractors that populate the new entity types from paper text (V1 + V2) | . | Entity pipeline orchestration | Wires the whole arc into production ingestion, default-on with audit | . Ingestion &amp; infrastructure . | Feature | What it added | . | D-1 · Ingest real papers | End-to-end ingestion CLI: search → import → extract → integrate | . | D-1a · Cloud Run Jobs ingestion | Durable async ingestion as a Terraform-managed Cloud Run Job | . | CI smoke test | GHA workflow asserting entity edges land in an ephemeral Neo4j | . Docs &amp; site . | Feature | What it added | . | Enhance GitHub Pages | Docs generator reading llm/memory_bank/; unified nav; auto-published backlog | . ",
     "url": "/agentic-kg/previews/pr-151/design/#completed-features",
     
     "relUrl": "/design/#completed-features"
-  },"205": {
+  },"200": {
     "doc": "Design",
     "title": "Design",
     "content": " ",
     "url": "/agentic-kg/previews/pr-151/design/",
     
     "relUrl": "/design/"
+  },"201": {
+    "doc": "About",
+    "title": "About Agentic KG",
+    "content": "Project overview, architecture, quickstart, and roadmap. Placeholder landing — Phase A. Individual pages in this section carry their own placeholder content. ",
+    "url": "/agentic-kg/previews/pr-151/about/#about-agentic-kg",
+    
+    "relUrl": "/about/#about-agentic-kg"
+  },"202": {
+    "doc": "About",
+    "title": "About",
+    "content": " ",
+    "url": "/agentic-kg/previews/pr-151/about/",
+    
+    "relUrl": "/about/"
+  },"203": {
+    "doc": "Status",
+    "title": "Status",
+    "content": "Live project-state dashboard, auto-regenerated from llm/memory_bank/ and llm/features/ on every push to master. ",
+    "url": "/agentic-kg/previews/pr-151/status/",
+    
+    "relUrl": "/status/"
+  },"204": {
+    "doc": "Status",
+    "title": "Graph snapshot",
+    "content": "| Metric | Value | . | Last updated | 2026-09-17 | . | Graph nodes | 282 | . | Graph edges | 151 | . | Problem mentions | 18 | . | Problem concepts | 18 | . | Sanity checks | 5/5 passing | . | Completed sprints | 11 | . | Tests passing | 2207 | . ",
+    "url": "/agentic-kg/previews/pr-151/status/#graph-snapshot",
+    
+    "relUrl": "/status/#graph-snapshot"
+  },"205": {
+    "doc": "Status",
+    "title": "Drill-down",
+    "content": ". | Backlog → — active and resolved features, auto-regenerated from llm/features/BACKLOG.md | Sprints → — all 11 completed sprints with links to source docs | Changelog → — curated highlights | Service inventory → — deployed endpoints and infra components | . ",
+    "url": "/agentic-kg/previews/pr-151/status/#drill-down",
+    
+    "relUrl": "/status/#drill-down"
   },"206": {
     "doc": "Home",
     "title": "Agentic KG",
@@ -2106,111 +2106,181 @@
     
     "relUrl": "/status/sprints.html"
   },"301": {
+    "doc": "Staging test scripts",
+    "title": "agentic-kg staging test scripts",
+    "content": "Working copy (live, commentable): https://claude.ai/artifact/TDebk9Din9sPKmnzkJcMyg. This file is the versioned audit-trail copy, first committed 2026-11-03. Record results in the working copy; changes to the scripts land here by PR. ",
+    "url": "/agentic-kg/previews/pr-151/testing/staging-test-scripts.html#agentic-kg-staging-test-scripts",
+    
+    "relUrl": "/testing/staging-test-scripts.html#agentic-kg-staging-test-scripts"
+  },"302": {
+    "doc": "Staging test scripts",
+    "title": "Before you start",
+    "content": "These scripts test agentic-kg on staging: papers and research problems pulled from the literature, research agents that propose and evaluate next steps, and a nightly pipeline whose output humans review. Track A needs only a browser; Track B adds the API. | What | Where | . | App (UI) | https://agentic-kg-ui-staging-tqpsba7pza-uc.a.run.app | . | API docs (try requests in the browser) | https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app/docs | . | Tester account | your @vt.edu Google account (allowlisted) | . Sign-in. Open the app and sign in with your vt.edu Google account. If you see “You don’t have access”, tell Jason; your email has not been added yet. Every approve or reject you make is recorded under your signed-in email. Scope. Staging is a test environment. Data can be reset, and runs may use paid LLM calls, so start agent workflows only where a script says to. Reporting. For each step, mark Pass or Fail in the results log at the end. On a Fail, leave a comment on that step with what you saw, the time, and a screenshot if you can. Comments on this doc reach Jason. Not ready yet (skip if missing): the Research Loop page (A4) and the nightly-run email. Each is marked in its section. ",
+    "url": "/agentic-kg/previews/pr-151/testing/staging-test-scripts.html#before-you-start",
+    
+    "relUrl": "/testing/staging-test-scripts.html#before-you-start"
+  },"303": {
+    "doc": "Staging test scripts",
+    "title": "A1. Browse the knowledge graph",
+    "content": "Pass means every page loads in under 10 seconds with real content and no error banners. | # | Do | Expect | . | A1.1 | Open the home page | Dashboard loads with counts for papers and problems (not zero) | . | A1.2 | Open Papers; open any paper | Title, DOI, authors, year; its extracted problems are listed | . | A1.3 | On a paper, follow a citation or reference | Lands on the cited paper, or shows it as an external reference | . | A1.4 | Open Problems; filter by a topic | List narrows to that topic; the count changes | . | A1.5 | Open any problem | Statement, assumptions, constraints, datasets, metrics (some may be empty) and an evidence quote with the source paper | . | A1.6 | Click the evidence’s source paper | Opens the paper the quote came from | . | A1.7 | Search for “knowledge graph construction” | Ranked problems or papers appear; the top results are on topic | . | A1.8 | Search for a nonsense word (“zzqxv”) | An empty-state message, not an error | . | A1.9 | Open Graph | A network renders; clicking a node shows its neighbours | . | A1.10 | Open Extract; paste one paragraph from any paper’s Limitations section | Problems are extracted from the text you pasted, each with a quote | . While browsing, note anything that looks wrong: a problem that isn’t really a research problem, a quote that doesn’t support its problem, or duplicates of the same problem. Those notes are evaluation data, not just bug reports. ",
+    "url": "/agentic-kg/previews/pr-151/testing/staging-test-scripts.html#a1-browse-the-knowledge-graph",
+    
+    "relUrl": "/testing/staging-test-scripts.html#a1-browse-the-knowledge-graph"
+  },"304": {
+    "doc": "Staging test scripts",
+    "title": "A2. Run a research-agent workflow",
+    "content": "One workflow walks a problem through four agents: ranking, continuation, evaluation and synthesis. It pauses at three checkpoints for you to decide. Run one workflow per test session; each one makes paid LLM calls and may start a sandboxed experiment. | Open Workflows and start a new workflow. Expect: it shows a running status, then pauses at Select problem with a ranked list. | Check the ranking. Expect: each problem has a score and a short reason; the reasons refer to the problem’s evidence or data. | Pick one problem and continue. Expect: the continuation agent proposes a next step (an experiment, an extension or an analysis) that names datasets, metrics and baselines. | At Approve proposal, read it critically and then approve it, adding a note. Expect: your decision and note appear in the workflow history under your email. | Wait for evaluation (up to 5 minutes). Expect: generated code ran in the sandbox and returned results or a clear failure reason; the result records an experiment id and code hash. | At Review evaluation, approve it if the result is plausible, otherwise reject it with a reason. Expect: an approval runs synthesis; a rejection ends the workflow without writing anything. | After synthesis, open the problem again. Expect: the outcome is attached to the problem (refinement or result), or it is waiting in the Review queue. | Start a second workflow and reject at Approve proposal. Expect: the workflow ends and nothing is written to the graph. | . Record, for steps 3 and 5, whether you would actually do the proposed next step (yes / maybe / no) and why. That judgement is research data for the paper. ",
+    "url": "/agentic-kg/previews/pr-151/testing/staging-test-scripts.html#a2-run-a-research-agent-workflow",
+    
+    "relUrl": "/testing/staging-test-scripts.html#a2-run-a-research-agent-workflow"
+  },"305": {
+    "doc": "Staging test scripts",
+    "title": "A3. Nightly runs and the review queue",
+    "content": "Every night at 02:30 Eastern the pipeline searches for new papers, ingests them, and has an adviser grade what it found. Nothing the adviser grades enters the curated graph until a human approves it. | # | Do | Expect | . | A3.1 | Open Runs | One row per night: date, status, papers seen / new / committed / deferred, LLM spend, review-queue size | . | A3.2 | Open the most recent run | Totals, the queries it ran, failures (if any) with reasons, and proposed new queries | . | A3.3 | Click the run’s review-queue count | Opens Review, filtered to that run | . | A3.4 | In Review, open one pending item | The candidate, the adviser’s verdict (admit / reject / merge) with confidence and rationale, and quoted evidence text | . | A3.5 | Approve an item whose evidence supports it, with a note | Status becomes Approved under your email; the item now appears in the curated graph | . | A3.6 | Reject an item whose evidence does not support it, with a note | Status becomes Rejected under your email; nothing is added to the graph | . | A3.7 | Re-open an item you decided | The decision is read-only; there is no second approve | . | A3.8 | Back on the run page | The adviser–human agreement figure has updated | . | A3.9 | (When the email is live) check your inbox after a nightly run | A summary email with a link that opens that run | . If Runs is empty, the nightly job has not run yet. Mark A3 “blocked”, not “fail”. For each item you decide in A3.5 and A3.6, say whether you agreed with the adviser. Agreement is the evidence for later letting the adviser decide some items itself. ",
+    "url": "/agentic-kg/previews/pr-151/testing/staging-test-scripts.html#a3-nightly-runs-and-the-review-queue",
+    
+    "relUrl": "/testing/staging-test-scripts.html#a3-nightly-runs-and-the-review-queue"
+  },"306": {
+    "doc": "Staging test scripts",
+    "title": "A4. Research loop gates (not ready yet)",
+    "content": "The research loop runs A2 on a schedule. Each cycle picks the top 3 problems and stops at every human gate. In this release every gate needs a human; nothing runs past a gate unattended. Skip this section until Jason says the Research Loop page is live. | Open Research Loop. Expect: the current cycle, its budget, the selected problems and the gates waiting for you. | Approve one Select problem gate, edit one Approve proposal before approving (change a dataset or metric), and reject one. Expect: each decision is recorded with your email and note. The edited proposal is what runs next. | After the next cycle, open the cycle report from Runs. Expect: a row marked research_cycle with what each workflow did and its spend. | Leave a gate undecided for a day. Expect: it is still waiting, unchanged, on the next cycle. It must not time out into an approval. | . ",
+    "url": "/agentic-kg/previews/pr-151/testing/staging-test-scripts.html#a4-research-loop-gates-not-ready-yet",
+    
+    "relUrl": "/testing/staging-test-scripts.html#a4-research-loop-gates-not-ready-yet"
+  },"307": {
+    "doc": "Staging test scripts",
+    "title": "B. Technical track (API)",
+    "content": "Use the API docs page (link above) while signed in: open an endpoint, click Try it out, then Execute. Every check below is read-only except B10. | # | Request | Expect | . | B1 | GET /health | status: ok, neo4j_connected: true | . | B2 | GET /api/problems?limit=5 | 5 problems, each with evidence and a source paper DOI | . | B3 | GET /api/search?q=knowledge%20graph | Ranked results with scores | . | B4 | GET /api/canonical/summary | An epoch number and counts of ACTIVE identities by type (Papers at minimum) | . | B5 | GET /api/canonical/entities?type=Paper, then one by id | Each identity has a DOI alias, title, assertions and evidence references | . | B6 | GET /api/runs, then GET /api/runs/{run_id} | The same totals the Runs page shows; status, budget, deferral reasons, proposed queries | . | B7 | GET /api/review?status=pending | The same items as the Review page; each carries evidence text and adviser model and prompt versions | . | B8 | After A2, GET /api/agents/outputs/{output_id}/provenance | A provenance envelope: the assertion and evidence ids the agent used, plus derived_from links to earlier agent outputs | . | B9 | POST /api/review/{id} with no sign-in (e.g. curl from a terminal) | 401. An unsigned request must never approve anything | . | B10 | Ask Jason to trigger a nightly run, then repeat B6 | A new run appears with today’s date; the email arrives (once live) | . B9 is the security check: try it once, and report any response other than 401 or 403 straight away. ",
+    "url": "/agentic-kg/previews/pr-151/testing/staging-test-scripts.html#b-technical-track-api",
+    
+    "relUrl": "/testing/staging-test-scripts.html#b-technical-track-api"
+  },"308": {
+    "doc": "Staging test scripts",
+    "title": "Known limitations",
+    "content": ". | The curated graph holds only Paper identities until reviewers approve items in the queue (A3), so curated-graph views may look sparse at first. | Research agents read the older graph by default; the curated-graph switch comes after the first round of reviews. | Relations whose endpoints need entity resolution are not queued yet, and “merge into” verdicts are recorded but not executed. | Semantic Scholar rate limits can leave some citation links missing on newly ingested papers. | . ",
+    "url": "/agentic-kg/previews/pr-151/testing/staging-test-scripts.html#known-limitations",
+    
+    "relUrl": "/testing/staging-test-scripts.html#known-limitations"
+  },"309": {
+    "doc": "Staging test scripts",
+    "title": "Results log",
+    "content": "Results are recorded in the working copy (link at the top), one row per section: Result (Not run / Pass / Fail / Blocked), failing steps, date tested, notes. ",
+    "url": "/agentic-kg/previews/pr-151/testing/staging-test-scripts.html#results-log",
+    
+    "relUrl": "/testing/staging-test-scripts.html#results-log"
+  },"310": {
+    "doc": "Staging test scripts",
+    "title": "Staging test scripts",
+    "content": " ",
+    "url": "/agentic-kg/previews/pr-151/testing/staging-test-scripts.html",
+    
+    "relUrl": "/testing/staging-test-scripts.html"
+  },"311": {
     "doc": "Structured re-sync (@snapshot= locators)",
     "title": "Structured re-sync runbook",
     "content": "Applies to: any deployment that reads a structured source (a database table, a warehouse view) through KGIS’s StructuredRecordReader on a schedule. It does not apply to a one-shot import. ",
     "url": "/agentic-kg/previews/pr-151/operations/structured-resync-runbook.html#structured-re-sync-runbook",
     
     "relUrl": "/operations/structured-resync-runbook.html#structured-re-sync-runbook"
-  },"302": {
+  },"312": {
     "doc": "Structured re-sync (@snapshot= locators)",
     "title": "The operator check",
     "content": "If a source is read on a schedule and its locator ends in @snapshot=, it is misconfigured. sqlite://players@snapshot=snap_9f2c1b... &lt;-- misconfigured for a re-sync sqlite://players &lt;-- correct for a re-sync . The locator is visible on every candidate as candidate.source_coordinates.locator, and on every canonical record as assertion.provenance.source_ref. A single Cypher or ledger query for @snapshot= answers the question for a whole deployment. ",
     "url": "/agentic-kg/previews/pr-151/operations/structured-resync-runbook.html#the-operator-check",
     
     "relUrl": "/operations/structured-resync-runbook.html#the-operator-check"
-  },"303": {
+  },"313": {
     "doc": "Structured re-sync (@snapshot= locators)",
     "title": "Symptom",
     "content": "A scheduled re-sync completes successfully. Nothing errors, nothing warns, and the run report looks normal. But the canonical graph keeps growing: the same unchanged row acquires another ACTIVE record on every run, and every downstream count — fact totals, per-entity assertion counts, corroboration — climbs without any source data having changed. Thirty daily re-syncs of one unchanged row produce thirty identical ACTIVE records instead of one. That is a measured number, not an estimate: packages/core/tests/migration/ingestion/test_structured_locator.py reproduces both halves (30 with the default, 1 with the flag off) against the real reader and the real KGCS planner. ",
     "url": "/agentic-kg/previews/pr-151/operations/structured-resync-runbook.html#symptom",
     
     "relUrl": "/operations/structured-resync-runbook.html#symptom"
-  },"304": {
+  },"314": {
     "doc": "Structured re-sync (@snapshot= locators)",
     "title": "Why it happens",
     "content": "StructuredRecordReader stamps the snapshot version into its locator by default: . @property def locator(self) -&gt; str: base = self._provider.locator if self._include_snapshot: return f\"{base}@snapshot={self._snap().version}\" return base . From agentic-kgcs@f68d1d7, an assertion_id is minted from record_seed(fact_id, object, valid_period, evidence_refs, provenance) — and provenance.source_ref is that locator. So the snapshot token is part of the record’s identity. The token is stable when it is derived (a digest of the ordered rows: unchanged data → unchanged token). It is not stable when the provider is given an explicit snapshot_version — a database transaction id, an LSN, a watermark — which is exactly what a production re-sync uses. There the token moves every run whether or not the data did: . | Run | Locator | Minted assertion_id | . | 1 | sqlite://players@snapshot=txn_1 | as_AAAA… | . | 2 | sqlite://players@snapshot=txn_2 | as_BBBB… | . | 30 | sqlite://players@snapshot=txn_30 | as_ZZZZ… | . Thirty different ids for one fact. Because each id is genuinely new, the assertion_absent guard that normally refuses a replay does not fire — from the executor’s point of view these are thirty distinct records, and it is right. ",
     "url": "/agentic-kg/previews/pr-151/operations/structured-resync-runbook.html#why-it-happens",
     
     "relUrl": "/operations/structured-resync-runbook.html#why-it-happens"
-  },"305": {
+  },"315": {
     "doc": "Structured re-sync (@snapshot= locators)",
     "title": "The fix",
     "content": "Set include_snapshot_in_locator=False. from agentic_kg.migration.ingestion import structured_reader reader = structured_reader(provider) # flag pinned off . structured_reader() and structured_config() in agentic_kg.migration.ingestion.structured are the only places this repository builds a structured reader. Both pin the flag off and raise SnapshotLocatorRefused if a call site asks for True, so the safe value cannot be undone by a keyword argument — only by editing that module, which is a reviewable change. An AST check fails the build if any other module under migration/ingestion/ constructs a StructuredRecordReader or StructuredSyncConfig directly. Turning it off does not merge things that genuinely differ: two different sources asserting different values for the same subject still mint two records (test_two_genuine_sources_still_mint_different_records_when_guarded). ",
     "url": "/agentic-kg/previews/pr-151/operations/structured-resync-runbook.html#the-fix",
     
     "relUrl": "/operations/structured-resync-runbook.html#the-fix"
-  },"306": {
+  },"316": {
     "doc": "Structured re-sync (@snapshot= locators)",
     "title": "What to do about records already written",
     "content": "The flag is a going-forward fix. It does not retract duplicates a previous misconfiguration already committed. Two remedies, both from kgcs/records.py: . | Supersede the duplicates, keeping one record current (RETRACT_ASSERTION → SUPERSEDED). History is preserved and each retired record stays queryable at its own epoch. | Re-mint the surviving record’s id from a snapshot-free seed with kgcs.records.backfill_record_id, so a future re-sync replays onto it instead of minting yet another. | . Do not delete. A deletion loses the record of what was written and by which run; a supersession does not. ",
     "url": "/agentic-kg/previews/pr-151/operations/structured-resync-runbook.html#what-to-do-about-records-already-written",
     
     "relUrl": "/operations/structured-resync-runbook.html#what-to-do-about-records-already-written"
-  },"307": {
+  },"317": {
     "doc": "Structured re-sync (@snapshot= locators)",
     "title": "Current status in this repository",
     "content": "Today’s shadow-ingestion path does not use the structured reader — it reads committed importer-output files and builds SourceCoordinates by hand. No locator this repository emits carries @snapshot=; that is measured over all 252 candidates of a shadow run by test_no_shadow_candidate_carries_a_snapshot_locator, not assumed. The prerequisite is enforced now so that it is already in place on the day the structured arm is pointed at a real source. ",
     "url": "/agentic-kg/previews/pr-151/operations/structured-resync-runbook.html#current-status-in-this-repository",
     
     "relUrl": "/operations/structured-resync-runbook.html#current-status-in-this-repository"
-  },"308": {
+  },"318": {
     "doc": "Structured re-sync (@snapshot= locators)",
     "title": "Related",
     "content": ". | packages/core/src/agentic_kg/migration/ingestion/structured.py — the guard | packages/core/tests/migration/ingestion/test_structured_locator.py — the measurement | kgis/structured/reader.py (upstream) — where the default lives | kgcs/records.py (upstream) — record_seed, backfill_record_id | . ",
     "url": "/agentic-kg/previews/pr-151/operations/structured-resync-runbook.html#related",
     
     "relUrl": "/operations/structured-resync-runbook.html#related"
-  },"309": {
+  },"319": {
     "doc": "Structured re-sync (@snapshot= locators)",
     "title": "Structured re-sync (@snapshot= locators)",
     "content": " ",
     "url": "/agentic-kg/previews/pr-151/operations/structured-resync-runbook.html",
     
     "relUrl": "/operations/structured-resync-runbook.html"
-  },"310": {
+  },"320": {
     "doc": "Topic Taxonomy",
     "title": "Topic Taxonomy",
     "content": "The Topic taxonomy is agentic-kg’s controlled vocabulary for classifying research work. It is a hand-curated, three-level hierarchy that behaves as a closed set: extraction can only classify a paper into topics that already exist in the taxonomy — it cannot invent new ones. | Data (source of truth): packages/core/src/agentic_kg/knowledge_graph/data/seed_taxonomy.yml | Loader / validator / exporter: knowledge_graph/taxonomy.py | Node model: Topic in models/entities.py (see Entity Catalog) | Level enum: TopicLevel in models/enums.py | CLI: agentic-kg load-taxonomy | . ",
     "url": "/agentic-kg/previews/pr-151/reference/topic-taxonomy.html",
     
     "relUrl": "/reference/topic-taxonomy.html"
-  },"311": {
+  },"321": {
     "doc": "Topic Taxonomy",
     "title": "The three levels",
     "content": "TopicLevel defines exactly three levels; nesting is strict. | Level | Meaning | Example | Parent | . | domain | Broad field | Computer Science | (none — root) | . | area | Sub-field within a domain | Natural Language Processing | a domain | . | subtopic | Specific topic within an area | Information Extraction | an area | . graph TD CS[\"Computer Science&lt;br/&gt;&lt;i&gt;(domain)&lt;/i&gt;\"] --&gt; NLP[\"Natural Language Processing&lt;br/&gt;&lt;i&gt;(area)&lt;/i&gt;\"] NLP --&gt; IE[\"Information Extraction&lt;br/&gt;&lt;i&gt;(subtopic)&lt;/i&gt;\"] NLP --&gt; QA[\"Question Answering&lt;br/&gt;&lt;i&gt;(subtopic)&lt;/i&gt;\"] NLP --&gt; LLM[\"Large Language Models&lt;br/&gt;&lt;i&gt;(subtopic)&lt;/i&gt;\"] CS --&gt; IR[\"Information Retrieval&lt;br/&gt;&lt;i&gt;(area)&lt;/i&gt;\"] IR --&gt; RAG[\"Retrieval-Augmented Generation&lt;br/&gt;&lt;i&gt;(subtopic)&lt;/i&gt;\"] classDef domain fill:#e8f0fe,stroke:#4285f4,color:#111; classDef area fill:#fef7e0,stroke:#f9ab00,color:#111; classDef sub fill:#e6f4ea,stroke:#34a853,color:#111; class CS domain; class NLP,IR area; class IE,QA,LLM,RAG sub; . Edges above are SUBTOPIC_OF in the graph (child → parent). The diagram shows a slice; the full seed set is below. Structural rules (enforced by parse_taxonomy and the Topic model): . | Allowed parent → child transitions: ∅ → domain → area → subtopic. A subtopic cannot nest further; a domain cannot appear as a child. | A domain topic must not have a parent (parent_id is None). | Names must be unique within the same (parent, level). | In the graph, hierarchy is materialized as (child)-[:SUBTOPIC_OF]-&gt;(parent). | . ",
     "url": "/agentic-kg/previews/pr-151/reference/topic-taxonomy.html#the-three-levels",
     
     "relUrl": "/reference/topic-taxonomy.html#the-three-levels"
-  },"312": {
+  },"322": {
     "doc": "Topic Taxonomy",
     "title": "Current seed taxonomy",
     "content": "Six areas under a single Computer Science domain, focused on the project’s corpus (graph retrieval, knowledge graphs, NLP, ML, IR). This mirrors seed_taxonomy.yml — edit that file, not this table, to change the taxonomy. Computer Science (domain) . | Area | Subtopics | . | Natural Language Processing | Information Extraction · Question Answering · Machine Translation · Text Summarization · Large Language Models | . | Information Retrieval | Graph-Based Retrieval · Dense Retrieval · Retrieval-Augmented Generation · Hybrid Retrieval | . | Knowledge Representation | Knowledge Graphs · Ontology Engineering · Entity Linking | . | Machine Learning | Deep Learning · Transfer Learning · Graph Neural Networks · Self-Supervised Learning · Reinforcement Learning | . | Data Management | Graph Databases · Vector Databases | . | AI Agents and Reasoning | Multi-Agent Systems · Tool Use · Chain-of-Thought Reasoning | . Each node also carries a one-line description (see the YAML) that feeds a richer embedding for semantic matching. ",
     "url": "/agentic-kg/previews/pr-151/reference/topic-taxonomy.html#current-seed-taxonomy",
     
     "relUrl": "/reference/topic-taxonomy.html#current-seed-taxonomy"
-  },"313": {
+  },"323": {
     "doc": "Topic Taxonomy",
     "title": "YAML schema",
     "content": "The taxonomy file is a recursive list of nodes: . - name: str # required, length &gt;= 2 level: str # required, one of domain/area/subtopic description: str # optional — used for richer embeddings source: str # optional, default \"manual\" openalex_id: str # optional children: list # optional, same schema, one level deeper . flatten_taxonomy walks this recursively (no fixed depth assumption), so a future taxonomy deeper than three levels would work without code changes — though the level enum would need extending first. ",
     "url": "/agentic-kg/previews/pr-151/reference/topic-taxonomy.html#yaml-schema",
     
     "relUrl": "/reference/topic-taxonomy.html#yaml-schema"
-  },"314": {
+  },"324": {
     "doc": "Topic Taxonomy",
     "title": "How the taxonomy is used",
     "content": ". | Loading (idempotent). load_taxonomy merges each node via repository.merge_topic keyed on (name, level, parent_id), creating SUBTOPIC_OF edges automatically. Re-running is a no-op for unchanged nodes and reports {created, matched} counts. | Closed-set extraction. TopicExtractor snapshots the taxonomy at startup and builds a closed-set Literal schema over its names, so the LLM can only return topics that exist in the taxonomy — off-taxonomy classifications are impossible by construction. | Staleness auditing. extraction/taxonomy_hash.py computes a canonical hash (canonical_taxonomy_hash) over the taxonomy. Papers are stamped with the hash they were ingested under, so when the taxonomy changes, previously ingested papers can be detected as stale and re-classified. | Export / round-trip. export_taxonomy reads the live graph back into the YAML shape (embeddings excluded, regenerated on import), keeping the file human-editable. | . ",
     "url": "/agentic-kg/previews/pr-151/reference/topic-taxonomy.html#how-the-taxonomy-is-used",
     
     "relUrl": "/reference/topic-taxonomy.html#how-the-taxonomy-is-used"
-  },"315": {
+  },"325": {
     "doc": "Topic Taxonomy",
     "title": "Vocabulary style vs. other entities",
     "content": "The Topic taxonomy is the graph’s only closed-set vocabulary. The other concept-like nodes are open: . | Node | Vocabulary | New values enter by | . | Topic | closed-set | editing the seed taxonomy + reload | . | Model | hybrid (open + canonical seeds) | extraction; seeds write-protected | . | ResearchConcept | open-set | extraction; deduped at 0.90 cosine | . | Method | open-set | extraction; deduped at 0.90 cosine | . ",
     "url": "/agentic-kg/previews/pr-151/reference/topic-taxonomy.html#vocabulary-style-vs-other-entities",
     
     "relUrl": "/reference/topic-taxonomy.html#vocabulary-style-vs-other-entities"
-  },"316": {
+  },"326": {
     "doc": "Topic Taxonomy",
     "title": "Known limitations / roadmap",
     "content": "Scaling the taxonomy is a tracked, open backlog item — T-1 in llm/features/BACKLOG.md: “Taxonomy management at scale — versioned taxonomy with branching + merge + conflict resolution.” Today the taxonomy is a single hand-curated file with no versioning or branching; growing it or reconciling concurrent edits is a manual, re-extract operation. ",
