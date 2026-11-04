@@ -2183,24 +2183,43 @@ resource "google_cloud_run_v2_job" "adviser" {
   ]
 }
 
-# The workflow's SA (also both Jobs' runtime SA) may invoke the adviser Job.
+# The workflow's SA (also both Jobs' runtime SA) may start the adviser Job with
+# env overrides and poll the returned operation. roles/run.invoker is not
+# enough: it grants only run.routes.invoke on services, not run.jobs.run /
+# run.jobs.runWithOverrides on a Job.
 resource "google_cloud_run_v2_job_iam_member" "adviser_runner" {
   count = var.nightly_enabled && var.nightly_curate_enabled ? 1 : 0
 
   name     = google_cloud_run_v2_job.adviser[0].name
   location = var.region
-  role     = "roles/run.invoker"
+  role     = "roles/run.jobsExecutorWithOverrides"
   member   = "serviceAccount:${local.nightly_sa_email}"
 }
 
-# The workflow's SA (also the Job's runtime SA) may invoke the nightly Job.
+# The workflow's SA (also the Job's runtime SA) may start the nightly Job with
+# env overrides and poll the returned operation (see adviser_runner above).
 resource "google_cloud_run_v2_job_iam_member" "nightly_runner" {
   count = var.nightly_enabled ? 1 : 0
 
   name     = google_cloud_run_v2_job.nightly[0].name
   location = var.region
-  role     = "roles/run.invoker"
+  role     = "roles/run.jobsExecutorWithOverrides"
   member   = "serviceAccount:${local.nightly_sa_email}"
+}
+
+# Starting a Job returns a project-scoped long-running Operation, and the
+# Workflow polls it with `run.operations.get`. That permission is not in
+# roles/run.jobsExecutorWithOverrides (or roles/run.invoker), and a job-scoped
+# binding cannot grant it because the Operation is not a child of the Job.
+# Viewer is read-only and is the only extra grant the Workflow needs.
+resource "google_project_iam_member" "nightly_run_viewer" {
+  count = var.nightly_enabled ? 1 : 0
+
+  project = var.project_id
+  role    = "roles/run.viewer"
+  member  = "serviceAccount:${local.nightly_sa_email}"
+
+  depends_on = [google_project_service.apis]
 }
 
 # ---- Cloud Workflows: run the Job and wait -------------------------------

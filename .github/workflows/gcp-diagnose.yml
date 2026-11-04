@@ -29,6 +29,49 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      # ---- Nightly pipeline diagnostics (read-only) -----------------------
+      # Never prints secret values or environment values: only execution
+      # metadata, scheduler state, job execution status and log fields.
+      - name: Nightly workflow executions (last 5, with error)
+        run: |
+          gcloud workflows executions list agentic-kg-nightly-staging \
+            --location="$REGION" --project="$PROJECT_ID" --limit=5 \
+            --format='table(name.basename(),state,startTime,endTime,error.payload)' || true
+          for execution in $(gcloud workflows executions list agentic-kg-nightly-staging \
+              --location="$REGION" --project="$PROJECT_ID" --limit=5 \
+              --format='value(name)'); do
+            echo "== ${execution##*/}"
+            gcloud workflows executions describe "${execution##*/}" \
+              --workflow=agentic-kg-nightly-staging \
+              --location="$REGION" --project="$PROJECT_ID" \
+              --format='yaml(name,state,startTime,endTime,error,status)' || true
+          done
+
+      - name: Nightly Cloud Scheduler job
+        run: |
+          gcloud scheduler jobs describe agentic-kg-nightly-staging \
+            --location="$REGION" --project="$PROJECT_ID" \
+            --format='yaml(name,state,schedule,timeZone,lastAttemptTime,status,httpTarget.uri)' || true
+
+      - name: Nightly-related Cloud Run Job executions (last 5 each)
+        run: |
+          for job in agentic-kg-nightly-staging agentic-kg-ingest-staging agentic-kg-adviser-staging; do
+            echo "== ${job} executions"
+            gcloud run jobs executions list \
+              --job="$job" --region="$REGION" --project="$PROJECT_ID" --limit=5 \
+              --format='yaml(metadata.name,metadata.creationTimestamp,status)' || true
+          done
+
+      - name: Recent ERROR and structured logs for nightly Jobs
+        run: |
+          for job in agentic-kg-nightly-staging agentic-kg-ingest-staging agentic-kg-adviser-staging; do
+            echo "== ${job} recent ERROR / structured logs"
+            gcloud logging read \
+              "resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"${job}\" AND (severity>=ERROR OR jsonPayload.event:*)" \
+              --project="$PROJECT_ID" --freshness=7d --limit=50 \
+              --format='table(timestamp,severity,jsonPayload.event,jsonPayload.status,jsonPayload.run_id,jsonPayload.message,textPayload)' || true
+          done
+
       - name: Cloud Build triggers
         run: |
           gcloud builds triggers list --project="$PROJECT_ID" --region=global \
