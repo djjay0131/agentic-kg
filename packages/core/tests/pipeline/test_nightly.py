@@ -227,3 +227,150 @@ def test_trigger_is_recorded(tmp_path):
         write_neo4j=False,
     )
     assert result.report.trigger == "manual"
+
+
+def _only_stdout_line(capsys) -> dict:
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert len(lines) == 1
+    return json.loads(lines[0])
+
+
+def test_success_emits_one_structured_event(tmp_path, capsys):
+    catalog = _catalog(("a", 3))
+    outcomes = {
+        "query a": QueryOutcome(
+            papers_seen=3,
+            papers_new=1,
+            committed_operations=2,
+            deferred_candidates=5,
+            est_llm_usd=0.25,
+        ),
+    }
+    result = run_nightly(
+        now=NOW,
+        catalog=catalog,
+        runner=_runner(outcomes),
+        runs_dir=tmp_path,
+        runs_bucket="vt-gcp-00042-agentic-kg-runs-staging",
+        ui_base_url="https://agentic-kg-ui-staging.example.com/",
+        write_neo4j=False,
+    )
+
+    event = _only_stdout_line(capsys)
+
+    assert event["event"] == "pipeline_run_completed"
+    assert event["severity"] == "INFO"
+    assert event["run_id"] == result.report.run_id
+    assert event["status"] == "succeeded"
+    assert event["trigger"] == "schedule"
+    assert event["namespace"] == "staging"
+    assert event["totals"] == {
+        "papers_seen": 3,
+        "papers_new": 1,
+        "committed_operations": 2,
+        "deferred_candidates": 5,
+        "honest_nulls": 0,
+    }
+    assert event["papers_seen"] == 3
+    assert event["papers_new"] == 1
+    assert event["committed_operations"] == 2
+    assert event["deferred_candidates"] == 5
+    assert event["review_queue_size"] is None
+    assert event["llm_usd"] == 0.25
+    assert event["failure_count"] == 0
+    assert event["run_url"] == (
+        f"https://agentic-kg-ui-staging.example.com/runs/{result.report.run_id}"
+    )
+    assert event["url"] == (
+        "gs://vt-gcp-00042-agentic-kg-runs-staging/"
+        f"nightly/{result.report.run_id}.json"
+    )
+
+
+def test_failure_emits_one_structured_event(tmp_path, capsys):
+    catalog = _catalog(("a", 3), ("b", 3))
+    outcomes = {"query a": QueryOutcome(error="x"), "query b": QueryOutcome(error="y")}
+    result = run_nightly(
+        now=NOW,
+        catalog=catalog,
+        runner=_runner(outcomes),
+        runs_dir=tmp_path,
+        ui_base_url="https://agentic-kg-ui-staging.example.com",
+        write_neo4j=False,
+    )
+
+    event = _only_stdout_line(capsys)
+
+    assert event["event"] == "pipeline_run_failed"
+    assert event["severity"] == "ERROR"
+    assert event["run_id"] == result.report.run_id
+    assert event["status"] == "failed"
+    assert event["failure_count"] == 2
+    assert event["run_url"] == (
+        f"https://agentic-kg-ui-staging.example.com/runs/{result.report.run_id}"
+    )
+
+
+def test_run_url_is_null_without_a_ui_base(tmp_path, capsys):
+    catalog = _catalog(("a", 3))
+    run_nightly(
+        now=NOW,
+        catalog=catalog,
+        runner=_runner({"query a": QueryOutcome()}),
+        runs_dir=tmp_path,
+        write_neo4j=False,
+    )
+
+    assert _only_stdout_line(capsys)["run_url"] is None
+
+
+def test_curate_pending_defers_a_successful_run_event(tmp_path, capsys):
+    """The adviser stage ends a successful run and emits the single event."""
+    catalog = _catalog(("a", 3))
+    result = run_nightly(
+        now=NOW,
+        catalog=catalog,
+        runner=_runner({"query a": QueryOutcome()}),
+        runs_dir=tmp_path,
+        write_neo4j=False,
+        defer_event_on_success=True,
+    )
+
+    assert result.exit_code == 0
+    assert capsys.readouterr().out.strip() == ""
+
+
+def test_failed_run_emits_even_when_curate_would_follow(tmp_path, capsys):
+    """The workflow skips the adviser stage on a non-zero ingest exit."""
+    catalog = _catalog(("a", 3), ("b", 3))
+    outcomes = {"query a": QueryOutcome(error="x"), "query b": QueryOutcome(error="y")}
+    result = run_nightly(
+        now=NOW,
+        catalog=catalog,
+        runner=_runner(outcomes),
+        runs_dir=tmp_path,
+        write_neo4j=False,
+        defer_event_on_success=True,
+    )
+
+    assert result.exit_code == 2
+    assert _only_stdout_line(capsys)["event"] == "pipeline_run_failed"
+
+
+def test_partial_run_emits_even_when_curate_would_follow(tmp_path, capsys):
+    """A partial ingest exits 1, so the workflow cannot run the adviser stage."""
+    catalog = _catalog(("a", 3), ("b", 3))
+    outcomes = {"query a": QueryOutcome(), "query b": QueryOutcome(error="y")}
+    result = run_nightly(
+        now=NOW,
+        catalog=catalog,
+        runner=_runner(outcomes),
+        runs_dir=tmp_path,
+        write_neo4j=False,
+        defer_event_on_success=True,
+    )
+
+    assert result.exit_code == 1
+    event = _only_stdout_line(capsys)
+    assert event["event"] == "pipeline_run_completed"
+    assert event["status"] == "partial"

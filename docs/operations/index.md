@@ -21,3 +21,4 @@ that change its behavior.
 - [Experiment execution (EvaluationAgent)](experiment-execution-runbook.html)
 - [Research agents on the canonical graph](agents-canonical-runbook.html)
 - [Deploy paths (automatic vs manual)](deploy-runbook.html)
+- [Nightly pipeline notifications](nightly-runbook.html)
