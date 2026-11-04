@@ -3,9 +3,10 @@ Unit tests for resilience infrastructure (retry and circuit breaker).
 """
 
 import asyncio
+from unittest.mock import AsyncMock, patch
 
 import pytest
-
+from agentic_kg.data_acquisition.exceptions import APIError, RateLimitError
 from agentic_kg.data_acquisition.resilience import (
     CircuitBreaker,
     CircuitBreakerRegistry,
@@ -14,7 +15,6 @@ from agentic_kg.data_acquisition.resilience import (
     is_retryable_error,
     retry_with_backoff,
 )
-from agentic_kg.data_acquisition.exceptions import APIError, RateLimitError
 
 
 class TestCalculateBackoff:
@@ -169,6 +169,67 @@ class TestRetryWithBackoff:
 
         # Initial call + 2 retries = 3 calls
         assert call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_has_a_separate_bounded_budget(
+        self, rate_limit_config,
+    ):
+        """Rate-limit retries get a larger budget, still capped by max_backoff.
+
+        Sleep is stubbed (fake clock), so the exponential sequence is
+        asserted instead of waited out.
+        """
+        call_count = 0
+        sleeps: list[float] = []
+
+        async def always_throttled():
+            nonlocal call_count
+            call_count += 1
+            raise RateLimitError(source="test")
+
+        async def fake_sleep(seconds):
+            sleeps.append(seconds)
+
+        with patch(
+            "agentic_kg.data_acquisition.resilience.asyncio.sleep",
+            side_effect=fake_sleep,
+        ):
+            with pytest.raises(RateLimitError):
+                await retry_with_backoff(
+                    always_throttled,
+                    max_retries=2,
+                    config=rate_limit_config,
+                    rate_limit_max_retries=4,
+                )
+
+        # Initial + 4 rate-limit retries, beyond the generic max_retries=2.
+        assert call_count == 5
+        # Bounded exponential: 0.1, 0.2, 0.4, 0.8 — never past max_backoff.
+        assert sleeps == [0.1, 0.2, 0.4, 0.8]
+
+    @pytest.mark.asyncio
+    async def test_generic_errors_still_use_max_retries(self, rate_limit_config):
+        """A larger rate-limit budget must not extend 5xx retries."""
+        call_count = 0
+
+        async def always_500():
+            nonlocal call_count
+            call_count += 1
+            raise APIError("Server error", source="test", status_code=500)
+
+        with patch(
+            "agentic_kg.data_acquisition.resilience.asyncio.sleep",
+            AsyncMock(),
+        ):
+            with pytest.raises(APIError):
+                await retry_with_backoff(
+                    always_500,
+                    max_retries=2,
+                    config=rate_limit_config,
+                    rate_limit_max_retries=5,
+                )
+
+        assert call_count == 3  # initial + 2, not 6
 
 
 class TestCircuitBreaker:
