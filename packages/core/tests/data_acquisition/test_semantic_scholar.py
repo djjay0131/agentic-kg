@@ -2,10 +2,19 @@
 Unit tests for Semantic Scholar API client.
 """
 
-import pytest
+from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-import httpx
 
+import pytest
+from agentic_kg.data_acquisition.cache import ResponseCache
+from agentic_kg.data_acquisition.config import (
+    SEMANTIC_SCHOLAR_API_KEY_PLACEHOLDER,
+    SemanticScholarConfig,
+)
+from agentic_kg.data_acquisition.exceptions import RateLimitError
+from agentic_kg.data_acquisition.rate_limiter import TokenBucketRateLimiter
+from agentic_kg.data_acquisition.resilience import CircuitBreaker
 from agentic_kg.data_acquisition.semantic_scholar import (
     DEFAULT_AUTHOR_FIELDS,
     DEFAULT_PAPER_FIELDS,
@@ -13,14 +22,6 @@ from agentic_kg.data_acquisition.semantic_scholar import (
     get_semantic_scholar_client,
     reset_semantic_scholar_client,
 )
-from agentic_kg.data_acquisition.config import (
-    SEMANTIC_SCHOLAR_API_KEY_PLACEHOLDER,
-    SemanticScholarConfig,
-)
-from agentic_kg.data_acquisition.exceptions import RateLimitError
-from agentic_kg.data_acquisition.cache import ResponseCache
-from agentic_kg.data_acquisition.rate_limiter import TokenBucketRateLimiter
-from agentic_kg.data_acquisition.resilience import CircuitBreaker
 
 
 class TestSemanticScholarClient:
@@ -84,6 +85,83 @@ class TestSemanticScholarClient:
         assert attempts["n"] == 3
         # one token per attempt — not one for the whole call
         assert mock_rate_limiter.acquire.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_retry_honours_retry_after(
+        self, client, mock_rate_limiter,
+    ):
+        """Retry-After is obeyed verbatim, and each attempt pays a token.
+
+        Sleep is stubbed (fake clock): no wall-clock wait in the suite.
+        """
+        attempts = {"n": 0}
+
+        async def flaky_get(endpoint, params=None):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise RateLimitError(
+                    source="semantic_scholar", retry_after=7.5,
+                )
+            return {"paperId": "abc"}
+
+        sleeps: list[float] = []
+
+        async def fake_sleep(seconds):
+            sleeps.append(seconds)
+
+        with (
+            patch.object(client, "get", side_effect=flaky_get),
+            patch(
+                "agentic_kg.data_acquisition.resilience.asyncio.sleep",
+                side_effect=fake_sleep,
+            ),
+        ):
+            result = await client._make_request("GET", "paper/abc")
+
+        assert result == {"paperId": "abc"}
+        assert attempts["n"] == 2
+        assert sleeps == [7.5]
+        # Pacing: the retry acquires its own token, not the first one reused.
+        assert mock_rate_limiter.acquire.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_gets_its_own_bounded_retry_budget(
+        self, mock_cache, mock_rate_limiter, mock_circuit_breaker,
+    ):
+        """S2 may retry throttling more than generic server errors, bounded."""
+        config = SemanticScholarConfig(
+            max_retries=3, rate_limit_max_retries=4,
+        )
+        client = SemanticScholarClient(
+            config=config,
+            cache=mock_cache,
+            rate_limiter=mock_rate_limiter,
+            circuit_breaker=mock_circuit_breaker,
+        )
+        attempts = {"n": 0}
+
+        async def always_throttled(endpoint, params=None):
+            attempts["n"] += 1
+            raise RateLimitError(source="semantic_scholar")
+
+        async def fake_sleep(seconds):
+            return None
+
+        with (
+            patch.object(client, "get", side_effect=always_throttled),
+            patch(
+                "agentic_kg.data_acquisition.resilience.asyncio.sleep",
+                side_effect=fake_sleep,
+            ),
+        ):
+            with pytest.raises(RateLimitError):
+                await client._make_request("GET", "paper/abc")
+
+        # Initial attempt + 4 rate-limit retries (not the generic 3).
+        assert attempts["n"] == 5
+        assert mock_rate_limiter.acquire.await_count == 5
+        # 429s must not be recorded as breaker failures (backpressure).
+        mock_circuit_breaker.record_failure.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_cache_hit_consumes_no_token(self, client, mock_cache, mock_rate_limiter):
@@ -342,6 +420,41 @@ class TestSemanticScholarClient:
         response = MagicMock()
         response.status_code = 429
         response.headers = {}
+
+        with pytest.raises(RateLimitError) as exc_info:
+            client._handle_response(response)
+
+        assert exc_info.value.retry_after is None
+
+    def test_handle_response_rate_limit_http_date(self, client):
+        """RFC 9110 HTTP-date Retry-After must not crash the client.
+
+        ``float("Wed, ... GMT")`` used to raise ValueError, which escaped
+        as a non-retryable error — a throttle became a hard failure.
+        """
+        now = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        response = MagicMock()
+        response.status_code = 429
+        response.headers = {
+            "retry-after": format_datetime(
+                now + timedelta(seconds=45), usegmt=True,
+            ),
+        }
+
+        with patch(
+            "agentic_kg.data_acquisition.semantic_scholar.time.time",
+            return_value=now.timestamp(),
+        ):
+            with pytest.raises(RateLimitError) as exc_info:
+                client._handle_response(response)
+
+        assert exc_info.value.retry_after == 45.0
+
+    def test_handle_response_rate_limit_unparseable_header(self, client):
+        """A malformed header degrades to no hint, not to an exception."""
+        response = MagicMock()
+        response.status_code = 429
+        response.headers = {"retry-after": "not-a-delay"}
 
         with pytest.raises(RateLimitError) as exc_info:
             client._handle_response(response)
