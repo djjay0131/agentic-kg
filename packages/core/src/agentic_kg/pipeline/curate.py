@@ -85,6 +85,7 @@ ENV_RUNS_DIR = "NIGHTLY_RUNS_DIR"
 ENV_RUNS_BUCKET = "NIGHTLY_RUNS_BUCKET"
 ENV_NAMESPACE = "KGCS_CANONICAL_NAMESPACE"
 ENV_MAX_ITEMS = "NIGHTLY_CURATE_MAX_ITEMS"
+ENV_UI_BASE_URL = "NIGHTLY_UI_BASE_URL"
 
 
 @dataclass
@@ -547,18 +548,32 @@ def update_pipeline_run_from_stage(
     runs_dir: Optional[str | Path] = None,
     runs_bucket: Optional[str] = None,
     repository: Any = None,
+    ui_base_url: Optional[str] = None,
+    emit_event: bool = True,
 ) -> Any:
     """Project the stage's facts onto the run's ``:PipelineRun`` node.
 
     The counts are recomputed from the review store rather than added to the
     previous values, so a retry after a partial run cannot double-count.
+
+    When the adviser stage is the end of the nightly run (the normal case when
+    ``nightly_curate_enabled`` is true), it emits the same structured
+    ``pipeline_run_completed`` / ``pipeline_run_failed`` event as the ingest
+    Job, now carrying the review-queue summary. The ingest Job defers its own
+    event in that case, so one run still produces one event. ``report.py``
+    remains the single emitter and the single event shape.
     """
     from agentic_kg.knowledge_graph.models.pipeline_run import PipelineFailure
     from agentic_kg.knowledge_graph.pipeline_runs import (
         get_pipeline_run,
         save_pipeline_run,
     )
-    from agentic_kg.pipeline.report import write_report_json
+    from agentic_kg.pipeline.report import (
+        emit_run_event,
+        run_event,
+        run_page_url,
+        write_report_json,
+    )
 
     try:
         run = get_pipeline_run(result.run_id, repository=repository)
@@ -588,11 +603,23 @@ def update_pipeline_run_from_stage(
             run.status = "partial"
 
     save_pipeline_run(run, repository=repository)
+    report_url = None
     if runs_dir:
         try:
-            write_report_json(run, runs_dir=runs_dir, runs_bucket=runs_bucket)
+            report_url = write_report_json(
+                run, runs_dir=runs_dir, runs_bucket=runs_bucket
+            )
         except Exception as exc:  # noqa: BLE001 - Neo4j is the API source
             logger.warning("could not rewrite the JSON report: %s", exc)
+
+    if emit_event:
+        emit_run_event(
+            run_event(
+                run,
+                report_url=report_url,
+                run_url=run_page_url(run.run_id, ui_base_url),
+            )
+        )
     return run
 
 
@@ -643,6 +670,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     runs_dir = args.runs_dir or os.environ.get(ENV_RUNS_DIR)
     runs_bucket = args.runs_bucket or os.environ.get(ENV_RUNS_BUCKET)
+    ui_base_url = os.environ.get(ENV_UI_BASE_URL) or None
     run_id = args.run_id or os.environ.get(ENV_RUN_ID)
     if not run_id and runs_dir:
         run_id = _read_latest_run_id(runs_dir)
@@ -693,6 +721,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             runs_dir=runs_dir,
             runs_bucket=runs_bucket,
             repository=repository,
+            ui_base_url=ui_base_url,
+            emit_event=True,
         )
 
     print(json.dumps(result.to_dict(), sort_keys=True))
