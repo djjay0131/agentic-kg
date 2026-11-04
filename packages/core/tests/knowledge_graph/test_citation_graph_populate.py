@@ -16,8 +16,11 @@ Covers:
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from agentic_kg.data_acquisition.exceptions import RateLimitError
 from agentic_kg.knowledge_graph.citation_graph import (
+    CITATION_OUTCOME_RATE_LIMITED,
     CitationPopulationResult,
+    classify_citation_population,
     populate_citations,
 )
 from agentic_kg.knowledge_graph.repository import NotFoundError
@@ -272,6 +275,69 @@ class TestFailureModes:
         assert result.stubs_created == 0
         assert result.edges_created == 0
         mock_repo.create_or_promote_paper_stub.assert_not_called()
+
+
+class TestRateLimitClassification:
+    """A throttled lookup is a deferral; every other failure is an outage."""
+
+    @pytest.mark.asyncio
+    async def test_rate_limited_lookup_sets_the_flag(
+        self, mock_repo, mock_s2_client,
+    ):
+        mock_s2_client.get_paper_by_doi.side_effect = RateLimitError(
+            source="semantic_scholar", retry_after=30.0,
+        )
+
+        result = await populate_citations(
+            repo=mock_repo,
+            s2_client=mock_s2_client,
+            paper_doi="10.1/SOURCE",
+        )
+
+        assert result.lookup_failed is True
+        assert result.rate_limited is True
+        assert classify_citation_population(result) == (
+            CITATION_OUTCOME_RATE_LIMITED
+        )
+
+    @pytest.mark.asyncio
+    async def test_rate_limited_fetch_sets_the_flag(
+        self, mock_repo, mock_s2_client,
+    ):
+        mock_s2_client.get_paper_references.side_effect = RateLimitError(
+            source="semantic_scholar",
+        )
+
+        result = await populate_citations(
+            repo=mock_repo,
+            s2_client=mock_s2_client,
+            paper_doi="10.1/SOURCE",
+            paper_s2_id="S2_SRC",
+        )
+
+        assert result.fetch_failed is True
+        assert result.rate_limited is True
+        assert classify_citation_population(result) == (
+            CITATION_OUTCOME_RATE_LIMITED
+        )
+
+    @pytest.mark.asyncio
+    async def test_non_rate_limit_failure_is_not_deferred(
+        self, mock_repo, mock_s2_client,
+    ):
+        mock_s2_client.get_paper_by_doi.side_effect = RuntimeError("connection reset")
+
+        result = await populate_citations(
+            repo=mock_repo,
+            s2_client=mock_s2_client,
+            paper_doi="10.1/SOURCE",
+        )
+
+        assert result.lookup_failed is True
+        assert result.rate_limited is False
+        assert classify_citation_population(result) != (
+            CITATION_OUTCOME_RATE_LIMITED
+        )
 
 
 # =============================================================================
