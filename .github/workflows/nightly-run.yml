@@ -41,7 +41,47 @@ jobs:
 
       - name: Run the nightly workflow
         run: |
-          gcloud workflows run "${WORKFLOW}" \
+          set -euo pipefail
+
+          # `gcloud workflows run` waits for the execution but exits 0 even when
+          # the execution itself FAILED, so the job used to stay green while
+          # nothing was ingested. Capture the execution, describe it, print the
+          # error payload/context, and gate the job on state == SUCCEEDED.
+          execution_name="$(
+            gcloud workflows run "${WORKFLOW}" \
+              --location="${REGION}" \
+              --data='{"trigger":"manual"}' \
+              --format='value(name)' || true
+          )"
+          if [ -z "${execution_name}" ]; then
+            echo "::error::gcloud workflows run produced no execution name"
+            exit 1
+          fi
+          execution_id="${execution_name##*/}"
+          echo "Execution: ${execution_id}"
+
+          gcloud workflows executions describe "${execution_id}" \
+            --workflow="${WORKFLOW}" \
             --location="${REGION}" \
-            --data='{"trigger":"manual"}' \
-            --format='value(state)'
+            --format=json > execution.json
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          execution = json.loads(Path("execution.json").read_text(encoding="utf-8"))
+          state = execution.get("state", "UNKNOWN")
+          print(f"state={state}")
+          print(f"startTime={execution.get('startTime')}")
+          print(f"endTime={execution.get('endTime')}")
+          error = execution.get("error")
+          print("error=" + ("null" if error is None else json.dumps(error, indent=2, sort_keys=True)))
+          print("status=" + ("null" if execution.get("status") is None else json.dumps(execution["status"], indent=2, sort_keys=True)))
+          Path("execution_state").write_text(state, encoding="utf-8")
+          PY
+
+          state="$(cat execution_state)"
+          if [ "${state}" != "SUCCEEDED" ]; then
+            echo "::error::Cloud Workflows execution ${execution_id} ended in state ${state} (expected SUCCEEDED)"
+            exit 1
+          fi

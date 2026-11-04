@@ -41,8 +41,11 @@ from agentic_kg.pipeline.plan import (
     plan_queries,
 )
 from agentic_kg.pipeline.report import (
+    emit_run_event,
     iso,
     new_run_id,
+    run_event,
+    run_page_url,
     utc_now,
     write_latest_run_id,
     write_report_json,
@@ -58,8 +61,14 @@ ENV_NAMESPACE = "NIGHTLY_NAMESPACE"
 ENV_TRIGGER = "NIGHTLY_TRIGGER"
 ENV_GIT_SHA = "NIGHTLY_GIT_SHA"
 ENV_IMAGE = "NIGHTLY_IMAGE"
+ENV_UI_BASE_URL = "NIGHTLY_UI_BASE_URL"
+ENV_CURATE_ENABLED = "NIGHTLY_CURATE_ENABLED"
 
 Runner = Callable[..., QueryOutcome]
+
+
+def _truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 class NightlyResult:
@@ -115,12 +124,22 @@ def run_nightly(
     image: str = "unknown",
     runs_dir: str | Path | None = None,
     runs_bucket: str | None = None,
+    ui_base_url: str | None = None,
     runner: Runner = run_query_ingest,
     repo: Any = None,
     write_json: bool = True,
     write_neo4j: bool = True,
+    defer_event_on_success: bool = False,
 ) -> NightlyResult:
-    """Plan, run, aggregate and persist one nightly execution."""
+    """Plan, run, aggregate and persist one nightly execution.
+
+    ``defer_event_on_success`` is set by the nightly Job when the workflow will
+    run the adviser stage after a successful ingest. The ingest Job then leaves
+    the run-finished event to the adviser Job, so one run still emits exactly
+    one ``pipeline_run_*`` line (and that line carries the review-queue
+    summary). A failed or partial ingest still emits here, because the
+    workflow only invokes the adviser stage after a zero exit.
+    """
     started = now or utc_now()
     if started.tzinfo is None:
         started = started.replace(tzinfo=timezone.utc)
@@ -145,7 +164,8 @@ def run_nightly(
             image=image,
         )
         return _finalize(report, url=None, write_json=write_json, write_neo4j=write_neo4j,
-                         runs_dir=runs_dir, runs_bucket=runs_bucket, repo=repo)
+                         runs_dir=runs_dir, runs_bucket=runs_bucket, ui_base_url=ui_base_url,
+                         repo=repo, defer_event_on_success=defer_event_on_success)
 
     entries = [
         PipelineQueryResult(
@@ -175,7 +195,8 @@ def run_nightly(
         report.status = "failed"
         report.finished_at = iso(utc_now())
         return _finalize(report, url=None, write_json=write_json, write_neo4j=write_neo4j,
-                         runs_dir=runs_dir, runs_bucket=runs_bucket, repo=repo)
+                         runs_dir=runs_dir, runs_bucket=runs_bucket, ui_base_url=ui_base_url,
+                         repo=repo, defer_event_on_success=defer_event_on_success)
 
     # --- run each query under the budgets ---------------------------------
     # The planner already bounds the plan by ``max_papers``; the loop's checks
@@ -245,7 +266,8 @@ def run_nightly(
     report.finished_at = iso(utc_now())
 
     return _finalize(report, url=None, write_json=write_json, write_neo4j=write_neo4j,
-                     runs_dir=runs_dir, runs_bucket=runs_bucket, repo=repo)
+                     runs_dir=runs_dir, runs_bucket=runs_bucket, ui_base_url=ui_base_url,
+                     repo=repo, defer_event_on_success=defer_event_on_success)
 
 
 def _finalize(
@@ -256,7 +278,9 @@ def _finalize(
     write_neo4j: bool,
     runs_dir: str | Path | None,
     runs_bucket: str | None,
+    ui_base_url: str | None,
     repo: Any,
+    defer_event_on_success: bool = False,
 ) -> NightlyResult:
     """Persist the report, emit the structured log line, and pick an exit code."""
     if report.finished_at is None:
@@ -289,29 +313,25 @@ def _finalize(
     for step, message in write_errors:
         logger.error("report persistence failed: %s: %s", step, message)
 
-    event = (
-        "pipeline_run_completed"
-        if report.status in ("succeeded", "partial")
-        else "pipeline_run_failed"
-    )
-    logger.info(
-        json.dumps(
-            {
-                "event": event,
-                "run_id": report.run_id,
-                "status": report.status,
-                "totals": report.totals.model_dump(),
-                "url": url,
-            }
-        )
-    )
-
     if report.status == "failed":
         exit_code = 2
     elif report.status == "succeeded" and not write_errors:
         exit_code = 0
     else:
         exit_code = 1
+
+    # Cloud Workflows runs the adviser stage only when this Job exits 0, so a
+    # zero exit is exactly the case where the ingest Job must leave the
+    # run-finished event to the adviser Job.
+    defer_to_adviser = defer_event_on_success and exit_code == 0
+    if not defer_to_adviser:
+        event = run_event(
+            report,
+            report_url=url,
+            run_url=run_page_url(report.run_id, ui_base_url),
+        )
+        emit_run_event(event)
+
     return NightlyResult(report=report, url=url, exit_code=exit_code)
 
 
@@ -369,6 +389,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     runs_bucket = args.runs_bucket or os.environ.get(ENV_RUNS_BUCKET)
     git_sha = args.git_sha or os.environ.get(ENV_GIT_SHA, "unknown")
     image = args.image or os.environ.get(ENV_IMAGE, "unknown")
+    ui_base_url = os.environ.get(ENV_UI_BASE_URL) or None
     catalog_path = args.catalog or None
 
     if args.plan_only:
@@ -391,7 +412,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         image=image,
         runs_dir=runs_dir,
         runs_bucket=runs_bucket,
+        ui_base_url=ui_base_url,
         write_neo4j=not args.no_neo4j,
+        defer_event_on_success=_truthy(os.environ.get(ENV_CURATE_ENABLED)),
     )
     return result.exit_code
 

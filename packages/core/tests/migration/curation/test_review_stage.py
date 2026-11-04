@@ -379,3 +379,112 @@ def test_identity_endpoint_relation_is_queued_and_committable(tmp_path):
     item = store.items[0]
     assert item.candidate_kind == "relation"
     assert item.committable is True
+
+
+class _RunProjectionStore:
+    """Only the two review-store reads the run projection makes."""
+
+    def __init__(self, pending: int = 0, verdicts: dict[str, int] | None = None):
+        self.pending = pending
+        self.verdicts = verdicts or {}
+
+    def count_items(self, *, status: str, run_id: str) -> int:
+        assert status == "pending"
+        return self.pending
+
+    def verdict_counts(self, run_id: str) -> dict[str, int]:
+        return dict(self.verdicts)
+
+
+def _pipeline_run(**overrides):
+    from agentic_kg.knowledge_graph.models.pipeline_run import PipelineRun
+
+    base = dict(
+        run_id=RUN_ID,
+        started_at="2026-01-01T02:30:00Z",
+        finished_at="2026-01-01T02:35:00Z",
+        status="succeeded",
+        trigger="schedule",
+        namespace="canon",
+    )
+    base.update(overrides)
+    return PipelineRun(**base)
+
+
+def test_adviser_stage_emits_the_single_completed_event(tmp_path, monkeypatch, capsys):
+    from agentic_kg.knowledge_graph import pipeline_runs
+    from agentic_kg.pipeline.curate import CurateResult, update_pipeline_run_from_stage
+
+    run = _pipeline_run()
+    monkeypatch.setattr(pipeline_runs, "get_pipeline_run", lambda *a, **k: run)
+    monkeypatch.setattr(pipeline_runs, "save_pipeline_run", lambda *a, **k: run)
+
+    result = CurateResult(run_id=RUN_ID, namespace="canon", est_llm_usd=0.002)
+    store = _RunProjectionStore(pending=3, verdicts={"admit": 2, "reject": 1})
+
+    updated = update_pipeline_run_from_stage(
+        result,
+        review_store=store,
+        runs_dir=tmp_path,
+        runs_bucket="vt-gcp-00042-agentic-kg-runs-staging",
+        ui_base_url="https://agentic-kg-ui-staging.example.com/",
+    )
+
+    assert updated is run
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert len(lines) == 1
+    event = json.loads(lines[0])
+    assert event["event"] == "pipeline_run_completed"
+    assert event["severity"] == "INFO"
+    assert event["run_id"] == RUN_ID
+    assert event["review_queue_size"] == 3
+    assert event["llm_usd"] == 0.002
+    assert event["run_url"] == (
+        f"https://agentic-kg-ui-staging.example.com/runs/{RUN_ID}"
+    )
+    assert event["url"] == (
+        "gs://vt-gcp-00042-agentic-kg-runs-staging/nightly/" f"{RUN_ID}.json"
+    )
+
+
+def test_adviser_failure_emits_a_partial_completed_event(monkeypatch, capsys):
+    from agentic_kg.knowledge_graph import pipeline_runs
+    from agentic_kg.pipeline.curate import CurateResult, update_pipeline_run_from_stage
+
+    run = _pipeline_run()
+    monkeypatch.setattr(pipeline_runs, "get_pipeline_run", lambda *a, **k: run)
+    monkeypatch.setattr(pipeline_runs, "save_pipeline_run", lambda *a, **k: run)
+
+    result = CurateResult(
+        run_id=RUN_ID,
+        namespace="canon",
+        failures=["cand-1: RuntimeError: model timed out"],
+    )
+
+    update_pipeline_run_from_stage(
+        result,
+        review_store=_RunProjectionStore(),
+    )
+
+    assert run.status == "partial"
+    event = json.loads(capsys.readouterr().out.strip())
+    assert event["event"] == "pipeline_run_completed"
+    assert event["status"] == "partial"
+    assert event["failure_count"] == 1
+
+
+def test_adviser_stage_can_skip_the_event(monkeypatch, capsys):
+    from agentic_kg.knowledge_graph import pipeline_runs
+    from agentic_kg.pipeline.curate import CurateResult, update_pipeline_run_from_stage
+
+    run = _pipeline_run()
+    monkeypatch.setattr(pipeline_runs, "get_pipeline_run", lambda *a, **k: run)
+    monkeypatch.setattr(pipeline_runs, "save_pipeline_run", lambda *a, **k: run)
+
+    update_pipeline_run_from_stage(
+        CurateResult(run_id=RUN_ID, namespace="canon"),
+        review_store=_RunProjectionStore(),
+        emit_event=False,
+    )
+
+    assert capsys.readouterr().out.strip() == ""

@@ -397,10 +397,22 @@ variable "nightly_ingest_mode" {
   }
 }
 
+variable "nightly_notify_enabled" {
+  description = "Create the email notification channel and the completed/failed log-based alert policies for the nightly pipeline. Requires nightly_enabled."
+  type        = bool
+  default     = true
+}
+
 variable "nightly_curate_enabled" {
   description = "Add the adviser/review-queue stage after the nightly ingest (Cloud Run Job agentic-kg-adviser-<env> + workflow step). Default true. It no-ops honestly when the run's ingest path wrote no KGIS ledger."
   type        = bool
   default     = true
+}
+
+variable "notify_email" {
+  description = "Recipient email address for nightly pipeline run notifications."
+  type        = string
+  default     = "djjay@vt.edu"
 }
 
 variable "nightly_curate_max_items" {
