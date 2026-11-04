@@ -8,6 +8,7 @@ and gate semantics the brief asks for.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -201,6 +202,53 @@ async def test_cycle_starts_top_k_and_stops_at_selection_gate():
     assert result.report.trigger == "research_cycle"
     assert result.report.status == "running"
     assert repo.cycles[cycle.cycle_id].status == "awaiting_gate"
+
+
+def _only_stdout_line(capsys) -> dict:
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert len(lines) == 1
+    return json.loads(lines[0])
+
+
+async def test_cycle_emits_the_shared_completed_event(capsys):
+    result = await run_cycle(
+        config=CycleConfig(enabled=True, top_k=1, trigger="schedule"),
+        cycles=FakeCycleRepository(),
+        runner=FakeRunner(),
+        policy=_policy_all_human(),
+        now=NOW,
+        write_json=False,
+        write_neo4j=False,
+    )
+
+    event = _only_stdout_line(capsys)
+    assert event["event"] == "pipeline_run_completed"
+    assert event["trigger"] == "research_cycle"
+    assert event["run_id"] == result.report.run_id
+    assert event["status"] == "running"
+    assert event["run_url"] is None
+
+
+async def test_cycle_emits_the_shared_failed_event(capsys):
+    class BrokenRankingRunner(FakeRunner):
+        async def rank_candidates(self, *, max_problems: int = 20) -> list[dict]:
+            raise RuntimeError("ranking exploded")
+
+    result = await run_cycle(
+        config=CycleConfig(enabled=True, top_k=1),
+        cycles=FakeCycleRepository(),
+        runner=BrokenRankingRunner(),
+        policy=_policy_all_human(),
+        now=NOW,
+        write_json=False,
+        write_neo4j=False,
+    )
+
+    event = _only_stdout_line(capsys)
+    assert event["event"] == "pipeline_run_failed"
+    assert event["trigger"] == "research_cycle"
+    assert event["run_id"] == result.report.run_id
+    assert event["status"] == "failed"
 
 
 async def test_disabled_kill_switch_does_nothing():

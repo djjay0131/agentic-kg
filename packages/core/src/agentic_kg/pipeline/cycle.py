@@ -70,7 +70,14 @@ from agentic_kg.knowledge_graph.research_cycles import (
     ResearchCycleNotFoundError,
     ResearchCycleRepository,
 )
-from agentic_kg.pipeline.report import iso, utc_now, write_report_json
+from agentic_kg.pipeline.report import (
+    emit_run_event,
+    iso,
+    run_event,
+    run_page_url,
+    utc_now,
+    write_report_json,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +89,7 @@ ENV_MAX_WALL_SECONDS = "RESEARCH_CYCLE_MAX_WALL_SECONDS"
 ENV_NAMESPACE = "KGCS_CANONICAL_NAMESPACE"
 ENV_RUNS_DIR = "NIGHTLY_RUNS_DIR"
 ENV_RUNS_BUCKET = "NIGHTLY_RUNS_BUCKET"
+ENV_UI_BASE_URL = "NIGHTLY_UI_BASE_URL"
 ENV_GIT_SHA = "NIGHTLY_GIT_SHA"
 ENV_IMAGE = "NIGHTLY_IMAGE"
 ENV_EST_USD_PER_WORKFLOW = "RESEARCH_CYCLE_EST_USD_PER_WORKFLOW"
@@ -426,6 +434,7 @@ def _finalize(
     runs_bucket: Optional[str | None],
     write_json: bool,
     write_neo4j: bool,
+    ui_base_url: Optional[str] = None,
 ) -> CycleResult:
     cycle_status = _cycle_status(cycle)
     cycle.status = cycle_status  # type: ignore[assignment]
@@ -460,25 +469,14 @@ def _finalize(
     for message in write_errors:
         report.failures.append(PipelineFailure(step="report", message=message))
 
-    event = (
-        "pipeline_run_failed"
-        if cycle_status == "failed"
-        else "pipeline_run_completed"
-    )
-    logger.info(
-        json.dumps(
-            {
-                "event": event,
-                "trigger": "research_cycle",
-                "run_id": cycle.cycle_id,
-                "status": report.status,
-                "cycle_status": cycle_status,
-                "workflows": len(cycle.workflow_runs),
-                "pending_gates": len(cycle.pending_gates()),
-                "budget": cycle.budget.model_dump(),
-                "url": url,
-            },
-            sort_keys=True,
+    # Emit the one shared run-finished event (same shape and single emitter as
+    # the nightly and adviser stages) so existing log-based alerting covers the
+    # cycle without a second report format.
+    emit_run_event(
+        run_event(
+            report,
+            report_url=url,
+            run_url=run_page_url(report.run_id, ui_base_url),
         )
     )
 
@@ -627,6 +625,7 @@ async def run_cycle(
     repository: Any = None,
     write_json: bool = True,
     write_neo4j: bool = True,
+    ui_base_url: Optional[str] = None,
 ) -> CycleResult:
     """Close finished workflows, re-rank, and start this tick's workflows."""
     started = now or utc_now()
@@ -722,6 +721,7 @@ async def run_cycle(
             runs_bucket=runs_bucket,
             write_json=write_json,
             write_neo4j=write_neo4j,
+            ui_base_url=ui_base_url,
         )
 
     selected = ranked[: config.top_k]
@@ -740,6 +740,7 @@ async def run_cycle(
             runs_bucket=runs_bucket,
             write_json=write_json,
             write_neo4j=write_neo4j,
+            ui_base_url=ui_base_url,
         )
 
     for item in selected:
@@ -834,6 +835,7 @@ async def run_cycle(
         runs_bucket=runs_bucket,
         write_json=write_json,
         write_neo4j=write_neo4j,
+        ui_base_url=ui_base_url,
     )
 
 
@@ -999,6 +1001,7 @@ async def _run_from_args(args: argparse.Namespace) -> int:
     )
     runs_dir = args.runs_dir or os.getenv(ENV_RUNS_DIR)
     runs_bucket = args.runs_bucket or os.getenv(ENV_RUNS_BUCKET)
+    ui_base_url = os.getenv(ENV_UI_BASE_URL) or None
 
     if not config.enabled:
         result = await run_cycle(
@@ -1007,6 +1010,7 @@ async def _run_from_args(args: argparse.Namespace) -> int:
             runner=_NullRunner(),
             runs_dir=runs_dir,
             runs_bucket=runs_bucket,
+            ui_base_url=ui_base_url,
         )
         return result.exit_code
 
@@ -1037,9 +1041,8 @@ async def _run_from_args(args: argparse.Namespace) -> int:
         repository=repository,
         write_json=bool(runs_dir),
         write_neo4j=not args.no_neo4j,
+        ui_base_url=ui_base_url,
     )
-    payload = result.report.model_dump(mode="json") if result.report else {}
-    print(json.dumps(payload, sort_keys=True))
     return result.exit_code
 
 
