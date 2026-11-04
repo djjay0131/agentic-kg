@@ -1,3 +1,9 @@
+---
+title: Staging test scripts
+parent: Operations
+nav_order: 90
+---
+
 # agentic-kg staging test scripts
 
 Working copy (live, commentable): https://claude.ai/artifact/TDebk9Din9sPKmnzkJcMyg. This file is the versioned audit-trail copy, first committed 2026-11-03. Record results in the working copy; changes to the scripts land here by PR.
