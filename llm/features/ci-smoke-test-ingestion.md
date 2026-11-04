@@ -710,3 +710,58 @@ Consumers: `cli.py` exits 1 on `completed_with_errors`; `job_runner._determine_e
 A result JSON that predates these fields keeps the original count-only behaviour, so old artifacts are not retroactively red — and the resulting `PASS: citation coverage complete` is annotated `(not evaluated — … passed for backward compatibility)` rather than presented as a verified claim.
 
 The retry guard in the workflow reads the result status with `python -c`, not `jq`: `jq` is not a declared dependency of that job, and an absent `jq` made the guard fail **open** into a second full LLM extraction pass.
+
+---
+
+## Amendment S2-RL — rate-limit deferral (2026-10-29)
+
+**Driver:** scheduled smoke runs 2026-10-24 and 2026-10-28 and PR #142 failed
+`FAIL: citation coverage complete` with `s2_lookup_failed: … Rate limit
+exceeded` even though `SEMANTIC_SCHOLAR_API_KEY` was present.
+**Supersedes:** the I-58 statement that a 429 lands in `s2_lookup_failed`, and
+the "no ratio threshold" rule *for rate limiting only*.
+
+### Why
+
+A 429 after the client's bounded retries means *not measured yet*, not
+*Semantic Scholar is down*. Treating it as an infrastructure outage turned a
+transient throttle into a permanently red gate, while treating it as a success
+would turn "not measured" into a pass. The gate keeps both failure modes closed
+by classifying the reason and applying an explicit cap.
+
+### Retry and pacing
+
+`SemanticScholarClient` already paces every attempt through the shared
+token-bucket limiter (`1 req/s`, no burst) and retries rate limits. It now:
+
+- grants 429s a separate, bounded retry budget
+  (`SemanticScholarConfig.rate_limit_max_retries`, default 5, env
+  `SEMANTIC_SCHOLAR_RATE_LIMIT_RETRIES`) without extending 5xx retries;
+- honours both `Retry-After` forms (delay-seconds and HTTP-date) and falls back
+  to bounded exponential backoff;
+- does **not** record a 429 as a circuit-breaker failure, so a throttled batch
+  cannot open the breaker and cascade `CircuitOpenError` across the remaining
+  papers.
+
+### New outcome and gate rule
+
+`CitationPopulationResult.rate_limited` produces the outcome
+`s2_rate_limited`. `smoke_assert.py` reports these as **deferred (rate
+limited)**, not outages, and prints the classification (deferred count,
+non-rate-limit failure count, share of attempts). `citation coverage complete`
+fails when **any** of:
+
+1. zero citations succeeded (`succeeded == 0` while attempts > 0);
+2. any non-rate-limit infrastructure failure occurred
+   (`s2_lookup_failed`, `s2_fetch_failed`, `populate_raised`);
+3. rate-limited lookups exceed 50% of attempted (exactly 50% is tolerated).
+
+`CITES edges >= 1` is unchanged and still fails when nothing was measured. In
+the ingest status table above, rate limiting does not degrade a run on its own;
+it degrades it only via the existing "attempted and zero succeeded" row. Corpus
+gaps (`no_s2_id`) remain excluded and do not count toward the 50% cap.
+
+Unit coverage uses a fake clock and no network:
+`packages/core/tests/data_acquisition/test_resilience.py`,
+`test_semantic_scholar.py`, `packages/core/tests/knowledge_graph/test_citation_graph_populate.py`,
+and `packages/core/tests/test_smoke_assert.py`.

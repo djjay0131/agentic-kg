@@ -73,7 +73,23 @@ _INSPECTABLE_STATUSES = ("completed", _DEGRADED_STATUS)
 # be reached, as opposed to reachable-but-unaware-of-this-paper.
 _INFRA_REASONS = ("s2_lookup_failed", "s2_fetch_failed", "populate_raised")
 
+# A throttled lookup is a DEFERRAL, not an outage: the paper was not
+# measured, but nothing is known to be broken. It is tolerated only under a
+# hard cap (== 50% of attempts) and never when zero citations succeeded.
+_RATE_LIMIT_REASONS = ("s2_rate_limited",)
+# S2 answered and has no record of this paper: a corpus gap, not a fault.
+_DATA_GAP_REASONS = ("no_s2_id",)
+_RATE_LIMIT_MAX_SHARE = 0.5
+
 _MAX_DETAIL_LINES = 3
+
+
+def _sum_reasons(failures: dict[str, Any], reasons: tuple[str, ...]) -> int:
+    """Sum integer counts for the given failure-reason keys."""
+    return sum(
+        v for k, v in failures.items()
+        if k in reasons and isinstance(v, int) and not isinstance(v, bool)
+    )
 
 
 def _citation_evidence(result: dict[str, Any]) -> dict[str, Any]:
@@ -94,10 +110,8 @@ def _citation_evidence(result: dict[str, Any]) -> dict[str, Any]:
     failures = failures if isinstance(failures, dict) else {}
     attempted = _i("citation_population_attempted")
     succeeded = _i("citation_population_succeeded")
-    infra = sum(
-        v for k, v in failures.items()
-        if k in _INFRA_REASONS and isinstance(v, int)
-    )
+    infra = _sum_reasons(failures, _INFRA_REASONS)
+    rate_limited = _sum_reasons(failures, _RATE_LIMIT_REASONS)
 
     # MAJOR-1 / S9 fail-closed: the degraded status is only safe to inspect
     # when the evidence that justifies it travels with it. A degraded status
@@ -107,12 +121,29 @@ def _citation_evidence(result: dict[str, Any]) -> dict[str, Any]:
     unattributable = result.get("status") == _DEGRADED_STATUS and not reported
     unmeasured = reported and attempted > 0 and succeeded == 0
 
+    # "Exceed 50%" is strict: exactly half is still tolerated.
+    rate_limited_share_exceeded = (
+        attempted > 0
+        and rate_limited > attempted * _RATE_LIMIT_MAX_SHARE
+    )
+
+    failed = _i("citation_population_failed")
+    # ``no_s2_id`` is the one deliberate corpus-gap carve-out: S2 answered
+    # and has no record of the paper. Any failure reason we do not
+    # recognise is NOT excused -- a new reason must be classified
+    # deliberately, not silently pass the gate. Clamped because the
+    # counters come from an external JSON artifact.
+    data_gap = _sum_reasons(failures, _DATA_GAP_REASONS)
+    unknown_failures = max(0, failed - infra - rate_limited - data_gap)
+
     return {
         "reported": reported,
         "refs_reported": refs_reported,
         "attempted": attempted,
         "succeeded": succeeded,
-        "failed": _i("citation_population_failed"),
+        "failed": failed,
+        "data_gap": data_gap,
+        "unknown_failures": unknown_failures,
         "edges": _i("citation_edges_created"),
         "edges_existing": _i("citation_edges_existing"),
         "stubs": _i("citation_stubs_created"),
@@ -122,14 +153,41 @@ def _citation_evidence(result: dict[str, Any]) -> dict[str, Any]:
         "failures": failures,
         "details": result.get("citation_failure_details") or {},
         "infra": infra,
+        "rate_limited": rate_limited,
+        "rate_limited_share_exceeded": rate_limited_share_exceeded,
         "unattributable": unattributable,
         # Nothing at all was measured.
         "unmeasured": unmeasured,
         # MAJOR-3: no ratio threshold — the question is whether the
         # infrastructure worked for every paper we asked about. Data gaps
         # (no_s2_id: S2 answered, has no record) do not count against us.
-        "coverage_incomplete": unattributable or unmeasured or infra > 0,
+        # A rate-limited deferral is excused only while at least one paper
+        # was measured and the deferrals stay within the 50% cap.
+        "coverage_incomplete": (
+            unattributable
+            or unmeasured
+            or infra > 0
+            or rate_limited_share_exceeded
+            or unknown_failures > 0
+        ),
     }
+
+
+def _rate_limited_pct(ev: dict[str, Any]) -> int:
+    """Rate-limited deferrals as a whole-number percentage of attempts."""
+    if not ev["attempted"]:
+        return 0
+    return round(100 * ev["rate_limited"] / ev["attempted"])
+
+
+def _deferred_note(ev: dict[str, Any]) -> str:
+    """Suffix naming rate-limited deferrals, when there are any."""
+    if not ev["rate_limited"]:
+        return ""
+    return (
+        f" {ev['rate_limited']} lookup(s) deferred (rate limited) "
+        f"({_rate_limited_pct(ev)}% of attempts)."
+    )
 
 
 def _coverage_line(ev: dict[str, Any]) -> str:
@@ -151,27 +209,52 @@ def _coverage_line(ev: dict[str, Any]) -> str:
             "(populate_citations off, or no paper was imported)."
         )
     if ev["succeeded"] == 0:
+        if ev["rate_limited"] == ev["attempted"] and not ev["infra"]:
+            return (
+                f"  COVERAGE: NONE ({ev['succeeded']} of {ev['attempted']} "
+                "measured) -- every attempt was deferred (rate limited); zero "
+                "citations succeeded."
+            )
         kind = "SEMANTIC SCHOLAR UNREACHABLE" if ev["infra"] else (
             "NO SEMANTIC SCHOLAR RECORD"
         )
         return (
             f"  COVERAGE: NONE ({ev['succeeded']} of {ev['attempted']} "
             f"measured) -- {kind}."
+            + _deferred_note(ev)
         )
     if ev["infra"]:
         return (
             f"  COVERAGE: PARTIAL ({ev['succeeded']} of {ev['attempted']} "
             f"measured) -- {ev['infra']} attempt(s) could not reach Semantic "
             "Scholar. Part of the corpus is unmeasured."
+            + _deferred_note(ev)
         )
-    if ev["failed"]:
+    if ev["unknown_failures"]:
+        return (
+            f"  COVERAGE: UNCLASSIFIED FAILURES -- {ev['unknown_failures']} "
+            f"of {ev['attempted']} attempt(s) failed for a reason the gate "
+            "does not recognise. Coverage is not complete; classify the "
+            "reason (see citation failure reasons below)."
+            + _deferred_note(ev)
+        )
+    if ev["rate_limited_share_exceeded"]:
+        return (
+            f"  COVERAGE: DEFERRED (RATE LIMITED) -- {ev['rate_limited']} of "
+            f"{ev['attempted']} attempts ({_rate_limited_pct(ev)}%) were "
+            f"rate limited, above the {int(_RATE_LIMIT_MAX_SHARE * 100)}% cap. "
+            "Coverage is not complete."
+        )
+    if ev["data_gap"]:
         return (
             f"  COVERAGE: COMPLETE for reachable papers ({ev['succeeded']} of "
-            f"{ev['attempted']} measured) -- {ev['failed']} paper(s) have no "
+            f"{ev['attempted']} measured) -- {ev['data_gap']} paper(s) have no "
             "Semantic Scholar record; a corpus gap, not a run fault."
+            + _deferred_note(ev)
         )
     return (
         f"  COVERAGE: COMPLETE ({ev['succeeded']} of {ev['attempted']} measured)."
+        + _deferred_note(ev)
     )
 
 
@@ -259,6 +342,15 @@ def _citation_report(
     throttling artifact".
     """
     lines = [_coverage_line(ev), _evidence_line(counts, ev)]
+
+    if ev["reported"] and ev["attempted"]:
+        lines.append(
+            "    citation classification: "
+            f"deferred (rate limited)={ev['rate_limited']}, "
+            f"non-rate-limit failures={ev['infra']}, "
+            f"rate-limited share={_rate_limited_pct(ev)}% of "
+            f"{ev['attempted']}"
+        )
 
     if ev["failures"]:
         reasons = ", ".join(f"{k}={v}" for k, v in sorted(ev["failures"].items()))
