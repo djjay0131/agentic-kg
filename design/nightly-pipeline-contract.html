@@ -98,4 +98,11 @@ the operation; the review queue is never a second writer. A human approval
 cannot widen eligibility: only an <code class="language-plaintext highlighter-rouge">EntityCandidate</code> the deterministic policy
 routed <code class="language-plaintext highlighter-rouge">LLM_ASSESS</code> can be promoted.</p>
 
+<p>When the adviser stage runs, it is the end of the nightly run: it updates the
+<code class="language-plaintext highlighter-rouge">PipelineRun</code> with <code class="language-plaintext highlighter-rouge">review_queue_size</code> / <code class="language-plaintext highlighter-rouge">adviser_verdicts</code> / the adviser’s
+LLM spend, then emits the run’s single structured <code class="language-plaintext highlighter-rouge">pipeline_run_completed</code> /
+<code class="language-plaintext highlighter-rouge">pipeline_run_failed</code> event. The ingest Job defers its own event when the
+workflow will run the adviser stage (successful ingest only). The event shape
+and the emitter live in <code class="language-plaintext highlighter-rouge">agentic_kg.pipeline.report</code>.</p>
+
 <p>Operator procedure: <code class="language-plaintext highlighter-rouge">docs/operations/review-queue-runbook.md</code>.</p>
