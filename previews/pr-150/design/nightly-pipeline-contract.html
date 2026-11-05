@@ -14,7 +14,7 @@ Fields:
   run_id: str            # "nightly-YYYYMMDDTHHMMSSZ"
   started_at, finished_at: ISO-8601 UTC str (finished_at null while running)
   status: "running" | "succeeded" | "partial" | "failed"
-  trigger: "schedule" | "manual"
+  trigger: "schedule" | "manual" | "research_cycle"  # research_cycle = autonomous loop tick
   namespace: str         # "staging"
   queries: [ {query_id, query, topic, limit, papers_seen, papers_new, status, error|null} ]
   totals: {papers_seen, papers_new, committed_operations, deferred_candidates, honest_nulls}
@@ -32,6 +32,14 @@ API (T30): GET /api/runs?limit=&amp;cursor= -&gt; {"runs":[PipelineRun summary..
              across every decided ReviewItem in the namespace (to date, not
              scoped to this run).
 </code></pre></div></div>
+
+<p>The research-progression loop reuses this exact shape for each cycle
+(<code class="language-plaintext highlighter-rouge">trigger="research_cycle"</code>, <code class="language-plaintext highlighter-rouge">run_id="cycle-YYYYMMDDTHHMMSSZ"</code>), writing its
+JSON under <code class="language-plaintext highlighter-rouge">research-cycles/</code> instead of <code class="language-plaintext highlighter-rouge">nightly/</code>. It has no ingest queries,
+so <code class="language-plaintext highlighter-rouge">queries</code> carries one row per started workflow (<code class="language-plaintext highlighter-rouge">query_id</code> = workflow run
+id, <code class="language-plaintext highlighter-rouge">topic</code> = current gate/state) and <code class="language-plaintext highlighter-rouge">proposed_queries</code> carries the selected
+problem ids. The Runs page and the log-based alert events therefore cover a
+cycle without a second report format.</p>
 
 <h2 id="live-acquisition-p3">Live acquisition (P3)</h2>
 
@@ -86,7 +94,7 @@ asking a human to approve something the system cannot write.</p>
      -&gt; {"items":[ReviewItem summary...], "total": int, "limit": int, "offset": int}
 GET  /api/review/{id} -&gt; full ReviewItem ; 404 if unknown
 POST /api/review/{id} {"decision": "approve"|"reject", "note": str|null}
-     Requires a verified human identity (ADR-0011): on staging the API verifies
+     Requires a verified human identity (ADR-0012): on staging the API verifies
      the IAP signed assertion forwarded by the UI and records its email; only
      AUTH_MODE=dev accepts X-User-ID. approve -&gt; KGCS commit path; reject -&gt;
      decision only. Both append an immutable :Canon__ReviewDecision node. 409 if
