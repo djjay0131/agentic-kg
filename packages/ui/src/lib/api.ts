@@ -285,6 +285,72 @@ export interface StartWorkflowResponse {
   websocket_url: string;
 }
 
+export interface ResearchGateDecision {
+  gate: string;
+  decision: string;
+  decided_by: string;
+  decided_at: string;
+  note: string;
+  edited_data: Record<string, unknown> | null;
+}
+
+export interface ResearchWorkflow {
+  workflow_run_id: string;
+  problem_id: string;
+  problem_statement: string;
+  state: string;
+  current_step: string;
+  pending_gate: string | null;
+  started_at: string;
+  updated_at: string;
+  finished_at: string | null;
+  gate_decisions: ResearchGateDecision[];
+  error: string | null;
+}
+
+export interface ResearchCycle {
+  cycle_id: string;
+  namespace: string;
+  started_at: string;
+  finished_at: string | null;
+  status: string;
+  trigger: string;
+  policy_version: string;
+  selected_problems: string[];
+  workflow_runs: ResearchWorkflow[];
+  budget: {
+    max_llm_usd: number;
+    est_llm_usd: number;
+    max_experiments: number;
+    experiments: number;
+    max_wall_seconds: number;
+    wall_seconds: number;
+    stopped_by_budget: boolean;
+  };
+  git_sha: string;
+  image: string;
+  note: string | null;
+}
+
+export interface ResearchCycleListResponse {
+  cycles: ResearchCycle[];
+  total: number;
+}
+
+export interface PendingResearchGate {
+  cycle_id: string;
+  workflow_run_id: string;
+  problem_id: string;
+  problem_statement: string;
+  gate: string;
+  updated_at: string;
+}
+
+export interface PendingResearchGateListResponse {
+  gates: PendingResearchGate[];
+  total: number;
+}
+
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${endpoint}`, {
     ...options,
@@ -415,6 +481,33 @@ export const api = {
       headers: { 'X-User-ID': REVIEW_USER },
       body: JSON.stringify({ decision, note: note || null }),
     }),
+
+  // Research-progression cycle gates
+  listResearchCycles: (limit?: number) => {
+    const searchParams = new URLSearchParams();
+    if (limit) searchParams.set('limit', String(limit));
+    const query = searchParams.toString();
+    return fetchAPI<ResearchCycleListResponse>(`/api/research/cycles${query ? `?${query}` : ''}`);
+  },
+
+  getResearchCycle: (cycleId: string) =>
+    fetchAPI<ResearchCycle>(`/api/research/cycles/${encodeURIComponent(cycleId)}`),
+
+  listPendingGates: () => fetchAPI<PendingResearchGateListResponse>('/api/research/gates'),
+
+  decideGate: (
+    cycleId: string,
+    workflowRunId: string,
+    data: { gate: string; decision: 'approve' | 'reject' | 'edit'; note?: string; edited_data?: Record<string, unknown> }
+  ) =>
+    fetchAPI<ResearchCycle>(
+      `/api/research/gates/${encodeURIComponent(cycleId)}/${encodeURIComponent(workflowRunId)}`,
+      {
+        method: 'POST',
+        headers: { 'X-User-ID': REVIEW_USER },
+        body: JSON.stringify(data),
+      }
+    ),
 
   // Workflows
   startWorkflow: (params?: { domain_filter?: string; status_filter?: string; max_problems?: number }) =>

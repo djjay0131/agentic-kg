@@ -75,7 +75,7 @@ Terraform-managed and gated by `nightly_enabled`.**
 7. **Least privilege.** `agentic-kg-nightly@` gets
    `roles/run.jobsExecutorWithOverrides` (which includes `run.jobs.run`,
    `run.jobs.runWithOverrides` and `run.operations.get`) on the nightly Job and,
-   when enabled, the adviser Job only. `run.invoker` is *not* sufficient for
+   when enabled, the adviser and research-cycle Jobs only. `run.invoker` is *not* sufficient for
    starting a Job with overrides: it grants `run.jobs.run` and
    `run.routes.invoke` but not `run.jobs.runWithOverrides`. Because
    `jobs.run` returns a project-scoped long-running Operation, the SA also
