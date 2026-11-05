@@ -101,7 +101,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      # Browser calls same-origin /api/*; the Next.js server proxies to the API.
       - API_URL=http://api:8000
     depends_on:
       - api

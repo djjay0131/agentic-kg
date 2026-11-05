@@ -204,6 +204,50 @@ def require_api_key(
         raise HTTPException(status_code=401, detail="invalid or missing API key")
 
 
+def current_user(
+    x_user_id: Optional[str] = Header(default=None, alias="X-User-ID"),
+    iap_assertion: Optional[str] = Header(default=None, alias="x-goog-iap-jwt-assertion"),
+) -> str:
+    """Return the verified human identity for a decision (ADR-0012).
+
+    ``AUTH_MODE=iap`` is the staging/default posture: the request must carry a
+    signed IAP assertion whose audience is this deployment's IAP resource, and
+    the returned value is the verified email. There is deliberately **no**
+    ``X-User-ID`` fallback in this mode, so an unauthenticated header cannot
+    impersonate a human.
+
+    ``AUTH_MODE=dev`` is the local-only escape hatch: it accepts the historical
+    ``X-User-ID`` header. The default mode is ``dev`` so existing local tests
+    and development keep working; staging sets ``AUTH_MODE=iap`` in Terraform.
+
+    A missing audience in iap mode is a server misconfiguration and fails
+    closed with 503, never open.
+    """
+    from agentic_kg_api.config import AUTH_MODE_DEV, get_api_config
+    from agentic_kg_api.iap import IapAuthError, verify_iap_jwt
+
+    config = get_api_config()
+
+    if config.auth_mode == AUTH_MODE_DEV:
+        if not x_user_id or not x_user_id.strip():
+            raise HTTPException(
+                status_code=401,
+                detail="no verified identity (dev mode requires X-User-ID)",
+            )
+        return x_user_id.strip()
+
+    # Any non-dev mode is iap (config normalises unknown values to iap).
+    if not config.iap_audience:
+        raise HTTPException(status_code=503, detail="auth not configured")
+    if not iap_assertion:
+        raise HTTPException(status_code=401, detail="IAP authentication required")
+    try:
+        return verify_iap_jwt(iap_assertion, config.iap_audience)
+    except IapAuthError:
+        logger.info("rejected an invalid IAP assertion")
+        raise HTTPException(status_code=401, detail="invalid IAP assertion")
+
+
 def require_canonical_enabled() -> None:
     """Gate the read-only canonical router. Disabled => 404, before any I/O."""
     from agentic_kg_api.config import get_api_config

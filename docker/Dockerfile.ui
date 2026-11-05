@@ -23,8 +23,10 @@ RUN npm ci
 # =============================================================================
 FROM node:20-alpine AS builder
 
-# Build argument for API URL (required for Next.js client-side code)
-ARG NEXT_PUBLIC_API_URL=http://localhost:8000
+# Optional direct API URL for local builds. Leave empty for the staging
+# deployment: the browser then uses same-origin `/api/*` and the Next.js
+# server proxies to the private API (ADR-0011).
+ARG NEXT_PUBLIC_API_URL=
 
 WORKDIR /app
 
