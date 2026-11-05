@@ -1,4 +1,4 @@
-"""Verify Google Identity-Aware Proxy signed assertions (ADR-0011).
+"""Verify Google Identity-Aware Proxy signed assertions (ADR-0012).
 
 IAP puts a short-lived ES256 JWT in ``x-goog-iap-jwt-assertion``. The API only
 trusts an identity that verifies against Google's published IAP keys with the

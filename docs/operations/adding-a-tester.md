@@ -6,7 +6,7 @@ nav_exclude: true
 # Adding a tester to staging
 
 Staging is protected by Identity-Aware Proxy (IAP) on the UI Cloud Run service
-(ADR-0011). The API is private: the UI proxies every request server-side and
+(ADR-0012). The API is private: the UI proxies every request server-side and
 forwards the IAP-verified identity, so approvals and research-gate decisions are
 recorded against a real Google email. There is no password and no shared user
 id.

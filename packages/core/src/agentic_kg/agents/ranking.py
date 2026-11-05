@@ -50,6 +50,11 @@ class RankingAgent(BaseAgent):
                 status_filter=state.get("status_filter", "open"),
                 max_problems=state.get("max_problems", 20),
             )
+            wanted = set(state.get("candidate_problem_ids") or [])
+            if wanted:
+                # A cycle selected these candidates; keep the port query as the
+                # source of truth and filter to the ids it asked for.
+                candidates = [c for c in candidates if c.problem_id in wanted]
             if not candidates:
                 state = add_message(state, self.name, "No candidate problems found")
                 return {**state, "ranked_problems": [], "total_candidates": 0}

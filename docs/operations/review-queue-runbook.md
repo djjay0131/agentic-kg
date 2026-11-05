@@ -34,7 +34,7 @@ verdict (`admit` / `reject` / `merge-into:<id>`), confidence and rationale.
 UI: **Review** in the sidebar, or a run's `review_queue_size` on the Runs page
 (that link pre-filters by `run_id`).
 
-API (staging is private since ADR-0011; a machine caller needs a Cloud Run ID
+API (staging is private since ADR-0012; a machine caller needs a Cloud Run ID
 token for `$API_URL`, see `docs/operations/adding-a-tester.md`):
 
 ```bash

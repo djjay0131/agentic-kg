@@ -1,5 +1,5 @@
 /**
- * Server-side proxy to the private Cloud Run API (ADR-0011).
+ * Server-side proxy to the private Cloud Run API (ADR-0012).
  *
  * The UI is the IAP-protected edge. The browser therefore calls same-origin
  * `/api/*` and `/health`; this module forwards the request to the API with:

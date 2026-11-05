@@ -21,7 +21,7 @@ Fields:
   run_id: str            # "nightly-YYYYMMDDTHHMMSSZ"
   started_at, finished_at: ISO-8601 UTC str (finished_at null while running)
   status: "running" | "succeeded" | "partial" | "failed"
-  trigger: "schedule" | "manual"
+  trigger: "schedule" | "manual" | "research_cycle"  # research_cycle = autonomous loop tick
   namespace: str         # "staging"
   queries: [ {query_id, query, topic, limit, papers_seen, papers_new, status, error|null} ]
   totals: {papers_seen, papers_new, committed_operations, deferred_candidates, honest_nulls}
@@ -39,6 +39,14 @@ API (T30): GET /api/runs?limit=&cursor= -> {"runs":[PipelineRun summary...], "ne
              across every decided ReviewItem in the namespace (to date, not
              scoped to this run).
 ```
+
+The research-progression loop reuses this exact shape for each cycle
+(`trigger="research_cycle"`, `run_id="cycle-YYYYMMDDTHHMMSSZ"`), writing its
+JSON under `research-cycles/` instead of `nightly/`. It has no ingest queries,
+so `queries` carries one row per started workflow (`query_id` = workflow run
+id, `topic` = current gate/state) and `proposed_queries` carries the selected
+problem ids. The Runs page and the log-based alert events therefore cover a
+cycle without a second report format.
 
 ## Live acquisition (P3)
 
@@ -94,7 +102,7 @@ GET  /api/review?status=&type=&run_id=&limit=&offset=
      -> {"items":[ReviewItem summary...], "total": int, "limit": int, "offset": int}
 GET  /api/review/{id} -> full ReviewItem ; 404 if unknown
 POST /api/review/{id} {"decision": "approve"|"reject", "note": str|null}
-     Requires a verified human identity (ADR-0011): on staging the API verifies
+     Requires a verified human identity (ADR-0012): on staging the API verifies
      the IAP signed assertion forwarded by the UI and records its email; only
      AUTH_MODE=dev accepts X-User-ID. approve -> KGCS commit path; reject ->
      decision only. Both append an immutable :Canon__ReviewDecision node. 409 if

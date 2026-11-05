@@ -14,7 +14,7 @@ Environment: ``API_URL``, ``GOOGLE_CLOUD_PROJECT``, ``API_KEY_SECRET_ID``
 ``API_KEY_CHECK_INTERVAL_SECONDS`` (default 6) to ride out a cold revision.
 8 x (30 s request timeout + 6 s wait) stays inside the Job's 300 s timeout.
 
-The API is private (ADR-0011), so the check also sends a Google-signed ID token
+The API is private (ADR-0012), so the check also sends a Google-signed ID token
 for ``API_URL`` from the metadata server. It runs as the API's own runtime
 identity. ``API_ID_TOKEN`` can supply a token explicitly (tests/local runs).
 """

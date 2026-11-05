@@ -20,7 +20,7 @@ class APITestConfig:
     ADR-0006: these tests run against the deployed API only. Neo4j is
     VPC-private, so the runner no longer has (and must not need) direct
     database credentials. The API's ``/health`` response is what proves the
-    private Neo4j path works. ADR-0011 makes the API private: set
+    private Neo4j path works. ADR-0012 makes the API private: set
     ``STAGING_ID_TOKEN`` to a Cloud Run ID token for the service URL.
     """
 
@@ -32,7 +32,7 @@ class APITestConfig:
 
     @property
     def auth_headers(self) -> dict[str, str]:
-        """Cloud Run ID token headers when the API is private (ADR-0011)."""
+        """Cloud Run ID token headers when the API is private (ADR-0012)."""
         return {"Authorization": f"Bearer {self.id_token}"} if self.id_token else {}
 
     @classmethod

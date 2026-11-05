@@ -440,7 +440,7 @@ jobs:
       - name: Authenticate as the CI reader
         id: ci_auth
         # ADR-0007 rule 3: vendor keys live only in Secret Manager. This
-        # identity can read exactly those keys and nothing else. ADR-0011 also
+        # identity can read exactly those keys and nothing else. ADR-0012 also
         # gives it run.invoker on the private staging API so this workflow can
         # mint the ID token the API now requires.
         uses: google-github-actions/auth@v2

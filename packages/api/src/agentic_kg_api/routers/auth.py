@@ -7,7 +7,7 @@ verification is by effect, not by value). It is mounted behind
 the same dependency.
 
 ``GET /api/auth/me`` returns the verified human identity used by the UI header
-(ADR-0011): the IAP-authenticated email in staging, or the development
+(ADR-0012): the IAP-authenticated email in staging, or the development
 ``X-User-ID`` when ``AUTH_MODE=dev``.
 """
 

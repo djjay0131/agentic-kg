@@ -7,7 +7,7 @@ KGCS commit path in the core service; rejection only records the decision.
 Both append an immutable ``:Canon__ReviewDecision`` audit node.
 
 Authentication is the shared :func:`agentic_kg_api.dependencies.current_user`
-dependency (ADR-0011): staging requires a verified IAP assertion and records the
+dependency (ADR-0012): staging requires a verified IAP assertion and records the
 authenticated email; only ``AUTH_MODE=dev`` accepts ``X-User-ID``.
 """
 

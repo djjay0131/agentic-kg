@@ -3,7 +3,7 @@ E2E test configuration and fixtures.
 
 Configure via environment variables:
     STAGING_API_URL=<Cloud Run URL, e.g. the `api_url` terraform output>
-    STAGING_ID_TOKEN=<Cloud Run ID token for the private staging API; ADR-0011>
+    STAGING_ID_TOKEN=<Cloud Run ID token for the private staging API; ADR-0012>
     OPENAI_API_KEY=<for LLM extraction tests>
 
 The database-backed tests additionally require a reachable Neo4j (ADR-0006
@@ -37,7 +37,7 @@ class E2EConfig:
     """Configuration for E2E tests."""
 
     api_url: str
-    # Cloud Run ID token for the private staging API (ADR-0011). Optional so
+    # Cloud Run ID token for the private staging API (ADR-0012). Optional so
     # local runs against a public API still work.
     id_token: str = ""
     # ADR-0006: Neo4j is VPC-private. API- and live-source-only e2e tests run
@@ -52,7 +52,7 @@ class E2EConfig:
 
     @property
     def auth_headers(self) -> dict[str, str]:
-        """Cloud Run ID token headers when the API is private (ADR-0011)."""
+        """Cloud Run ID token headers when the API is private (ADR-0012)."""
         return {"Authorization": f"Bearer {self.id_token}"} if self.id_token else {}
 
     @classmethod

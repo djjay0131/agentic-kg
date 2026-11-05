@@ -49,7 +49,7 @@ from agentic_kg.knowledge_graph.models.review_item import ReviewAgreement
 PipelineRunStatus = Literal["running", "succeeded", "partial", "failed"]
 
 #: ``PipelineRun.trigger`` -- how the execution was started.
-PipelineRunTrigger = Literal["schedule", "manual"]
+PipelineRunTrigger = Literal["schedule", "manual", "research_cycle"]
 
 
 class PipelineQueryResult(BaseModel):

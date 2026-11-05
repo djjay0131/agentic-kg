@@ -1,4 +1,4 @@
-"""Human identity verification for mutating decisions (ADR-0011).
+"""Human identity verification for mutating decisions (ADR-0012).
 
 No GCP and no network: IAP-shaped tokens are signed with a locally generated
 P-256 key and the public key map is injected.

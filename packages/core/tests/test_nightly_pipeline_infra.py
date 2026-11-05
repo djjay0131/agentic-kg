@@ -58,6 +58,15 @@ def test_adviser_runner_can_start_a_job_with_overrides():
     assert "google_cloud_run_v2_job.adviser[0].name" in block
 
 
+def test_research_cycle_runner_can_start_a_job_with_overrides():
+    block = _resource(
+        _main_tf(), "google_cloud_run_v2_job_iam_member.research_cycle_runner"
+    )
+    assert 'role     = "roles/run.jobsExecutorWithOverrides"' in block
+    assert "roles/run.invoker" not in block
+    assert "google_cloud_run_v2_job.research_cycle[0].name" in block
+
+
 def test_workflow_can_read_the_project_scoped_operation_it_polls():
     block = _resource(_main_tf(), "google_project_iam_member.nightly_run_viewer")
     assert 'role    = "roles/run.viewer"' in block
@@ -69,6 +78,7 @@ def test_workflow_starts_both_jobs_and_polls_their_operations():
     assert "googleapis.run.v2.projects.locations.jobs.run" in block
     assert "google_cloud_run_v2_job.nightly[0].id" in block
     assert "local.adviser_job_id" in block
+    assert "local.research_cycle_job_id" in block
     assert "googleapis.run.v2.projects.locations.operations.get" in block
     assert "service_account = local.nightly_sa_email" in block
 

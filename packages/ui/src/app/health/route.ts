@@ -1,4 +1,4 @@
-/** Same-origin health proxy (ADR-0011). See `src/lib/upstream.ts`. */
+/** Same-origin health proxy (ADR-0012). See `src/lib/upstream.ts`. */
 
 import { NextRequest } from 'next/server';
 

@@ -44,7 +44,7 @@ class APIConfig:
         )
     )
     api_key: str = field(default_factory=lambda: os.getenv("API_KEY", ""))
-    # Human identity (ADR-0011). ``dev`` accepts the development-only
+    # Human identity (ADR-0012). ``dev`` accepts the development-only
     # ``X-User-ID`` header; ``iap`` requires a verified IAP signed assertion.
     # Anything unrecognised is treated as ``iap`` so a typo fails closed.
     auth_mode: str = field(default_factory=lambda: _auth_mode())

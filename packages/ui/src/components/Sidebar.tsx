@@ -13,6 +13,7 @@ import {
   Play,
   History,
   ClipboardCheck,
+  FlaskConical,
 } from 'lucide-react';
 
 const navItems = [
@@ -24,6 +25,7 @@ const navItems = [
   { href: '/workflows', label: 'Workflows', icon: Play },
   { href: '/runs', label: 'Runs', icon: History },
   { href: '/review', label: 'Review', icon: ClipboardCheck },
+  { href: '/research', label: 'Research Loop', icon: FlaskConical },
 ];
 
 export default function Sidebar() {

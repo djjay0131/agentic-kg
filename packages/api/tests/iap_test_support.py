@@ -1,4 +1,4 @@
-"""Offline helpers for signing IAP-shaped assertions (ADR-0011 tests).
+"""Offline helpers for signing IAP-shaped assertions (ADR-0012 tests).
 
 The API verifies ES256 signatures against Google's published IAP keys. Tests
 generate a local P-256 key and sign tokens with the same algorithm so the

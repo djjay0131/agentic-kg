@@ -1,9 +1,9 @@
 ---
-title: "ADR-0011: Staging sign-in is Google IAP; human decisions carry a verified email"
+title: "ADR-0012: Staging sign-in is Google IAP; human decisions carry a verified email"
 nav_exclude: true
 ---
 
-# ADR-0011: Staging sign-in is Google IAP; human decisions carry a verified email
+# ADR-0012: Staging sign-in is Google IAP; human decisions carry a verified email
 
 Status: Proposed
 Date: 2026-11-03
@@ -15,8 +15,7 @@ mutating decisions was an unauthenticated `X-User-ID` header:
 
 - `POST /api/review/{id}` (nightly review queue)
 - `POST /api/reviews/{id}/assign|unassign|resolve` (legacy review queue)
-- `POST /api/research/gates/{cycle}/{workflow}` (research loop; not yet on
-  `master` — see Consequences)
+- `POST /api/research/gates/{cycle}/{workflow}` (research loop)
 
 Anyone who could reach the service could approve a candidate, reject it, or
 claim to be someone else. That is not acceptable before a second tester is
@@ -58,8 +57,8 @@ OAuth client.
    `IAP_AUDIENCE`; it returns the verified email. Missing/invalid assertions are
    401; a missing audience is 503 (fail closed). In `AUTH_MODE=dev` — the
    default only for local development and tests — it accepts `X-User-ID`.
-   Unknown modes are treated as `iap`. The review routers use `current_user`
-   and record its return value as `decided_by`.
+   Unknown modes are treated as `iap`. The review and research-gates routers
+   use `current_user` and record its return value as `decided_by`.
 
 4. **The allowlist lives in Terraform.** `var.app_allowed_members` is a list of
    IAM members (`"user:djjay@vt.edu"` by default). Terraform grants each
@@ -137,12 +136,13 @@ runbook), not something to work around.
   the Google-managed OAuth client, the owner must make the OAuth audience
   external (custom client) before that user can sign in.
 
-### Not in this PR
+### Research-gates adoption
 
-`feat/research-loop` is not on `master`, so its
-`POST /api/research/gates/{cycle}/{workflow}` router cannot be edited here.
-When it merges, replace its local `_require_user` with
-`agentic_kg_api.dependencies.current_user` exactly as the review routers do.
+`feat/research-loop` has merged to `master`, so its
+`POST /api/research/gates/{cycle}/{workflow}` router now uses
+`agentic_kg_api.dependencies.current_user` exactly as the review routers do;
+the local `_require_user` / `X-User-ID` path is gone, and the decision records
+the verified email.
 
 ## Impacted Areas
 

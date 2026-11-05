@@ -38,6 +38,9 @@ class ResearchState(TypedDict, total=False):
     status_filter: Optional[str]
     max_problems: int
     min_confidence: float
+    #: When set, ranking is restricted to these problem ids (a cycle hands one
+    #: selected candidate to each workflow).
+    candidate_problem_ids: list[str]
 
     # --- Ranking Agent output ---
     ranked_problems: list[dict]  # Serialized RankedProblem dicts
@@ -69,6 +72,7 @@ def create_initial_state(
     status_filter: Optional[str] = None,
     max_problems: int = 20,
     min_confidence: float = 0.3,
+    candidate_problem_ids: Optional[list[str]] = None,
 ) -> ResearchState:
     """Create a fresh workflow state with defaults."""
     now = datetime.now(timezone.utc).isoformat()
@@ -84,6 +88,7 @@ def create_initial_state(
         status_filter=status_filter,
         max_problems=max_problems,
         min_confidence=min_confidence,
+        candidate_problem_ids=list(candidate_problem_ids or []),
         ranked_problems=[],
         total_candidates=0,
         selected_problem_id=None,

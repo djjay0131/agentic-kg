@@ -92,7 +92,7 @@ steps:
           exit 0
         fi
         # The UI calls same-origin /api/*; the Next.js server proxies to the
-        # private API (ADR-0011), so no NEXT_PUBLIC_API_URL is baked in.
+        # private API (ADR-0012), so no NEXT_PUBLIC_API_URL is baked in.
         echo "Running docker build"
         docker build \
           -f docker/Dockerfile.${_SERVICE} \
