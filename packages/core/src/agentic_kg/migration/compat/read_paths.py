@@ -1036,6 +1036,69 @@ READ_PATHS: tuple[ReadPath, ...] = (
         ),
     ),
     ReadPath(
+        id="agent.checkpoint.load",
+        surface="DurableCheckpointSaver (resume a gated workflow)",
+        source_file=f"{CORE}/agents/checkpoint_store.py",
+        snippet="MATCH (c:{LABEL_AGENT_CHECKPOINT} {{ns: $ns, thread_id: $thread_id}})",
+        labels=("Canon__AgentCheckpoint",),
+        relationships=(),
+        properties=("ns", "thread_id", "payload"),
+        compat=CompatClass.SCOPED_OUT,
+        note=(
+            "App-namespace workflow state (ADR-0004/0005), not canonical graph "
+            "content: the research loop reads its own checkpoint node so a gate "
+            "can be resumed by a later process. It is deliberately outside the "
+            "canonical projection parity harness, which compares KGIS/KGCS "
+            "projection reads, not agent operational state."
+        ),
+    ),
+    ReadPath(
+        id="agent.checkpoint.delete",
+        surface="DurableCheckpointSaver.delete_thread",
+        source_file=f"{CORE}/agents/checkpoint_store.py",
+        snippet="MATCH (c:{LABEL_AGENT_CHECKPOINT} {{ns: $ns, thread_id: $thread_id}})",
+        also=("DELETE c",),
+        labels=("Canon__AgentCheckpoint",),
+        relationships=(),
+        properties=("ns", "thread_id"),
+        compat=CompatClass.SCOPED_OUT,
+        note=(
+            "Deletes one thread's checkpoint node. App-namespace state, outside "
+            "the canonical projection parity harness."
+        ),
+    ),
+    ReadPath(
+        id="pipeline.research_cycle.get",
+        surface="ResearchCycleRepository.get / find_status",
+        source_file=f"{CORE}/knowledge_graph/research_cycles.py",
+        snippet="RETURN c LIMIT 1",
+        also=("WHERE c.status IN $statuses",),
+        labels=("Canon__ResearchCycle",),
+        relationships=(),
+        properties=("ns", "cycle_id", "status"),
+        compat=CompatClass.SCOPED_OUT,
+        note=(
+            "App-namespace cycle records (ADR-0004/0005). The scheduler reads "
+            "them to enforce one running cycle and to show pending gates; they "
+            "are outside the canonical projection parity harness."
+        ),
+    ),
+    ReadPath(
+        id="pipeline.research_cycle.list",
+        surface="ResearchCycleRepository.list",
+        source_file=f"{CORE}/knowledge_graph/research_cycles.py",
+        snippet="RETURN c ORDER BY c.started_at DESC, c.cycle_id DESC LIMIT $limit",
+        labels=("Canon__ResearchCycle",),
+        relationships=(),
+        properties=("ns", "started_at", "cycle_id"),
+        ordering=("c.started_at DESC", "c.cycle_id DESC"),
+        compat=CompatClass.SCOPED_OUT,
+        note=(
+            "Newest-first cycle listing for the Research page. App-namespace "
+            "state, outside the canonical projection parity harness."
+        ),
+    ),
+    ReadPath(
         id="api.reviews.queue",
         surface="GET /api/reviews",
         source_file=f"{CORE}/knowledge_graph/review_queue.py",

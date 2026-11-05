@@ -15,6 +15,9 @@ The pieces:
 * :mod:`agentic_kg.pipeline.nightly` — the orchestrator and its CLI
   (``python -m agentic_kg.pipeline.nightly``), the nightly Cloud Run Job's
   entrypoint.
+* :mod:`agentic_kg.pipeline.cycle` — the scheduled research-progression cycle
+  and its CLI (``python -m agentic_kg.pipeline.cycle``). It reuses the
+  ``PipelineRun`` shape with ``trigger="research_cycle"``.
 
 The shared report contract lives at
 ``docs/design/nightly-pipeline-contract.md``.

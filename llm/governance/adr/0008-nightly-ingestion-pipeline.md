@@ -72,13 +72,21 @@ Terraform-managed and gated by `nightly_enabled`.**
    (`config/ingest-queries.yaml`), validated by a pydantic model. Proposed new
    queries are **logged only** in P1. The adviser-proposes / human-approves loop
    and the review queue are P2; the UI Runs page and proposal surface are P3.
-7. **Least privilege.** `agentic-kg-nightly@` gets `run.invoker` on the nightly
-   Job only, `workflows.invoker`, `secretmanager.secretAccessor` and
-   `compute.networkUser` at project scope (the latter two matching the compute
-   SA), and `storage.objectAdmin` on the runs bucket and the ledger bucket
-   **only** — never project-wide storage. If the applying principal cannot
-   create service accounts, `nightly_service_account_email` reuses the existing
-   compute runtime SA (documented fallback).
+7. **Least privilege.** `agentic-kg-nightly@` gets
+   `roles/run.jobsExecutorWithOverrides` (which includes `run.jobs.run`,
+   `run.jobs.runWithOverrides` and `run.operations.get`) on the nightly Job and,
+   when enabled, the adviser and research-cycle Jobs only. `run.invoker` is *not* sufficient for
+   starting a Job with overrides: it grants `run.jobs.run` and
+   `run.routes.invoke` but not `run.jobs.runWithOverrides`. Because
+   `jobs.run` returns a project-scoped long-running Operation, the SA also
+   needs `roles/run.viewer` (read-only `run.operations.get`) at project scope;
+   a job-scoped binding cannot grant it. The SA also gets `workflows.invoker`,
+   `secretmanager.secretAccessor` and `compute.networkUser` at project scope
+   (the latter two matching the compute SA), and `storage.objectAdmin` on the
+   runs bucket and the ledger bucket **only** — never project-wide storage. If
+   the applying principal cannot create service accounts,
+   `nightly_service_account_email` reuses the existing compute runtime SA
+   (documented fallback).
 8. **Gating.** Everything above is `count = var.nightly_enabled ? 1 : 0`
    (default `false`); staging sets it `true`. A prod apply creates nothing.
 
