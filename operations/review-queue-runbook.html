@@ -30,14 +30,22 @@ verdict (<code class="language-plaintext highlighter-rouge">admit</code> / <code
 <p>UI: <strong>Review</strong> in the sidebar, or a run’s <code class="language-plaintext highlighter-rouge">review_queue_size</code> on the Runs page
 (that link pre-filters by <code class="language-plaintext highlighter-rouge">run_id</code>).</p>
 
-<p>API:</p>
+<p>API (staging is private since ADR-0012; a machine caller needs a Cloud Run ID
+token for <code class="language-plaintext highlighter-rouge">$API_URL</code>, see <code class="language-plaintext highlighter-rouge">docs/operations/adding-a-tester.md</code>):</p>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl <span class="s2">"</span><span class="nv">$API_URL</span><span class="s2">/api/review?status=pending&amp;limit=25"</span>
-curl <span class="s2">"</span><span class="nv">$API_URL</span><span class="s2">/api/review?run_id=nightly-20261009T063000Z&amp;type=Problem"</span>
-curl <span class="s2">"</span><span class="nv">$API_URL</span><span class="s2">/api/review/&lt;item_id&gt;"</span>
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl <span class="nt">-H</span> <span class="s2">"Authorization: Bearer </span><span class="nv">$ID_TOKEN</span><span class="s2">"</span> <span class="s2">"</span><span class="nv">$API_URL</span><span class="s2">/api/review?status=pending&amp;limit=25"</span>
+curl <span class="nt">-H</span> <span class="s2">"Authorization: Bearer </span><span class="nv">$ID_TOKEN</span><span class="s2">"</span> <span class="s2">"</span><span class="nv">$API_URL</span><span class="s2">/api/review?run_id=nightly-20261009T063000Z&amp;type=Problem"</span>
+curl <span class="nt">-H</span> <span class="s2">"Authorization: Bearer </span><span class="nv">$ID_TOKEN</span><span class="s2">"</span> <span class="s2">"</span><span class="nv">$API_URL</span><span class="s2">/api/review/&lt;item_id&gt;"</span>
 </code></pre></div></div>
 
 <h2 id="decide-an-item">Decide an item</h2>
+
+<p><strong>In staging, decide from the UI</strong> (<code class="language-plaintext highlighter-rouge">/review/&lt;item_id&gt;</code>). IAP authenticates the
+reviewer and the UI forwards the signed assertion; the API records the verified
+Google email as <code class="language-plaintext highlighter-rouge">decided_by</code>. A direct <code class="language-plaintext highlighter-rouge">curl</code> cannot make a human decision on
+staging because it cannot mint an IAP assertion.</p>
+
+<p>For local development (<code class="language-plaintext highlighter-rouge">AUTH_MODE=dev</code>), the historical header still works:</p>
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl <span class="nt">-X</span> POST <span class="s2">"</span><span class="nv">$API_URL</span><span class="s2">/api/review/&lt;item_id&gt;"</span> <span class="se">\</span>
   <span class="nt">-H</span> <span class="s1">'Content-Type: application/json'</span> <span class="se">\</span>
