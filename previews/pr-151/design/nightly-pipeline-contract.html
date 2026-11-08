@@ -94,9 +94,11 @@ asking a human to approve something the system cannot write.</p>
      -&gt; {"items":[ReviewItem summary...], "total": int, "limit": int, "offset": int}
 GET  /api/review/{id} -&gt; full ReviewItem ; 404 if unknown
 POST /api/review/{id} {"decision": "approve"|"reject", "note": str|null}
-     Requires X-User-ID (the same mechanism as the legacy review routes).
-     approve -&gt; KGCS commit path; reject -&gt; decision only. Both append an
-     immutable :Canon__ReviewDecision node. 409 if not pending / not committable.
+     Requires a verified human identity (ADR-0012): on staging the API verifies
+     the IAP signed assertion forwarded by the UI and records its email; only
+     AUTH_MODE=dev accepts X-User-ID. approve -&gt; KGCS commit path; reject -&gt;
+     decision only. Both append an immutable :Canon__ReviewDecision node. 409 if
+     not pending / not committable.
 </code></pre></div></div>
 
 <p>Approval calls <code class="language-plaintext highlighter-rouge">agentic_kg.migration.curation.commit.commit_candidate</code>, which
