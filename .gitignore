@@ -12,6 +12,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+# The UI's TypeScript source directory is not a Python build directory.
+!packages/ui/src/lib/
 parts/
 sdist/
 var/

@@ -22,3 +22,4 @@ that change its behavior.
 - [Research agents on the canonical graph](agents-canonical-runbook.html)
 - [Deploy paths (automatic vs manual)](deploy-runbook.html)
 - [Nightly pipeline notifications](nightly-runbook.html)
+- [Adding a tester (staging Google sign-in)](adding-a-tester.html)

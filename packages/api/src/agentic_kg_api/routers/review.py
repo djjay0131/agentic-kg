@@ -6,8 +6,9 @@
 KGCS commit path in the core service; rejection only records the decision.
 Both append an immutable ``:Canon__ReviewDecision`` audit node.
 
-Authentication matches the legacy review queue: a mutating call requires the
-``X-User-ID`` header, so every decision has a named human behind it.
+Authentication is the shared :func:`agentic_kg_api.dependencies.current_user`
+dependency (ADR-0012): staging requires a verified IAP assertion and records the
+authenticated email; only ``AUTH_MODE=dev`` accepts ``X-User-ID``.
 """
 
 from __future__ import annotations
@@ -24,9 +25,9 @@ from agentic_kg.knowledge_graph.review_items import (
     ReviewItemNotFoundError,
     ReviewItemNotPendingError,
 )
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from agentic_kg_api.dependencies import get_review_items
+from agentic_kg_api.dependencies import current_user, get_review_items
 from agentic_kg_api.schemas import (
     ReviewDecisionRequest,
     ReviewEvidenceRefResponse,
@@ -37,18 +38,6 @@ from agentic_kg_api.schemas import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/review", tags=["review"])
-
-
-def _require_user(
-    x_user_id: Optional[str] = Header(default=None, alias="X-User-ID"),
-) -> str:
-    """Require X-User-ID, the mechanism the other mutating review routes use."""
-    if not x_user_id:
-        raise HTTPException(
-            status_code=401,
-            detail="X-User-ID header required for this operation",
-        )
-    return x_user_id
 
 
 def _summary(item: ReviewItem) -> ReviewItemSummary:
@@ -144,7 +133,7 @@ def get_review_item(
 def decide_review_item(
     item_id: str,
     request: ReviewDecisionRequest,
-    user_id: str = Depends(_require_user),
+    user_id: str = Depends(current_user),
     service: CandidateReviewService = Depends(get_review_items),
 ) -> ReviewItemDetail:
     """Approve or reject one review item.

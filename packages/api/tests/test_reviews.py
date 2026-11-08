@@ -245,7 +245,7 @@ class TestAssignReview:
         response = client_with_reviews.post("/api/reviews/r1/assign")
 
         assert response.status_code == 401
-        assert "X-User-ID header required" in response.json()["detail"]
+        assert "no verified identity" in response.json()["detail"]
 
     def test_not_found_returns_404(self, client_with_reviews, mock_review_queue_service):
         """Returns 404 for nonexistent review."""

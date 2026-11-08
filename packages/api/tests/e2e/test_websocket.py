@@ -15,6 +15,20 @@ import pytest
 from .conftest import APITestConfig
 
 
+def _ws_auth_kwargs(api_config: APITestConfig) -> dict[str, object]:
+    """Pass the Cloud Run ID token through the version-dependent WS keyword."""
+    import inspect
+
+    import websockets
+
+    headers = api_config.auth_headers
+    if not headers:
+        return {}
+    if "additional_headers" in inspect.signature(websockets.connect).parameters:
+        return {"additional_headers": headers}
+    return {"extra_headers": headers}
+
+
 def _handshake_status_code(exc: BaseException) -> int:
     """Extract the HTTP status from a websockets handshake rejection.
 
@@ -42,6 +56,7 @@ class TestWebSocketE2E:
     async def test_websocket_connection_refused_without_run_id(
         self,
         ws_url: str,
+        api_config: APITestConfig,
     ):
         """Test that WebSocket connection requires a valid run_id."""
         import websockets
@@ -52,7 +67,9 @@ class TestWebSocketE2E:
         # at the HTTP layer (403) before the WebSocket handshake completes --
         # there is no websocket-level close to observe here.
         with pytest.raises(InvalidHandshake) as exc_info:
-            async with websockets.connect(ws_url, close_timeout=5):
+            async with websockets.connect(
+                ws_url, close_timeout=5, **_ws_auth_kwargs(api_config)
+            ):
                 pass  # pragma: no cover - connection is rejected
 
         status = _handshake_status_code(exc_info.value)
@@ -113,6 +130,7 @@ class TestWebSocketWithWorkflow:
         async with httpx.AsyncClient(
             base_url=api_config.api_url,
             timeout=60.0,
+            headers=api_config.auth_headers,
         ) as http_client:
             # Start a workflow
             response = await http_client.post(
@@ -139,7 +157,9 @@ class TestWebSocketWithWorkflow:
             messages_received = []
 
             try:
-                async with websockets.connect(ws_url, close_timeout=10) as ws:
+                async with websockets.connect(
+                    ws_url, close_timeout=10, **_ws_auth_kwargs(api_config)
+                ) as ws:
                     # Listen for messages (up to 30 seconds)
                     try:
                         for _ in range(15):  # 15 attempts, 2 seconds each
@@ -183,11 +203,15 @@ class TestWebSocketReconnection:
         ws_url = f"{ws_base}/api/agents/ws/workflows/test-reconnect"
 
         # First connection.
-        async with websockets.connect(ws_url, close_timeout=5):
+        async with websockets.connect(
+            ws_url, close_timeout=5, **_ws_auth_kwargs(api_config)
+        ):
             pass  # Just connect and disconnect.
 
         # Reconnect after the disconnect must succeed.
-        async with websockets.connect(ws_url, close_timeout=5):
+        async with websockets.connect(
+            ws_url, close_timeout=5, **_ws_auth_kwargs(api_config)
+        ):
             pass
 
 
