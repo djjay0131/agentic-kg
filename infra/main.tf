@@ -2499,9 +2499,12 @@ resource "google_workflows_workflow" "nightly" {
       steps:
         - init:
             assign:
-              - trigger: $${default(args.trigger, "schedule")}
+              - trigger: '$${default(args.trigger, "schedule")}'
               - curate: $${default(args.curate, ${var.nightly_curate_enabled})}
-              - curateFlag: $${curate ? "true" : "false"}
+              # Workflows has no ternary operator; use if(condition, a, b).
+              # The single quotes are required so YAML does not read the
+              # commas/quotes as structure.
+              - curateFlag: '$${if(curate, "true", "false")}'
               - researchCycle: $${default(args.research_cycle, ${var.research_cycle_enabled})}
               - resultOperation: null
               - failure: null
@@ -2529,7 +2532,7 @@ resource "google_workflows_workflow" "nightly" {
                     call: sys.log
                     args:
                       severity: ERROR
-                      text: $${"pipeline_run_failed " + json.encode_to_string(error)}
+                      text: '$${"pipeline_run_failed " + json.encode_to_string(error)}'
                 - failIngest:
                     raise: $${error}
         - rememberIngest:
@@ -2581,7 +2584,7 @@ resource "google_workflows_workflow" "nightly" {
                     call: sys.log
                     args:
                       severity: ERROR
-                      text: $${"adviser_stage_failed " + json.encode_to_string(error)}
+                      text: '$${"adviser_stage_failed " + json.encode_to_string(error)}'
                 - failAdviser:
                     raise: $${error}
         - rememberAdviser:
@@ -2633,7 +2636,7 @@ resource "google_workflows_workflow" "nightly" {
                     call: sys.log
                     args:
                       severity: ERROR
-                      text: $${"research_cycle_failed " + json.encode_to_string(error)}
+                      text: '$${"research_cycle_failed " + json.encode_to_string(error)}'
                 - failCycle:
                     raise: $${error}
         - rememberCycle:
