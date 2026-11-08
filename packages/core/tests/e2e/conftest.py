@@ -3,6 +3,7 @@ E2E test configuration and fixtures.
 
 Configure via environment variables:
     STAGING_API_URL=<Cloud Run URL, e.g. the `api_url` terraform output>
+    STAGING_ID_TOKEN=<Cloud Run ID token for the private staging API; ADR-0012>
     OPENAI_API_KEY=<for LLM extraction tests>
 
 The database-backed tests additionally require a reachable Neo4j (ADR-0006
@@ -36,6 +37,9 @@ class E2EConfig:
     """Configuration for E2E tests."""
 
     api_url: str
+    # Cloud Run ID token for the private staging API (ADR-0012). Optional so
+    # local runs against a public API still work.
+    id_token: str = ""
     # ADR-0006: Neo4j is VPC-private. API- and live-source-only e2e tests run
     # without database credentials; the DB-backed tests (marker
     # ``requires_db``) are deselected in the GitHub-hosted job and assert on
@@ -46,10 +50,16 @@ class E2EConfig:
     neo4j_user: str = "neo4j"
     openai_api_key: str | None = None
 
+    @property
+    def auth_headers(self) -> dict[str, str]:
+        """Cloud Run ID token headers when the API is private (ADR-0012)."""
+        return {"Authorization": f"Bearer {self.id_token}"} if self.id_token else {}
+
     @classmethod
     def from_env(cls) -> "E2EConfig":
         """Load config from environment variables."""
         api_url = os.environ.get("STAGING_API_URL")
+        id_token = os.environ.get("STAGING_ID_TOKEN", "")
         neo4j_uri = os.environ.get("STAGING_NEO4J_URI", "")
         neo4j_password = os.environ.get("STAGING_NEO4J_PASSWORD", "")
         openai_api_key = os.environ.get("OPENAI_API_KEY")
@@ -62,6 +72,7 @@ class E2EConfig:
 
         return cls(
             api_url=api_url,
+            id_token=id_token,
             neo4j_uri=neo4j_uri,
             neo4j_password=neo4j_password,
             openai_api_key=openai_api_key,
@@ -140,7 +151,11 @@ def api_client(e2e_config: E2EConfig):
     """Create HTTP client for API tests."""
     import httpx
 
-    with httpx.Client(base_url=e2e_config.api_url, timeout=30.0) as client:
+    with httpx.Client(
+        base_url=e2e_config.api_url,
+        timeout=30.0,
+        headers=e2e_config.auth_headers,
+    ) as client:
         yield client
 
 
@@ -149,7 +164,11 @@ def async_api_client(e2e_config: E2EConfig):
     """Create async HTTP client for API tests."""
     import httpx
 
-    return httpx.AsyncClient(base_url=e2e_config.api_url, timeout=30.0)
+    return httpx.AsyncClient(
+        base_url=e2e_config.api_url,
+        timeout=30.0,
+        headers=e2e_config.auth_headers,
+    )
 
 
 # Test data constants

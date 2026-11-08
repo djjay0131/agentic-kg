@@ -11,9 +11,15 @@ from agentic_kg.knowledge_graph.models.research_cycle import (
 )
 from agentic_kg.knowledge_graph.research_cycles import ResearchCycleNotFoundError
 from agentic_kg.pipeline.cycle import CycleBudgetExceeded
+from agentic_kg_api import iap
+from agentic_kg_api.config import reset_api_config
 from agentic_kg_api.dependencies import get_research_cycles
 from agentic_kg_api.main import app
 from fastapi.testclient import TestClient
+
+from .iap_test_support import AUDIENCE, KID, make_signer, make_token
+
+PUBLIC_PEM, SIGNER = make_signer()
 
 
 def make_cycle() -> ResearchCycle:
@@ -91,6 +97,18 @@ def client(service):
         app.dependency_overrides.clear()
 
 
+@pytest.fixture
+def iap_mode(monkeypatch):
+    monkeypatch.setenv("AUTH_MODE", "iap")
+    monkeypatch.setenv("IAP_AUDIENCE", AUDIENCE)
+    reset_api_config()
+    iap.reset_iap_key_cache()
+    monkeypatch.setattr(iap, "_fetch_iap_keys", lambda: {KID: PUBLIC_PEM})
+    yield
+    reset_api_config()
+    iap.reset_iap_key_cache()
+
+
 def test_lists_cycles_and_pending_gates(client):
     cycles = client.get("/api/research/cycles")
     assert cycles.status_code == 200
@@ -156,3 +174,25 @@ def test_budget_refusal_is_409(client, service):
     )
     assert response.status_code == 409
     assert "max_experiments" in response.json()["detail"]
+
+
+def test_no_assertion_is_401_in_iap_mode(client, iap_mode):
+    response = client.post(
+        "/api/research/gates/cycle-1/wf-1",
+        headers={"X-User-ID": "alice"},
+        json={"gate": "select_problem", "decision": "approve"},
+    )
+    assert response.status_code == 401
+
+
+def test_decision_records_the_verified_email(client, service, iap_mode):
+    token = make_token(SIGNER, email="tester@vt.edu")
+    response = client.post(
+        "/api/research/gates/cycle-1/wf-1",
+        headers={"x-goog-iap-jwt-assertion": token},
+        json={"gate": "select_problem", "decision": "approve", "note": "go"},
+    )
+    assert response.status_code == 200
+    decision = response.json()["workflow_runs"][0]["gate_decisions"][0]
+    assert decision["decided_by"] == "tester@vt.edu"
+    assert service.calls[0][2]["user_id"] == "tester@vt.edu"

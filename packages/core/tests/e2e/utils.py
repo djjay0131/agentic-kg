@@ -169,15 +169,25 @@ def seed_test_problem(
 class StagingAPIClient:
     """Wrapper for staging API with retry logic."""
 
-    def __init__(self, base_url: str, timeout: float = 30.0):
+    def __init__(
+        self,
+        base_url: str,
+        timeout: float = 30.0,
+        headers: dict[str, str] | None = None,
+    ):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.headers = headers or {}
         self._client: httpx.Client | None = None
 
     @property
     def client(self) -> httpx.Client:
         if self._client is None:
-            self._client = httpx.Client(base_url=self.base_url, timeout=self.timeout)
+            self._client = httpx.Client(
+                base_url=self.base_url,
+                timeout=self.timeout,
+                headers=self.headers,
+            )
         return self._client
 
     def close(self) -> None:

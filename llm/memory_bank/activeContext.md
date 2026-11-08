@@ -7,6 +7,23 @@ Last updated: 2026-10-26
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
 
+## Staging Google sign-in (2026-11-03, T47)
+
+`feat/staging-sign-in` (ADR-0012) puts IAP directly on the UI Cloud Run service
+and makes the API private. The browser talks only to the UI; a Next.js route
+handler proxies `/api/*` and `/health` to the API with the user's
+`x-goog-iap-jwt-assertion` and the UI service account's metadata ID token. The
+API's `current_user` dependency verifies the IAP JWT (ES256, IAP public keys
+cached, audience from `IAP_AUDIENCE`) and records the verified email as
+`decided_by`; `AUTH_MODE=dev` is the local-only `X-User-ID` fallback. Terraform
+owns `app_iap_enabled` (staging true), `app_allowed_members` (default
+`user:djjay@vt.edu`), the IAP annotation, the project-level
+`roles/iap.httpsResourceAccessor` grants, and the API invoker bindings for the
+UI SA, check Job and CI. Machine callers mint Cloud Run ID tokens; the API-key
+gate is unchanged. With `feat/research-loop` now on master, the research-gates
+router uses the same `current_user` dependency, so a gate decision records the
+verified email too. Runbook: `docs/operations/adding-a-tester.md`.
+
 ## Research-progression loop (2026-10-26, T45)
 
 `feat/research-loop` closes the loop from the proposal §IV-E / §V-G5. One
