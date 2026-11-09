@@ -4,8 +4,12 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 
-const WS_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000')
-  .replace(/^http/, 'ws');
+// In staging the API is private and reached through the same-origin proxy,
+// which cannot upgrade WebSockets. The workflow page already polls every 3s,
+// so live updates are disabled there; local development may still use a direct
+// API URL and the WebSocket transport.
+const PUBLIC_API_URL = process.env.NEXT_PUBLIC_API_URL;
+const WS_URL = PUBLIC_API_URL ? PUBLIC_API_URL.replace(/^http/, 'ws') : '';
 
 export interface WorkflowMessage {
   type: 'step_update' | 'checkpoint' | 'error' | 'complete' | 'pong';
@@ -24,7 +28,7 @@ export function useWorkflowWebSocket(runId: string | null) {
   const [lastMessage, setLastMessage] = useState<WorkflowMessage | null>(null);
 
   const connect = useCallback(() => {
-    if (!runId) return;
+    if (!runId || !WS_URL) return;
 
     const ws = new WebSocket(`${WS_URL}/api/agents/ws/workflows/${runId}`);
 

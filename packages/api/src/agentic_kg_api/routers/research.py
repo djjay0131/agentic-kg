@@ -6,16 +6,17 @@ can show one work queue. ``POST /api/research/gates/{cycle}/{workflow}`` records
 a decision (who/when/note) on the cycle and resumes the workflow through the
 durable checkpoint store.
 
-A decision needs ``X-User-ID`` for the same reason the review queue does: every
-gate has a named human behind it. Rejection still resumes the workflow so
-LangGraph closes it, but its routing function never reaches synthesis, so a
-rejection writes nothing canonical.
+Authentication is the shared :func:`agentic_kg_api.dependencies.current_user`
+dependency (ADR-0012): staging requires a verified IAP assertion and records the
+authenticated email; only ``AUTH_MODE=dev`` accepts ``X-User-ID``. Every gate
+has a named human behind it. Rejection still resumes the workflow so LangGraph
+closes it, but its routing function never reaches synthesis, so a rejection
+writes nothing canonical.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from agentic_kg.knowledge_graph.models.research_cycle import (
     GateDecision,
@@ -25,9 +26,9 @@ from agentic_kg.knowledge_graph.research_cycles import (
     ResearchCycleNotFoundError,
 )
 from agentic_kg.pipeline.cycle import CycleBudgetExceeded, ResearchCycleService
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from agentic_kg_api.dependencies import get_research_cycles
+from agentic_kg_api.dependencies import current_user, get_research_cycles
 from agentic_kg_api.schemas import (
     PendingResearchGate,
     PendingResearchGateListResponse,
@@ -41,18 +42,6 @@ from agentic_kg_api.schemas import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/research", tags=["research"])
-
-
-def _require_user(
-    x_user_id: Optional[str] = Header(default=None, alias="X-User-ID"),
-) -> str:
-    """Require X-User-ID, the mechanism the other mutating review routes use."""
-    if not x_user_id:
-        raise HTTPException(
-            status_code=401,
-            detail="X-User-ID header required for this operation",
-        )
-    return x_user_id
 
 
 def _decision(record: GateDecision) -> ResearchGateDecisionResponse:
@@ -106,9 +95,7 @@ def list_cycles(
 ) -> ResearchCycleListResponse:
     """List cycle records newest first."""
     cycles = service.list(limit=limit)
-    return ResearchCycleListResponse(
-        cycles=[_cycle(cycle) for cycle in cycles], total=len(cycles)
-    )
+    return ResearchCycleListResponse(cycles=[_cycle(cycle) for cycle in cycles], total=len(cycles))
 
 
 @router.get("/cycles/{cycle_id}", response_model=ResearchCycleResponse)
@@ -153,7 +140,7 @@ async def decide_gate(
     cycle_id: str,
     workflow_run_id: str,
     request: ResearchGateDecisionRequest,
-    user_id: str = Depends(_require_user),
+    user_id: str = Depends(current_user),
     service: ResearchCycleService = Depends(get_research_cycles),
 ) -> ResearchCycleResponse:
     """Approve, reject or edit one gate and resume its workflow.

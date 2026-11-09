@@ -22,9 +22,13 @@ from agentic_kg.knowledge_graph.review_items import (
     ReviewItemNotFoundError,
     ReviewItemNotPendingError,
 )
+from agentic_kg_api import iap
+from agentic_kg_api.config import reset_api_config
 from agentic_kg_api.dependencies import get_pipeline_runs, get_review_items
 from agentic_kg_api.main import app
 from fastapi.testclient import TestClient
+
+from .iap_test_support import AUDIENCE, KID, make_signer, make_token
 
 
 def make_item(**overrides) -> ReviewItem:
@@ -254,6 +258,49 @@ class TestDecision:
             headers={"X-User-ID": "alice"},
         )
         assert response.status_code == 422
+
+    def test_iap_verified_email_is_recorded_as_decided_by(
+        self, client, service, monkeypatch
+    ):
+        public_pem, signer = make_signer()
+        monkeypatch.setenv("AUTH_MODE", "iap")
+        monkeypatch.setenv("IAP_AUDIENCE", AUDIENCE)
+        monkeypatch.setattr(iap, "_fetch_iap_keys", lambda: {KID: public_pem})
+        iap.reset_iap_key_cache()
+        reset_api_config()
+
+        item = make_item()
+        service.items[item.id] = item
+        token = make_token(signer, email="reviewer@vt.edu")
+        response = client.post(
+            f"/api/review/{item.id}",
+            json={"decision": "approve"},
+            headers={"x-goog-iap-jwt-assertion": token},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["decided_by"] == "reviewer@vt.edu"
+
+        reset_api_config()
+        iap.reset_iap_key_cache()
+
+    def test_iap_mode_rejects_x_user_id_only(self, client, service, monkeypatch):
+        monkeypatch.setenv("AUTH_MODE", "iap")
+        monkeypatch.setenv("IAP_AUDIENCE", AUDIENCE)
+        reset_api_config()
+        item = make_item()
+        service.items[item.id] = item
+
+        response = client.post(
+            f"/api/review/{item.id}",
+            json={"decision": "approve"},
+            headers={"X-User-ID": "alice"},
+        )
+
+        assert response.status_code == 401
+        assert service.committer_calls == 0
+
+        reset_api_config()
 
 
 class TestRunAgreement:

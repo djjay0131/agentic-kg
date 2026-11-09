@@ -30,7 +30,11 @@ class TestWorkflowAPIE2E:
     @pytest.fixture
     def api_client(self, e2e_config: E2EConfig) -> httpx.Client:
         """Create HTTP client for API."""
-        return httpx.Client(base_url=e2e_config.api_url, timeout=60.0)
+        return httpx.Client(
+            base_url=e2e_config.api_url,
+            timeout=60.0,
+            headers=e2e_config.auth_headers,
+        )
 
     def test_start_workflow_returns_run_id(self, api_client: httpx.Client):
         """Test starting a workflow returns a run ID."""
@@ -78,7 +82,11 @@ class TestWorkflowWithLLM:
     @pytest.fixture
     def api_client(self, e2e_config: E2EConfig) -> httpx.Client:
         """Create HTTP client with longer timeout for workflow."""
-        return httpx.Client(base_url=e2e_config.api_url, timeout=120.0)
+        return httpx.Client(
+            base_url=e2e_config.api_url,
+            timeout=120.0,
+            headers=e2e_config.auth_headers,
+        )
 
     @pytest.mark.asyncio
     async def test_workflow_starts_and_reaches_checkpoint(
@@ -93,6 +101,7 @@ class TestWorkflowWithLLM:
         async with httpx.AsyncClient(
             base_url=e2e_config.api_url,
             timeout=120.0,
+            headers=e2e_config.auth_headers,
         ) as client:
             # Start workflow
             response = await client.post(
@@ -202,7 +211,11 @@ class TestCheckpointSubmission:
     @pytest.fixture
     def api_client(self, e2e_config: E2EConfig) -> httpx.Client:
         """Create HTTP client for API."""
-        return httpx.Client(base_url=e2e_config.api_url, timeout=60.0)
+        return httpx.Client(
+            base_url=e2e_config.api_url,
+            timeout=60.0,
+            headers=e2e_config.auth_headers,
+        )
 
     def test_submit_checkpoint_to_nonexistent_workflow(self, api_client: httpx.Client):
         """Test submitting checkpoint to non-existent workflow returns 404."""

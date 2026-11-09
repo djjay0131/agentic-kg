@@ -3,7 +3,7 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Header, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from agentic_kg.knowledge_graph.models import (
     PendingReview,
@@ -14,7 +14,7 @@ from agentic_kg.knowledge_graph.review_queue import (
     ReviewNotFoundError,
 )
 
-from agentic_kg_api.dependencies import get_review_queue
+from agentic_kg_api.dependencies import current_user, get_review_queue
 from agentic_kg_api.schemas import (
     AgentContextResponse,
     PendingReviewDetail,
@@ -101,18 +101,6 @@ def _review_to_detail(review: PendingReview) -> PendingReviewDetail:
     )
 
 
-def _require_user(
-    x_user_id: Optional[str] = Header(default=None, alias="X-User-ID"),
-) -> str:
-    """Require X-User-ID header for authenticated operations."""
-    if not x_user_id:
-        raise HTTPException(
-            status_code=401,
-            detail="X-User-ID header required for this operation",
-        )
-    return x_user_id
-
-
 # =============================================================================
 # GET /api/reviews/pending - List Pending Reviews
 # =============================================================================
@@ -179,13 +167,13 @@ async def get_review(
 @router.post("/{review_id}/assign", response_model=PendingReviewDetail)
 async def assign_review(
     review_id: str,
-    user_id: str = Depends(_require_user),
+    user_id: str = Depends(current_user),
     queue_service: ReviewQueueService = Depends(get_review_queue),
 ) -> PendingReviewDetail:
     """
     Assign a review to the current user.
 
-    Requires X-User-ID header for authentication.
+    Requires a verified human identity (IAP assertion; X-User-ID only in dev).
     """
     try:
         review = await queue_service.assign(review_id, user_id)
@@ -206,13 +194,13 @@ async def assign_review(
 @router.post("/{review_id}/unassign", response_model=PendingReviewDetail)
 async def unassign_review(
     review_id: str,
-    user_id: str = Depends(_require_user),
+    user_id: str = Depends(current_user),
     queue_service: ReviewQueueService = Depends(get_review_queue),
 ) -> PendingReviewDetail:
     """
     Unassign a review (return to pending).
 
-    Requires X-User-ID header for authentication.
+    Requires a verified human identity (IAP assertion; X-User-ID only in dev).
     """
     try:
         review = await queue_service.unassign(review_id)
@@ -234,13 +222,13 @@ async def unassign_review(
 async def resolve_review(
     review_id: str,
     request: ReviewResolutionRequest,
-    user_id: str = Depends(_require_user),
+    user_id: str = Depends(current_user),
     queue_service: ReviewQueueService = Depends(get_review_queue),
 ) -> PendingReviewDetail:
     """
     Resolve a pending review with a decision.
 
-    Requires X-User-ID header for authentication.
+    Requires a verified human identity (IAP assertion; X-User-ID only in dev).
 
     Resolution types:
     - linked: Link mention to an existing concept (requires concept_id)

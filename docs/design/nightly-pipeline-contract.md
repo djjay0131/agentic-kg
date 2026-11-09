@@ -102,9 +102,11 @@ GET  /api/review?status=&type=&run_id=&limit=&offset=
      -> {"items":[ReviewItem summary...], "total": int, "limit": int, "offset": int}
 GET  /api/review/{id} -> full ReviewItem ; 404 if unknown
 POST /api/review/{id} {"decision": "approve"|"reject", "note": str|null}
-     Requires X-User-ID (the same mechanism as the legacy review routes).
-     approve -> KGCS commit path; reject -> decision only. Both append an
-     immutable :Canon__ReviewDecision node. 409 if not pending / not committable.
+     Requires a verified human identity (ADR-0012): on staging the API verifies
+     the IAP signed assertion forwarded by the UI and records its email; only
+     AUTH_MODE=dev accepts X-User-ID. approve -> KGCS commit path; reject ->
+     decision only. Both append an immutable :Canon__ReviewDecision node. 409 if
+     not pending / not committable.
 ```
 
 Approval calls `agentic_kg.migration.curation.commit.commit_candidate`, which

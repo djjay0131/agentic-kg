@@ -126,9 +126,7 @@ def test_secret_store_reads_a_version_without_logging_it(caplog) -> None:
         calls.append((url, method, headers))
         if "metadata" in url:
             return json.dumps({"access_token": "tok"}).encode()
-        return json.dumps(
-            {"payload": {"data": base64.b64encode(value.encode()).decode()}}
-        ).encode()
+        return json.dumps({"payload": {"data": base64.b64encode(value.encode()).decode()}}).encode()
 
     with caplog.at_level("DEBUG"):
         result = SecretStore("p", http).access_version("API_KEY")
@@ -167,6 +165,23 @@ def test_check_passes_on_200_ok_and_sends_the_header() -> None:
     check_mod.check_api_key("https://api.example/", "KEY-0123456789", http=http)
     assert seen[0].full_url == "https://api.example/api/auth/check"
     assert seen[0].get_header("X-api-key") == "KEY-0123456789"
+    assert seen[0].get_header("Authorization") is None
+
+
+def test_check_sends_the_cloud_run_identity_token_when_present() -> None:
+    seen = []
+
+    def http(request, *, timeout):
+        seen.append(request)
+        return _Response(200, b'{"ok": true}')
+
+    check_mod.check_api_key(
+        "https://api.example",
+        "KEY-0123456789",
+        http=http,
+        identity_token="id-token-xyz",
+    )
+    assert seen[0].get_header("Authorization") == "Bearer id-token-xyz"
 
 
 def test_check_fails_on_wrong_status_or_body() -> None:
@@ -214,6 +229,7 @@ def test_check_main_prints_only_pass_fail_and_the_key(monkeypatch, capsys) -> No
     key = "KEY-0123456789-ultra-secret"
     monkeypatch.setenv("API_URL", "https://api.example")
     monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "p")
+    monkeypatch.setenv("API_ID_TOKEN", "test-id-token")
 
     class _Reader:
         def __init__(self, project: str) -> None:

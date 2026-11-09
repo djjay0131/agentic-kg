@@ -96,16 +96,9 @@ import {
   id = "projects/vt-gcp-00042/locations/us-central1/jobs/agentic-kg-ingest-staging"
 }
 
-# IAM member imports are space-delimited: resource, role, member.
-import {
-  to = google_cloud_run_v2_service_iam_member.api_public
-  id = "projects/vt-gcp-00042/locations/us-central1/services/agentic-kg-api-staging roles/run.invoker allUsers"
-}
-
-import {
-  to = google_cloud_run_v2_service_iam_member.ui_public
-  id = "projects/vt-gcp-00042/locations/us-central1/services/agentic-kg-ui-staging roles/run.invoker allUsers"
-}
+# The public invoker bindings are count-gated by app_iap_enabled, so their
+# state addresses moved from the unindexed form to [0] (see the moved blocks in
+# main.tf). They are already in state; no import is needed here.
 
 import {
   to = google_cloud_run_v2_job_iam_member.api_can_run_ingest
