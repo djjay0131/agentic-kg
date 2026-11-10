@@ -1161,14 +1161,15 @@ resource "google_cloud_run_v2_job_iam_member" "api_can_invoke_experiment" {
 # =============================================================================
 # Human sign-in — IAP directly on the UI Cloud Run service (ADR-0012)
 # =============================================================================
-# Enabling IAP is the `run.googleapis.com/iap-enabled` service annotation, the
-# same switch `gcloud run services update --iap` flips. The provider version
-# this repo pins does not expose `iap_enabled`, so the annotation is used
-# instead; the Cloud Run API accepts it.
+# IAP is enabled with the provider's first-class `iap_enabled` field on the UI
+# service (see below), not the `run.googleapis.com/iap-enabled` annotation:
+# Cloud Run API v2 rejects that annotation as a system annotation
+# (`Error 400: system annotations are not supported in Cloud Run API v2`).
+# `iap_enabled` is beta-only, which is why the UI resource uses google-beta.
 #
-# Access is a project-level grant of roles/iap.httpsResourceAccessor. Per the
-# IAP docs, project-level principals apply to every IAP-secured resource in the
-# project, and this project has exactly one such app.
+# Access is scoped to the UI service with the per-service IAP IAM resource.
+# The old project-level roles/iap.httpsResourceAccessor grant would also cover
+# every future IAP-secured app in the project, so it is deliberately not used.
 resource "google_project_service_identity" "iap" {
   provider = google-beta
   count    = var.app_iap_enabled ? 1 : 0
@@ -1179,14 +1180,20 @@ resource "google_project_service_identity" "iap" {
   depends_on = [google_project_service.apis]
 }
 
-resource "google_project_iam_member" "iap_web_user" {
+resource "google_iap_web_cloud_run_service_iam_member" "iap_web_user" {
+  provider = google-beta
   for_each = var.app_iap_enabled ? toset(var.app_allowed_members) : toset([])
 
-  project = var.project_id
-  role    = "roles/iap.httpsResourceAccessor"
-  member  = each.value
+  project                = var.project_id
+  location               = var.region
+  cloud_run_service_name = google_cloud_run_v2_service.ui.name
+  role                   = "roles/iap.httpsResourceAccessor"
+  member                 = each.value
 
-  depends_on = [google_project_service.apis]
+  depends_on = [
+    google_project_service.apis,
+    google_project_service_identity.iap,
+  ]
 }
 
 # The UI runtime identity. It is the only caller of the private API besides
@@ -1204,12 +1211,17 @@ resource "google_service_account" "ui" {
 # Cloud Run — UI service (Next.js)
 # =============================================================================
 resource "google_cloud_run_v2_service" "ui" {
+  # `iap_enabled` is a beta-only field (google-beta >= 6.30). The Cloud Run API
+  # v2 rejects the legacy `run.googleapis.com/iap-enabled` annotation.
+  provider = google-beta
+
   name     = local.ui_service_name
   location = var.region
 
-  annotations = var.app_iap_enabled ? {
-    "run.googleapis.com/iap-enabled" = "true"
-  } : {}
+  # IAP is a preview feature, so enabling it requires the BETA launch stage.
+  # When IAP is off the service stays on GA, unchanged from before ADR-0012.
+  launch_stage = var.app_iap_enabled ? "BETA" : "GA"
+  iap_enabled  = var.app_iap_enabled ? true : null
 
   template {
     # With IAP enabled the UI runs as its own service account so it can be

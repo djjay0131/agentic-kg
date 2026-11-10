@@ -167,9 +167,9 @@ variable "app_iap_enabled" {
 variable "app_allowed_members" {
   description = <<-EOT
     Humans allowed through IAP, as IAM member strings ("user:email",
-    "group:...", "domain:..."). The role is the project-level
-    roles/iap.httpsResourceAccessor, which IAM inherits for every IAP-secured
-    resource. Adding a tester is one entry plus an apply.
+    "group:...", "domain:..."). Each member gets roles/iap.httpsResourceAccessor
+    on the UI Cloud Run service only (project-level IAP grants are deliberately
+    avoided). Adding a tester is one entry plus an apply.
   EOT
   type        = list(string)
   default     = ["user:djjay@vt.edu"]

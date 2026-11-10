@@ -31,9 +31,9 @@ id.
    - `environment`: `staging`
    - `apply`: `true`
 
-   The apply grants `roles/iap.httpsResourceAccessor` to each member. Per the
-   IAP documentation, a project-level principal applies to every IAP-secured
-   resource in the project.
+   The apply grants `roles/iap.httpsResourceAccessor` on the UI Cloud Run
+   service only, through `google_iap_web_cloud_run_service_iam_member`. There is
+   no project-wide IAP grant, so this cannot widen access to another app.
 
 3. Ask the tester to open the UI URL in a fresh incognito window, sign in with
    the Google account you added, and confirm the sidebar shows that email.
@@ -54,8 +54,8 @@ stops at the UI service, the **owner** must do this once:
    personal/no-org project; **Internal** works only for same-org users).
 3. Add `user:djjay@vt.edu` (and any testers) under the IAP policy, or let the
    next Terraform apply add them.
-4. Re-run **Actions → Terraform → apply: true**. The annotation, IAM bindings
-   and API env converge on the second run.
+4. Re-run **Actions → Terraform → apply: true**. The `iap_enabled` field, the
+   per-service IAM bindings and the API env converge on the second run.
 
 For a project without an organization, if the console asks for a custom OAuth
 client, follow **Configure a custom OAuth client** in
