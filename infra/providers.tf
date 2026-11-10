@@ -9,10 +9,13 @@ terraform {
     }
     # The ingest Job's GCS ledger volume (`gcs` on `google_cloud_run_v2_job`) is
     # a Cloud Run preview feature: it is only in the beta provider and requires
-    # `launch_stage = "BETA"`. Everything else stays on the stable provider.
+    # `launch_stage = "BETA"`. The UI service's IAP switch (`iap_enabled`) and
+    # the per-service IAP IAM resource are beta-only too: `iap_enabled` arrived
+    # in google-beta 6.30, and `google_iap_web_cloud_run_service_iam_member` in
+    # 6.31. Everything else stays on the stable provider.
     google-beta = {
       source  = "hashicorp/google-beta"
-      version = "~> 5.0"
+      version = "~> 6.31"
     }
     # The `random` provider was removed with `random_password.neo4j`: the Neo4j
     # password value is now owned by the rotation workflow, not Terraform.
