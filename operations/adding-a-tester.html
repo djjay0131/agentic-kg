@@ -30,9 +30,9 @@ id.</p>
       <li><code class="language-plaintext highlighter-rouge">apply</code>: <code class="language-plaintext highlighter-rouge">true</code></li>
     </ul>
 
-    <p>The apply grants <code class="language-plaintext highlighter-rouge">roles/iap.httpsResourceAccessor</code> to each member. Per the
-IAP documentation, a project-level principal applies to every IAP-secured
-resource in the project.</p>
+    <p>The apply grants <code class="language-plaintext highlighter-rouge">roles/iap.httpsResourceAccessor</code> on the UI Cloud Run
+service only, through <code class="language-plaintext highlighter-rouge">google_iap_web_cloud_run_service_iam_member</code>. There is
+no project-wide IAP grant, so this cannot widen access to another app.</p>
   </li>
   <li>
     <p>Ask the tester to open the UI URL in a fresh incognito window, sign in with
@@ -57,8 +57,8 @@ If prompted, configure the OAuth consent screen (audience <strong>External</stro
 personal/no-org project; <strong>Internal</strong> works only for same-org users).</li>
   <li>Add <code class="language-plaintext highlighter-rouge">user:djjay@vt.edu</code> (and any testers) under the IAP policy, or let the
 next Terraform apply add them.</li>
-  <li>Re-run <strong>Actions → Terraform → apply: true</strong>. The annotation, IAM bindings
-and API env converge on the second run.</li>
+  <li>Re-run <strong>Actions → Terraform → apply: true</strong>. The <code class="language-plaintext highlighter-rouge">iap_enabled</code> field, the
+per-service IAM bindings and the API env converge on the second run.</li>
 </ol>
 
 <p>For a project without an organization, if the console asks for a custom OAuth
