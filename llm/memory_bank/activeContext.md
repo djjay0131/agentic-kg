@@ -1,11 +1,25 @@
 # Active Context
 
-Last updated: 2026-10-26
+Last updated: 2026-11-10
 
 > Newest entries at the top. History through 2026-07 lives in
 > [`archive/activeContext-through-2026-07.md`](archive/activeContext-through-2026-07.md)
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
+
+## IAP enablement fix (2026-11-10, T50)
+
+The first `app_iap_enabled = true` apply (run 42650826106) failed because Cloud
+Run API v2 rejects the `run.googleapis.com/iap-enabled` system annotation.
+Terraform now sets `iap_enabled = true` on `google_cloud_run_v2_service.ui`
+(provider google-beta, `launch_stage = "BETA"` while IAP is on) and grants
+`roles/iap.httpsResourceAccessor` with the per-service
+`google_iap_web_cloud_run_service_iam_member` instead of the project-level
+binding. The provider pin moved from google-beta `~> 5.0` to `~> 6.31`
+(`iap_enabled` in 6.30, per-service IAP IAM in 6.31). The UI service is updated
+in place; the only destroys are the two old project-level IAM member bindings
+replaced by narrower per-service ones. Detail: ADR-0012 and
+`docs/operations/adding-a-tester.md`.
 
 ## Staging Google sign-in (2026-11-03, T47)
 
@@ -17,7 +31,7 @@ API's `current_user` dependency verifies the IAP JWT (ES256, IAP public keys
 cached, audience from `IAP_AUDIENCE`) and records the verified email as
 `decided_by`; `AUTH_MODE=dev` is the local-only `X-User-ID` fallback. Terraform
 owns `app_iap_enabled` (staging true), `app_allowed_members` (default
-`user:djjay@vt.edu`), the IAP annotation, the project-level
+`user:djjay@vt.edu`), the UI service's `iap_enabled` field, the per-service
 `roles/iap.httpsResourceAccessor` grants, and the API invoker bindings for the
 UI SA, check Job and CI. Machine callers mint Cloud Run ID tokens; the API-key
 gate is unchanged. With `feat/research-loop` now on master, the research-gates

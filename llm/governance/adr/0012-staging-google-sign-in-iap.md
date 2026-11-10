@@ -30,9 +30,12 @@ OAuth client.
 
 1. **IAP directly on the UI Cloud Run service, with no load balancer.** Enabling
    IAP on the `run.app` endpoint is the documented preferred path and avoids a
-   load balancer. Terraform sets the `run.googleapis.com/iap-enabled` service
-   annotation (the switch `gcloud run services update --iap` flips) because the
-   pinned Google provider does not expose `iap_enabled`.
+   load balancer. Terraform sets the provider's first-class `iap_enabled` field
+   on `google_cloud_run_v2_service.ui`, with `launch_stage = "BETA"` while IAP
+   is enabled. The field is beta-only (google-beta `>= 6.30`), so that one
+   resource uses the beta provider. The legacy `run.googleapis.com/iap-enabled`
+   annotation is **not** used: Cloud Run API v2 rejects it with
+   `system annotations are not supported in Cloud Run API v2`.
 
 2. **The API is private, not public, and is reached server-side.** IAP issues a
    signed assertion per *resource*: the `aud` claim is the UI service's IAP
@@ -60,13 +63,17 @@ OAuth client.
    Unknown modes are treated as `iap`. The review and research-gates routers
    use `current_user` and record its return value as `decided_by`.
 
-4. **The allowlist lives in Terraform.** `var.app_allowed_members` is a list of
-   IAM members (`"user:djjay@vt.edu"` by default). Terraform grants each
-   `roles/iap.httpsResourceAccessor` project-wide; per the IAP documentation,
-   project-level principals apply to every IAP-secured resource in the project,
-   and there is exactly one. Adding a tester is one tfvars entry plus an apply.
+4. **The allowlist lives in Terraform, scoped to the UI service.**
+   `var.app_allowed_members` is a list of IAM members (`"user:djjay@vt.edu"` by
+   default). Terraform grants each `roles/iap.httpsResourceAccessor` with
+   `google_iap_web_cloud_run_service_iam_member`, so the grant covers only
+   `agentic-kg-ui-<env>`. The earlier project-level binding is gone: a
+   project-level principal would apply to every IAP-secured resource in the
+   project. Adding a tester is one tfvars entry plus an apply.
    `var.app_iap_enabled` gates the whole posture (staging true, prod unchanged
-   by default).
+   by default). The per-service IAM resource is also beta-only
+   (google-beta `>= 6.31`); that is why the provider pin moved from `~> 5.0`
+   to `~> 6.31`.
 
 5. **Machine callers use service-account identity or the existing API key.**
    - UI proxy → private API: the UI runtime SA's metadata ID token (audience =
@@ -120,9 +127,13 @@ runbook), not something to work around.
 - WebSocket updates on the workflow page cannot traverse the Next.js proxy.
   The page already polls every 3 seconds, so staging uses polling; local
   development with `NEXT_PUBLIC_API_URL` keeps the WebSocket.
-- Project-level `roles/iap.httpsResourceAccessor` grants access to all
-  IAP-secured web apps in the project. There is one today; if that changes,
-  move to per-service IAP IAM.
+- The IAP allowlist is per service; a second IAP-secured app needs its own
+  `google_iap_web_cloud_run_service_iam_member` entries. That is the intended
+  least-privilege tradeoff, not shared project-wide access.
+- The UI resource now depends on google-beta `>= 6.31` (the minimum with both
+  `iap_enabled` and the per-service IAP IAM resource). The migration from the
+  project-level grant is a one-time replacement of two IAM member resources;
+  the Cloud Run service itself is updated in place.
 
 ### Risks / Owner bootstrap
 
