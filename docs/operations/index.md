@@ -12,6 +12,7 @@ production — the concrete steps to take when a run misbehaves, and the knobs
 that change its behavior.
 
 - [Extraction throughput (OpenAI rate limits)](extraction-throughput-runbook.html)
+- [Embedding backfill (semantic search recovery)](embedding-backfill.html)
 - [Structured re-sync (`@snapshot=` locators)](structured-resync-runbook.html)
 - [Neo4j hardening (private staging + password rotation)](neo4j-hardening-runbook.html)
 - [Semantic Scholar API key (staging ingest Job)](semantic-scholar-key-runbook.html)
