@@ -19,6 +19,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/extract", tags=["extraction"])
 
 
+def _raise_on_pipeline_failure(result) -> None:
+    """Surface a failed pipeline stage as a 5xx, never a silent empty success.
+
+    A pipeline that found no problems is a valid 200; a pipeline whose
+    extraction stage raised is not. The stage records the provider/parse error,
+    so return it (bounded) instead of an empty ``problems: []`` with
+    ``success: false``.
+    """
+    failures = [stage for stage in result.stages if not stage.success]
+    if not failures:
+        return
+    detail = "; ".join(
+        f"{stage.stage}: {stage.error or 'failed'}" for stage in failures
+    )
+    raise HTTPException(status_code=502, detail=f"extraction failed: {detail}"[:1000])
+
+
 def _result_to_response(result) -> ExtractResponse:
     """Convert PaperProcessingResult to API response."""
     problems = []
@@ -61,6 +78,8 @@ async def extract(req: Request, request: ExtractRequest) -> ExtractResponse:
             status_code=400,
             detail="Must provide either 'url' or 'text'",
         )
+    if request.text is not None and not request.text.strip():
+        raise HTTPException(status_code=400, detail="'text' must not be empty")
 
     pipeline = get_pipeline()
 
@@ -85,6 +104,7 @@ async def extract(req: Request, request: ExtractRequest) -> ExtractResponse:
             authors=request.authors,
         )
 
+    _raise_on_pipeline_failure(result)
     return _result_to_response(result)
 
 

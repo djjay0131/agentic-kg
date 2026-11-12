@@ -183,3 +183,30 @@ class TestExtractBatch:
         assert response.status_code == 200
         data = response.json()
         assert data["total"] == 0
+
+
+class TestExtractSurfacesFailures:
+    """A failed pipeline stage must be an error response, not empty success."""
+
+    @patch("agentic_kg_api.routers.extract.get_pipeline")
+    def test_failed_stage_is_502_with_the_stage_error(self, mock_get_pipeline, client):
+        mock_pipeline = MagicMock()
+        result = _make_pipeline_result(success=False, problem_count=0, relation_count=0)
+        failed = MagicMock()
+        failed.stage = "problem_extraction"
+        failed.success = False
+        failed.duration_ms = 1.0
+        failed.error = "OpenAI API key not configured"
+        result.stages = [failed]
+        mock_pipeline.process_text = AsyncMock(return_value=result)
+        mock_get_pipeline.return_value = mock_pipeline
+
+        response = client.post("/api/extract", json={"text": "A real abstract."})
+
+        assert response.status_code == 502
+        assert "problem_extraction" in response.json()["detail"]
+        assert "OpenAI API key not configured" in response.json()["detail"]
+
+    def test_whitespace_text_is_400(self, client):
+        response = client.post("/api/extract", json={"text": "   \n  "})
+        assert response.status_code == 400

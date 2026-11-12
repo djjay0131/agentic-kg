@@ -177,8 +177,10 @@ class ProblemExtractor:
             BatchExtractionResult with all extracted problems.
         """
         results = []
+        errors: list[str] = []
         total_problems = 0
         total_high_confidence = 0
+        total_tokens = 0
 
         # Sort sections by priority (lowest number = highest priority)
         sorted_sections = sorted(sections, key=lambda s: s.priority)
@@ -201,13 +203,12 @@ class ProblemExtractor:
 
             except LLMError as e:
                 logger.error(f"Failed to extract from {section.section_type}: {e}")
-                results.append(
-                    ExtractionResult(
-                        problems=[],
-                        section_type=section.section_type.value,
-                        extraction_notes=f"Extraction failed: {e}",
-                    )
-                )
+                # Do not append an empty result: a failed section is not a
+                # successful extraction of zero problems. The pipeline uses
+                # this list to distinguish "nothing found" from "the provider
+                # or parser failed", so a total failure becomes a 5xx rather
+                # than a silent empty success.
+                errors.append(f"{section.section_type.value}: {e}")
 
         return BatchExtractionResult(
             results=results,
@@ -215,6 +216,8 @@ class ProblemExtractor:
             paper_doi=paper_doi,
             total_problems=total_problems,
             total_high_confidence=total_high_confidence,
+            total_tokens=total_tokens,
+            errors=errors,
         )
 
     async def extract_from_text(
