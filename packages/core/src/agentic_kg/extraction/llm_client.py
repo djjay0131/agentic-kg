@@ -241,6 +241,35 @@ class BaseLLMClient(ABC, Generic[T]):
         """
         pass
 
+    async def structured_extract(
+        self,
+        response_model: type[T],
+        system_prompt: Optional[str] = None,
+        user_prompt: Optional[str] = None,
+        *,
+        prompt: Optional[str] = None,
+    ) -> LLMResponse[T]:
+        """Structured extraction using the research agents' call shape.
+
+        The agents were written against a ``structured_extract(response_model=,
+        system_prompt=, user_prompt=)`` interface while the concrete clients
+        implement ``extract(prompt=, response_model=, system_prompt=)``. Keep
+        both: this adapter delegates to :meth:`extract` so every real provider
+        client works, and returns the same :class:`LLMResponse` the agents read
+        via ``response.content``.
+
+        ``prompt`` is accepted as an alias for ``user_prompt`` for callers that
+        use the ``extract`` argument name.
+        """
+        text = user_prompt if user_prompt is not None else prompt
+        if text is None:
+            raise ValueError("structured_extract requires user_prompt or prompt")
+        return await self.extract(
+            prompt=text,
+            response_model=response_model,
+            system_prompt=system_prompt,
+        )
+
 
 class OpenAIClient(BaseLLMClient[T]):
     """OpenAI LLM client with structured output support via instructor."""
