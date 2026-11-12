@@ -67,6 +67,12 @@ COPY --from=builder /opt/venv /opt/venv
 COPY packages/core/src/ packages/core/src/
 COPY packages/api/src/ packages/api/src/
 
+# The research-cycle service loads the versioned autonomy policy from
+# config/research-autonomy.yaml. Without this COPY the API image raised
+# FileNotFoundError while constructing the service, so GET /api/research/cycles
+# and /gates both returned 500 on staging. The Job image already copies it.
+COPY config/ /app/config/
+
 # Change ownership
 RUN chown -R appuser:appgroup /app
 

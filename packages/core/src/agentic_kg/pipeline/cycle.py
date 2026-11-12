@@ -856,7 +856,16 @@ class ResearchCycleService:
     ) -> None:
         self._cycles = cycles
         self._runner = runner
-        self._policy = policy or load_policy()
+        # Loaded lazily. Reading cycles and pending gates must not depend on a
+        # config file being present in the API image; an eager load made both
+        # GET /api/research/cycles and /gates return 500 FileNotFoundError.
+        self._policy = policy
+
+    @property
+    def policy(self) -> AutonomyPolicy:
+        if self._policy is None:
+            self._policy = load_policy()
+        return self._policy
 
     def get(self, cycle_id: str) -> ResearchCycle:
         return self._cycles.get(cycle_id)

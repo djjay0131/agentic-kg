@@ -567,3 +567,27 @@ async def test_auto_policy_resolves_a_gate_without_a_human():
     assert workflow.gate_decisions[0].decision == "auto_approve"
     assert workflow.gate_decisions[0].decided_by == "policy:auto"
     assert result.cycle.policy_version == "auto-select"
+
+
+def test_read_paths_do_not_require_the_autonomy_policy(monkeypatch):
+    """Listing cycles/gates must not 500 when the policy file is absent.
+
+    The API builds a ``ResearchCycleService`` per process; it used to load the
+    autonomy YAML eagerly, so ``GET /api/research/cycles`` and ``/gates`` both
+    returned 500 FileNotFoundError in an image without ``config/``.
+    """
+    from agentic_kg.pipeline import cycle as cycle_module
+
+    def missing_policy():
+        raise FileNotFoundError("autonomy policy not found: config/research-autonomy.yaml")
+
+    monkeypatch.setattr(cycle_module, "load_policy", missing_policy)
+    service = ResearchCycleService(
+        FakeCycleRepository([_gated_cycle()]), FakeRunner()
+    )
+
+    assert [cycle.cycle_id for cycle in service.list()] == ["cycle-1"]
+    assert [cycle.cycle_id for cycle in service.pending_gates()] == ["cycle-1"]
+
+    with pytest.raises(FileNotFoundError):
+        _ = service.policy
