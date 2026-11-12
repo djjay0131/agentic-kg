@@ -121,12 +121,12 @@ the human identity.</li>
       <td>The Google account is not in <code class="language-plaintext highlighter-rouge">app_allowed_members</code>, or the user is outside the OAuth brand’s allowed audience.</td>
     </tr>
     <tr>
-      <td>Sidebar shows “Not signed in”</td>
-      <td>The UI proxy could not reach <code class="language-plaintext highlighter-rouge">/api/auth/me</code>; check the API is private and the UI service account has <code class="language-plaintext highlighter-rouge">run.invoker</code> on it.</td>
+      <td>Sidebar shows “Not signed in” / <code class="language-plaintext highlighter-rouge">401 IAP authentication required</code></td>
+      <td>The UI proxy never received an IAP assertion, or the second hop dropped it. Search the UI logs for <code class="language-plaintext highlighter-rouge">[iap-proxy]</code> (it logs header <strong>names</strong>, never values) and the API logs for <code class="language-plaintext highlighter-rouge">IAP mode request reached the API without an IAP assertion header</code>. The proxy forwards the assertion under both <code class="language-plaintext highlighter-rouge">x-goog-iap-jwt-assertion</code> and the transport alias <code class="language-plaintext highlighter-rouge">x-iap-jwt-assertion</code>; both are signature-verified.</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">401 invalid IAP assertion</code></td>
-      <td>The forwarded assertion’s audience does not match <code class="language-plaintext highlighter-rouge">IAP_AUDIENCE</code> on the API; confirm the UI service name/region and re-apply.</td>
+      <td>The forwarded assertion’s audience does not match <code class="language-plaintext highlighter-rouge">IAP_AUDIENCE</code> on the API. The API logs the reason plus the token’s <code class="language-plaintext highlighter-rouge">aud</code>/<code class="language-plaintext highlighter-rouge">iss</code> (never the token). Correct the UI service name/region, or set <code class="language-plaintext highlighter-rouge">IAP_AUDIENCE_ALIASES</code> to a comma-separated allowlist of additional audience values you have verified.</td>
     </tr>
     <tr>
       <td>Rollout fails for the API health probe</td>
