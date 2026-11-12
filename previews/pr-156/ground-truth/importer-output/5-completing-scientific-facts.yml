@@ -1,0 +1,24 @@
+_note: IMPORTER OUTPUT — machine extraction to diff against the human answer key; NOT the reconciled ground
+  truth.
+_caveats:
+- Topic (BELONGS_TO) not populated — known bug (topics_linked counter increments but no edge persists).
+- Concepts/Models/Methods store name+aliases only; no per-paper quoted_text/confidence retained (only
+  Problems do).
+paper:
+  n: '5'
+  title: Completing Scientific Facts in Knowledge Graphs of Research Concepts
+  doi: 10.1109/ACCESS.2022.3220241
+  year: 2022
+  venue: null
+  s2_paper_id: null
+  status: stub
+topic:
+  domain: null
+  area: null
+  subtopic: null
+  _note: empty — BELONGS_TO bug
+research_concepts: []
+models: []
+methods: []
+problems: []
+cites_within_set: []
