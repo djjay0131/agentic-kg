@@ -113,6 +113,18 @@ runbook), not something to work around.
 
 ## Consequences
 
+### Diagnostics and transport alias
+
+Verification failures are logged server-side with the reason and the token's
+unverified `aud`/`iss` claims — never the token, email or subject. If a
+frontend or intermediary drops the canonical `x-goog-*` header on the second
+hop, the UI proxy also forwards the same signed JWT as
+`x-iap-jwt-assertion`; the API verifies it identically, so the alias adds no
+trust. The documented direct-Cloud-Run audience is
+`/projects/PROJECT_NUMBER/locations/REGION/services/SERVICE_NAME`; an operator
+who observes a different `aud` may add it to the comma-separated
+`IAP_AUDIENCE_ALIASES` allowlist rather than weakening audience validation.
+
 ### Positive
 
 - Every approval/rejection/assignment records a Google-verified email.
