@@ -207,6 +207,9 @@ def require_api_key(
 def current_user(
     x_user_id: Optional[str] = Header(default=None, alias="X-User-ID"),
     iap_assertion: Optional[str] = Header(default=None, alias="x-goog-iap-jwt-assertion"),
+    iap_assertion_alias: Optional[str] = Header(
+        default=None, alias="x-iap-jwt-assertion"
+    ),
 ) -> str:
     """Return the verified human identity for a decision (ADR-0012).
 
@@ -239,10 +242,22 @@ def current_user(
     # Any non-dev mode is iap (config normalises unknown values to iap).
     if not config.iap_audience:
         raise HTTPException(status_code=503, detail="auth not configured")
-    if not iap_assertion:
+    # ``x-iap-jwt-assertion`` is a transport alias the UI proxy sets beside the
+    # canonical IAP header. Some intermediate platforms/proxies drop
+    # ``x-goog-*`` headers; the alias carries the same signed JWT, which is
+    # still fully verified below, so it grants no additional trust.
+    assertion = iap_assertion or iap_assertion_alias
+    if not assertion:
+        # The UI proxy should always forward this header. Log its absence in
+        # IAP mode so an edge/proxy regression is visible server-side; header
+        # values (and the token) are never logged.
+        logger.warning(
+            "IAP mode request reached the API without an IAP assertion header "
+            "(x-goog-iap-jwt-assertion or x-iap-jwt-assertion)"
+        )
         raise HTTPException(status_code=401, detail="IAP authentication required")
     try:
-        return verify_iap_jwt(iap_assertion, config.iap_audience)
+        return verify_iap_jwt(assertion, config.iap_audience)
     except IapAuthError:
         logger.info("rejected an invalid IAP assertion")
         raise HTTPException(status_code=401, detail="invalid IAP assertion")

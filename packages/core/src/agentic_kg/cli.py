@@ -763,6 +763,28 @@ def build_parser() -> argparse.ArgumentParser:
         "-v", "--verbose", action="store_true", help="Enable verbose logging",
     )
 
+    # backfill-embeddings command
+    backfill_cmd = subparsers.add_parser(
+        "backfill-embeddings",
+        help="Generate embeddings for Problem/ProblemConcept nodes that lack one",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    backfill_cmd.add_argument(
+        "--limit", type=int, default=500,
+        help="Max nodes per label to process in this run (default 500).",
+    )
+    backfill_cmd.add_argument(
+        "--dry-run", action="store_true",
+        help="Report how many nodes need an embedding without calling the provider.",
+    )
+    backfill_cmd.add_argument(
+        "--json", dest="json_output", action="store_true",
+        help="Print the report as JSON (for scheduled jobs).",
+    )
+    backfill_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
     # migrate command (Phase 8 first slice)
     migrate_cmd = subparsers.add_parser(
         "migrate",
@@ -1391,6 +1413,38 @@ def run_citation_graph(args) -> None:
                 frontier.append((child_doi, depth + 1))
 
 
+def run_backfill_embeddings(args) -> None:
+    """Generate embeddings for nodes written while the provider was absent."""
+    from agentic_kg.knowledge_graph.embedding_backfill import (
+        backfill_problem_embeddings,
+    )
+
+    report = backfill_problem_embeddings(
+        limit=args.limit,
+        dry_run=args.dry_run,
+    )
+    payload = report.to_dict()
+    if args.json_output:
+        print(json.dumps(payload, indent=2))
+    else:
+        mode = "DRY RUN — would update" if args.dry_run else "Updated"
+        print(f"\n{'='*60}")
+        print("Embedding backfill")
+        print(f"{'='*60}")
+        print(
+            f"  {mode} {report.updated} of {report.seen} nodes "
+            f"({report.concepts_updated}/{report.concepts_seen} concepts, "
+            f"{report.problems_updated}/{report.problems_seen} problems)"
+        )
+        if report.failures:
+            print(f"  Failures: {len(report.failures)}")
+            for failure in report.failures[:20]:
+                print(f"    - {failure}")
+        print()
+    if report.failures:
+        sys.exit(1)
+
+
 def run_migrate(args) -> None:
     """Run the opt-in KGIS/KGCS migration path (Phase 8 first slice).
 
@@ -1516,6 +1570,8 @@ def main(argv: Optional[list[str]] = None) -> None:
         run_link_method(args)
     elif args.command == "citation-graph":
         run_citation_graph(args)
+    elif args.command == "backfill-embeddings":
+        run_backfill_embeddings(args)
     elif args.command == "migrate":
         run_migrate(args)
     elif args.command == "extract":

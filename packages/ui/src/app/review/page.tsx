@@ -135,7 +135,12 @@ function ReviewQueue() {
       )}
 
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        {isLoading ? (
+        {isError ? (
+          <div className="p-8 text-center text-red-700">
+            The review queue could not be loaded. No empty-state result is shown
+            for a failed request.
+          </div>
+        ) : isLoading ? (
           <div className="p-8 text-center text-gray-500">Loading review items...</div>
         ) : items.length === 0 ? (
           <div className="p-8 text-center text-gray-500">

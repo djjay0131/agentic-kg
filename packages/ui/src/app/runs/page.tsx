@@ -63,7 +63,12 @@ export default function RunsPage() {
       )}
 
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        {isLoading ? (
+        {isError ? (
+          <div className="p-8 text-center text-red-700">
+            The run list could not be loaded. No empty-state result is shown for
+            a failed request.
+          </div>
+        ) : isLoading ? (
           <div className="p-8 text-center text-gray-500">Loading runs...</div>
         ) : runs.length === 0 ? (
           <div className="p-8 text-center text-gray-500">{EMPTY_STATE}</div>

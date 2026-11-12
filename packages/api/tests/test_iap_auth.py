@@ -212,3 +212,54 @@ def test_non_es256_algorithm_is_rejected_before_signature_check(iap_mode):
     with pytest.raises(HTTPException) as exc:
         current_user(x_user_id=None, iap_assertion=token)
     assert exc.value.status_code == 401
+
+
+def test_failure_logs_aud_and_iss_but_not_the_token(iap_mode, caplog):
+    import logging
+
+    token = make_token(SIGNER, audience="/projects/1/locations/us-central1/services/other")
+    with caplog.at_level(logging.WARNING, logger="agentic_kg_api.iap"):
+        with pytest.raises(HTTPException):
+            current_user(x_user_id=None, iap_assertion=token)
+
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "aud=" in messages
+    assert "/projects/1/locations/us-central1/services/other" in messages
+    assert "iss=" in messages
+    assert "https://cloud.google.com/iap" in messages
+    assert token not in messages
+
+
+def test_auth_me_accepts_mixed_case_header_name(client, iap_mode):
+    token = make_token(SIGNER)
+    response = client.get(
+        "/api/auth/me", headers={"X-Goog-IAP-JWT-Assertion": token}
+    )
+    assert response.status_code == 200
+    assert response.json() == {"email": "alice@vt.edu"}
+
+
+def test_transport_alias_header_is_accepted(client, iap_mode):
+    token = make_token(SIGNER)
+    response = client.get("/api/auth/me", headers={"x-iap-jwt-assertion": token})
+    assert response.status_code == 200
+    assert response.json() == {"email": "alice@vt.edu"}
+
+
+def test_configured_audience_alias_is_accepted(iap_mode, monkeypatch):
+    alias = "/projects/1/locations/us-central1/services/agentic-kg-ui-staging"
+    monkeypatch.setenv("IAP_AUDIENCE_ALIASES", alias)
+    token = make_token(SIGNER, audience=alias)
+    assert current_user(x_user_id=None, iap_assertion=token) == "alice@vt.edu"
+
+
+def test_unlisted_audience_alias_is_still_rejected(iap_mode, monkeypatch):
+    monkeypatch.setenv(
+        "IAP_AUDIENCE_ALIASES", "/projects/1/locations/us-central1/services/somewhere-else"
+    )
+    token = make_token(
+        SIGNER, audience="/projects/1/locations/us-central1/services/not-listed"
+    )
+    with pytest.raises(HTTPException) as exc:
+        current_user(x_user_id=None, iap_assertion=token)
+    assert exc.value.status_code == 401
