@@ -143,6 +143,23 @@ class TestLegacyProblemView:
         assert view["confidence"] == 0.8
         assert view["assumptions"][0]["text"] == "x"
 
+    def test_legacy_placeholder_section_is_normalised_away(self):
+        node = {
+            "id": "p1",
+            "statement": "A legacy problem statement of sufficient length",
+            "status": "open",
+            "evidence": json.dumps(
+                {
+                    "source_doi": "10.1/x",
+                    "source_title": "T",
+                    "section": "Unknown",
+                    "quoted_text": "q",
+                }
+            ),
+        }
+        view = _repo()._legacy_problem_view(node)
+        assert view["evidence"]["section"] is None
+
     def test_legacy_view_exposes_agent_origin_and_derivation(self):
         node = {
             "id": "synth-1",

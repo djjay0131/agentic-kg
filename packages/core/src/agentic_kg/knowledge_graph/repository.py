@@ -760,7 +760,7 @@ class Neo4jRepository:
             "datasets": self._as_dict_list(data.get("datasets")),
             "metrics": self._as_dict_list(data.get("metrics")),
             "baselines": self._as_dict_list(data.get("baselines")),
-            "evidence": self._as_dict(data.get("evidence")),
+            "evidence": evidence,
             "extraction_metadata": extraction_metadata,
             "mentions": [],
             "papers": [],
