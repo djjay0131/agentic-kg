@@ -17,12 +17,14 @@ interface GraphViewProps {
 const NODE_COLORS: Record<string, string> = {
   problem: '#3b82f6', // blue
   paper: '#10b981',   // green
+  topic: '#8b5cf6',   // purple
   domain: '#8b5cf6',  // purple
 };
 
 const NODE_SIZES: Record<string, number> = {
   problem: 8,
   paper: 6,
+  topic: 10,
   domain: 10,
 };
 
