@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, paperPath } from '@/lib/api';
 import { ArrowLeft, ExternalLink, CheckCircle, AlertCircle } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
@@ -75,7 +75,13 @@ export default function ProblemDetailPage() {
     );
   }
 
-  const confidence = problem.extraction_metadata?.confidence_score;
+  // One field for both list and detail: the read model's ``confidence``.
+  const confidence = problem.confidence;
+  const evidenceSection =
+    problem.evidence?.section &&
+    problem.evidence.section.toLowerCase() !== 'unknown'
+      ? problem.evidence.section
+      : null;
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -148,7 +154,17 @@ export default function ProblemDetailPage() {
             )}
             {problem.evidence.source_title && (
               <p className="text-sm text-gray-600 mb-1">
-                <span className="font-medium">Source:</span> {problem.evidence.source_title}
+                <span className="font-medium">Source:</span>{' '}
+                {problem.evidence.source_doi ? (
+                  <Link
+                    href={paperPath(problem.evidence.source_doi)}
+                    className="text-primary-600 hover:underline"
+                  >
+                    {problem.evidence.source_title}
+                  </Link>
+                ) : (
+                  problem.evidence.source_title
+                )}
               </p>
             )}
             {problem.evidence.source_doi && (
@@ -165,9 +181,9 @@ export default function ProblemDetailPage() {
                 </a>
               </p>
             )}
-            {problem.evidence.section && (
+            {evidenceSection && (
               <p className="text-sm text-gray-600">
-                <span className="font-medium">Section:</span> {problem.evidence.section}
+                <span className="font-medium">Section:</span> {evidenceSection}
               </p>
             )}
           </div>

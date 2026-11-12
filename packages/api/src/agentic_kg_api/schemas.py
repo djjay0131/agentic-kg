@@ -75,6 +75,9 @@ class ProblemDetail(BaseModel):
     id: str
     statement: str
     status: str
+    # Same field the list read model exposes, so list and detail cannot show
+    # two different confidence numbers for one problem.
+    confidence: Optional[float] = None
     assumptions: list[dict] = Field(default_factory=list)
     constraints: list[dict] = Field(default_factory=list)
     datasets: list[dict] = Field(default_factory=list)

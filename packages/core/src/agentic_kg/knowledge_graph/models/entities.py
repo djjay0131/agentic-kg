@@ -154,7 +154,10 @@ class ProblemMention(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique identifier")
     statement: str = Field(..., min_length=20, description="Problem as stated in this paper")
     paper_doi: str = Field(..., description="Source paper DOI")
-    section: str = Field(..., description="Section where problem was mentioned")
+    section: Optional[str] = Field(
+        default=None,
+        description="Section where the problem was mentioned, when known",
+    )
 
     # Rich metadata (same structure as original Problem)
     assumptions: list[Assumption] = Field(default_factory=list)

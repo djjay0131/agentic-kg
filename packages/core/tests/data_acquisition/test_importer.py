@@ -2,10 +2,11 @@
 Unit tests for Knowledge Graph paper importer.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
 
+import pytest
+from agentic_kg.data_acquisition.aggregator import AggregatedResult
+from agentic_kg.data_acquisition.exceptions import NotFoundError
 from agentic_kg.data_acquisition.importer import (
     BatchImportResult,
     ImportResult,
@@ -15,9 +16,7 @@ from agentic_kg.data_acquisition.importer import (
     normalized_to_kg_paper,
     reset_paper_importer,
 )
-from agentic_kg.data_acquisition.aggregator import AggregatedResult
 from agentic_kg.data_acquisition.normalizer import NormalizedAuthor, NormalizedPaper
-from agentic_kg.data_acquisition.exceptions import NotFoundError
 from agentic_kg.knowledge_graph.repository import DuplicateError
 
 
@@ -155,8 +154,8 @@ class TestNormalizedToKgPaper:
 
         assert "DOI" in str(exc_info.value)
 
-    def test_convert_defaults_year_to_current(self):
-        """Test that year defaults to current year when not specified."""
+    def test_convert_keeps_unknown_year_null(self):
+        """A missing publication year stays null; it is not the ingest year."""
         normalized = NormalizedPaper(
             title="Test Paper Title for Testing",
             source="test",
@@ -166,7 +165,7 @@ class TestNormalizedToKgPaper:
 
         paper = normalized_to_kg_paper(normalized)
 
-        assert paper.year == datetime.now().year
+        assert paper.year is None
 
 
 class TestNormalizedToKgAuthor:

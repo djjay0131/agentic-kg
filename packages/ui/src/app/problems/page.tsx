@@ -1,11 +1,13 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { api, SearchResult } from '@/lib/api';
-import { Search, Filter, ChevronRight } from 'lucide-react';
+import { api } from '@/lib/api';
+import { Search, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+
+const PAGE_SIZE = 50;
 
 function ConfidenceBar({ value }: { value: number | null }) {
   if (value === null) return <span className="text-gray-400">-</span>;
@@ -54,6 +56,7 @@ function ProblemsContent() {
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [domainFilter, setDomainFilter] = useState<string>('');
   const [originFilter, setOriginFilter] = useState<string>('');
+  const [offset, setOffset] = useState(0);
 
   // Update both states when the URL changes (submit / back / forward).
   useEffect(() => {
@@ -61,6 +64,11 @@ function ProblemsContent() {
     setSearchInput(next);
     setSearchQuery(next);
   }, [searchParams]);
+
+  // A filter change starts a new list; page 2 of the old filter is meaningless.
+  useEffect(() => {
+    setOffset(0);
+  }, [statusFilter, domainFilter, originFilter]);
 
   // ~300 ms debounce: one request after the user pauses, not one per key.
   useEffect(() => {
@@ -82,12 +90,13 @@ function ProblemsContent() {
 
   // List query (when not searching)
   const { data: listResults, isLoading: listLoading } = useQuery({
-    queryKey: ['problems', 'list', statusFilter, domainFilter, originFilter],
+    queryKey: ['problems', 'list', statusFilter, domainFilter, originFilter, offset],
     queryFn: () => api.listProblems({
       status: statusFilter || undefined,
       domain: domainFilter || undefined,
       origin: originFilter || undefined,
-      limit: 50,
+      limit: PAGE_SIZE,
+      offset,
     }),
     enabled: !isSearchMode,
   });
@@ -96,6 +105,7 @@ function ProblemsContent() {
     e.preventDefault();
     const term = searchInput.trim();
     setSearchQuery(term);
+    setOffset(0);
     const params = new URLSearchParams();
     if (term) params.set('q', term);
     router.push(`/problems${params.toString() ? `?${params}` : ''}`);
@@ -105,6 +115,7 @@ function ProblemsContent() {
   const problems = isSearchMode
     ? searchResults?.results.map((r) => ({ ...r.problem, score: r.score })) || []
     : listResults?.problems || [];
+  const total = isSearchMode ? searchResults?.total ?? 0 : listResults?.total ?? 0;
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -243,10 +254,35 @@ function ProblemsContent() {
         )}
       </div>
 
-      {/* Count */}
-      <div className="mt-4 text-sm text-gray-500">
-        Showing {problems.length} problem{problems.length !== 1 ? 's' : ''}
-        {isSearchMode && searchResults && ` for "${searchResults.query}"`}
+      {/* Count + pagination */}
+      <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
+        <span>
+          {isSearchMode
+            ? `Showing ${problems.length} problem${problems.length !== 1 ? 's' : ''}${
+                searchResults ? ` for "${searchResults.query}"` : ''
+              }`
+            : total === 0
+              ? 'No problems'
+              : `${offset + 1}–${Math.min(offset + problems.length, total)} of ${total}`}
+        </span>
+        {!isSearchMode && (
+          <div className="flex gap-2">
+            <button
+              onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+              disabled={offset === 0}
+              className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              Previous
+            </button>
+            <button
+              onClick={() => setOffset(offset + PAGE_SIZE)}
+              disabled={offset + PAGE_SIZE >= total}
+              className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              Next
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

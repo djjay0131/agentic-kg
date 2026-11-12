@@ -97,6 +97,23 @@ class TestConceptView:
         assert view["mentions"] == mentions
 
 
+    def test_placeholder_section_is_not_exposed_as_evidence(self):
+        mentions = [
+            {
+                "id": "m1",
+                "statement": "long context is expensive",
+                "quoted_text": "we found long context expensive",
+                "section": "Unknown",
+                "paper_doi": "10.1234/paper",
+                "paper_title": "A Paper",
+                "confidence": 0.97,
+                "extraction_metadata": {"confidence_score": 0.97},
+            }
+        ]
+        view = _repo()._concept_view(_concept_node(), mentions=mentions)
+        assert view["evidence"]["section"] is None
+
+
 class TestLegacyProblemView:
     def test_decodes_nested_fields_and_confidence(self):
         node = {
@@ -125,6 +142,23 @@ class TestLegacyProblemView:
         assert view["canonical_statement"] is None
         assert view["confidence"] == 0.8
         assert view["assumptions"][0]["text"] == "x"
+
+    def test_legacy_placeholder_section_is_normalised_away(self):
+        node = {
+            "id": "p1",
+            "statement": "A legacy problem statement of sufficient length",
+            "status": "open",
+            "evidence": json.dumps(
+                {
+                    "source_doi": "10.1/x",
+                    "source_title": "T",
+                    "section": "Unknown",
+                    "quoted_text": "q",
+                }
+            ),
+        }
+        view = _repo()._legacy_problem_view(node)
+        assert view["evidence"]["section"] is None
 
     def test_legacy_view_exposes_agent_origin_and_derivation(self):
         node = {

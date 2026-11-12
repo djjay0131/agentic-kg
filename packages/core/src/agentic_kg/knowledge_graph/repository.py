@@ -654,6 +654,22 @@ class Neo4jRepository:
         decoded = decode_json_field(value, {})
         return decoded if isinstance(decoded, dict) and decoded else None
 
+    @staticmethod
+    def _normalise_section(value: Any) -> Optional[str]:
+        """Treat absent and placeholder section labels as missing.
+
+        Older ingestion wrote the literal ``"Unknown"`` when the extractor
+        schema had no section field. Exposing that placeholder made the UI
+        claim a section was known. Normalise it away at the read boundary so
+        both the API and every other consumer see "absent".
+        """
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text or text.lower() in {"unknown", "n/a", "none"}:
+            return None
+        return text
+
     def _concept_view(
         self,
         data: dict,
@@ -678,7 +694,7 @@ class Neo4jRepository:
                 evidence = {
                     "source_doi": mention.get("paper_doi"),
                     "source_title": mention.get("paper_title"),
-                    "section": mention.get("section"),
+                    "section": self._normalise_section(mention.get("section")),
                     "quoted_text": mention.get("quoted_text"),
                 }
             if evidence and extraction_metadata:
@@ -730,6 +746,9 @@ class Neo4jRepository:
         confidence = None
         if extraction_metadata:
             confidence = extraction_metadata.get("confidence_score")
+        evidence = self._as_dict(data.get("evidence"))
+        if evidence:
+            evidence["section"] = self._normalise_section(evidence.get("section"))
         return {
             "id": data["id"],
             "kind": "problem",
@@ -741,7 +760,7 @@ class Neo4jRepository:
             "datasets": self._as_dict_list(data.get("datasets")),
             "metrics": self._as_dict_list(data.get("metrics")),
             "baselines": self._as_dict_list(data.get("baselines")),
-            "evidence": self._as_dict(data.get("evidence")),
+            "evidence": evidence,
             "extraction_metadata": extraction_metadata,
             "mentions": [],
             "papers": [],
@@ -836,9 +855,9 @@ class Neo4jRepository:
         MATCH (c:ProblemConcept)
         WHERE ($status IS NULL OR c.status = $status)
           AND ($origin IS NULL OR coalesce(c.origin, 'extracted') = $origin)
-        OPTIONAL MATCH (m:ProblemMention)-[:INSTANCE_OF]->(c)
-        WITH DISTINCT c, m
-        WITH c, count(m) AS mention_count, max(m.match_score) AS confidence
+        OPTIONAL MATCH (m:ProblemMention)-[i:INSTANCE_OF]->(c)
+        WITH c, count(DISTINCT m) AS mention_count,
+             max(coalesce(i.confidence, m.match_score)) AS confidence
         RETURN c, mention_count, confidence
         ORDER BY c.created_at DESC
         LIMIT $lim
@@ -877,6 +896,118 @@ class Neo4jRepository:
         views.extend(self._legacy_problem_view(data) for data in legacy)
         return self._sort_views(views)[offset : offset + limit]
 
+    def count_problem_views(
+        self,
+        status: Optional[ProblemStatus] = None,
+        origin: Optional[str] = None,
+    ) -> int:
+        """Count canonical problems matching the list filters.
+
+        Mirrors ``list_problem_views`` (concepts unioned with legacy
+        ``:Problem``) so a client can render a truthful total for pagination.
+        """
+        status_str = status.value if status else None
+        params = {"status": status_str, "origin": origin}
+        concept_cypher = """
+        MATCH (c:ProblemConcept)
+        WHERE ($status IS NULL OR c.status = $status)
+          AND ($origin IS NULL OR coalesce(c.origin, 'extracted') = $origin)
+        RETURN count(c) AS n
+        """
+        legacy_cypher = """
+        MATCH (p:Problem)
+        WHERE ($status IS NULL OR p.status = $status)
+          AND ($origin IS NULL OR coalesce(p.origin, 'extracted') = $origin)
+        RETURN count(p) AS n
+        """
+
+        def _run(tx: ManagedTransaction) -> tuple[int, int]:
+            concept = tx.run(concept_cypher, **params).single()
+            legacy = tx.run(legacy_cypher, **params).single()
+            return (
+                int(concept["n"]) if concept else 0,
+                int(legacy["n"]) if legacy else 0,
+            )
+
+        with self.session() as session:
+            concepts, legacy = session.execute_read(_run)
+        return concepts + legacy
+
+    def list_problem_views_for_paper(
+        self,
+        doi: str,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[dict]:
+        """List the canonical problems extracted from one paper.
+
+        A paper's problems are the ``ProblemConcept`` nodes its mentions
+        instantiate (canonical path) plus any legacy ``:Problem`` nodes linked
+        by ``EXTRACTED_FROM``. Mentions not yet linked to a concept cannot be
+        resolved by ``get_problem_view``, so they are deliberately omitted.
+        """
+        fetch = offset + limit
+        concept_cypher = """
+        MATCH (:Paper {doi: $doi})<-[:EXTRACTED_FROM]-(m:ProblemMention)
+        MATCH (m)-[i:INSTANCE_OF]->(c:ProblemConcept)
+        WITH c, count(DISTINCT m) AS mention_count,
+             max(coalesce(i.confidence, m.match_score)) AS confidence
+        RETURN c, mention_count, confidence
+        ORDER BY c.created_at DESC
+        LIMIT $lim
+        """
+        legacy_cypher = """
+        MATCH (:Paper {doi: $doi})<-[:EXTRACTED_FROM]-(p:Problem)
+        RETURN p
+        ORDER BY p.created_at DESC
+        LIMIT $lim
+        """
+
+        def _run(tx: ManagedTransaction) -> tuple[list[dict], list[dict]]:
+            concepts = [
+                (dict(r["c"]), r["mention_count"], r["confidence"])
+                for r in tx.run(concept_cypher, doi=doi, lim=fetch)
+            ]
+            legacy = [
+                dict(r["p"])
+                for r in tx.run(legacy_cypher, doi=doi, lim=fetch)
+            ]
+            return concepts, legacy
+
+        with self.session() as session:
+            concepts, legacy = session.execute_read(_run)
+
+        views = [
+            self._concept_view(data, confidence=confidence, mention_count=count)
+            for data, count, confidence in concepts
+        ]
+        views.extend(self._legacy_problem_view(data) for data in legacy)
+        return self._sort_views(views)[offset : offset + limit]
+
+    def count_problem_views_for_paper(self, doi: str) -> int:
+        """Count the problems ``list_problem_views_for_paper`` would return."""
+        concept_cypher = """
+        MATCH (:Paper {doi: $doi})<-[:EXTRACTED_FROM]-(m:ProblemMention)
+        MATCH (m)-[:INSTANCE_OF]->(c:ProblemConcept)
+        RETURN count(DISTINCT c) AS n
+        """
+        legacy_cypher = """
+        MATCH (:Paper {doi: $doi})<-[:EXTRACTED_FROM]-(p:Problem)
+        RETURN count(p) AS n
+        """
+
+        def _run(tx: ManagedTransaction) -> tuple[int, int]:
+            concept = tx.run(concept_cypher, doi=doi).single()
+            legacy = tx.run(legacy_cypher, doi=doi).single()
+            return (
+                int(concept["n"]) if concept else 0,
+                int(legacy["n"]) if legacy else 0,
+            )
+
+        with self.session() as session:
+            concepts, legacy = session.execute_read(_run)
+        return concepts + legacy
+
     def _mentions_for_concept(
         self, concept_id: str, limit: int = 200
     ) -> list[dict]:
@@ -906,6 +1037,9 @@ class Neo4jRepository:
             relation = record["r"]
             paper = record["p"]
             meta = self._as_dict(mention.get("extraction_metadata"))
+            # Same precedence as the list read model
+            # (``coalesce(INSTANCE_OF.confidence, match_score)``), so one
+            # problem cannot read 100% on one page and 90% on the other.
             confidence = relation.get("confidence")
             if confidence is None:
                 confidence = mention.get("match_score")
@@ -914,7 +1048,7 @@ class Neo4jRepository:
                     "id": mention.get("id"),
                     "statement": mention.get("statement"),
                     "quoted_text": mention.get("quoted_text"),
-                    "section": mention.get("section"),
+                    "section": self._normalise_section(mention.get("section")),
                     "paper_doi": paper.get("doi") if paper else mention.get("paper_doi"),
                     "paper_title": paper.get("title") if paper else None,
                     "paper_year": paper.get("year") if paper else None,

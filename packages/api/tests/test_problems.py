@@ -40,6 +40,7 @@ class TestListProblems:
             make_problem_view(id="p1", statement="Problem 1"),
             make_problem_view(id="p2", statement="Problem 2"),
         ]
+        mock_repo.count_problem_views.return_value = 2
         response = client.get("/api/problems")
         assert response.status_code == 200
         data = response.json()
@@ -84,6 +85,18 @@ class TestListProblems:
         """Rejects negative offset."""
         response = client.get("/api/problems?offset=-1")
         assert response.status_code == 422
+
+    def test_list_problems_total_comes_from_count(self, client, mock_repo):
+        """Total is the full matching count, not the page length."""
+        mock_repo.list_problem_views.return_value = [
+            make_problem_view(id="p1"),
+        ]
+        mock_repo.count_problem_views.return_value = 2710
+        response = client.get("/api/problems?limit=1&offset=0")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["problems"]) == 1
+        assert data["total"] == 2710
 
     def test_list_problems_includes_confidence(self, client, mock_repo):
         """Includes confidence from the read model when present."""
@@ -184,6 +197,15 @@ class TestGetProblem:
         response = client.get("/api/problems/p1")
         data = response.json()
         assert data["evidence"]["source_doi"] == "10.1234/test"
+
+    def test_get_problem_exposes_confidence_used_by_list(self, client, mock_repo):
+        """Detail carries the same confidence field the list summary uses."""
+        mock_repo.get_problem_view.return_value = make_problem_view(
+            id="p1", confidence=0.9
+        )
+        response = client.get("/api/problems/p1")
+        assert response.status_code == 200
+        assert response.json()["confidence"] == 0.9
 
     def test_get_problem_includes_extraction_metadata(self, client, mock_repo):
         """Returns extraction metadata when present."""

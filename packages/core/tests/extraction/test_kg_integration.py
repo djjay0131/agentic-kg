@@ -414,6 +414,10 @@ class TestKnowledgeGraphIntegrator:
 
         assert result is True
         mock_repository.create_paper.assert_called_once()
+        created = mock_repository.create_paper.call_args[0][0]
+        assert created.year is None, (
+            "the ingest year must not be stored as the publication year"
+        )
 
     def test_ensure_paper_exists_fails_when_creation_disabled(
         self, integrator, mock_repository
