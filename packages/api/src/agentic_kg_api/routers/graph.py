@@ -38,6 +38,9 @@ def _problem_label(node, prefix: str) -> str:
 
 def _problem_properties(node) -> dict:
     return {
+        # The public problem id (not the Neo4j element id) is what the UI
+        # needs to link a clicked graph node to /problems/{id}.
+        "id": node.get("id"),
         "statement": node.get("canonical_statement") or node.get("statement", ""),
         "status": node.get("status", "open"),
         "confidence": node.get("confidence"),
@@ -220,6 +223,7 @@ def get_graph(
                                     label=topic.get("name", "Unknown Topic"),
                                     type="topic",
                                     properties={
+                                        "id": topic.get("id"),
                                         "name": topic.get("name"),
                                         "level": topic.get("level"),
                                         "problem_count": topic.get("problem_count", 0),

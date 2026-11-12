@@ -71,6 +71,12 @@ export interface PaperListResponse {
   offset: number;
 }
 
+// DOI values contain a slash, so the in-app paper route is a catch-all
+// (`/papers/[...doi]`). Encode each segment and let the page re-join them.
+export function paperPath(doi: string): string {
+  return '/papers/' + doi.split('/').map(encodeURIComponent).join('/');
+}
+
 export interface SearchResult {
   problem: ProblemSummary;
   score: number;
@@ -116,7 +122,7 @@ export interface Health {
 export interface GraphNode {
   id: string;
   label: string;
-  type: 'problem' | 'paper' | 'domain';
+  type: 'problem' | 'paper' | 'topic' | 'domain';
   properties: Record<string, unknown>;
 }
 
@@ -130,6 +136,30 @@ export interface GraphLink {
 export interface GraphResponse {
   nodes: GraphNode[];
   links: GraphLink[];
+}
+
+// Topics (graph side panel -> topic detail)
+export interface TopicSummary {
+  id: string;
+  name: string;
+  level: string;
+  parent_id: string | null;
+  source: string;
+  description: string | null;
+  problem_count: number;
+  paper_count: number;
+}
+
+export interface TopicDetail extends TopicSummary {
+  parent: TopicSummary | null;
+  children: TopicSummary[];
+}
+
+export interface TopicProblemsResponse {
+  topic_id: string;
+  problems: ProblemSummary[];
+  total: number;
+  include_subtopics: boolean;
 }
 
 // PipelineRun types (nightly reports; see docs/design/nightly-pipeline-contract.md)
@@ -412,6 +442,16 @@ export const api = {
 
   getPaper: (doi: string) => fetchAPI<PaperDetail>(`/api/papers/${encodeURIComponent(doi)}`),
 
+  getPaperProblems: (doi: string, params?: { limit?: number; offset?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.limit) searchParams.set('limit', String(params.limit));
+    if (params?.offset) searchParams.set('offset', String(params.offset));
+    const query = searchParams.toString();
+    return fetchAPI<ProblemListResponse>(
+      `/api/papers/${encodeURIComponent(doi)}/problems${query ? `?${query}` : ''}`
+    );
+  },
+
   // Search
   search: (query: string, options?: { domain?: string; status?: string; top_k?: number }) =>
     fetchAPI<SearchResponse>('/api/search', {
@@ -446,6 +486,21 @@ export const api = {
     if (depth) searchParams.set('depth', String(depth));
     const query = searchParams.toString();
     return fetchAPI<GraphResponse>(`/api/graph/neighbors/${encodeURIComponent(nodeId)}${query ? `?${query}` : ''}`);
+  },
+
+  // Topics
+  getTopic: (id: string) => fetchAPI<TopicDetail>(`/api/topics/${encodeURIComponent(id)}`),
+
+  getTopicProblems: (id: string, params?: { include_subtopics?: boolean; limit?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.include_subtopics !== undefined) {
+      searchParams.set('include_subtopics', String(params.include_subtopics));
+    }
+    if (params?.limit) searchParams.set('limit', String(params.limit));
+    const query = searchParams.toString();
+    return fetchAPI<TopicProblemsResponse>(
+      `/api/topics/${encodeURIComponent(id)}/problems${query ? `?${query}` : ''}`
+    );
   },
 
   // Nightly runs

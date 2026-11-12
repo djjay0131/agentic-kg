@@ -97,6 +97,23 @@ class TestConceptView:
         assert view["mentions"] == mentions
 
 
+    def test_placeholder_section_is_not_exposed_as_evidence(self):
+        mentions = [
+            {
+                "id": "m1",
+                "statement": "long context is expensive",
+                "quoted_text": "we found long context expensive",
+                "section": "Unknown",
+                "paper_doi": "10.1234/paper",
+                "paper_title": "A Paper",
+                "confidence": 0.97,
+                "extraction_metadata": {"confidence_score": 0.97},
+            }
+        ]
+        view = _repo()._concept_view(_concept_node(), mentions=mentions)
+        assert view["evidence"]["section"] is None
+
+
 class TestLegacyProblemView:
     def test_decodes_nested_fields_and_confidence(self):
         node = {

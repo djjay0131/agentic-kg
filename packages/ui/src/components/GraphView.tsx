@@ -131,8 +131,10 @@ export default function GraphView({
       ctx.lineWidth = hoveredNode?.id === node.id ? 2 : 1;
       ctx.stroke();
 
-      // Draw label if zoomed in enough
-      if (globalScale > 0.8) {
+      // Labels are hover-only until the user zooms in far enough; drawing
+      // every label at fit-zoom is what produced the overlapping text.
+      const showLabel = hoveredNode?.id === node.id || globalScale > 2.0;
+      if (showLabel) {
         const fontSize = Math.max(10 / globalScale, 3);
         ctx.font = `${fontSize}px sans-serif`;
         ctx.textAlign = 'center';

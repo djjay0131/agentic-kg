@@ -63,6 +63,7 @@ def _view_to_detail(view: dict) -> ProblemDetail:
         id=view["id"],
         statement=view.get("statement") or "",
         status=str(view.get("status") or ProblemStatus.OPEN.value),
+        confidence=view.get("confidence"),
         assumptions=view.get("assumptions") or [],
         constraints=view.get("constraints") or [],
         datasets=view.get("datasets") or [],
@@ -113,9 +114,10 @@ def list_problems(
         offset=offset,
         origin=origin,
     )
+    total = repo.count_problem_views(status=problem_status, origin=origin)
     return ProblemListResponse(
         problems=[_view_to_summary(view) for view in views],
-        total=len(views),
+        total=total,
         limit=limit,
         offset=offset,
     )

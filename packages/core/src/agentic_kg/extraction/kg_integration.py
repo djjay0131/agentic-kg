@@ -10,7 +10,6 @@ This module handles:
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -348,7 +347,9 @@ class KnowledgeGraphIntegrator:
                     doi=doi,
                     title=title or "Unknown",
                     authors=authors,
-                    year=datetime.now(timezone.utc).year,  # Default to current year
+                    # No publication year is known here; leave the honest null
+                    # rather than recording the ingest year as publication year.
+                    year=None,
                 )
                 self.repository.create_paper(paper)
                 logger.info(f"Created paper record: {doi}")

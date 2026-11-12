@@ -16,6 +16,8 @@ from agentic_kg_api.schemas import (
     PaperListResponse,
     PaperReferencesResponse,
     PaperSummary,
+    ProblemListResponse,
+    ProblemSummary,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,10 +57,23 @@ def list_papers(
     repo: Neo4jRepository = Depends(get_repo),
 ) -> PaperListResponse:
     """List papers."""
-    # Neo4jRepository doesn't have list_papers, use a direct query
+    # Neo4jRepository doesn't have list_papers, use a direct query.
+    # Synthetic rows minted by the integration/E2E suites are never real
+    # corpus papers; keep them out of both the page and the total until the
+    # one-off cleanup script removes them.
+    paper_filter = """
+    NOT (p.doi STARTS WITH '10.1/TEST-' OR p.doi STARTS WITH '10.TEST_')
+    """
     with repo.session() as session:
+        count_record = session.run(
+            f"MATCH (p:Paper) WHERE {paper_filter} RETURN count(p) AS n"
+        ).single()
+        total = int(count_record["n"]) if count_record else 0
         result = session.run(
-            "MATCH (p:Paper) RETURN p ORDER BY p.year DESC SKIP $offset LIMIT $limit",
+            f"""
+            MATCH (p:Paper) WHERE {paper_filter}
+            RETURN p ORDER BY p.year DESC SKIP $offset LIMIT $limit
+            """,
             offset=offset,
             limit=limit,
         )
@@ -76,7 +91,49 @@ def list_papers(
 
     return PaperListResponse(
         papers=papers,
-        total=len(papers),
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+def _view_to_summary(view: dict) -> ProblemSummary:
+    """Map a canonical problem view to a list summary."""
+    return ProblemSummary(
+        id=view["id"],
+        statement=view.get("statement") or "",
+        status=str(view.get("status") or "open"),
+        confidence=view.get("confidence"),
+        created_at=view.get("created_at"),
+        canonical_statement=view.get("canonical_statement"),
+        mention_count=view.get("mention_count") or 0,
+        paper_count=view.get("paper_count") or 0,
+        origin=view.get("origin"),
+    )
+
+
+@router.get("/{doi:path}/problems", response_model=ProblemListResponse)
+def get_paper_problems(
+    doi: str,
+    limit: int = Query(default=200, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    repo: Neo4jRepository = Depends(get_repo),
+) -> ProblemListResponse:
+    """Return the problems extracted from ``doi`` (paper detail page)."""
+    decoded_doi = unquote(doi)
+    try:
+        repo.get_paper(decoded_doi)
+    except NotFoundError:
+        raise HTTPException(
+            status_code=404, detail=f"Paper not found: {decoded_doi}",
+        )
+    views = repo.list_problem_views_for_paper(
+        decoded_doi, limit=limit, offset=offset
+    )
+    total = repo.count_problem_views_for_paper(decoded_doi)
+    return ProblemListResponse(
+        problems=[_view_to_summary(view) for view in views],
+        total=total,
         limit=limit,
         offset=offset,
     )

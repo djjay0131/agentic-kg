@@ -417,7 +417,14 @@ READ_PATHS: tuple[ReadPath, ...] = (
     ),
     ReadPath(
         id="repo.list_problems",
-        via=("list_problem_views", "list_problems", "get_problem_view"),
+        via=(
+            "list_problem_views",
+            "list_problems",
+            "get_problem_view",
+            "count_problem_views",
+            "list_problem_views_for_paper",
+            "count_problem_views_for_paper",
+        ),
         surface=(
             "Neo4jRepository canonical problem reads "
             "(GET /api/problems, GET /api/problems/{id})"
@@ -711,7 +718,7 @@ READ_PATHS: tuple[ReadPath, ...] = (
         id="api.papers.list",
         surface="GET /api/papers",
         source_file=f"{API}/routers/papers.py",
-        snippet="MATCH (p:Paper) RETURN p ORDER BY p.year DESC SKIP $offset LIMIT $limit",
+        snippet="MATCH (p:Paper) WHERE {paper_filter}",
         labels=("Paper",),
         relationships=(),
         properties=("doi", "title", "authors", "year", "venue", "is_stub", "citation_count"),

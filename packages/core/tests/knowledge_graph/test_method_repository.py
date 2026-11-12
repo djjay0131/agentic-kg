@@ -48,6 +48,16 @@ def _make_paper(neo4j_repository, doi: str) -> Paper:
     return paper
 
 
+@pytest.fixture(autouse=True)
+def _cleanup_test_papers(neo4j_repository):
+    """Delete the synthetic 10.1/TEST-* Papers this test created."""
+    yield
+    with neo4j_repository.session() as session:
+        session.run(
+            "MATCH (p:Paper) WHERE p.doi STARTS WITH '10.1/TEST-' DETACH DELETE p"
+        )
+
+
 # =============================================================================
 # Unit 4 — Basic CRUD
 # =============================================================================

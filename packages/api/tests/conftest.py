@@ -32,6 +32,8 @@ def mock_repo():
     """Create a mock Neo4jRepository."""
     repo = MagicMock()
     repo.verify_connectivity.return_value = True
+    # Paginated list endpoints query a truthful total separately.
+    repo.count_problem_views.return_value = 0
     return repo
 
 

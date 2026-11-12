@@ -705,7 +705,9 @@ class KGIntegratorV2:
             id=str(uuid.uuid4()),
             statement=extracted_problem.statement,
             paper_doi=paper_doi,
-            section="Unknown",  # Default when not in ExtractedProblem schema
+            # ExtractedProblem has no section field yet; leave it absent
+            # rather than storing a fake "Unknown" section.
+            section=None,
             assumptions=assumptions,
             constraints=constraints,
             datasets=datasets,

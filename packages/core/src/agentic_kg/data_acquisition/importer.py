@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any
 
 from agentic_kg.data_acquisition.aggregator import (
@@ -136,7 +135,9 @@ def normalized_to_kg_paper(normalized: NormalizedPaper) -> Paper:
         title=normalized.title,
         authors=author_names,
         venue=normalized.venue,
-        year=normalized.year or datetime.now().year,
+        # Publication year only. Defaulting to the ingest year made papers
+        # with an unknown year look like they were published this year.
+        year=normalized.year,
         abstract=normalized.abstract,
         arxiv_id=arxiv_id,
         openalex_id=openalex_id,
