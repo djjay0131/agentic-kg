@@ -1260,6 +1260,81 @@ class Neo4jRepository:
         views.sort(key=lambda v: v["score"], reverse=True)
         return views[:top_k]
 
+    def keyword_problem_views(
+        self,
+        query: str,
+        *,
+        status: Optional[ProblemStatus] = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        """Full-text-style fallback over canonical and legacy problem text.
+
+        Vector search needs an embedding for both the query and the stored
+        nodes. When either is missing (no ``OPENAI_API_KEY``, or nodes ingested
+        before embeddings were generated) semantic search is empty even though
+        the graph is full. This matches the query's terms with Cypher
+        ``CONTAINS`` and ranks by term coverage, so search degrades to a
+        transparent keyword result instead of a silent ``[]``.
+
+        The returned views carry ``score`` (fraction of query terms matched).
+        """
+        terms = [term.lower() for term in query.split() if term.strip()]
+        if not terms:
+            return []
+        status_str = status.value if status else None
+
+        concept_cypher = """
+        MATCH (c:ProblemConcept)
+        WHERE ($status IS NULL OR c.status = $status)
+          AND any(term IN $terms
+                  WHERE toLower(coalesce(c.canonical_statement, '')) CONTAINS term)
+        OPTIONAL MATCH (m:ProblemMention)-[:INSTANCE_OF]->(c)
+        WITH c, count(m) AS mention_count, max(m.match_score) AS confidence
+        RETURN c, mention_count, confidence
+        LIMIT $lim
+        """
+        legacy_cypher = """
+        MATCH (p:Problem)
+        WHERE ($status IS NULL OR p.status = $status)
+          AND any(term IN $terms
+                  WHERE toLower(coalesce(p.statement, '')) CONTAINS term)
+        RETURN p
+        LIMIT $lim
+        """
+
+        def _run(tx: ManagedTransaction):
+            concepts = [
+                (dict(r["c"]), r["mention_count"], r["confidence"])
+                for r in tx.run(
+                    concept_cypher, terms=terms, status=status_str, lim=limit
+                )
+            ]
+            legacy = [
+                dict(r["p"])
+                for r in tx.run(
+                    legacy_cypher, terms=terms, status=status_str, lim=limit
+                )
+            ]
+            return concepts, legacy
+
+        with self.session() as session:
+            concepts, legacy = session.execute_read(_run)
+
+        views = [
+            self._concept_view(data, confidence=confidence, mention_count=count)
+            for data, count, confidence in concepts
+        ]
+        views.extend(self._legacy_problem_view(data) for data in legacy)
+
+        for view in views:
+            statement = (view.get("statement") or "").lower()
+            matched = sum(1 for term in terms if term in statement)
+            view["score"] = matched / len(terms)
+
+        views = [view for view in views if view["score"] > 0]
+        views.sort(key=lambda v: v["score"], reverse=True)
+        return views[:limit]
+
     def structured_problem_views(
         self,
         *,

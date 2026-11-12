@@ -420,13 +420,15 @@ class PaperProcessingPipeline:
             paper_authors=authors or [],
         )
 
-        # Create mock extracted text
+        # Carry the caller's text as the document body. Setting a private
+        # ``_full_text`` was ignored by ExtractedText.full_text, so this path
+        # segmented an empty document and silently returned 0 problems.
         extracted_text = ExtractedText(
             pages=[],
             source_path="direct_text",
             metadata={"text_length": len(text)},
+            raw_text=text,
         )
-        extracted_text._full_text = text
         result.extracted_text = extracted_text
 
         result.stages.append(
@@ -519,6 +521,15 @@ class PaperProcessingPipeline:
                 authors=result.paper_authors,
             )
             result.extraction_result = extraction_result
+
+            # A failed provider/parse call must not look like "no problems
+            # found". The extractor records per-section failures; if no section
+            # succeeded, raise so the stage is marked failed and the API can
+            # answer 5xx instead of an empty 200.
+            if extraction_result.errors and not extraction_result.results:
+                raise RuntimeError(
+                    "extraction failed: " + "; ".join(extraction_result.errors)
+                )
 
             result.stages.append(
                 PipelineStageResult(

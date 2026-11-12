@@ -46,15 +46,27 @@ function ProblemsContent() {
   const router = useRouter();
 
   const initialQuery = searchParams.get('q') || '';
+  const [searchInput, setSearchInput] = useState(initialQuery);
+  // ``searchQuery`` is the debounced term that drives requests; the input
+  // updates immediately so typing stays responsive without a request per
+  // keystroke.
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [domainFilter, setDomainFilter] = useState<string>('');
   const [originFilter, setOriginFilter] = useState<string>('');
 
-  // Update search input when URL changes
+  // Update both states when the URL changes (submit / back / forward).
   useEffect(() => {
-    setSearchQuery(searchParams.get('q') || '');
+    const next = searchParams.get('q') || '';
+    setSearchInput(next);
+    setSearchQuery(next);
   }, [searchParams]);
+
+  // ~300 ms debounce: one request after the user pauses, not one per key.
+  useEffect(() => {
+    const handle = setTimeout(() => setSearchQuery(searchInput), 300);
+    return () => clearTimeout(handle);
+  }, [searchInput]);
 
   const isSearchMode = searchQuery.trim().length > 0;
 
@@ -82,8 +94,10 @@ function ProblemsContent() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
+    const term = searchInput.trim();
+    setSearchQuery(term);
     const params = new URLSearchParams();
-    if (searchQuery.trim()) params.set('q', searchQuery);
+    if (term) params.set('q', term);
     router.push(`/problems${params.toString() ? `?${params}` : ''}`);
   };
 
@@ -113,8 +127,8 @@ function ProblemsContent() {
               <input
                 type="text"
                 placeholder="Search problems..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
               />
             </div>
@@ -171,6 +185,7 @@ function ProblemsContent() {
             {isSearchMode && (
               <button
                 onClick={() => {
+                  setSearchInput('');
                   setSearchQuery('');
                   router.push('/problems');
                 }}

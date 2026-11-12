@@ -19,12 +19,48 @@ import { NextRequest, NextResponse } from 'next/server';
 const API_URL = (process.env.API_URL || 'http://localhost:8000').replace(/\/+$/, '');
 const AUTH_MODE = (process.env.AUTH_MODE || 'dev').trim().toLowerCase();
 const IAP_HEADER = 'x-goog-iap-jwt-assertion';
+// Transport alias. Some proxies/frontends drop ``x-goog-*`` headers on a
+// second hop; the API verifies this header's JWT signature exactly like the
+// canonical one, so forwarding both is safe.
+const IAP_HEADER_ALIAS = 'x-iap-jwt-assertion';
 const DEV_USER = process.env.DEV_USER || 'dev@localhost';
 
 const METADATA_IDENTITY_URL =
   'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity';
 
 let tokenCache: { token: string; expiresAt: number } | null = null;
+
+/**
+ * Read the IAP assertion from the incoming request.
+ *
+ * `Headers.get` is case-insensitive, but we also scan the header names so a
+ * future edge/proxy that renames or re-cases the header is visible in the
+ * server log instead of silently producing an API 401. Only names are logged,
+ * never the token.
+ */
+function readIapAssertion(request: NextRequest): string | null {
+  for (const headerName of [IAP_HEADER, IAP_HEADER_ALIAS]) {
+    const direct = request.headers.get(headerName);
+    if (direct && direct.trim()) {
+      return direct.trim();
+    }
+  }
+
+  let found: string | null = null;
+  const wanted = new Set([IAP_HEADER, IAP_HEADER_ALIAS]);
+  request.headers.forEach((value, name) => {
+    if (found === null && wanted.has(name.toLowerCase()) && value.trim()) {
+      found = value.trim();
+    }
+  });
+  return found;
+}
+
+function headerNameList(request: NextRequest): string[] {
+  const names: string[] = [];
+  request.headers.forEach((_value, name) => names.push(name));
+  return names.sort();
+}
 
 async function serviceAccountIdToken(audience: string): Promise<string | null> {
   if (tokenCache && Date.now() < tokenCache.expiresAt) {
@@ -66,11 +102,20 @@ export async function proxyToApi(request: NextRequest): Promise<NextResponse> {
     }
   }
 
-  const assertion = request.headers.get(IAP_HEADER);
+  const assertion = readIapAssertion(request);
   if (assertion) {
     headers.set(IAP_HEADER, assertion);
+    headers.set(IAP_HEADER_ALIAS, assertion);
   } else if (AUTH_MODE !== 'iap') {
     headers.set('X-User-ID', DEV_USER);
+  } else {
+    // Staging must fail closed, but a silent 401 at the API is hard to
+    // diagnose. Log the request and the *header names* (never values) so the
+    // next staging run shows whether IAP reached this server at all.
+    console.warn(
+      `[iap-proxy] no ${IAP_HEADER} on ${request.method} ${request.nextUrl.pathname}; ` +
+        `incoming headers: ${headerNameList(request).join(', ')}`,
+    );
   }
 
   const token = await serviceAccountIdToken(API_URL);

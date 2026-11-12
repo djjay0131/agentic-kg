@@ -108,6 +108,6 @@ curl -fsS -H "Authorization: Bearer $TOKEN" "$API_URL/health"
 | Symptom | Likely cause |
 |---|---|
 | `403` from the UI `run.app` URL | The Google account is not in `app_allowed_members`, or the user is outside the OAuth brand's allowed audience. |
-| Sidebar shows "Not signed in" | The UI proxy could not reach `/api/auth/me`; check the API is private and the UI service account has `run.invoker` on it. |
-| `401 invalid IAP assertion` | The forwarded assertion's audience does not match `IAP_AUDIENCE` on the API; confirm the UI service name/region and re-apply. |
+| Sidebar shows "Not signed in" / `401 IAP authentication required` | The UI proxy never received an IAP assertion, or the second hop dropped it. Search the UI logs for `[iap-proxy]` (it logs header **names**, never values) and the API logs for `IAP mode request reached the API without an IAP assertion header`. The proxy forwards the assertion under both `x-goog-iap-jwt-assertion` and the transport alias `x-iap-jwt-assertion`; both are signature-verified. |
+| `401 invalid IAP assertion` | The forwarded assertion's audience does not match `IAP_AUDIENCE` on the API. The API logs the reason plus the token's `aud`/`iss` (never the token). Correct the UI service name/region, or set `IAP_AUDIENCE_ALIASES` to a comma-separated allowlist of additional audience values you have verified. |
 | Rollout fails for the API health probe | A rotation workflow ran before the API was redeployed with the IAM binding; re-run it. |

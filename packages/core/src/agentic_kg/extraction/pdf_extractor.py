@@ -77,7 +77,14 @@ class ExtractedPage:
 
 @dataclass
 class ExtractedText:
-    """Represents extracted text from an entire PDF document."""
+    """Represents extracted text from an entire PDF document.
+
+    ``raw_text`` carries text that did not come from a PDF (the API's
+    ``process_text`` path). When it is set it is the document's full text;
+    otherwise the pages are joined. Without this, ``process_text`` set a
+    private ``_full_text`` attribute the property ignored, so the pipeline
+    segmented an empty document and returned 0 problems in ~0.1 ms.
+    """
 
     pages: list[ExtractedPage] = field(default_factory=list)
     total_pages: int = 0
@@ -85,20 +92,27 @@ class ExtractedText:
     extraction_method: str = "pymupdf"
     source_path: Optional[str] = None
     metadata: dict = field(default_factory=dict)
+    raw_text: Optional[str] = None
 
     @property
     def full_text(self) -> str:
-        """Get the complete text from all pages."""
+        """Get the complete text from raw input or all pages."""
+        if self.raw_text is not None:
+            return self.raw_text
         return "\n\n".join(page.text for page in self.pages if page.text.strip())
 
     @property
     def total_chars(self) -> int:
-        """Get total character count across all pages."""
+        """Get total character count across all pages (or raw input)."""
+        if self.raw_text is not None:
+            return len(self.raw_text)
         return sum(page.char_count for page in self.pages)
 
     @property
     def total_words(self) -> int:
-        """Get total word count across all pages."""
+        """Get total word count across all pages (or raw input)."""
+        if self.raw_text is not None:
+            return len(self.raw_text.split())
         return sum(page.word_count for page in self.pages)
 
 

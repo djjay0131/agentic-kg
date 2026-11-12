@@ -96,9 +96,16 @@ class SearchService:
         # embeddings. Since the Canonical Problem Architecture, ingestion
         # writes ProblemConcept nodes only, so a problem_embedding_idx-only
         # query returned nothing for freshly ingested data.
-        views = self._repo.semantic_problem_views(
-            query_embedding, top_k=top_k, min_score=min_score
-        )
+        try:
+            views = self._repo.semantic_problem_views(
+                query_embedding, top_k=top_k, min_score=min_score
+            )
+        except Exception as e:  # noqa: BLE001 - degraded to keyword fallback
+            # A missing/renamed index or a dimension mismatch must not turn
+            # search into a 500. hybrid_search falls back to keyword matching
+            # when this returns an empty list.
+            logger.warning("Vector search unavailable: %s", e)
+            views = []
 
         results = []
         for view in views:
@@ -116,6 +123,45 @@ class SearchService:
             )
 
         logger.info(f"Semantic search for '{query[:50]}...' found {len(results)} results")
+        return sorted(results)
+
+    def keyword_search(
+        self,
+        query: str,
+        status: Optional[ProblemStatus] = None,
+        top_k: Optional[int] = None,
+    ) -> list[SearchResult]:
+        """Keyword fallback used when vector search produces nothing.
+
+        Missing embeddings (or a missing embedding key) must degrade to a
+        readable keyword match, not an empty result set. Ranking is the
+        fraction of query terms present in the problem statement.
+        """
+        top_k = top_k or self._config.default_top_k
+        if not query or not query.strip():
+            return []
+
+        views = self._repo.keyword_problem_views(
+            query, status=status, limit=top_k
+        )
+        results = []
+        for view in views:
+            try:
+                problem = self._repo.problem_view_to_problem(view)
+            except Exception as e:
+                logger.warning("Skipping unreadable Problem node: %s", e)
+                continue
+            results.append(
+                SearchResult(
+                    problem=problem,
+                    score=float(view.get("score") or 0.0),
+                    match_type="keyword",
+                )
+            )
+
+        logger.info(
+            "Keyword search for '%s...' found %d results", query[:50], len(results)
+        )
         return sorted(results)
 
     def structured_search(
@@ -205,6 +251,14 @@ class SearchService:
         semantic_results = self.semantic_search(
             query, top_k=top_k * 3
         )
+        used_keyword = False
+        if not semantic_results:
+            # No query embedding / no embedded nodes: fall back to keyword
+            # matching so a populated graph never masquerades as empty.
+            semantic_results = self.keyword_search(
+                query, status=status, top_k=top_k * 3
+            )
+            used_keyword = True
 
         # If filtering by topic, resolve the set of problem ids that
         # belong to it so we don't have to hit Neo4j per candidate.
@@ -221,6 +275,12 @@ class SearchService:
             filtered_results.append(result)
 
         for result in filtered_results:
+            if used_keyword:
+                # Keyword results carry a term-coverage score and the
+                # "keyword" match type. Do not blend them with a semantic
+                # weight they never earned.
+                continue
+
             structural_bonus = 0.0
             if topic_problem_ids is not None:
                 structural_bonus += 0.5

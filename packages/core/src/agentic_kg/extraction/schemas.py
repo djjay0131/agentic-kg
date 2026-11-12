@@ -395,6 +395,14 @@ class BatchExtractionResult(BaseModel):
     total_problems: int = 0
     total_high_confidence: int = 0
     total_tokens: int = 0
+    errors: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Per-section extraction failures (LLM/provider/parser). An empty "
+            "list plus zero problems means the model genuinely found none; a "
+            "non-empty list is an error the caller must surface."
+        ),
+    )
 
     def model_post_init(self, __context) -> None:
         """Calculate totals if not provided."""

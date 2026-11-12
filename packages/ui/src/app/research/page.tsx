@@ -101,7 +101,12 @@ export default function ResearchPage() {
 
       <h2 className="text-lg font-semibold text-gray-900 mb-3">Pending gates</h2>
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden mb-8">
-        {gatesQuery.isLoading ? (
+        {gatesQuery.isError ? (
+          <div className="p-8 text-center text-red-700">
+            Failed to load pending gates:{' '}
+            {(gatesQuery.error as Error)?.message || 'request failed'}
+          </div>
+        ) : gatesQuery.isLoading ? (
           <div className="p-8 text-center text-gray-500">Loading gates...</div>
         ) : gates.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
@@ -192,7 +197,12 @@ export default function ResearchPage() {
 
       <h2 className="text-lg font-semibold text-gray-900 mb-3">Cycles</h2>
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        {cyclesQuery.isLoading ? (
+        {cyclesQuery.isError ? (
+          <div className="p-8 text-center text-red-700">
+            Failed to load research cycles:{' '}
+            {(cyclesQuery.error as Error)?.message || 'request failed'}
+          </div>
+        ) : cyclesQuery.isLoading ? (
           <div className="p-8 text-center text-gray-500">Loading cycles...</div>
         ) : cycles.length === 0 ? (
           <div className="p-8 text-center text-gray-500">

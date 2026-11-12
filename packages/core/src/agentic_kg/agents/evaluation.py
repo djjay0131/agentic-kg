@@ -24,6 +24,7 @@ from agentic_kg.agents.schemas import (
     ContinuationProposal,
     EvaluationResult,
     ExecutionProvenance,
+    GeneratedCode,
     MetricResult,
     WorkflowStatus,
 )
@@ -155,12 +156,16 @@ class EvaluationAgent(BaseAgent):
         )
 
         response = await self.llm.extract(
+            prompt=user_prompt,
+            response_model=GeneratedCode,
             system_prompt=EVALUATION_SYSTEM_PROMPT,
-            user_prompt=user_prompt,
         )
 
-        # Extract code block from response
+        # Extract code block from response. Real clients return GeneratedCode;
+        # test doubles still return a plain string.
         code = response.content
+        if isinstance(code, GeneratedCode):
+            code = code.code
         if isinstance(code, str):
             # Strip markdown code fences if present
             if "```python" in code:

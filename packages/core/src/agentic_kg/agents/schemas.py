@@ -189,6 +189,14 @@ class ContinuationProposal(BaseModel):
 # =============================================================================
 
 
+class GeneratedCode(BaseModel):
+    """Generated Python source for a sandboxed evaluation."""
+
+    code: str = Field(
+        ..., description="Complete, runnable Python source for the experiment"
+    )
+
+
 class MetricResult(BaseModel):
     """Result of evaluating a single metric."""
 

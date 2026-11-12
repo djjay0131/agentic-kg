@@ -643,3 +643,55 @@ class TestGetPipeline:
             reset_pipeline()
             pipeline2 = get_pipeline()
             assert pipeline1 is not pipeline2
+
+
+class TestProcessTextCarriesTheInput:
+    """Regression: ``process_text`` must segment the caller's text.
+
+    The API ``/api/extract`` text path returned 0 problems in ~0.1 ms because
+    ``process_text`` wrote a private ``_full_text`` that
+    ``ExtractedText.full_text`` never read, so the segmenter received "".
+    """
+
+    @pytest.mark.asyncio
+    async def test_process_text_segments_the_supplied_text(self):
+        pipeline = PaperProcessingPipeline(client=MagicMock())
+        text = (
+            "Limitations. Our approach requires substantial compute and a large "
+            "annotated corpus, which limits adoption in low-resource settings. "
+            "Future work should study whether distillation closes this gap."
+        )
+
+        captured = {}
+
+        def fake_segment(document):
+            captured["text"] = document
+            return SegmentedDocument(
+                sections=[
+                    Section(
+                        section_type=SectionType.LIMITATIONS,
+                        title="Limitations",
+                        content=document,
+                    )
+                ],
+                full_text=document,
+            )
+
+        extraction = BatchExtractionResult(
+            paper_title="Direct text input",
+            results=[ExtractionResult(section_type="limitations", problems=[])],
+        )
+
+        with patch.object(
+            pipeline.section_segmenter, "segment", side_effect=fake_segment
+        ), patch.object(
+            pipeline.problem_extractor,
+            "extract_from_sections",
+            new_callable=AsyncMock,
+            return_value=extraction,
+        ):
+            result = await pipeline.process_text(text=text)
+
+        assert captured["text"] == text
+        assert result.extracted_text.full_text == text
+        assert result.success is True
