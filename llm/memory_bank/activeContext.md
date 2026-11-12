@@ -1,11 +1,46 @@
 # Active Context
 
-Last updated: 2026-11-10
+Last updated: 2026-11-12
 
 > Newest entries at the top. History through 2026-07 lives in
 > [`archive/activeContext-through-2026-07.md`](archive/activeContext-through-2026-07.md)
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
+
+## Staging UI blockers fix (2026-11-12, T51)
+
+`fix/staging-ui-blockers` fixes the four backend blockers from the 2026-11-11
+staging UI test:
+
+- **Agent workflows:** `BaseLLMClient` now implements the agents'
+  `structured_extract(response_model=, system_prompt=, user_prompt=)` shape as a
+  delegate to the real `extract()`. Evaluation generates its script through
+  `GeneratedCode` instead of the non-existent keyword args. A real
+  `OpenAIClient`/`AnthropicClient` test mocks only the instructor client, so a
+  missing method fails CI.
+- **Extract From Text:** `process_text` wrote a private `_full_text` that
+  `ExtractedText.full_text` ignored, so the segmenter saw an empty document and
+  returned 0 problems in ~0.1 ms. Text now travels as `ExtractedText.raw_text`;
+  per-section provider failures are recorded and a total failure becomes a 502
+  from `/api/extract`, never an empty success.
+- **Search:** vector search silently returned `[]` when the query embedding or
+  node embeddings were absent. `hybrid_search` now falls back to a Cypher
+  keyword match (`match_type="keyword"`), vector/index errors degrade instead of
+  500ing, and `agentic-kg backfill-embeddings` (dry-run/limit/JSON) fills missing
+  `ProblemConcept`/`Problem` vectors. Runbook:
+  `docs/operations/embedding-backfill.md`. The Problems UI debounces search
+  input by ~300 ms.
+- **Signed-in identity:** the UI proxy forwards the IAP JWT under both
+  `x-goog-iap-jwt-assertion` and the `x-iap-jwt-assertion` transport alias; the
+  API verifies either signature. Failures log the reason plus the token's
+  `aud`/`iss` (never the token), and `IAP_AUDIENCE_ALIASES` is an explicit
+  comma-separated allowlist for a token whose `aud` differs from the documented
+  Cloud Run format.
+- **Research Loop 500:** `ResearchCycleService` loaded
+  `config/research-autonomy.yaml` eagerly, but the API image did not copy
+  `config/`; both GET endpoints raised `FileNotFoundError`. Policy loading is
+  lazy now and `Dockerfile.api` copies `config/`. Research, Review and Runs pages
+  show an error state for non-2xx instead of an empty state.
 
 ## IAP enablement fix (2026-11-10, T50)
 
