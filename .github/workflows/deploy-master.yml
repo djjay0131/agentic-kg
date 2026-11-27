@@ -249,16 +249,28 @@ jobs:
         if: needs.changes.outputs.api == 'true' || needs.changes.outputs.job == 'true'
         run: |
           set -euo pipefail
+          # Prefer the dedicated Terraform-created Job. Until Terraform creates
+          # it, reuse the already-existing ingest Job with an execution-time
+          # args override: same image, same service account, same secrets and
+          # LLM env. `job_runner` treats a first arg of `llm-check` as a
+          # delegate to `agentic-kg llm-check`, so the check uses the exact
+          # client code path and request shape the agents use. No new IAM.
           JOB="agentic-kg-llm-check-staging"
+          EXECUTE_ARGS=("--region=${{ env.REGION }}" "--wait")
           if ! gcloud run jobs describe "$JOB" --region=${{ env.REGION }} >/dev/null 2>&1; then
-            echo "::warning::$JOB not present; LLM model check skipped until Terraform creates it"
-            exit 0
+            JOB="agentic-kg-ingest-staging"
+            if ! gcloud run jobs describe "$JOB" --region=${{ env.REGION }} >/dev/null 2>&1; then
+              echo "::error::neither agentic-kg-llm-check-staging nor agentic-kg-ingest-staging exists; cannot run the LLM model check"
+              exit 1
+            fi
+            EXECUTE_ARGS=("--args=llm-check" "${EXECUTE_ARGS[@]}")
+            echo "::notice::agentic-kg-llm-check-staging not present; running the check through $JOB with an execution-time args override"
           fi
           # A failed task makes `execute --wait` exit non-zero. The explicit
           # status read afterwards is the fallback for gcloud versions that
           # only report the execution, never the task outcome.
           EXEC_RC=0
-          if ! gcloud run jobs execute "$JOB" --region=${{ env.REGION }} --wait; then
+          if ! gcloud run jobs execute "$JOB" "${EXECUTE_ARGS[@]}"; then
             EXEC_RC=1
             echo "::error::LLM model check failed; see the execution logs (keys are never printed)"
           fi

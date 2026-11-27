@@ -150,7 +150,20 @@ def main() -> None:
     ``INGEST_MODE`` selects the path: ``legacy`` (the default, unchanged) runs
     the existing paper-ingestion pipeline; ``kgis_kgcs`` runs the opt-in
     KGIS -> KGCS -> canonical migration command and prints its JSON summary.
+
+    The deploy workflow also reuses this already-existing Job to run the LLM
+    model check when the Terraform-created ``agentic-kg-llm-check`` Job is not
+    present yet. An execution-time ``--args=llm-check`` override lands here and
+    delegates to ``agentic-kg llm-check``, which exercises the same client code
+    path and request shape the agents use. Normal executions pass no arguments.
     """
+    argv = sys.argv[1:]
+    if argv[:1] == ["llm-check"]:
+        from agentic_kg.cli import main as cli_main
+
+        cli_main(argv)
+        return
+
     logging.basicConfig(
         level=os.environ.get("LOG_LEVEL", "INFO"),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
