@@ -50,7 +50,7 @@ jobs:
   rotate:
     name: Rotate staging API key
     runs-on: ubuntu-latest
-    environment: staging
+    environment: staging-infra
     permissions:
       contents: read
       id-token: write

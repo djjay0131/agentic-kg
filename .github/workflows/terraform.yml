@@ -5,7 +5,7 @@
 # summary. No apply, and no secret values in the output.
 #
 # workflow_dispatch with `apply: true` -> the same plan then apply, protected by
-# the `staging` GitHub environment (reviewers/approval live there).
+# the `staging-infra` GitHub environment (reviewers/approval live there).
 #
 # State: gs://vt-gcp-00042-tfstate, isolated by prefix agentic-kg/<env>.
 # Auth: the same WIF provider / service account the deploy workflows use.
@@ -22,12 +22,12 @@ on:
   workflow_dispatch:
     inputs:
       apply:
-        description: 'Apply the plan (requires the staging environment approval)'
+        description: 'Apply the plan (requires the staging-infra environment approval)'
         required: true
         type: boolean
         default: false
       environment:
-        description: 'Target environment (state prefix agentic-kg/<environment>)'
+        description: 'Terraform target environment (state prefix agentic-kg/<environment>); approval is staged by the staging-infra GitHub environment'
         required: true
         type: choice
         options:
@@ -119,7 +119,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.apply
     needs: [plan]
     runs-on: ubuntu-latest
-    environment: staging
+    environment: staging-infra
     permissions:
       contents: read
       id-token: write

@@ -61,7 +61,7 @@ jobs:
   roll:
     name: Roll staging consumers onto the newest ${{ github.event.inputs.secret }}
     runs-on: ubuntu-latest
-    environment: staging
+    environment: staging-infra
     permissions:
       contents: read
       id-token: write

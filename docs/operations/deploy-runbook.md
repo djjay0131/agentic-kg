@@ -8,6 +8,21 @@ nav_order: 5
 
 **Applies to:** the staging stack in GCP project `vt-gcp-00042`.
 
+## Approval environments
+
+Routine staging deploys and privileged infra/secret changes use different
+GitHub environments (ADR-0014):
+
+| Operation | GitHub environment | Required reviewer |
+|---|---|---|
+| `deploy-master.yml`, `deploy-branch.yml`, `nightly-run.yml`, `gcp-diagnose.yml` | `staging` | no |
+| `terraform.yml` **apply**, `roll-vendor-keys.yml`, `rotate-api-key.yml`, `rotate-neo4j-password.yml` | `staging-infra` | yes |
+| `deploy-tag.yml` | `production` | yes |
+
+A routine staging deploy therefore proceeds once CI is green; an infrastructure
+apply or credential rotation waits for the owner. Full matrix and owner setup:
+[Deploy approvals (who approves what)](deploy-approvals.html).
+
 ## The rule
 
 **GitHub Actions `.github/workflows/deploy-master.yml` is the only automatic

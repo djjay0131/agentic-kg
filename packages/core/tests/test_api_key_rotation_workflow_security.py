@@ -6,7 +6,7 @@ and fails if the security properties regress:
 - scheduled monthly + dispatchable, but never push/PR
 - a single concurrency group so two rotations never overlap
 - least privilege: top-level ``contents: read``; only the job escalates
-  ``id-token: write`` for WIF; ``environment: staging``
+  ``id-token: write`` for WIF; ``environment: staging-infra``
 - the workflow never generates, reads, pipes or prints a key: no
   ``versions access``, no ``versions add``, no add-mask, no
   ``GITHUB_OUTPUT``/``GITHUB_ENV``, no shell tracing
@@ -67,8 +67,8 @@ def test_permissions_are_minimal(workflow: dict) -> None:
     assert _job(workflow)["permissions"] == {"contents": "read", "id-token": "write"}
 
 
-def test_runs_in_staging_environment(workflow: dict) -> None:
-    assert _job(workflow)["environment"] == "staging"
+def test_runs_in_staging_infra_environment(workflow: dict) -> None:
+    assert _job(workflow)["environment"] == "staging-infra"
 
 
 def test_wif_auth_matches_deploy_workflows(workflow: dict) -> None:

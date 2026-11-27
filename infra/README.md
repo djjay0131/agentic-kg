@@ -49,9 +49,11 @@ Work does not run `terraform apply` by hand. The flow is:
    plan summary (imports + actions only — no attribute values) to the job
    summary.
 2. **Dispatch the apply** from Actions → *Terraform* → *Run workflow* with
-   `apply: true`. The apply job is gated by the `staging` GitHub environment and
-   runs `plan` + `apply`. It authenticates with the same Workload Identity
-   Federation provider/service account as the deploy workflows.
+   `apply: true`. The apply job is gated by the `staging-infra` GitHub
+   environment (required reviewer) and runs `plan` + `apply`. The `environment`
+   input is the Terraform target (`staging`), not the approval environment.
+   It authenticates with the same Workload Identity Federation provider/service
+   account as the deploy workflows.
 
 ```bash
 gh workflow run terraform.yml -f apply=true -f environment=staging
