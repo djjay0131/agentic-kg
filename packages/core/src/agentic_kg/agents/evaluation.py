@@ -28,7 +28,7 @@ from agentic_kg.agents.schemas import (
     MetricResult,
     WorkflowStatus,
 )
-from agentic_kg.agents.state import ResearchState, add_message
+from agentic_kg.agents.state import ResearchState, add_error, add_message
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class EvaluationAgent(BaseAgent):
         proposal_data = state.get("proposal")
         if not proposal_data:
             state = add_message(state, self.name, "No proposal to evaluate")
-            return {**state, "errors": state.get("errors", []) + ["No proposal"]}
+            return add_error(state, "No proposal")
 
         try:
             proposal = ContinuationProposal.model_validate(proposal_data)
@@ -100,7 +100,7 @@ class EvaluationAgent(BaseAgent):
         except Exception as e:
             logger.error(f"Evaluation failed: {e}")
             state = add_message(state, self.name, f"Error: {e}")
-            return {**state, "errors": state.get("errors", []) + [str(e)]}
+            return add_error(state, str(e))
 
     def _attach_provenance(self, eval_result, proposal, context, *, state) -> None:
         run_id = state.get("run_id") or ""

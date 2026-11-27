@@ -16,7 +16,7 @@ from agentic_kg.agents.prompts import (
 )
 from agentic_kg.agents.provenance import build_provenance, record_agent_output
 from agentic_kg.agents.schemas import ContinuationProposal, WorkflowStatus
-from agentic_kg.agents.state import ResearchState, add_message
+from agentic_kg.agents.state import ResearchState, add_error, add_message
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ class ContinuationAgent(BaseAgent):
         problem_id = state.get("selected_problem_id")
         if not problem_id:
             state = add_message(state, self.name, "No problem selected")
-            return {**state, "errors": state.get("errors", []) + ["No problem selected"]}
+            return add_error(state, "No problem selected")
 
         try:
             context = self.port.load_context(problem_id)
@@ -67,7 +67,7 @@ class ContinuationAgent(BaseAgent):
         except Exception as e:
             logger.error(f"Continuation failed: {e}")
             state = add_message(state, self.name, f"Error: {e}")
-            return {**state, "errors": state.get("errors", []) + [str(e)]}
+            return add_error(state, str(e))
 
     def _attach_provenance(self, proposal, context, *, state, problem_id) -> None:
         run_id = state.get("run_id") or ""

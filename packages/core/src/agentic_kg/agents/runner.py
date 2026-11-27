@@ -184,11 +184,23 @@ class WorkflowRunner:
             "current_step": "ranking",
             "created_at": state["created_at"],
             "updated_at": state["updated_at"],
+            "error": "",
         }
 
-        # Run until first interrupt
-        await self._graph.ainvoke(state, config=thread_config)
-        self._sync_metadata(run_id, thread_config)
+        # Run until first interrupt. An agent node records its own failure in
+        # the state; an unexpected graph error is recorded here so the run can
+        # never stay ``running`` after it stopped.
+        try:
+            await self._graph.ainvoke(state, config=thread_config)
+        except Exception as exc:  # noqa: BLE001 - surfaced as a failed run
+            logger.exception("workflow %s failed", run_id)
+            await self._mark_failed(
+                run_id,
+                thread_config,
+                f"{type(exc).__name__}: {exc}",
+            )
+        else:
+            await self._sync_metadata(run_id, thread_config)
 
         return run_id
 
@@ -268,9 +280,18 @@ class WorkflowRunner:
 
         # Update the state in the graph and resume
         await self._graph.aupdate_state(thread_config, state)
-        await self._graph.ainvoke(None, config=thread_config)
+        try:
+            await self._graph.ainvoke(None, config=thread_config)
+        except Exception as exc:  # noqa: BLE001 - surfaced as a failed run
+            logger.exception("workflow %s failed while resuming", run_id)
+            await self._mark_failed(
+                run_id,
+                thread_config,
+                f"{type(exc).__name__}: {exc}",
+            )
+        else:
+            await self._sync_metadata(run_id, thread_config)
 
-        self._sync_metadata(run_id, thread_config)
         return await self.get_state(run_id)
 
     async def get_state(self, run_id: str) -> ResearchState:
@@ -295,10 +316,13 @@ class WorkflowRunner:
         meta = self._workflows.get(run_id, {})
 
         state = await self.get_state(run_id)
+        # Metadata is the fallback when the graph has no checkpoint (for
+        # example a run that failed before its first write).
+        status = state.get("status") or meta.get("status") or "pending"
         return WorkflowSummary(
             run_id=run_id,
-            status=WorkflowStatus(state.get("status", "pending")),
-            current_step=state.get("current_step", ""),
+            status=WorkflowStatus(status),
+            current_step=state.get("current_step") or meta.get("current_step", ""),
             created_at=meta.get("created_at") or state.get("created_at"),
             updated_at=state.get("updated_at") or meta.get("updated_at"),
             total_steps=7,
@@ -308,6 +332,10 @@ class WorkflowRunner:
     def list_workflows(self) -> list[dict]:
         """List all workflows tracked by this process."""
         return list(self._workflows.values())
+
+    def get_last_error(self, run_id: str) -> str:
+        """Return the recorded failure message for ``run_id``, or ``""``."""
+        return str(self._workflows.get(run_id, {}).get("error") or "")
 
     async def cancel_workflow(self, run_id: str) -> None:
         """Cancel a running workflow.
@@ -319,11 +347,114 @@ class WorkflowRunner:
         self._workflows[run_id]["status"] = WorkflowStatus.CANCELLED.value
         self._workflows[run_id]["updated_at"] = datetime.now(timezone.utc).isoformat()
 
-    def _sync_metadata(self, run_id: str, thread_config: dict) -> None:
+    async def _sync_metadata(self, run_id: str, thread_config: dict) -> None:
         """Sync in-memory metadata from the graph state."""
-        # We can't await here so we just update what we can
-        if run_id in self._workflows:
-            self._workflows[run_id]["updated_at"] = datetime.now(timezone.utc).isoformat()
+        meta = self._workflows.get(run_id)
+        if meta is None:
+            return
+        state: dict[str, Any] = {}
+        try:
+            snapshot = await self._graph.aget_state(thread_config)
+            state = dict(snapshot.values)
+        except Exception:  # noqa: BLE001 - metadata must not break a run
+            logger.warning("could not read checkpoint state for %s", run_id)
+        if state.get("status"):
+            meta["status"] = state["status"]
+        if state.get("current_step"):
+            meta["current_step"] = state["current_step"]
+        errors = state.get("errors") or []
+        if errors:
+            meta["error"] = str(errors[-1])
+        meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    async def _mark_failed(
+        self,
+        run_id: str,
+        thread_config: dict,
+        message: str,
+    ) -> None:
+        """Record a terminal failure in both metadata and the checkpoint."""
+        meta = self._workflows.setdefault(
+            run_id,
+            {
+                "run_id": run_id,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        state: dict[str, Any] = {}
+        try:
+            snapshot = await self._graph.aget_state(thread_config)
+            state = dict(snapshot.values)
+        except Exception:  # noqa: BLE001 - metadata still carries the failure
+            logger.warning("could not read checkpoint state for %s", run_id)
+
+        step = state.get("current_step") or meta.get("current_step") or ""
+        errors = [str(error) for error in (state.get("errors") or [])]
+        if message not in errors:
+            errors.append(message)
+        now = datetime.now(timezone.utc).isoformat()
+        state.update(
+            run_id=state.get("run_id", run_id),
+            status=WorkflowStatus.FAILED.value,
+            current_step=step,
+            errors=errors,
+            updated_at=now,
+        )
+        meta.update(
+            status=WorkflowStatus.FAILED.value,
+            current_step=step,
+            error=message,
+            updated_at=now,
+        )
+        try:
+            await self._graph.aupdate_state(thread_config, state)
+        except Exception:  # noqa: BLE001 - no checkpoint may exist yet
+            logger.warning(
+                "could not persist failed state for %s; metadata only", run_id
+            )
+
+    async def reconcile_stale_runs(self) -> list[str]:
+        """Mark runs left ``running`` by a dead process as failed.
+
+        A run is resumable only while its checkpoint has a next node (a human
+        gate, or the node that was about to execute). A ``running`` row with no
+        resumable checkpoint cannot make progress, so it is closed as failed
+        instead of being shown as running forever.
+        """
+        run_ids: set[str] = set(self._workflows)
+        lister = getattr(self._checkpointer, "list_thread_ids", None)
+        if lister is not None:
+            try:
+                run_ids.update(lister())
+            except Exception:  # noqa: BLE001 - a store listing is best effort
+                logger.warning("could not list durable checkpoint threads")
+
+        stale: list[str] = []
+        for run_id in run_ids:
+            thread_config = {"configurable": {"thread_id": run_id}}
+            try:
+                snapshot = await self._graph.aget_state(thread_config)
+            except Exception:  # noqa: BLE001 - one bad thread must not stop startup
+                logger.warning("could not inspect workflow %s", run_id)
+                continue
+            state = dict(snapshot.values)
+            status = state.get("status") or self._workflows.get(run_id, {}).get(
+                "status"
+            )
+            if status != WorkflowStatus.RUNNING.value:
+                continue
+            if getattr(snapshot, "next", ()):
+                # A gate (or the next node) can still resume this run.
+                continue
+            message = (
+                "stale: the process that started this run exited and no "
+                "resumable checkpoint exists"
+            )
+            await self._mark_failed(run_id, thread_config, message)
+            stale.append(run_id)
+        if stale:
+            logger.warning("closed %d stale workflow run(s): %s", len(stale), stale)
+        return stale
 
     @staticmethod
     def _count_completed_steps(state: ResearchState) -> int:

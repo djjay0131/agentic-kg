@@ -31,7 +31,7 @@ from agentic_kg.agents.schemas import (
     SynthesisReport,
     WorkflowStatus,
 )
-from agentic_kg.agents.state import ResearchState, add_message
+from agentic_kg.agents.state import ResearchState, add_error, add_message
 from agentic_kg.knowledge_graph.models import (
     Derivation,
     DerivationInput,
@@ -87,10 +87,7 @@ class SynthesisAgent(BaseAgent):
 
         if not eval_data or not proposal_data:
             state = add_message(state, self.name, "Missing evaluation or proposal data")
-            return {
-                **state,
-                "errors": state.get("errors", []) + ["Missing evaluation or proposal data"],
-            }
+            return add_error(state, "Missing evaluation or proposal data")
 
         try:
             proposal = ContinuationProposal.model_validate(proposal_data)
@@ -169,7 +166,7 @@ class SynthesisAgent(BaseAgent):
         except Exception as e:
             logger.error(f"Synthesis failed: {e}")
             state = add_message(state, self.name, f"Error: {e}")
-            return {**state, "errors": state.get("errors", []) + [str(e)]}
+            return add_error(state, str(e))
 
     # -- provenance --------------------------------------------------------
 
