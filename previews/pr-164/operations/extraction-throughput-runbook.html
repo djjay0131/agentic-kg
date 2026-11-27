@@ -40,6 +40,12 @@ too slow to absorb even a single full paper across five extractors.</p>
       <td><code class="language-plaintext highlighter-rouge">16384</code></td>
       <td>Reasoning + visible output per chat call. Reasoning tokens count against the same ceiling, so an output-sized value truncates a reasoning call. Ranking is batched, so no single response needs the model’s full window.</td>
     </tr>
+    <tr>
+      <td><strong>TPM reservation</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">OPENAI_TPM_RESERVE_TOKENS</code></td>
+      <td><code class="language-plaintext highlighter-rouge">8192</code></td>
+      <td>Completion tokens the throttle reserves before a call. The completion budget is a truncation ceiling, not a forecast; reserving all of it would pace every call at 16k. Actual provider-reported usage above this reserve is charged after the call.</td>
+    </tr>
   </tbody>
 </table>
 
