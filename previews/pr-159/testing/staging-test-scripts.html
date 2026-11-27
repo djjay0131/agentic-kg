@@ -1,0 +1,278 @@
+<h1 id="agentic-kg-staging-test-scripts">agentic-kg staging test scripts</h1>
+
+<p>Working copy (live, commentable): https://claude.ai/artifact/TDebk9Din9sPKmnzkJcMyg. This file is the versioned audit-trail copy, first committed 2026-11-03. Record results in the working copy; changes to the scripts land here by PR.</p>
+
+<h2 id="before-you-start">Before you start</h2>
+
+<p>These scripts test agentic-kg on staging: papers and research problems pulled from the literature, research agents that propose and evaluate next steps, and a nightly pipeline whose output humans review. Track A needs only a browser; Track B adds the API.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>What</th>
+      <th>Where</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>App (UI)</td>
+      <td>https://agentic-kg-ui-staging-tqpsba7pza-uc.a.run.app</td>
+    </tr>
+    <tr>
+      <td>API docs (try requests in the browser)</td>
+      <td>https://agentic-kg-api-staging-tqpsba7pza-uc.a.run.app/docs</td>
+    </tr>
+    <tr>
+      <td>Tester account</td>
+      <td>your @vt.edu Google account (allowlisted)</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><strong>Sign-in.</strong> Open the app and sign in with your vt.edu Google account. If you see “You don’t have access”, tell Jason; your email has not been added yet. Every approve or reject you make is recorded under your signed-in email.</p>
+
+<p><strong>Scope.</strong> Staging is a test environment. Data can be reset, and runs may use paid LLM calls, so start agent workflows only where a script says to.</p>
+
+<p><strong>Reporting.</strong> For each step, mark Pass or Fail in the results log at the end. On a Fail, leave a comment on that step with what you saw, the time, and a screenshot if you can. Comments on this doc reach Jason.</p>
+
+<p><strong>Not ready yet (skip if missing):</strong> the Research Loop page (A4) and the nightly-run email. Each is marked in its section.</p>
+
+<h2 id="a1-browse-the-knowledge-graph">A1. Browse the knowledge graph</h2>
+
+<p>Pass means every page loads in under 10 seconds with real content and no error banners.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Do</th>
+      <th>Expect</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>A1.1</td>
+      <td>Open the home page</td>
+      <td>Dashboard loads with counts for papers and problems (not zero)</td>
+    </tr>
+    <tr>
+      <td>A1.2</td>
+      <td>Open <strong>Papers</strong>; open any paper</td>
+      <td>Title, DOI, authors, year; its extracted problems are listed</td>
+    </tr>
+    <tr>
+      <td>A1.3</td>
+      <td>On a paper, follow a citation or reference</td>
+      <td>Lands on the cited paper, or shows it as an external reference</td>
+    </tr>
+    <tr>
+      <td>A1.4</td>
+      <td>Open <strong>Problems</strong>; filter by a topic</td>
+      <td>List narrows to that topic; the count changes</td>
+    </tr>
+    <tr>
+      <td>A1.5</td>
+      <td>Open any problem</td>
+      <td>Statement, assumptions, constraints, datasets, metrics (some may be empty) and an evidence quote with the source paper</td>
+    </tr>
+    <tr>
+      <td>A1.6</td>
+      <td>Click the evidence’s source paper</td>
+      <td>Opens the paper the quote came from</td>
+    </tr>
+    <tr>
+      <td>A1.7</td>
+      <td>Search for “knowledge graph construction”</td>
+      <td>Ranked problems or papers appear; the top results are on topic</td>
+    </tr>
+    <tr>
+      <td>A1.8</td>
+      <td>Search for a nonsense word (“zzqxv”)</td>
+      <td>An empty-state message, not an error</td>
+    </tr>
+    <tr>
+      <td>A1.9</td>
+      <td>Open <strong>Graph</strong></td>
+      <td>A network renders; clicking a node shows its neighbours</td>
+    </tr>
+    <tr>
+      <td>A1.10</td>
+      <td>Open <strong>Extract</strong>; paste one paragraph from any paper’s Limitations section</td>
+      <td>Problems are extracted from the text you pasted, each with a quote</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>While browsing, note anything that looks wrong: a problem that isn’t really a research problem, a quote that doesn’t support its problem, or duplicates of the same problem. Those notes are evaluation data, not just bug reports.</p>
+
+<h2 id="a2-run-a-research-agent-workflow">A2. Run a research-agent workflow</h2>
+
+<p>One workflow walks a problem through four agents: ranking, continuation, evaluation and synthesis. It pauses at three checkpoints for you to decide. Run <strong>one</strong> workflow per test session; each one makes paid LLM calls and may start a sandboxed experiment.</p>
+
+<ol>
+  <li>Open <strong>Workflows</strong> and start a new workflow. Expect: it shows a running status, then pauses at <strong>Select problem</strong> with a ranked list.</li>
+  <li>Check the ranking. Expect: each problem has a score and a short reason; the reasons refer to the problem’s evidence or data.</li>
+  <li>Pick one problem and continue. Expect: the continuation agent proposes a next step (an experiment, an extension or an analysis) that names datasets, metrics and baselines.</li>
+  <li>At <strong>Approve proposal</strong>, read it critically and then approve it, adding a note. Expect: your decision and note appear in the workflow history under your email.</li>
+  <li>Wait for evaluation (up to 5 minutes). Expect: generated code ran in the sandbox and returned results or a clear failure reason; the result records an experiment id and code hash.</li>
+  <li>At <strong>Review evaluation</strong>, approve it if the result is plausible, otherwise reject it with a reason. Expect: an approval runs synthesis; a rejection ends the workflow without writing anything.</li>
+  <li>After synthesis, open the problem again. Expect: the outcome is attached to the problem (refinement or result), or it is waiting in the <strong>Review</strong> queue.</li>
+  <li>Start a second workflow and <strong>reject</strong> at Approve proposal. Expect: the workflow ends and nothing is written to the graph.</li>
+</ol>
+
+<p>Record, for steps 3 and 5, whether you would actually do the proposed next step (yes / maybe / no) and why. That judgement is research data for the paper.</p>
+
+<h2 id="a3-nightly-runs-and-the-review-queue">A3. Nightly runs and the review queue</h2>
+
+<p>Every night at 02:30 Eastern the pipeline searches for new papers, ingests them, and has an adviser grade what it found. Nothing the adviser grades enters the curated graph until a human approves it.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Do</th>
+      <th>Expect</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>A3.1</td>
+      <td>Open <strong>Runs</strong></td>
+      <td>One row per night: date, status, papers seen / new / committed / deferred, LLM spend, review-queue size</td>
+    </tr>
+    <tr>
+      <td>A3.2</td>
+      <td>Open the most recent run</td>
+      <td>Totals, the queries it ran, failures (if any) with reasons, and proposed new queries</td>
+    </tr>
+    <tr>
+      <td>A3.3</td>
+      <td>Click the run’s review-queue count</td>
+      <td>Opens <strong>Review</strong>, filtered to that run</td>
+    </tr>
+    <tr>
+      <td>A3.4</td>
+      <td>In <strong>Review</strong>, open one pending item</td>
+      <td>The candidate, the adviser’s verdict (admit / reject / merge) with confidence and rationale, and quoted evidence text</td>
+    </tr>
+    <tr>
+      <td>A3.5</td>
+      <td>Approve an item whose evidence supports it, with a note</td>
+      <td>Status becomes Approved under your email; the item now appears in the curated graph</td>
+    </tr>
+    <tr>
+      <td>A3.6</td>
+      <td>Reject an item whose evidence does not support it, with a note</td>
+      <td>Status becomes Rejected under your email; nothing is added to the graph</td>
+    </tr>
+    <tr>
+      <td>A3.7</td>
+      <td>Re-open an item you decided</td>
+      <td>The decision is read-only; there is no second approve</td>
+    </tr>
+    <tr>
+      <td>A3.8</td>
+      <td>Back on the run page</td>
+      <td>The adviser–human agreement figure has updated</td>
+    </tr>
+    <tr>
+      <td>A3.9</td>
+      <td>(When the email is live) check your inbox after a nightly run</td>
+      <td>A summary email with a link that opens that run</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>If <strong>Runs</strong> is empty, the nightly job has not run yet. Mark A3 “blocked”, not “fail”. For each item you decide in A3.5 and A3.6, say whether you agreed with the adviser. Agreement is the evidence for later letting the adviser decide some items itself.</p>
+
+<h2 id="a4-research-loop-gates-not-ready-yet">A4. Research loop gates (not ready yet)</h2>
+
+<p>The research loop runs A2 on a schedule. Each cycle picks the top 3 problems and stops at every human gate. In this release every gate needs a human; nothing runs past a gate unattended. Skip this section until Jason says the <strong>Research Loop</strong> page is live.</p>
+
+<ol>
+  <li>Open <strong>Research Loop</strong>. Expect: the current cycle, its budget, the selected problems and the gates waiting for you.</li>
+  <li>Approve one <strong>Select problem</strong> gate, edit one <strong>Approve proposal</strong> before approving (change a dataset or metric), and reject one. Expect: each decision is recorded with your email and note. The edited proposal is what runs next.</li>
+  <li>After the next cycle, open the cycle report from <strong>Runs</strong>. Expect: a row marked <code class="language-plaintext highlighter-rouge">research_cycle</code> with what each workflow did and its spend.</li>
+  <li>Leave a gate undecided for a day. Expect: it is still waiting, unchanged, on the next cycle. It must not time out into an approval.</li>
+</ol>
+
+<h2 id="b-technical-track-api">B. Technical track (API)</h2>
+
+<p>Use the API docs page (link above) while signed in: open an endpoint, click <strong>Try it out</strong>, then <strong>Execute</strong>. Every check below is read-only except B10.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Request</th>
+      <th>Expect</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>B1</td>
+      <td><code class="language-plaintext highlighter-rouge">GET /health</code></td>
+      <td><code class="language-plaintext highlighter-rouge">status: ok</code>, <code class="language-plaintext highlighter-rouge">neo4j_connected: true</code></td>
+    </tr>
+    <tr>
+      <td>B2</td>
+      <td><code class="language-plaintext highlighter-rouge">GET /api/problems?limit=5</code></td>
+      <td>5 problems, each with evidence and a source paper DOI</td>
+    </tr>
+    <tr>
+      <td>B3</td>
+      <td><code class="language-plaintext highlighter-rouge">GET /api/search?q=knowledge%20graph</code></td>
+      <td>Ranked results with scores</td>
+    </tr>
+    <tr>
+      <td>B4</td>
+      <td><code class="language-plaintext highlighter-rouge">GET /api/canonical/summary</code></td>
+      <td>An epoch number and counts of ACTIVE identities by type (Papers at minimum)</td>
+    </tr>
+    <tr>
+      <td>B5</td>
+      <td><code class="language-plaintext highlighter-rouge">GET /api/canonical/entities?type=Paper</code>, then one by id</td>
+      <td>Each identity has a DOI alias, title, assertions and evidence references</td>
+    </tr>
+    <tr>
+      <td>B6</td>
+      <td><code class="language-plaintext highlighter-rouge">GET /api/runs</code>, then <code class="language-plaintext highlighter-rouge">GET /api/runs/{run_id}</code></td>
+      <td>The same totals the Runs page shows; status, budget, deferral reasons, proposed queries</td>
+    </tr>
+    <tr>
+      <td>B7</td>
+      <td><code class="language-plaintext highlighter-rouge">GET /api/review?status=pending</code></td>
+      <td>The same items as the Review page; each carries evidence text and adviser model and prompt versions</td>
+    </tr>
+    <tr>
+      <td>B8</td>
+      <td>After A2, <code class="language-plaintext highlighter-rouge">GET /api/agents/outputs/{output_id}/provenance</code></td>
+      <td>A provenance envelope: the assertion and evidence ids the agent used, plus <code class="language-plaintext highlighter-rouge">derived_from</code> links to earlier agent outputs</td>
+    </tr>
+    <tr>
+      <td>B9</td>
+      <td><code class="language-plaintext highlighter-rouge">POST /api/review/{id}</code> with no sign-in (e.g. curl from a terminal)</td>
+      <td><code class="language-plaintext highlighter-rouge">401</code>. An unsigned request must never approve anything</td>
+    </tr>
+    <tr>
+      <td>B10</td>
+      <td>Ask Jason to trigger a nightly run, then repeat B6</td>
+      <td>A new run appears with today’s date; the email arrives (once live)</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>B9 is the security check: try it once, and report any response other than 401 or 403 straight away.</p>
+
+<h2 id="known-limitations">Known limitations</h2>
+
+<ul>
+  <li>The curated graph holds only Paper identities until reviewers approve items in the queue (A3), so curated-graph views may look sparse at first.</li>
+  <li>Research agents read the older graph by default; the curated-graph switch comes after the first round of reviews.</li>
+  <li>Relations whose endpoints need entity resolution are not queued yet, and “merge into” verdicts are recorded but not executed.</li>
+  <li>Semantic Scholar rate limits can leave some citation links missing on newly ingested papers.</li>
+</ul>
+
+<h2 id="results-log">Results log</h2>
+
+<p>Results are recorded in the working copy (link at the top), one row per section: Result (Not run / Pass / Fail / Blocked), failing steps, date tested, notes.</p>

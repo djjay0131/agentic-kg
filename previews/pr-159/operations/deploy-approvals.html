@@ -1,0 +1,174 @@
+<h1 id="deploy-approvals--who-approves-what">Deploy approvals — who approves what</h1>
+
+<p><strong>Applies to:</strong> the GitHub Actions workflows for the staging stack in GCP
+project <code class="language-plaintext highlighter-rouge">vt-gcp-00042</code>. Decision record:
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/governance/adr/0014-split-staging-deploy-approvals.md">ADR-0014</a>.</p>
+
+<h2 id="two-staging-environments">Two staging environments</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>GitHub environment</th>
+      <th>Who approves</th>
+      <th>What runs there</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">staging</code></td>
+      <td>No required reviewer</td>
+      <td>routine service/image deploys, nightly “run now”, read-only diagnostics</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">staging-infra</code></td>
+      <td>Required reviewer (the repository owner)</td>
+      <td>Terraform <code class="language-plaintext highlighter-rouge">apply</code>, key rotation, credential rotation</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">production</code></td>
+      <td>Required reviewer</td>
+      <td>tagged production release</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>A green CI run is the gate for routine staging deploys. A human decision is the
+gate for changes to infrastructure, IAM, secrets and live credentials.</p>
+
+<h2 id="workflow--environment-matrix">Workflow → environment matrix</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Workflow</th>
+      <th>Job</th>
+      <th>Environment</th>
+      <th>Privileged?</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">terraform.yml</code></td>
+      <td><code class="language-plaintext highlighter-rouge">plan</code></td>
+      <td><em>(none)</em></td>
+      <td>read-only PR plan</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">terraform.yml</code></td>
+      <td><code class="language-plaintext highlighter-rouge">apply</code></td>
+      <td><code class="language-plaintext highlighter-rouge">staging-infra</code></td>
+      <td>yes — changes IAM, secrets, networking, Cloud Run config</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">roll-vendor-keys.yml</code></td>
+      <td><code class="language-plaintext highlighter-rouge">roll</code></td>
+      <td><code class="language-plaintext highlighter-rouge">staging-infra</code></td>
+      <td>yes — rolls consumers onto a new vendor key</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">rotate-api-key.yml</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rotate</code></td>
+      <td><code class="language-plaintext highlighter-rouge">staging-infra</code></td>
+      <td>yes — generates and rolls the API key</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">rotate-neo4j-password.yml</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rotate</code></td>
+      <td><code class="language-plaintext highlighter-rouge">staging-infra</code></td>
+      <td>yes — generates and rolls the Neo4j password</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">deploy-master.yml</code></td>
+      <td><code class="language-plaintext highlighter-rouge">deploy-staging</code></td>
+      <td><code class="language-plaintext highlighter-rouge">staging</code></td>
+      <td>no — image + labels only</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">deploy-branch.yml</code></td>
+      <td><code class="language-plaintext highlighter-rouge">deploy</code></td>
+      <td><code class="language-plaintext highlighter-rouge">inputs.environment</code> (<code class="language-plaintext highlighter-rouge">staging</code> or <code class="language-plaintext highlighter-rouge">dev</code>)</td>
+      <td>no — image + labels</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">nightly-run.yml</code></td>
+      <td><code class="language-plaintext highlighter-rouge">run</code></td>
+      <td><code class="language-plaintext highlighter-rouge">staging</code></td>
+      <td>no — dispatches the nightly workflow</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">gcp-diagnose.yml</code></td>
+      <td><code class="language-plaintext highlighter-rouge">diagnose</code></td>
+      <td><code class="language-plaintext highlighter-rouge">staging</code></td>
+      <td>no — read-only</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">deploy-tag.yml</code></td>
+      <td><code class="language-plaintext highlighter-rouge">deploy-production</code></td>
+      <td><code class="language-plaintext highlighter-rouge">production</code></td>
+      <td>yes — production release</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The Terraform <code class="language-plaintext highlighter-rouge">workflow_dispatch</code> input named <code class="language-plaintext highlighter-rouge">environment</code> is <strong>not</strong> the
+GitHub environment. It selects the Terraform target (state prefix
+<code class="language-plaintext highlighter-rouge">agentic-kg/&lt;environment&gt;</code> and <code class="language-plaintext highlighter-rouge">envs/&lt;environment&gt;.tfvars</code>) and stays
+<code class="language-plaintext highlighter-rouge">staging</code>.</p>
+
+<h2 id="one-time-owner-setup-before-merging-the-split">One-time owner setup (before merging the split)</h2>
+
+<p><strong>Do not let a privileged workflow run before this exists.</strong> If
+<code class="language-plaintext highlighter-rouge">staging-infra</code> is absent, GitHub auto-creates it without protection and the
+first <code class="language-plaintext highlighter-rouge">terraform apply</code> or rotation would run ungated.</p>
+
+<ol>
+  <li>GitHub → <strong>Settings</strong> → <strong>Environments</strong> → <strong>New environment</strong> →
+<code class="language-plaintext highlighter-rouge">staging-infra</code>.</li>
+  <li>Under <strong>Deployment protection rules</strong>, enable <strong>Required reviewers</strong> and add
+the repository owner (<code class="language-plaintext highlighter-rouge">djjay0131</code> / <code class="language-plaintext highlighter-rouge">djjay@vt.edu</code>).</li>
+  <li>Save. Do not add a wait timer unless that is a deliberate policy change.</li>
+</ol>
+
+<p>Verify the environment now has a reviewer:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gh api repos/djjay0131/agentic-kg/environments/staging-infra <span class="se">\</span>
+  <span class="nt">--jq</span> <span class="s1">'.protection_rules'</span>
+</code></pre></div></div>
+
+<p>The result must list a <code class="language-plaintext highlighter-rouge">required_reviewers</code> rule. If it is <code class="language-plaintext highlighter-rouge">[]</code> or the call is
+404, stop and fix the environment before dispatching any privileged workflow.</p>
+
+<h3 id="environment-scoped-secrets-and-variables">Environment-scoped secrets and variables</h3>
+
+<p>At the time of the split, the GCP secrets (<code class="language-plaintext highlighter-rouge">GCP_WORKLOAD_IDENTITY_PROVIDER</code>,
+<code class="language-plaintext highlighter-rouge">GCP_SERVICE_ACCOUNT</code>) and <code class="language-plaintext highlighter-rouge">GCP_PROJECT_ID</code> are <strong>repository-level</strong>, and the
+Workload Identity Federation binding is scoped to <code class="language-plaintext highlighter-rouge">attribute.repository</code>, not
+<code class="language-plaintext highlighter-rouge">attribute.environment</code>. No environment-scoped copy is required for
+<code class="language-plaintext highlighter-rouge">staging-infra</code>.</p>
+
+<p>If those secrets or variables are ever moved to environment scope, copy them to
+<strong>both</strong> <code class="language-plaintext highlighter-rouge">staging</code> and <code class="language-plaintext highlighter-rouge">staging-infra</code>; otherwise the privileged workflows will
+fail to authenticate. Never paste a secret value into a chat, issue or PR.</p>
+
+<h2 id="why-routine-deploys-do-not-need-a-human">Why routine deploys do not need a human</h2>
+
+<p><code class="language-plaintext highlighter-rouge">deploy-master.yml</code> runs only after a PR has passed the required <code class="language-plaintext highlighter-rouge">test (3.12)</code>
+check, then runs the post-merge test job and builds the image. After the roll it
+asserts that every deployed Cloud Run revision reports the merged commit in its
+<code class="language-plaintext highlighter-rouge">commit</code> label (<code class="language-plaintext highlighter-rouge">scripts/assert_deploy_parity.sh</code>), so a deploy that silently
+kept an old image fails the run.</p>
+
+<p>The workflow’s <code class="language-plaintext highlighter-rouge">integration-test</code> job is currently a placeholder; replacing it
+with a real post-deploy suite is follow-up work. Until then the automated
+guarantees are the PR test gate and the deployed-SHA parity assertion, not a
+reviewer’s inspection of staging.</p>
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li><a href="deploy-runbook.html">Deploy paths (automatic vs manual)</a></li>
+  <li><a href="api-key-rotation-runbook.html">API key rotation</a></li>
+  <li><a href="neo4j-hardening-runbook.html">Neo4j hardening and password rotation</a></li>
+  <li><a href="semantic-scholar-key-runbook.html">Semantic Scholar key</a></li>
+</ul>

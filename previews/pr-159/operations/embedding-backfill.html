@@ -1,0 +1,61 @@
+<h1 id="embedding-backfill">Embedding backfill</h1>
+
+<p><code class="language-plaintext highlighter-rouge">POST /api/search</code> is hybrid: it embeds the query and asks Neo4j’s vector
+indexes (<code class="language-plaintext highlighter-rouge">concept_embedding_idx</code>, <code class="language-plaintext highlighter-rouge">problem_embedding_idx</code>). Ingestion degrades
+gracefully when <code class="language-plaintext highlighter-rouge">OPENAI_API_KEY</code> is absent or an embeddings call fails: the node
+is written <strong>without</strong> an <code class="language-plaintext highlighter-rouge">embedding</code>. Those nodes stay invisible to vector
+search, and before the keyword fallback was added the API returned an empty
+<code class="language-plaintext highlighter-rouge">results: []</code> for every query.</p>
+
+<p>Search now falls back to a Cypher <code class="language-plaintext highlighter-rouge">CONTAINS</code> keyword match when vector search
+yields nothing, so a populated graph is never reported as empty. The fallback is
+a safety net, not a replacement for embeddings — vector search still ranks the
+better results once the nodes are embedded.</p>
+
+<h2 id="check-whether-a-backfill-is-needed">Check whether a backfill is needed</h2>
+
+<p>The API logs <code class="language-plaintext highlighter-rouge">Semantic search for '…' found 0 results</code> when it falls through,
+and <code class="language-plaintext highlighter-rouge">Keyword search for '…' found N results</code> when the fallback supplied the
+answer. Either line means the graph is missing embeddings for the query.</p>
+
+<h2 id="run-the-backfill">Run the backfill</h2>
+
+<p>The command is on the core CLI (installed in the API and ingest Job images):</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Report only: how many nodes still need an embedding.</span>
+agentic-kg backfill-embeddings <span class="nt">--dry-run</span>
+
+<span class="c"># Generate and store embeddings for up to 500 concepts + 500 legacy problems.</span>
+agentic-kg backfill-embeddings <span class="nt">--limit</span> 500
+
+<span class="c"># Machine-readable output for a scheduled Job.</span>
+agentic-kg backfill-embeddings <span class="nt">--limit</span> 500 <span class="nt">--json</span>
+</code></pre></div></div>
+
+<p>The command:</p>
+
+<ul>
+  <li>reads <code class="language-plaintext highlighter-rouge">ProblemConcept</code> nodes with no <code class="language-plaintext highlighter-rouge">embedding</code>, embeds
+<code class="language-plaintext highlighter-rouge">canonical_statement</code>, and stores the vector;</li>
+  <li>reads legacy <code class="language-plaintext highlighter-rouge">Problem</code> nodes with no <code class="language-plaintext highlighter-rouge">embedding</code>, embeds <code class="language-plaintext highlighter-rouge">statement</code>, and
+stores the vector;</li>
+  <li>records provider failures per node, continues, and exits non-zero if any node
+failed;</li>
+  <li>never deletes or rewrites an existing embedding.</li>
+</ul>
+
+<p>Re-run until <code class="language-plaintext highlighter-rouge">seen</code> is <code class="language-plaintext highlighter-rouge">0</code> (or add it as a step after the nightly ingest, where
+<code class="language-plaintext highlighter-rouge">OPENAI_API_KEY</code> is already mounted). The embedding model is
+<code class="language-plaintext highlighter-rouge">text-embedding-3-small</code> (1536 dimensions, matching both vector indexes); do not
+change it without recreating the indexes.</p>
+
+<h2 id="verify">Verify</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>curl <span class="nt">-fsS</span> <span class="nt">-X</span> POST <span class="s2">"</span><span class="nv">$UI_URL</span><span class="s2">/api/search"</span> <span class="se">\</span>
+  <span class="nt">-H</span> <span class="s1">'content-type: application/json'</span> <span class="se">\</span>
+  <span class="nt">-d</span> <span class="s1">'{"query": "graph", "top_k": 5}'</span> | jq <span class="s1">'.total'</span>
+</code></pre></div></div>
+
+<p>A non-zero total with <code class="language-plaintext highlighter-rouge">match_type: "semantic"</code> or <code class="language-plaintext highlighter-rouge">"hybrid"</code> means the vector
+path is working again. <code class="language-plaintext highlighter-rouge">"keyword"</code> means the fallback answered because some
+nodes still lack embeddings.</p>
