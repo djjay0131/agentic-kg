@@ -6,7 +6,6 @@ import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from agentic_kg.llm_config import DEFAULT_OPENAI_MODEL, DEFAULT_ANTHROPIC_MODEL
 from agentic_kg.extraction.llm_client import (
     AnthropicClient,
     LLMAPIError,
@@ -27,6 +26,7 @@ from agentic_kg.extraction.llm_client import (
     get_tpm_limiter,
     reset_llm_clients,
 )
+from agentic_kg.llm_config import DEFAULT_ANTHROPIC_MODEL, DEFAULT_OPENAI_MODEL
 from pydantic import BaseModel
 from tenacity import RetryError
 
@@ -231,6 +231,13 @@ class TestOpenAIClient:
         assert result.content.title == "Test Title"
         assert result.usage.total_tokens == 80
         assert result.finish_reason == "stop"
+        # Current OpenAI models reject the legacy `max_tokens` parameter; the
+        # completion budget must go through `max_completion_tokens`.
+        kwargs = (
+            mock_instructor.chat.completions.create_with_completion.call_args.kwargs
+        )
+        assert kwargs["max_completion_tokens"] == client.config.max_tokens
+        assert "max_tokens" not in kwargs
 
     @pytest.mark.asyncio
     async def test_extract_rate_limit_error(self, client):

@@ -391,7 +391,10 @@ class OpenAIClient(BaseLLMClient[T]):
                 messages=messages,
                 response_model=response_model,
                 temperature=self.config.temperature,
-                max_tokens=self.config.max_tokens,
+                # Current OpenAI models reject the legacy ``max_tokens``
+                # parameter ("use max_completion_tokens instead"); this is the
+                # successor name for the same completion budget.
+                max_completion_tokens=self.config.max_tokens,
             )
 
             # Track token usage
