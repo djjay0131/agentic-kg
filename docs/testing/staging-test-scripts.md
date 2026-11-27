@@ -24,7 +24,43 @@ These scripts test agentic-kg on staging: papers and research problems pulled fr
 
 **Reporting.** For each step, mark Pass or Fail in the results log at the end. On a Fail, leave a comment on that step with what you saw, the time, and a screenshot if you can. Comments on this doc reach Jason.
 
-**Not ready yet (skip if missing):** the Research Loop page (A4) and the nightly-run email. Each is marked in its section.
+**Not ready yet (skip if missing):** the nightly-run email. The Research Loop
+page (A4) is live, but research cycles are off by default on staging, so it may
+show true empty states until the owner enables them.
+
+## What the automated post-deploy suite covers
+
+A staging deploy now runs the `e2e/ui` Playwright suite automatically (the
+`post-deploy-ui-tests` job in `deploy-master.yml`; run it on demand from
+**Actions → UI Tests (post-deploy, IAP)**). It signs in through IAP with a
+short-lived service-account JWT — no stored key or password — and uploads the
+HTML report and traces with the run. The deploy fails on any failed check or on
+any `/api/*` response of 500 or more seen while browsing. Until the owner
+applies the Terraform that creates the `agentic-kg-e2e-staging` identity, the
+job skips with a notice in the run summary instead of failing the deploy.
+
+| Automated | What it asserts |
+| --- | --- |
+| A1.1 | Dashboard counts for papers and problems are non-zero; graph status is Online. |
+| A1.2, A1.4–A1.6 | Problems list, status filter, pagination and problem detail; papers list, pagination and in-app paper detail. |
+| A1.7 | Search returns results for a common term. |
+| A1.9 | The graph renders and a node click opens the side panel. |
+| A1.10 | Extract From Text on a fixed short abstract returns at least one problem. This uses paid LLM calls and is allowed for the post-deploy run. |
+| A2 (start and cleanup) | One workflow starts and reaches the `select_problem` gate without an error, then is rejected so it writes nothing. |
+| A3, A4 (page load) | Runs, Review and Research Loop pages load with data or a true empty state, never a hidden 5xx. |
+| B9 | An unauthenticated POST is rejected with 401 or 403. |
+
+## What still needs a human
+
+- **Ranking and proposal quality (A2 steps 3 and 5).** Whether the ranked
+  problems and the proposed next step are worth doing.
+- **Agreement with the adviser (A3.5/A3.6).** Whether you agree with each
+  admit/reject/merge verdict. That rate is research evidence, not a pass/fail
+  check.
+- **A1.3 citation following**, **A1.8 nonsense-word empty state**, the
+  **A3.9 nightly email**, and the subjective notes on problem/quote quality.
+- **Research-loop gate decisions (A4).** The page load is automated; approving,
+  editing or rejecting a gate and writing its note are not.
 
 ## A1. Browse the knowledge graph
 

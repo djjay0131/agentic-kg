@@ -86,3 +86,35 @@ def test_google_beta_pin_supports_both_iap_features() -> None:
     constraint = re.search(r'version\s*=\s*"([^"]+)"', block.group("body"))
     assert constraint is not None
     assert _minor_version(constraint.group(1)) >= (6, 31)
+
+
+def test_e2e_identity_is_created_and_granted_iap_access_on_the_ui_service() -> None:
+    """T54: the automated suite needs a service identity IAP will admit.
+
+    It is a service account (not a member of the human allowlist) with the
+    per-service ``httpsResourceAccessor`` role, exactly like a human tester.
+    """
+    text = _MAIN_TF.read_text(encoding="utf-8")
+
+    sa = _resource_block(text, "google_service_account", "e2e")
+    assert 'account_id   = "agentic-kg-e2e-${var.env}"' in sa
+    assert "count = var.app_iap_enabled ? 1 : 0" in sa
+
+    grant = _resource_block(
+        text, "google_iap_web_cloud_run_service_iam_member", "iap_web_e2e"
+    )
+    assert "cloud_run_service_name = google_cloud_run_v2_service.ui.name" in grant
+    assert 'role                   = "roles/iap.httpsResourceAccessor"' in grant
+    assert 'member                 = "serviceAccount:${one(google_service_account.e2e[*].email)}"' in grant
+
+
+def test_deploy_identity_can_mint_tokens_as_the_e2e_account() -> None:
+    """The WIF login is the deploy identity; it signs the short-lived JWT."""
+    block = _resource_block(
+        _MAIN_TF.read_text(encoding="utf-8"),
+        "google_service_account_iam_member",
+        "deployer_acts_as_e2e",
+    )
+    assert "service_account_id = one(google_service_account.e2e[*].name)" in block
+    assert 'role               = "roles/iam.serviceAccountTokenCreator"' in block
+    assert 'member             = "serviceAccount:${var.deploy_service_account_email}"' in block
