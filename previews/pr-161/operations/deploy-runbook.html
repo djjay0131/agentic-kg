@@ -1,0 +1,138 @@
+<h1 id="deploy-runbook--one-automatic-path-manual-cloud-build-as-escape-hatch">Deploy runbook — one automatic path, manual Cloud Build as escape hatch</h1>
+
+<p><strong>Applies to:</strong> the staging stack in GCP project <code class="language-plaintext highlighter-rouge">vt-gcp-00042</code>.</p>
+
+<h2 id="the-rule">The rule</h2>
+
+<p><strong>GitHub Actions <code class="language-plaintext highlighter-rouge">.github/workflows/deploy-master.yml</code> is the only automatic
+deploy path.</strong> It rolls the Cloud Run containers with
+<code class="language-plaintext highlighter-rouge">gcloud run services update --image=… --update-labels=…</code> (and
+<code class="language-plaintext highlighter-rouge">gcloud run jobs update --image</code> for the ingest Job) and nothing else, so the
+image and the <code class="language-plaintext highlighter-rouge">commit</code> label are the only attributes it owns.</p>
+
+<p><strong><code class="language-plaintext highlighter-rouge">cloudbuild.yaml</code> is manual-only.</strong> It is the escape hatch an operator runs by
+hand when they need to build and roll an image outside the merge flow. It must
+never be wired to a push trigger.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Path</th>
+      <th>Trigger</th>
+      <th>What it changes</th>
+      <th>Owner of the rest</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">deploy-master.yml</code></td>
+      <td>push to <code class="language-plaintext highlighter-rouge">master</code></td>
+      <td>image + <code class="language-plaintext highlighter-rouge">commit</code>/<code class="language-plaintext highlighter-rouge">environment</code> labels</td>
+      <td>Terraform</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">cloudbuild.yaml</code> (manual)</td>
+      <td>operator <code class="language-plaintext highlighter-rouge">gcloud builds submit</code></td>
+      <td>image + <code class="language-plaintext highlighter-rouge">commit</code> label</td>
+      <td>Terraform</td>
+    </tr>
+    <tr>
+      <td>Terraform (<code class="language-plaintext highlighter-rouge">infra/</code>)</td>
+      <td>PR + dispatched apply</td>
+      <td>env, secrets, scaling, port, IAM, VPC</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Cloud Build <strong>triggers</strong></td>
+      <td>push (legacy, to be deleted)</td>
+      <td><em>nothing now</em> — the repo-side guard makes them a fast no-op</td>
+      <td>—</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Env flags that Terraform owns and that a <code class="language-plaintext highlighter-rouge">deploy</code>-style command would have
+dropped: <code class="language-plaintext highlighter-rouge">CANONICAL_API_ENABLED</code>, <code class="language-plaintext highlighter-rouge">KGCS_CANONICAL_NAMESPACE</code>, the <code class="language-plaintext highlighter-rouge">GCP_*</code> flags
+and all scaling. See <a href="https://github.com/djjay0131/agentic-kg/blob/master/infra/README.md"><code class="language-plaintext highlighter-rouge">infra/README.md</code></a>
+§Resource ownership (ADR-0006).</p>
+
+<h2 id="the-legacy-triggers-must-be-deleted-owner-action">The legacy triggers MUST be deleted (owner action)</h2>
+
+<p>Two <strong>global</strong> Cloud Build triggers were created 2026-02-04:</p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">agentic-kg-api-staging</code></li>
+  <li><code class="language-plaintext highlighter-rouge">agentic-kg-ui-staging</code></li>
+</ul>
+
+<p>They run as the <strong>default compute service account</strong>, use <code class="language-plaintext highlighter-rouge">cloudbuild.yaml</code>, and
+fire on every push. Before 2026-10-09 <code class="language-plaintext highlighter-rouge">cloudbuild.yaml</code> ran <code class="language-plaintext highlighter-rouge">gcloud run deploy</code>,
+so every fired trigger did a full <code class="language-plaintext highlighter-rouge">ReplaceService</code> and <strong>clobbered staging</strong> —
+dropping the Terraform-declared env flags, scaling, and anything else
+Terraform owns. The audit log shows the compute SA doing <code class="language-plaintext highlighter-rouge">ReplaceService</code>
+immediately next to every GitHub deploy.</p>
+
+<p>The triggers are <strong>not</strong> in Terraform state (staging sets
+<code class="language-plaintext highlighter-rouge">enable_build_triggers = false</code>) and the Workload-Identity Federation CI service
+account has <strong>no Cloud Build permission</strong>, so they cannot be disabled from CI.
+<strong>The repository owner deletes them by hand.</strong> Do not delete them from an agent
+session, and do <strong>not</strong> touch any <code class="language-plaintext highlighter-rouge">denario-*</code> triggers (a different app shares
+the project).</p>
+
+<p><strong>Console path:</strong> Google Cloud Console → <strong>Cloud Build → Triggers</strong>, set the
+region selector to <strong>global</strong>, select each trigger → <strong>Delete</strong>.</p>
+
+<p><strong>Equivalent <code class="language-plaintext highlighter-rouge">gcloud</code> commands</strong> (run by the owner, authenticated to the VT
+project):</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Confirm what is there first (expect the two legacy triggers, and denario-*).</span>
+gcloud builds triggers list <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042 <span class="nt">--region</span><span class="o">=</span>global
+
+<span class="c"># Delete only the two legacy staging triggers.</span>
+gcloud builds triggers delete agentic-kg-api-staging <span class="nt">--region</span><span class="o">=</span>global <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042
+gcloud builds triggers delete agentic-kg-ui-staging  <span class="nt">--region</span><span class="o">=</span>global <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042
+</code></pre></div></div>
+
+<p>Until they are deleted, <code class="language-plaintext highlighter-rouge">cloudbuild.yaml</code> neutralises them from the repo side: a
+build that was started by a trigger (Cloud Build built-in substitution
+<code class="language-plaintext highlighter-rouge">$TRIGGER_NAME</code> is non-empty) logs a line and exits 0 at the top of every step,
+so the build finishes <strong>SUCCESS in seconds</strong> without building or pushing
+anything. The guard is only skipped for a manual build (no <code class="language-plaintext highlighter-rouge">TRIGGER_NAME</code>) or
+when <code class="language-plaintext highlighter-rouge">_ALLOW_TRIGGER_DEPLOY=true</code> is passed deliberately.</p>
+
+<h2 id="manual-escape-hatch">Manual escape hatch</h2>
+
+<p>Build and roll a single service:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gcloud builds submit <span class="nt">--config</span><span class="o">=</span>cloudbuild.yaml <span class="se">\</span>
+  <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042 <span class="se">\</span>
+  <span class="nt">--substitutions</span><span class="o">=</span><span class="nv">_SERVICE</span><span class="o">=</span>api,COMMIT_SHA<span class="o">=</span><span class="si">$(</span>git rev-parse HEAD<span class="si">)</span>
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">_SERVICE</code> is <code class="language-plaintext highlighter-rouge">api</code>, <code class="language-plaintext highlighter-rouge">ui</code> (build) or <code class="language-plaintext highlighter-rouge">job</code> (the ingest Cloud Run Job). The deploy
+step rolls only the image and stamps <code class="language-plaintext highlighter-rouge">commit=&lt;sha&gt;</code> — the same shape as
+<code class="language-plaintext highlighter-rouge">deploy-master.yml</code>. It never passes <code class="language-plaintext highlighter-rouge">--set-env-vars</code>, <code class="language-plaintext highlighter-rouge">--set-secrets</code>,
+<code class="language-plaintext highlighter-rouge">--port</code>, <code class="language-plaintext highlighter-rouge">--memory</code>, <code class="language-plaintext highlighter-rouge">--min-instances</code>, <code class="language-plaintext highlighter-rouge">--max-instances</code>,
+<code class="language-plaintext highlighter-rouge">--allow-unauthenticated</code> or <code class="language-plaintext highlighter-rouge">--platform</code>, so it cannot drop a Terraform-owned
+attribute.</p>
+
+<blockquote>
+  <p><strong>Do not pass <code class="language-plaintext highlighter-rouge">_ALLOW_TRIGGER_DEPLOY=true</code> while the legacy triggers still
+exist.</strong> That override lets a trigger run the full build and deploy, which is
+exactly the clobber this guard prevents.</p>
+</blockquote>
+
+<h2 id="verification">Verification</h2>
+
+<ul>
+  <li>A triggered build (either legacy trigger) should appear green in seconds with
+a <code class="language-plaintext highlighter-rouge">cloudbuild.yaml is manual-only: build started by trigger …</code> log line and no
+image build, no push, no deploy.</li>
+  <li><code class="language-plaintext highlighter-rouge">infra/</code> resource ownership is unchanged after a manual run:
+<code class="language-plaintext highlighter-rouge">gcloud run services describe agentic-kg-api-staging --region=us-central1
+--format='value(spec.template.spec.containers[0].env[].name)'</code> still lists the
+Terraform-managed names.</li>
+  <li>The structural contract is pinned by
+<code class="language-plaintext highlighter-rouge">packages/core/tests/test_cloudbuild_guard.py</code> (no <code class="language-plaintext highlighter-rouge">gcloud run deploy</code>; every
+step guarded; <code class="language-plaintext highlighter-rouge">_ALLOW_TRIGGER_DEPLOY</code> defaults to <code class="language-plaintext highlighter-rouge">"false"</code>).</li>
+</ul>
