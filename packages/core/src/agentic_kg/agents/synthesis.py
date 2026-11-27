@@ -95,7 +95,9 @@ class SynthesisAgent(BaseAgent):
             context = self.port.load_context(problem_id or proposal.problem_id)
 
             # Step 1: Generate synthesis report via LLM
-            report = await self._generate_report(context, proposal, eval_result)
+            report, state = await self._generate_report(
+                context, proposal, eval_result, state
+            )
             state = add_message(
                 state,
                 self.name,
@@ -241,7 +243,8 @@ class SynthesisAgent(BaseAgent):
         context,
         proposal: ContinuationProposal,
         eval_result: EvaluationResult,
-    ) -> SynthesisReport:
+        state,
+    ) -> tuple[SynthesisReport, ResearchState]:
         """Use LLM to synthesize workflow results."""
         steps_text = "\n".join(
             f"  {s.step_number}. {s.description}" for s in proposal.experimental_steps
@@ -278,8 +281,13 @@ class SynthesisAgent(BaseAgent):
             response_model=SynthesisReport,
             system_prompt=SYNTHESIS_SYSTEM_PROMPT,
             user_prompt=user_prompt,
+            max_tokens=self.max_tokens,
+            call_site="synthesis.report",
         )
-        return response.content
+        state = self._record_llm_usage(
+            state, "synthesis.report", response, budget=self.max_tokens
+        )
+        return response.content, state
 
     # -- legacy path (unchanged semantics) ---------------------------------
 

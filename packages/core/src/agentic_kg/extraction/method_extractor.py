@@ -56,6 +56,7 @@ class MethodExtractor:
                 prompt=prompt,
                 response_model=_MethodEnvelope,
                 system_prompt=self._system_prompt,
+                call_site="extraction.method",
             )
         except LLMError as e:
             logger.warning("Method extraction failed: %s", e)

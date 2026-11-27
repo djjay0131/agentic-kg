@@ -296,6 +296,24 @@ variable "llm_reasoning_effort" {
   }
 }
 
+variable "llm_max_output_tokens" {
+  description = <<-EOT
+    Completion budget (LLM_MAX_OUTPUT_TOKENS) for every chat call. Reasoning
+    tokens count against this same ceiling, so an output-sized value truncates
+    a reasoning call. The default leaves room for reasoning plus a normal
+    structured response; ranking is batched so no single response needs the
+    model's full output window. Keep this at or below the configured model's
+    documented maximum completion tokens.
+  EOT
+  type        = number
+  default     = 16384
+
+  validation {
+    condition     = var.llm_max_output_tokens > 0 && var.llm_max_output_tokens <= 32768
+    error_message = "llm_max_output_tokens must be between 1 and 32768."
+  }
+}
+
 variable "embedding_model" {
   description = <<-EOT
     OpenAI embedding model. The default (text-embedding-3-small) is 1536

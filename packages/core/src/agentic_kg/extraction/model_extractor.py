@@ -57,6 +57,7 @@ class ModelExtractor:
                 prompt=prompt,
                 response_model=_ModelEnvelope,
                 system_prompt=self._system_prompt,
+                call_site="extraction.model",
             )
         except LLMError as e:
             logger.warning("Model extraction failed: %s", e)

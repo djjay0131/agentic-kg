@@ -15,11 +15,16 @@ import pytest
 from agentic_kg.llm_config import (
     DEFAULT_ANTHROPIC_MODEL,
     DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_MAX_OUTPUT_TOKENS,
     DEFAULT_OPENAI_MODEL,
+    DEFAULT_RANKING_BATCH_SIZE,
     DEFAULT_REASONING_EFFORT,
+    OUTPUT_TOKEN_CEILING,
     resolve_embedding_model,
     resolve_llm_model,
     resolve_llm_provider,
+    resolve_max_output_tokens,
+    resolve_ranking_batch_size,
     resolve_reasoning_effort,
 )
 
@@ -111,6 +116,67 @@ class TestEmbeddingModel:
 
         monkeypatch.setenv("EMBEDDING_MODEL", "embedding-from-env")
         assert EmbeddingConfig().model == "embedding-from-env"
+
+
+class TestMaxOutputTokens:
+    """Reasoning tokens count against the completion budget: precedence + guard."""
+
+    def test_default(self):
+        assert resolve_max_output_tokens(env={}) == DEFAULT_MAX_OUTPUT_TOKENS
+
+    def test_env_wins_over_default(self):
+        assert (
+            resolve_max_output_tokens(env={"LLM_MAX_OUTPUT_TOKENS": "20000"})
+            == 20000
+        )
+
+    def test_explicit_wins_over_env(self):
+        assert (
+            resolve_max_output_tokens(
+                12000, env={"LLM_MAX_OUTPUT_TOKENS": "20000"}
+            )
+            == 12000
+        )
+
+    def test_ceiling_is_enforced(self):
+        with pytest.raises(ValueError, match="exceeds the supported ceiling"):
+            resolve_max_output_tokens(OUTPUT_TOKEN_CEILING + 1, env={})
+
+    def test_malformed_env_raises(self):
+        with pytest.raises(ValueError, match="LLM_MAX_OUTPUT_TOKENS"):
+            resolve_max_output_tokens(env={"LLM_MAX_OUTPUT_TOKENS": "lots"})
+
+    def test_non_positive_env_raises(self):
+        with pytest.raises(ValueError, match="LLM_MAX_OUTPUT_TOKENS"):
+            resolve_max_output_tokens(env={"LLM_MAX_OUTPUT_TOKENS": "0"})
+
+    def test_llm_config_reads_the_surface(self, monkeypatch):
+        from agentic_kg.extraction.llm_client import LLMConfig
+
+        monkeypatch.setenv("LLM_MAX_OUTPUT_TOKENS", "20000")
+        assert LLMConfig().max_tokens == 20000
+
+
+class TestRankingBatchSize:
+    def test_default(self):
+        assert resolve_ranking_batch_size(env={}) == DEFAULT_RANKING_BATCH_SIZE
+
+    def test_env_wins(self):
+        assert (
+            resolve_ranking_batch_size(env={"LLM_RANKING_BATCH_SIZE": "3"}) == 3
+        )
+
+    def test_explicit_wins_over_env(self):
+        assert (
+            resolve_ranking_batch_size(
+                2, env={"LLM_RANKING_BATCH_SIZE": "3"}
+            )
+            == 2
+        )
+
+    def test_non_positive_raises(self):
+        with pytest.raises(ValueError, match="LLM_RANKING_BATCH_SIZE"):
+            resolve_ranking_batch_size(env={"LLM_RANKING_BATCH_SIZE": "0"})
 
 
 # Model ids the providers' deprecation pages list as retired. Matched as whole

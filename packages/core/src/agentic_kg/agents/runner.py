@@ -103,17 +103,28 @@ class WorkflowRunner:
             source=self._source,
         )
 
-        # Build agents
-        self._ranking = RankingAgent(**common, model=self._config.ranking.model)
-        self._continuation = ContinuationAgent(**common, model=self._config.continuation.model)
+        # Build agents. Each gets its per-call completion budget; the client is
+        # shared, so a budget must travel with the call, not the client.
+        self._ranking = RankingAgent(
+            **common,
+            model=self._config.ranking.model,
+            max_tokens=self._config.ranking.max_tokens,
+        )
+        self._continuation = ContinuationAgent(
+            **common,
+            model=self._config.continuation.model,
+            max_tokens=self._config.continuation.max_tokens,
+        )
         self._evaluation = EvaluationAgent(
             **common,
             model=self._config.evaluation.model,
+            max_tokens=self._config.evaluation.max_tokens,
             sandbox=create_execution_backend(config=self._config.sandbox),
         )
         self._synthesis = SynthesisAgent(
             **common,
             model=self._config.synthesis.model,
+            max_tokens=self._config.synthesis.max_tokens,
             canonical_sink=sink,
             namespace=namespace,
         )
