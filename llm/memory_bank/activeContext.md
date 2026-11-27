@@ -7,6 +7,23 @@ Last updated: 2026-11-12
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
 
+## Configurable LLM models + failed workflow state (2026-11-27, T57)
+
+Staging failed every LLM call because extraction defaulted to a retired model.
+`fix/llm-model-config` puts model choice in one surface:
+`LLM_PROVIDER` / `LLM_MODEL` / `EMBEDDING_MODEL`, resolved by
+`agentic_kg.llm_config` and set explicitly in Terraform for the API and every
+LLM-calling Job (`gpt-6.2-sol`, `claude-sonnet-5-5`, `text-embedding-3-small`;
+the embedding model keeps the 1536-dimension index). `agentic-kg llm-check`
+makes one tiny real structured call per model; deploy-master runs it after a
+deploy and the nightly Job runs it before ingest, so a retired model fails the
+deploy/run with the provider's message. Agent-node failures now set
+`status=failed` in state, the graph routes a failed node to `END`, the runner
+records the failing step and error, the API/list/detail show Failed with the
+message, and startup closes `running` runs that have no resumable checkpoint.
+Tests: `tests/test_llm_config.py` (precedence + retired-id denylist),
+`tests/agents/test_runner.py`, `test_workflow.py`, `tests/pipeline/test_nightly.py`.
+
 ## Gate agreement evidence (2026-11-27, T55)
 
 `feat/gate-agreement-evidence` supplies the evidence ADR-0011 left open and
