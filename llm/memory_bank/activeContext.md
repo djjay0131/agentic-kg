@@ -28,6 +28,13 @@ logged per call and recorded in `ResearchState.llm_usage`; there is still no
 per-call USD hook in the cycle, which keeps the documented estimate. `agentic-kg
 llm-check` adds a ranking-batch probe so deploy/nightly fail on truncation.
 
+The larger budget exposed an over-reservation in the SM-6 throttle: reserving
+the full 16384 made a 30k-TPM smoke run wait ~34 s per ~2k-token call and hit
+the 30-minute job limit. The throttle now reserves at most
+`OPENAI_TPM_RESERVE_TOKENS` (default 8192) before a call and charges the
+provider-reported total above that reserve after the call. That is a pacing
+fix, not a threshold change: actual usage is still accounted for.
+
 Tests: budget/batch precedence (`tests/test_llm_config.py`), batch/merge
 (`tests/agents/test_ranking.py`), truncation retry over a fake HTTP transport
 (`tests/extraction/test_openai_request_shape.py`), llm-check probe

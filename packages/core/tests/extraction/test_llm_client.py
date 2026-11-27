@@ -19,12 +19,14 @@ from agentic_kg.extraction.llm_client import (
     _parse_retry_after,
     _rate_limit_wait,
     _read_tpm_budget,
+    _read_tpm_reserve,
     create_llm_client,
     estimate_tokens,
     get_anthropic_client,
     get_openai_client,
     get_tpm_limiter,
     reset_llm_clients,
+    tpm_reserve,
 )
 from agentic_kg.llm_config import (
     DEFAULT_ANTHROPIC_MODEL,
@@ -754,7 +756,9 @@ class TestExtractThrottle:
 
         prompt = "p" * 40
         system = "s" * 40
-        expected = estimate_tokens(prompt, system, client.config.max_tokens)
+        expected = estimate_tokens(
+            prompt, system, tpm_reserve(client.config.max_tokens)
+        )
 
         with patch.object(client, "_get_instructor_client", return_value=mock_instructor):
             with patch(
@@ -876,6 +880,72 @@ class TestExtractThrottle:
                     await client.extract(prompt="p", response_model=SampleExtraction)
 
         assert any("TPM throttle: waited 3.5s" in r.message for r in caplog.records)
+
+
+    @pytest.mark.asyncio
+    async def test_reconciles_actual_usage_over_the_reservation(self, client):
+        """A response larger than the bounded reserve is charged before return."""
+        mock_instructor, _ = _mock_instructor_ok()
+        completion = MagicMock()
+        completion.usage = MagicMock(
+            prompt_tokens=1000, completion_tokens=18000, total_tokens=19000
+        )
+        completion.choices = [MagicMock(finish_reason="stop")]
+        mock_instructor.chat.completions.create_with_completion = AsyncMock(
+            return_value=(
+                SampleExtraction(title="T", summary="S", confidence=0.9),
+                completion,
+            )
+        )
+
+        acquired: list[float] = []
+
+        async def record_acquire(est):
+            acquired.append(est)
+            return 0.0
+
+        limiter = MagicMock()
+        limiter.wait_estimate.return_value = 0.0
+        limiter.capacity = 30000
+        limiter.acquire = AsyncMock(side_effect=record_acquire)
+
+        prompt = "p" * 40
+        system = "s" * 40
+        expected = estimate_tokens(
+            prompt, system, tpm_reserve(client.config.max_tokens)
+        )
+
+        with patch.object(client, "_get_instructor_client", return_value=mock_instructor):
+            with patch(
+                "agentic_kg.extraction.llm_client.get_tpm_limiter",
+                return_value=limiter,
+            ):
+                await client.extract(
+                    prompt=prompt,
+                    response_model=SampleExtraction,
+                    system_prompt=system,
+                )
+
+        assert acquired == [expected, 19000 - expected]
+
+
+class TestTpmReserve:
+    """The pre-call reservation is bounded; actual usage is reconciled later."""
+
+    def test_reserve_is_capped_at_the_default(self):
+        assert tpm_reserve(16384) == 8192
+
+    def test_reserve_never_exceeds_a_small_budget(self):
+        assert tpm_reserve(1000) == 1000
+
+    def test_reserve_env_override(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_TPM_RESERVE_TOKENS", "2048")
+        assert tpm_reserve(16384) == 2048
+
+    def test_malformed_reserve_raises(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_TPM_RESERVE_TOKENS", "lots")
+        with pytest.raises(ValueError, match="OPENAI_TPM_RESERVE_TOKENS"):
+            _read_tpm_reserve()
 
 
 class TestExtractRetryAfterWarn:

@@ -40,6 +40,14 @@ logger = logging.getLogger(__name__)
 # low-tier account rather than 429-ing.
 _DEFAULT_TPM = 30000
 
+# Pre-call reservation for a completion whose max budget is larger than a
+# typical response. Reserving the full completion budget (now reasoning-aware,
+# 16k+) makes the throttle wait ~34s per call at a 30k TPM tier even when the
+# call actually uses ~2k. Reserve a bounded expected completion and reconcile
+# the real provider-reported total after the call. Operators can tune the bound
+# with OPENAI_TPM_RESERVE_TOKENS.
+_DEFAULT_TPM_RESERVE = 8192
+
 
 def _read_tpm_budget() -> int:
     """
@@ -64,13 +72,43 @@ def _read_tpm_budget() -> int:
     return tpm
 
 
+def _read_tpm_reserve() -> int:
+    """Read the pre-call completion reservation (``OPENAI_TPM_RESERVE_TOKENS``)."""
+    raw = os.getenv("OPENAI_TPM_RESERVE_TOKENS", str(_DEFAULT_TPM_RESERVE))
+    try:
+        reserve = int(raw)
+    except ValueError as e:
+        raise ValueError(
+            "OPENAI_TPM_RESERVE_TOKENS must be a positive integer; "
+            f"got {raw!r}"
+        ) from e
+    if reserve <= 0:
+        raise ValueError(
+            "OPENAI_TPM_RESERVE_TOKENS must be a positive integer; "
+            f"got {reserve}"
+        )
+    return reserve
+
+
+def tpm_reserve(max_tokens: int) -> int:
+    """The completion tokens to reserve before a call.
+
+    The completion budget exists so a response is not truncated; it is not a
+    forecast of how many tokens a call will use. Reserving the whole budget
+    would pace every call at the maximum, so the proactive throttle reserves at
+    most ``OPENAI_TPM_RESERVE_TOKENS`` (default 8192) and reconciles actual
+    provider-reported usage after the call.
+    """
+    return min(max_tokens, _read_tpm_reserve())
+
+
 def estimate_tokens(prompt: str, system_prompt: Optional[str], max_tokens: int) -> int:
     """
     Heuristic token estimate for a chat completion (SM-6, no tokenizer dep).
 
-    Uses ~4 characters per token for the input and reserves the full completion
-    budget. Over-reserving throttles slightly harder — the safe direction for a
-    rate limit.
+    Uses ~4 characters per token for the input and adds the supplied completion
+    reservation (see :func:`tpm_reserve`; callers should pass the bounded
+    reserve, not the full truncation budget).
     """
     return (len(prompt) + len(system_prompt or "")) // 4 + max_tokens
 
@@ -582,7 +620,9 @@ class OpenAIClient(BaseLLMClient[T]):
             # instead of all 429-ing. A long predicted wait is logged up front so
             # a throttle stall reads as a legible message, not a silent hang.
             limiter = get_tpm_limiter()
-            estimate = estimate_tokens(prompt, system_prompt, attempt_budget)
+            estimate = estimate_tokens(
+                prompt, system_prompt, tpm_reserve(attempt_budget)
+            )
             eta = limiter.wait_estimate(estimate)
             if eta > 5.0:
                 logger.info(
@@ -701,6 +741,23 @@ class OpenAIClient(BaseLLMClient[T]):
                 usage=usage,
                 finish_reason=finish_reason,
             )
+
+            # Reconcile real provider-reported usage with the bounded pre-call
+            # reservation. Over-reservation is not refunded (the safe
+            # direction); an unusually large response is charged before the next
+            # call so the bucket tracks what was actually spent.
+            actual = usage.total_tokens or (
+                usage.prompt_tokens + usage.completion_tokens
+            )
+            deficit = actual - estimate
+            if deficit > 0:
+                reconciled = await limiter.acquire(deficit)
+                logger.info(
+                    "TPM throttle: reconciled %d actual tokens over the "
+                    "pre-call estimate (waited %.1fs)",
+                    deficit,
+                    reconciled,
+                )
 
             return LLMResponse(
                 content=response,
