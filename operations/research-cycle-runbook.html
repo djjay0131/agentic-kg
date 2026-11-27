@@ -57,6 +57,32 @@ lists cycles. The decision is recorded on the cycle before the workflow is
 resumed, so a failed resume leaves an audit record. Approve/edit resumes the
 workflow; reject closes it without a canonical write.</p>
 
+<p>Each pending gate also carries the agent’s own recommendation, produced before
+the human decides (<code class="language-plaintext highlighter-rouge">select_problem</code>: top problem and score margin;
+<code class="language-plaintext highlighter-rouge">approve_proposal</code>: approve/reject, rationale, confidence; <code class="language-plaintext highlighter-rouge">review_evaluation</code>:
+write/do-not-write, rationale, confidence and whether provenance abstained).
+The decision records that recommendation beside the human decision, <code class="language-plaintext highlighter-rouge">agreed</code>,
+and the human’s free-text reason when they differ (ADR-0013).</p>
+
+<h2 id="agreement-and-autonomy-status">Agreement and autonomy status</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Per gate: decisions, agreed, rate, Wilson 95% lower bound, criteria, status.</span>
+agentic-kg autonomy status
+agentic-kg autonomy status <span class="nt">--gate</span> approve_proposal <span class="nt">--since</span> 2026-11-01 <span class="nt">--json</span>
+</code></pre></div></div>
+
+<p>The same evidence is <code class="language-plaintext highlighter-rouge">GET /api/research/agreement?gate=&amp;since=</code> and the
+<strong>Gate agreement</strong> panel on the Research Loop page. <code class="language-plaintext highlighter-rouge">decisions</code> counts only
+gates with both a recommendation and a human decision; automatic decisions are
+excluded. <code class="language-plaintext highlighter-rouge">promotion_met</code> means the recorded evidence clears the gate’s
+<code class="language-plaintext highlighter-rouge">promotion</code> criteria in <code class="language-plaintext highlighter-rouge">config/research-autonomy.yaml</code>. The system only
+reports this: promotion is a human edit of that versioned file in a PR.</p>
+
+<p>A non-<code class="language-plaintext highlighter-rouge">human</code> mode is refused at runtime and falls back to a human while its
+criteria are absent or unmet. For <code class="language-plaintext highlighter-rouge">review_evaluation</code>, an auto decision also
+requires a non-abstaining provenance envelope. The shipped policy keeps every
+gate <code class="language-plaintext highlighter-rouge">human</code>.</p>
+
 <h2 id="budgets-and-the-kill-switch">Budgets and the kill switch</h2>
 
 <table>
