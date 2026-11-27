@@ -130,6 +130,7 @@ def run_nightly(
     write_json: bool = True,
     write_neo4j: bool = True,
     defer_event_on_success: bool = False,
+    llm_check: Callable[[], None] | None = None,
 ) -> NightlyResult:
     """Plan, run, aggregate and persist one nightly execution.
 
@@ -197,6 +198,33 @@ def run_nightly(
         return _finalize(report, url=None, write_json=write_json, write_neo4j=write_neo4j,
                          runs_dir=runs_dir, runs_bucket=runs_bucket, ui_base_url=ui_base_url,
                          repo=repo, defer_event_on_success=defer_event_on_success)
+
+    # --- fail fast before spending anything on ingest ---------------------
+    # The nightly Job passes a real LLM check; a retired model then fails the
+    # run here with the provider's message instead of part-way through ingest.
+    if llm_check is not None:
+        try:
+            llm_check()
+        except Exception as exc:  # noqa: BLE001 - recorded as the run failure
+            message = f"{type(exc).__name__}: {exc}"
+            logger.error("nightly LLM preflight failed: %s", message)
+            for entry in entries:
+                entry.status = "skipped"
+                entry.error = "not run: LLM preflight failed"
+            report.failures.append(PipelineFailure(step="llm_check", message=message))
+            report.status = "failed"
+            report.finished_at = iso(utc_now())
+            return _finalize(
+                report,
+                url=None,
+                write_json=write_json,
+                write_neo4j=write_neo4j,
+                runs_dir=runs_dir,
+                runs_bucket=runs_bucket,
+                ui_base_url=ui_base_url,
+                repo=repo,
+                defer_event_on_success=defer_event_on_success,
+            )
 
     # --- run each query under the budgets ---------------------------------
     # The planner already bounds the plan by ``max_papers``; the loop's checks
@@ -363,7 +391,19 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Print tonight's plan and exit without ingesting or writing.",
     )
     parser.add_argument("--no-neo4j", action="store_true", help="Skip the Neo4j node.")
+    parser.add_argument(
+        "--skip-llm-check",
+        action="store_true",
+        help="Skip the pre-ingest call that proves the configured models work.",
+    )
     return parser
+
+
+def _default_llm_check() -> None:
+    """One real structured call per configured model (see llm-check)."""
+    from agentic_kg.extraction.llm_check import run_llm_check_sync
+
+    run_llm_check_sync()
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -415,6 +455,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         ui_base_url=ui_base_url,
         write_neo4j=not args.no_neo4j,
         defer_event_on_success=_truthy(os.environ.get(ENV_CURATE_ENABLED)),
+        llm_check=None if args.skip_llm_check else _default_llm_check,
     )
     return result.exit_code
 

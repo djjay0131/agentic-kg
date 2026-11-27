@@ -87,6 +87,11 @@ async def lifespan(app: FastAPI):
             output_store=get_agent_outputs(repo),
         )
         agents.set_workflow_runner(runner)
+        # Close runs a previous process left ``running`` with no resumable
+        # checkpoint; a human gate is still resumable and is left alone.
+        stale = await runner.reconcile_stale_runs()
+        if stale:
+            logger.warning("marked %d stale workflow run(s) failed", len(stale))
         setup_event_bridge()
         logger.info("WorkflowRunner initialized successfully")
     except Exception as e:

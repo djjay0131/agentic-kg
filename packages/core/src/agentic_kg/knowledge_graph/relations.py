@@ -32,6 +32,7 @@ from agentic_kg.knowledge_graph.repository import (
     RepositoryError,
     get_repository,
 )
+from agentic_kg.llm_config import default_chat_model
 
 logger = logging.getLogger(__name__)
 
@@ -537,7 +538,7 @@ class RelationService:
     def infer_relations(
         self,
         problem_id: str,
-        model: str = "gpt-4",
+        model: str | None = None,
     ) -> list[ProblemRelation]:
         """
         Infer potential relations for a problem.
@@ -551,7 +552,11 @@ class RelationService:
         Returns:
             List of inferred relations (empty for now).
         """
-        logger.info(f"Relation inference not yet implemented for {problem_id}")
+        resolved_model = model or default_chat_model()
+        logger.info(
+            f"Relation inference not yet implemented for {problem_id} "
+            f"(model {resolved_model})"
+        )
         return []
 
     def _problem_from_neo4j(self, data: dict) -> Problem:

@@ -22,6 +22,7 @@ from agentic_kg.agents.matching.state import (
     add_matching_error,
     add_matching_message,
 )
+from agentic_kg.llm_config import default_chat_model
 
 if TYPE_CHECKING:
     from agentic_kg.extraction.llm_client import BaseLLMClient
@@ -169,7 +170,7 @@ class ArbiterAgent:
     def __init__(
         self,
         llm_client: BaseLLMClient,
-        model: str = "gpt-4o",
+        model: str | None = None,
         temperature: float = 0.2,
         max_tokens: int = 1500,
         timeout: float = 15.0,
@@ -187,7 +188,7 @@ class ArbiterAgent:
             confidence_threshold: Min confidence for final decision (default 0.7).
         """
         self.llm = llm_client
-        self.model = model
+        self.model = model or default_chat_model()
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.timeout = timeout
@@ -432,7 +433,7 @@ class ArbiterAgent:
 
 def create_arbiter_agent(
     llm_client: BaseLLMClient,
-    model: str = "gpt-4o",
+    model: str | None = None,
     confidence_threshold: float = ARBITER_CONFIDENCE_THRESHOLD,
 ) -> ArbiterAgent:
     """
@@ -440,7 +441,7 @@ def create_arbiter_agent(
 
     Args:
         llm_client: LLM client to use.
-        model: LLM model (default: gpt-4o).
+        model: LLM model (default: LLM_MODEL).
         confidence_threshold: Min confidence for decision (default 0.7).
 
     Returns:

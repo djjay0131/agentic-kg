@@ -491,7 +491,11 @@ def clean_env(monkeypatch) -> Generator[None, None, None]:
         "NEO4J_PASSWORD",
         "NEO4J_DATABASE",
         "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
         "EMBEDDING_MODEL",
+        "LLM_PROVIDER",
+        "LLM_MODEL",
+        "OPENAI_EXTRACTION_MODEL",
         "ENVIRONMENT",
         "DEBUG",
     ]

@@ -76,6 +76,16 @@ async def test_new_saver_does_not_see_a_thread_that_was_never_written():
     assert saver.has_thread("unknown") is False
 
 
+async def test_list_thread_ids_sees_durable_threads():
+    store = InMemoryCheckpointStore()
+    saver = DurableCheckpointSaver(store)
+    graph = _build(saver)
+    await graph.ainvoke({"value": 0}, config=CONFIG)
+
+    assert store.list_thread_ids() == ["thread-1"]
+    assert DurableCheckpointSaver(store).list_thread_ids() == ["thread-1"]
+
+
 async def test_delete_thread_removes_the_persisted_payload():
     store = InMemoryCheckpointStore()
     saver = DurableCheckpointSaver(store)

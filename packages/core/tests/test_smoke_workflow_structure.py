@@ -289,8 +289,8 @@ class TestEnvBlock:
             "NEO4J_USERNAME",
             "NEO4J_PASSWORD",
             "NEO4J_DATABASE",
-            # SM-6: the throughput lever, CI-only
-            "OPENAI_EXTRACTION_MODEL",
+            # SM-6: the throughput lever, CI-only (one model surface)
+            "LLM_MODEL",
             "OPENAI_TPM",
         }
 
@@ -322,10 +322,10 @@ class TestEnvBlock:
     def test_sm7_throttle_budget_at_real_ceiling(self, workflow):
         """AC-6: CI sets OPENAI_TPM to this org's REAL ceiling (30000) so the
         throttle paces the concurrent extractors under it — the throttle, not a
-        model flip, is the mechanism (gpt-4o has no higher tier on this org).
-        Production default stays gpt-4-turbo; the model override is CI-only."""
+        model flip, is the mechanism. LLM_MODEL is the one model surface; the
+        CI value is explicit rather than a production default."""
         env = _smoke_job(workflow)["env"]
-        assert env["OPENAI_EXTRACTION_MODEL"] == "gpt-4o"
+        assert env["LLM_MODEL"] == "gpt-6-luna"
         # YAML may parse the quoted value as str or int; normalize to str.
         assert str(env["OPENAI_TPM"]) == "30000"
 

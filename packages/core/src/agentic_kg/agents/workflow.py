@@ -23,6 +23,16 @@ from agentic_kg.agents.synthesis import SynthesisAgent
 logger = logging.getLogger(__name__)
 
 
+def _agent_failed(state: ResearchState) -> bool:
+    """Whether a node recorded a terminal failure."""
+    return state.get("status") == WorkflowStatus.FAILED.value
+
+
+def _should_continue_after_agent(state: ResearchState) -> str:
+    """Stop the graph as soon as an agent node fails."""
+    return "end" if _agent_failed(state) else "continue"
+
+
 def _should_continue_after_select(state: ResearchState) -> str:
     """Route after problem selection checkpoint."""
     if state.get("selected_problem_id"):
@@ -83,6 +93,8 @@ def build_workflow(
 
     async def synthesis_node(state: ResearchState) -> ResearchState:
         result = await synthesis_agent.run(state)
+        if result.get("status") == WorkflowStatus.FAILED.value:
+            return result
         return {**result, "status": WorkflowStatus.COMPLETED.value}
 
     # --- Checkpoint (passthrough) nodes ---
@@ -109,7 +121,11 @@ def build_workflow(
 
     # --- Edges ---
     graph.set_entry_point("ranking")
-    graph.add_edge("ranking", "select_problem")
+    graph.add_conditional_edges(
+        "ranking",
+        _should_continue_after_agent,
+        {"select_problem": "select_problem", "end": END},
+    )
 
     graph.add_conditional_edges(
         "select_problem",
@@ -117,7 +133,11 @@ def build_workflow(
         {"continuation": "continuation", "end": END},
     )
 
-    graph.add_edge("continuation", "approve_proposal")
+    graph.add_conditional_edges(
+        "continuation",
+        _should_continue_after_agent,
+        {"continue": "approve_proposal", "end": END},
+    )
 
     graph.add_conditional_edges(
         "approve_proposal",
@@ -125,7 +145,11 @@ def build_workflow(
         {"evaluation": "evaluation", "end": END},
     )
 
-    graph.add_edge("evaluation", "review_evaluation")
+    graph.add_conditional_edges(
+        "evaluation",
+        _should_continue_after_agent,
+        {"continue": "review_evaluation", "end": END},
+    )
 
     graph.add_conditional_edges(
         "review_evaluation",

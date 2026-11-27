@@ -8,6 +8,8 @@ import os
 from dataclasses import dataclass, field
 from typing import Optional
 
+from agentic_kg.llm_config import resolve_embedding_model
+
 # Insecure default passwords that should never be used in production
 _INSECURE_PASSWORDS = {"password", "changeme", "secret", "admin", ""}
 
@@ -41,9 +43,7 @@ class EmbeddingConfig:
     """OpenAI embedding configuration."""
 
     api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
-    model: str = field(
-        default_factory=lambda: os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
-    )
+    model: str = field(default_factory=resolve_embedding_model)
     dimensions: int = 1536
 
     # Batch settings

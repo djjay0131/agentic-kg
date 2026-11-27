@@ -10,13 +10,14 @@ import os
 from dataclasses import dataclass, field
 
 from agentic_kg.agents.graph_port import graph_source_from_env
+from agentic_kg.llm_config import default_chat_model
 
 
 @dataclass
 class AgentLLMConfig:
     """LLM settings for a specific agent."""
 
-    model: str = "gpt-4o"
+    model: str = field(default_factory=default_chat_model)
     temperature: float = 0.3
     max_tokens: int = 4096
 

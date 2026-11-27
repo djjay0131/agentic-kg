@@ -1075,6 +1075,22 @@ READ_PATHS: tuple[ReadPath, ...] = (
         ),
     ),
     ReadPath(
+        id="agent.checkpoint.list",
+        surface="DurableCheckpointSaver.list_thread_ids",
+        source_file=f"{CORE}/agents/checkpoint_store.py",
+        snippet="MATCH (c:{LABEL_AGENT_CHECKPOINT} {{ns: $ns}})",
+        labels=("Canon__AgentCheckpoint",),
+        relationships=(),
+        properties=("ns", "thread_id"),
+        compat=CompatClass.SCOPED_OUT,
+        note=(
+            "Lists the app-namespace workflow threads so startup can close a "
+            "run a dead process left ``running`` with no resumable checkpoint. "
+            "Operational state (ADR-0004/0005), outside the canonical "
+            "projection parity harness."
+        ),
+    ),
+    ReadPath(
         id="pipeline.research_cycle.get",
         surface="ResearchCycleRepository.get / find_status",
         source_file=f"{CORE}/knowledge_graph/research_cycles.py",

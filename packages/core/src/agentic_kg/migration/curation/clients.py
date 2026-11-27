@@ -180,8 +180,8 @@ class OpenAICompletionClient:
     """The live adapter: this repo's OpenAI client behind KGCS's port.
 
     Used **only** when explicitly enabled for staging. It resolves the model and
-    key through ``extraction.llm_client`` (``OPENAI_API_KEY``,
-    ``OPENAI_EXTRACTION_MODEL``) rather than reading the environment here, so
+    key through ``extraction.llm_client`` (``OPENAI_API_KEY``, ``LLM_MODEL``
+    or the legacy ``OPENAI_EXTRACTION_MODEL``) rather than reading it here, so
     there is one place those names live. The heavy import is deferred to the
     first call, so importing the curation package never pulls in the LLM stack.
 

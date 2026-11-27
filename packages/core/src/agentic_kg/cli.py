@@ -876,6 +876,39 @@ def build_parser() -> argparse.ArgumentParser:
         "-v", "--verbose", action="store_true", help="Enable verbose logging",
     )
 
+    # llm-check command: prove the configured models answer before deploying.
+    llm_check_cmd = subparsers.add_parser(
+        "llm-check",
+        help="Make one tiny real call per configured model; exit non-zero on failure",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=(
+            "Reads LLM_PROVIDER, LLM_MODEL and EMBEDDING_MODEL (the same "
+            "surface the app uses), makes one structured chat call and one "
+            "embedding call, and exits non-zero with the provider's message. "
+            "Keys are never printed."
+        ),
+    )
+    llm_check_cmd.add_argument(
+        "--provider", default=None, help="Override LLM_PROVIDER.",
+    )
+    llm_check_cmd.add_argument(
+        "--model", default=None, help="Override LLM_MODEL.",
+    )
+    llm_check_cmd.add_argument(
+        "--embedding-model", default=None, help="Override EMBEDDING_MODEL.",
+    )
+    llm_check_cmd.add_argument(
+        "--skip-embedding", action="store_true",
+        help="Only check the chat model.",
+    )
+    llm_check_cmd.add_argument(
+        "--json", dest="json_output", action="store_true",
+        help="Print the check results as JSON.",
+    )
+    llm_check_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
     return parser
 
 
@@ -1668,6 +1701,32 @@ def run_autonomy(args) -> None:
     print("Promotion is a human edit of the versioned policy file in a PR.")
 
 
+def run_llm_check(args) -> None:
+    """Prove the configured models answer; fail the process if they do not."""
+    from agentic_kg.extraction.llm_check import (
+        LLMCheckError,
+        results_as_dicts,
+        run_llm_check_sync,
+    )
+
+    try:
+        results = run_llm_check_sync(
+            provider=args.provider,
+            model=args.model,
+            embedding_model=args.embedding_model,
+            check_embedding=not args.skip_embedding,
+        )
+    except LLMCheckError as exc:
+        print(f"LLM check failed: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+    if args.json_output:
+        print(json.dumps(results_as_dicts(results), indent=2, sort_keys=True))
+        return
+    for result in results:
+        print(f"OK  {result.kind}: {result.provider} / {result.model}")
+
+
 def main(argv: Optional[list[str]] = None) -> None:
     """CLI entry point."""
     parser = build_parser()
@@ -1712,6 +1771,8 @@ def main(argv: Optional[list[str]] = None) -> None:
         run_migrate(args)
     elif args.command == "autonomy":
         run_autonomy(args)
+    elif args.command == "llm-check":
+        run_llm_check(args)
     elif args.command == "extract":
         # Build pipeline config
         config = PipelineConfig(

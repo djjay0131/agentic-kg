@@ -8,6 +8,7 @@ with mocked LLM and Neo4j but real FastAPI + runner wiring.
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from agentic_kg.agents.schemas import WorkflowStatus, WorkflowSummary
 from agentic_kg_api.main import app
 from agentic_kg_api.routers import agents
 from fastapi.testclient import TestClient
@@ -18,6 +19,16 @@ def mock_runner():
     """Create a mock WorkflowRunner."""
     runner = AsyncMock()
     runner.start_workflow = AsyncMock(return_value="test-run-001")
+    runner.get_status = AsyncMock(
+        return_value=WorkflowSummary(
+            run_id="test-run-001",
+            status=WorkflowStatus.RUNNING,
+            current_step="ranking",
+            created_at="2025-01-01T00:00:00Z",
+            updated_at="2025-01-01T00:00:01Z",
+        )
+    )
+    runner.get_last_error = MagicMock(return_value="")
     runner.list_workflows = MagicMock(
         return_value=[
             {
@@ -94,6 +105,19 @@ class TestStartWorkflow:
             min_confidence=0.3,
         )
 
+    def test_start_workflow_reports_a_failed_run(self, client_with_runner, mock_runner):
+        """A run that fails before the first gate must not be reported running."""
+        mock_runner.get_status.return_value = WorkflowSummary(
+            run_id="test-run-001",
+            status=WorkflowStatus.FAILED,
+            current_step="ranking",
+            created_at="2025-01-01T00:00:00Z",
+            updated_at="2025-01-01T00:00:01Z",
+        )
+        resp = client_with_runner.post("/api/agents/workflows", json={})
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "failed"
+
     def test_start_workflow_runner_unavailable(self):
         agents.set_workflow_runner(None)
         client = TestClient(app)
@@ -119,6 +143,16 @@ class TestGetWorkflow:
         assert data["run_id"] == "test-run-001"
         assert data["current_step"] == "select_problem"
         assert len(data["ranked_problems"]) == 1
+
+    def test_get_workflow_includes_metadata_failure_message(
+        self, client_with_runner, mock_runner
+    ):
+        mock_runner.get_last_error.return_value = "OpenAI extraction failed: model not found"
+        resp = client_with_runner.get("/api/agents/workflows/test-run-001")
+        assert resp.status_code == 200
+        assert resp.json()["errors"] == [
+            "OpenAI extraction failed: model not found"
+        ]
 
     def test_get_workflow_not_found(self, client_with_runner, mock_runner):
         mock_runner.get_state.side_effect = KeyError("not found")

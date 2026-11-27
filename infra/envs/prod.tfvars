@@ -8,3 +8,8 @@ api_memory         = "2Gi"
 api_cpu            = "2"
 api_min_instances  = 1
 api_max_instances  = 10
+
+# LLM configuration surface (same values as staging unless a model must differ).
+llm_provider    = "openai"
+llm_model       = "gpt-6.2-sol"
+embedding_model = "text-embedding-3-small"

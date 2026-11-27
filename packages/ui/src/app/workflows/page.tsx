@@ -95,6 +95,11 @@ export default function WorkflowsPage() {
                 <div className="text-xs text-gray-400 mt-1">
                   Started: {new Date(w.created_at).toLocaleString()}
                 </div>
+                {w.status === 'failed' && w.error && (
+                  <p className="text-sm text-red-600 mt-1 break-words">
+                    {w.error}
+                  </p>
+                )}
               </div>
               <Link
                 href={`/workflows/${w.run_id}`}
