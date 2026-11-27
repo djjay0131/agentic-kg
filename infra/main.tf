@@ -178,6 +178,15 @@ locals {
   semantic_scholar_api_key_secret_id = "SEMANTIC_SCHOLAR_API_KEY${var.env == "prod" ? "_PROD" : ""}"
   api_key_secret_id                  = "API_KEY${var.env == "prod" ? "_PROD" : ""}"
 
+  # The one LLM configuration surface. Every container that calls a model (or
+  # embeds text) gets these three values, so no source file carries a default
+  # model id that can silently drift from production.
+  llm_env = {
+    LLM_PROVIDER    = var.llm_provider
+    LLM_MODEL       = var.llm_model
+    EMBEDDING_MODEL = var.embedding_model
+  }
+
   # Referenced by both services' env, so it must not depend on either resource
   # (the API -> UI -> API dependency would be a cycle).
   ui_service_name = "agentic-kg-ui-${var.env}"
@@ -436,6 +445,14 @@ resource "google_cloud_run_v2_service" "api" {
             secret  = "ANTHROPIC_API_KEY"
             version = "latest"
           }
+        }
+      }
+
+      dynamic "env" {
+        for_each = local.llm_env
+        content {
+          name  = env.key
+          value = env.value
         }
       }
 
@@ -801,6 +818,14 @@ resource "google_cloud_run_v2_job" "ingest" {
               secret  = "ANTHROPIC_API_KEY"
               version = "latest"
             }
+          }
+        }
+
+        dynamic "env" {
+          for_each = local.llm_env
+          content {
+            name  = env.key
+            value = env.value
           }
         }
 
@@ -1620,6 +1645,97 @@ resource "google_cloud_run_v2_job" "check_api_key" {
 }
 
 # =============================================================================
+# LLM model check Job
+# =============================================================================
+# Runs `agentic-kg llm-check`: one tiny real structured call per configured
+# model. deploy-master executes it after rolling the services, and the nightly
+# Job runs the same check before ingest, so a retired model fails the
+# deploy/run with the provider's message instead of 404-ing for a user. It
+# reads the same secrets as the API; it never prints them.
+resource "google_cloud_run_v2_job" "llm_check" {
+  name     = "agentic-kg-llm-check-${var.env}"
+  location = var.region
+
+  template {
+    parallelism = 1
+    task_count  = 1
+
+    template {
+      service_account = "${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+
+      containers {
+        image   = "${var.region}-docker.pkg.dev/${var.project_id}/agentic-kg/job:latest"
+        command = ["python", "-m", "agentic_kg.cli", "llm-check"]
+
+        resources {
+          limits = {
+            memory = "512Mi"
+            cpu    = "1"
+          }
+        }
+
+        env {
+          name = "OPENAI_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = "OPENAI_API_KEY"
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "ANTHROPIC_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = "ANTHROPIC_API_KEY"
+              version = "latest"
+            }
+          }
+        }
+
+        dynamic "env" {
+          for_each = local.llm_env
+          content {
+            name  = env.key
+            value = env.value
+          }
+        }
+      }
+
+      # Private ranges go through the VPC; public provider APIs use managed
+      # egress, exactly like the ingest Job.
+      vpc_access {
+        network_interfaces {
+          network    = var.network
+          subnetwork = data.google_compute_subnetwork.neo4j.id
+        }
+        egress = var.neo4j_vpc_egress
+      }
+
+      timeout     = "300s"
+      max_retries = 0
+    }
+  }
+
+  # Image and deploy-stamped labels/annotations are owned by deploy-master.
+  lifecycle {
+    ignore_changes = [
+      client,
+      client_version,
+      template[0].template[0].containers[0].image,
+      template[0].labels,
+      template[0].annotations,
+    ]
+  }
+
+  depends_on = [
+    google_project_service.apis,
+    google_project_iam_member.secret_accessor,
+  ]
+}
+
+# =============================================================================
 # ADR-0007: narrow identities for secret handling
 # =============================================================================
 # 1. neo4j_rotator runs the rotation Job. It may read the Neo4j secrets and
@@ -2047,6 +2163,14 @@ resource "google_cloud_run_v2_job" "nightly" {
           }
         }
 
+        dynamic "env" {
+          for_each = local.llm_env
+          content {
+            name  = env.key
+            value = env.value
+          }
+        }
+
         env {
           name = "SEMANTIC_SCHOLAR_API_KEY"
           value_source {
@@ -2279,6 +2403,14 @@ resource "google_cloud_run_v2_job" "adviser" {
           }
         }
 
+        dynamic "env" {
+          for_each = local.llm_env
+          content {
+            name  = env.key
+            value = env.value
+          }
+        }
+
         env {
           name  = "NIGHTLY_LEDGER_DIR"
           value = var.ingest_ledger_dir
@@ -2486,6 +2618,14 @@ resource "google_cloud_run_v2_job" "research_cycle" {
               secret  = "ANTHROPIC_API_KEY"
               version = "latest"
             }
+          }
+        }
+
+        dynamic "env" {
+          for_each = local.llm_env
+          content {
+            name  = env.key
+            value = env.value
           }
         }
 

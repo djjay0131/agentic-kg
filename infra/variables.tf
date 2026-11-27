@@ -246,6 +246,51 @@ variable "canonical_namespace" {
   default     = "staging"
 }
 
+# LLM configuration surface (single source of truth) ---------------------------
+# Every runtime model id comes from these three values. They are set on the API
+# service and every LLM-calling Job, so a retired model is a Terraform change,
+# not a code change. See packages/core/src/agentic_kg/llm_config.py.
+variable "llm_provider" {
+  description = "LLM provider: openai or anthropic"
+  type        = string
+  default     = "openai"
+
+  validation {
+    condition     = contains(["openai", "anthropic"], var.llm_provider)
+    error_message = "llm_provider must be openai or anthropic."
+  }
+}
+
+variable "llm_model" {
+  description = <<-EOT
+    Chat/extraction model for llm_provider. Current generally-available
+    defaults: gpt-6.2-sol (OpenAI) and claude-sonnet-5-5 (Anthropic). Check the
+    provider's model/deprecation page before changing.
+  EOT
+  type        = string
+  default     = "gpt-6.2-sol"
+
+  validation {
+    condition     = length(trimspace(var.llm_model)) > 0
+    error_message = "llm_model must not be empty."
+  }
+}
+
+variable "embedding_model" {
+  description = <<-EOT
+    OpenAI embedding model. The default (text-embedding-3-small) is 1536
+    dimensions and matches the existing vector index. Changing to a model with
+    a different dimension requires re-indexing; do not do that implicitly.
+  EOT
+  type        = string
+  default     = "text-embedding-3-small"
+
+  validation {
+    condition     = length(trimspace(var.embedding_model)) > 0
+    error_message = "embedding_model must not be empty."
+  }
+}
+
 variable "ingest_ledger_dir" {
   description = <<-EOT
     Directory the KGIS ledger/evidence writes to. The default

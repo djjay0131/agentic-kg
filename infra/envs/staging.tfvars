@@ -33,6 +33,13 @@ deploy_service_account_email = "gh-deploy@vt-gcp-00042.iam.gserviceaccount.com"
 kgis_kgcs_enabled   = true
 canonical_namespace = "staging"
 
+# LLM configuration surface. These are the only place a model id is chosen;
+# the API service and every LLM-calling Job read them from Terraform. See
+# packages/core/src/agentic_kg/llm_config.py and the provider docs linked there.
+llm_provider    = "openai"
+llm_model       = "gpt-6.2-sol"
+embedding_model = "text-embedding-3-small"
+
 # ADR-0010: research agents stay on the legacy graph on staging by default.
 # Flip to "canonical" once the canonical Problem read and review queue are
 # trusted; the agents never write canonical state directly.
