@@ -21,6 +21,11 @@ LangGraph object is pickled by this module and the graph's state schema stays
 the only source of truth. The checkpoint API is pinned by
 ``packages/core/tests/agents/test_checkpoint_store.py``: a graph interrupted in
 one saver resumes in a *different* saver instance over the same store.
+
+Run metadata (status, current step, timestamps, error) is persisted through the
+same store on a ``:Canon__AgentRun`` node. The workflow list used to live only
+in ``WorkflowRunner``'s process memory, so every deploy showed "No workflows
+yet" and a gate decision on a second Cloud Run instance could not see the run.
 """
 
 from __future__ import annotations
@@ -35,6 +40,10 @@ from langgraph.checkpoint.memory import InMemorySaver
 from agentic_kg.knowledge_graph.repository import Neo4jRepository
 
 LABEL_AGENT_CHECKPOINT = "Canon__AgentCheckpoint"
+#: Run metadata (status, current step, timestamps, error) lives beside the
+#: checkpoint blobs so the workflow list survives a restart and is shared by
+#: every API instance. App namespace, same as the checkpoint nodes.
+LABEL_AGENT_RUN = "Canon__AgentRun"
 
 
 def _now_iso() -> str:
@@ -65,12 +74,22 @@ class CheckpointStore(Protocol):
     def list_thread_ids(self) -> list[str]:
         """Return every thread id with a stored checkpoint."""
 
+    def save_run(self, run_id: str, metadata: dict[str, Any]) -> None:
+        """Persist the list/detail metadata for one workflow run (upsert)."""
+
+    def load_run(self, run_id: str) -> Optional[dict[str, Any]]:
+        """Return the persisted run metadata for ``run_id``, or ``None``."""
+
+    def list_runs(self) -> list[dict[str, Any]]:
+        """Return every persisted run's metadata."""
+
 
 class InMemoryCheckpointStore:
     """Process-local store. The same instance can outlive a saver (tests)."""
 
     def __init__(self) -> None:
         self._payloads: dict[str, str] = {}
+        self._runs: dict[str, str] = {}
 
     def load_thread(self, thread_id: str) -> Optional[dict[str, Any]]:
         raw = self._payloads.get(thread_id)
@@ -84,6 +103,16 @@ class InMemoryCheckpointStore:
 
     def list_thread_ids(self) -> list[str]:
         return list(self._payloads)
+
+    def save_run(self, run_id: str, metadata: dict[str, Any]) -> None:
+        self._runs[run_id] = json.dumps(metadata, sort_keys=True)
+
+    def load_run(self, run_id: str) -> Optional[dict[str, Any]]:
+        raw = self._runs.get(run_id)
+        return json.loads(raw) if raw is not None else None
+
+    def list_runs(self) -> list[dict[str, Any]]:
+        return [json.loads(raw) for raw in self._runs.values()]
 
 
 class Neo4jCheckpointStore:
@@ -155,6 +184,55 @@ class Neo4jCheckpointStore:
 
         with self._repo.session() as session:
             return session.execute_read(_list)
+
+    def save_run(self, run_id: str, metadata: dict[str, Any]) -> None:
+        uid = f"{self.namespace}\x1f{run_id}"
+        props = {
+            "uid": uid,
+            "ns": self.namespace,
+            "run_id": run_id,
+            "metadata": json.dumps(metadata, sort_keys=True),
+            "updated_at": _now_iso(),
+        }
+
+        def _save(tx: Any) -> None:
+            tx.run(
+                f"MERGE (r:{LABEL_AGENT_RUN} {{uid: $uid}}) SET r = $props",
+                uid=uid,
+                props=props,
+            )
+
+        with self._repo.session() as session:
+            session.execute_write(_save)
+
+    def load_run(self, run_id: str) -> Optional[dict[str, Any]]:
+        def _load(tx: Any) -> Optional[str]:
+            record = tx.run(
+                f"MATCH (r:{LABEL_AGENT_RUN} {{ns: $ns, run_id: $run_id}}) "
+                "RETURN r.metadata AS metadata LIMIT 1",
+                ns=self.namespace,
+                run_id=run_id,
+            ).single()
+            return record["metadata"] if record else None
+
+        with self._repo.session() as session:
+            raw = session.execute_read(_load)
+        return json.loads(raw) if raw else None
+
+    def list_runs(self) -> list[dict[str, Any]]:
+        def _list(tx: Any) -> list[str]:
+            records = tx.run(
+                f"MATCH (r:{LABEL_AGENT_RUN} {{ns: $ns}}) "
+                "RETURN r.metadata AS metadata",
+                ns=self.namespace,
+            )
+            return [
+                str(record["metadata"]) for record in records if record["metadata"]
+            ]
+
+        with self._repo.session() as session:
+            raw = session.execute_read(_list)
+        return [json.loads(item) for item in raw]
 
 
 class DurableCheckpointSaver(InMemorySaver):
@@ -257,6 +335,18 @@ class DurableCheckpointSaver(InMemorySaver):
             return list(self.storage)
         return lister()
 
+    # -- run metadata (alongside the checkpoints) --------------------------
+
+    def save_run(self, run_id: str, metadata: dict[str, Any]) -> None:
+        """Persist a run's list/detail metadata in the same durable store."""
+        self._store.save_run(run_id, metadata)
+
+    def load_run(self, run_id: str) -> Optional[dict[str, Any]]:
+        return self._store.load_run(run_id)
+
+    def list_runs(self) -> list[dict[str, Any]]:
+        return self._store.list_runs()
+
     # -- BaseCheckpointSaver overrides -------------------------------------
 
     def get_tuple(self, config: Any):
@@ -345,6 +435,7 @@ __all__ = [
     "DurableCheckpointSaver",
     "InMemoryCheckpointStore",
     "LABEL_AGENT_CHECKPOINT",
+    "LABEL_AGENT_RUN",
     "Neo4jCheckpointStore",
     "create_durable_checkpointer",
 ]

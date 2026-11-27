@@ -1091,6 +1091,38 @@ READ_PATHS: tuple[ReadPath, ...] = (
         ),
     ),
     ReadPath(
+        id="agent.run.load",
+        surface="DurableCheckpointSaver.load_run",
+        source_file=f"{CORE}/agents/checkpoint_store.py",
+        snippet="MATCH (r:{LABEL_AGENT_RUN} {{ns: $ns, run_id: $run_id}})",
+        labels=("Canon__AgentRun",),
+        relationships=(),
+        properties=("ns", "run_id", "metadata"),
+        compat=CompatClass.SCOPED_OUT,
+        note=(
+            "Reads the persisted list/detail metadata for one run so a restart "
+            "or a second Cloud Run instance can show and resume a workflow it "
+            "did not start. App-namespace workflow state (ADR-0004/0005), "
+            "outside the canonical projection parity harness."
+        ),
+    ),
+    ReadPath(
+        id="agent.run.list",
+        surface="DurableCheckpointSaver.list_runs",
+        source_file=f"{CORE}/agents/checkpoint_store.py",
+        snippet="MATCH (r:{LABEL_AGENT_RUN} {{ns: $ns}})",
+        labels=("Canon__AgentRun",),
+        relationships=(),
+        properties=("ns", "run_id", "metadata"),
+        compat=CompatClass.SCOPED_OUT,
+        note=(
+            "Lists every persisted run metadata row so the workflow list "
+            "survives a process restart and is shared across instances. "
+            "Operational state (ADR-0004/0005), outside the canonical "
+            "projection parity harness."
+        ),
+    ),
+    ReadPath(
         id="pipeline.research_cycle.get",
         surface="ResearchCycleRepository.get / find_status",
         source_file=f"{CORE}/knowledge_graph/research_cycles.py",

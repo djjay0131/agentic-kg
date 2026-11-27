@@ -14,6 +14,7 @@ from agentic_kg.agents.schemas import (
     CheckpointDecision,
     CheckpointType,
     HumanCheckpoint,
+    WorkflowStatus,
 )
 from agentic_kg.agents.state import ResearchState, add_checkpoint
 
@@ -85,7 +86,11 @@ def _apply_problem_selection(
 ) -> ResearchState:
     """Apply problem selection decision."""
     if decision == CheckpointDecision.REJECT:
-        return {**state, "selected_problem_id": None}
+        return {
+            **state,
+            "selected_problem_id": None,
+            "status": WorkflowStatus.REJECTED.value,
+        }
 
     if edited_data and "problem_id" in edited_data:
         problem_id = edited_data["problem_id"]
@@ -113,7 +118,11 @@ def _apply_proposal_decision(
 ) -> ResearchState:
     """Apply proposal approval decision."""
     if decision == CheckpointDecision.REJECT:
-        return {**state, "proposal_approved": False}
+        return {
+            **state,
+            "proposal_approved": False,
+            "status": WorkflowStatus.REJECTED.value,
+        }
 
     if decision == CheckpointDecision.EDIT and edited_data:
         # Merge edits into the existing proposal
@@ -131,6 +140,10 @@ def _apply_evaluation_review(
 ) -> ResearchState:
     """Apply evaluation review decision."""
     if decision == CheckpointDecision.REJECT:
-        return {**state, "evaluation_approved": False}
+        return {
+            **state,
+            "evaluation_approved": False,
+            "status": WorkflowStatus.REJECTED.value,
+        }
 
     return {**state, "evaluation_approved": True}
