@@ -13,42 +13,41 @@ rate_limit_exceeded` on the extractor calls.
 **Why it happens:** each paper runs five extractors (problem, topic, concept,
 model, method) concurrently, and each sends the *full paper text* to OpenAI. A
 50–100k-token paper × 5 calls bursts past the account's tokens-per-minute (TPM)
-ceiling. The default model, `gpt-4-turbo`, is capped at **30,000 TPM** — far too
-low to absorb even a single full paper across five extractors.
+ceiling. The model tier sets the account's TPM ceiling; a low-tier model is far
+too slow to absorb even a single full paper across five extractors.
 
 ## The two levers
 
 | Knob | Env var | Default | What it does |
 |------|---------|---------|--------------|
-| **Model / tier** | `OPENAI_EXTRACTION_MODEL` | `gpt-4-turbo` | The real throughput lever. A higher-TPM model (e.g. `gpt-4o`) is what actually lets full-paper extraction complete. |
+| **Model / tier** | `LLM_MODEL` | `gpt-6.2-sol` | The real throughput lever. `LLM_MODEL` is the one model surface (`OPENAI_EXTRACTION_MODEL` is a legacy alias). |
 | **TPM budget** | `OPENAI_TPM` | `30000` | The proactive throttle's budget. Set it to match your account's ceiling for the chosen model so the throttle paces calls correctly. |
 
 The **throttle is a correctness safety-net**, not a throughput fix: it stops
-concurrent calls from all 429-ing, but at `gpt-4-turbo`'s 30k TPM it can only do
-so by waiting minutes per paper. Raising the model/tier is what makes entities
+concurrent calls from all 429-ing, but at a low TPM tier it can only do so by
+waiting minutes per paper. Raising the model/tier is what makes entities
 actually flow; the throttle then keeps that larger budget from being blown by
 concurrency.
 
 ## Fix: raise the throughput
 
-Set both env vars — model **and** a matching TPM budget for that tier — then
-re-run the ingest and confirm entities land.
+Set both the model **and** a matching TPM budget for that tier, then re-run the
+ingest and confirm entities land. Terraform owns the deployed env now: change
+`llm_model` in `infra/envs/staging.tfvars` (or prod) and apply. For a one-off
+execution, overlay both values on the Job:
 
 ### Cloud Run Job (staging / production)
 
 ```bash
-gcloud run jobs update agentic-kg-ingest-staging \
-  --project vt-gcp-00042 --region us-central1 \
-  --update-env-vars OPENAI_EXTRACTION_MODEL=gpt-4o,OPENAI_TPM=450000
-
 gcloud run jobs execute agentic-kg-ingest-staging \
-  --project vt-gcp-00042 --region us-central1
+  --project vt-gcp-00042 --region us-central1 \
+  --update-env-vars LLM_MODEL=gpt-6-luna,OPENAI_TPM=450000 --wait
 ```
 
 ### Local / smoke
 
 ```bash
-export OPENAI_EXTRACTION_MODEL=gpt-4o
+export LLM_MODEL=gpt-6-luna
 export OPENAI_TPM=450000
 make smoke-local        # or: agentic-kg ingest --query "..." --limit 3 --json
 ```
@@ -70,10 +69,13 @@ which both confirms the stall is the throttle (not a hang) and names the remedy.
 
 ## Notes
 
-- The **production default is unchanged** (`gpt-4-turbo`); the model flip is a
-  deliberate operator action per run, not a code change.
-- CI's smoke-ingest workflow already sets `OPENAI_EXTRACTION_MODEL=gpt-4o` +
-  `OPENAI_TPM=450000` so the `Ingest + Assert` job proves entities flow.
+- The deployed default comes from Terraform (`llm_model`, currently
+  `gpt-6.2-sol`); a per-run override is an operator action, not a code change.
+- CI's smoke-ingest workflow sets `LLM_MODEL=gpt-6-luna` + `OPENAI_TPM=30000`
+  so the `Ingest + Assert` job proves entities flow under the real ceiling.
+- `agentic-kg llm-check` makes one tiny real call per configured model and
+  exits non-zero with the provider's message; deploy-master runs it after a
+  deploy and the nightly Job runs it before ingest.
 - Match `OPENAI_TPM` to your account's actual tier for the chosen model. Setting
   it higher than your real ceiling defeats the throttle and reintroduces 429s;
   setting it lower just paces more conservatively (safe, but slower).

@@ -24,11 +24,14 @@ from tenacity import (
 
 from agentic_kg.data_acquisition.config import RateLimitConfig
 from agentic_kg.data_acquisition.rate_limiter import TokenBucketRateLimiter
+from agentic_kg.llm_config import resolve_llm_model, resolve_llm_provider
 
 logger = logging.getLogger(__name__)
 
 # --- OpenAI TPM throttle (SM-6) ---------------------------------------------
-# Default OpenAI tokens-per-minute ceiling (matches gpt-4-turbo's 30k tier).
+# Default OpenAI tokens-per-minute ceiling. Set OPENAI_TPM to match the
+# configured model's tier; the conservative default keeps a burst under a
+# low-tier account rather than 429-ing.
 _DEFAULT_TPM = 30000
 
 
@@ -173,8 +176,8 @@ class LLMResponse(Generic[T]):
 class LLMConfig:
     """Configuration for LLM clients."""
 
-    provider: LLMProvider = LLMProvider.OPENAI
-    model: str = "gpt-4-turbo"
+    provider: Optional[LLMProvider] = None
+    model: Optional[str] = None
     temperature: float = 0.1
     max_tokens: int = 4096
     timeout: float = 60.0
@@ -182,7 +185,13 @@ class LLMConfig:
     api_key: Optional[str] = None
 
     def __post_init__(self):
-        """Load API key from environment if not provided."""
+        """Resolve provider/model from the one config surface, then the key."""
+        if self.provider is None:
+            self.provider = LLMProvider(resolve_llm_provider())
+        elif not isinstance(self.provider, LLMProvider):
+            self.provider = LLMProvider(resolve_llm_provider(str(self.provider)))
+        self.model = resolve_llm_model(self.provider.value, explicit=self.model)
+
         if self.api_key is None:
             if self.provider == LLMProvider.OPENAI:
                 self.api_key = os.getenv("OPENAI_API_KEY")
@@ -366,7 +375,7 @@ class OpenAIClient(BaseLLMClient[T]):
         if eta > 5.0:
             logger.info(
                 "TPM throttle: ~%.0fs wait for ~%d tokens (budget %d TPM). "
-                "Raise throughput with OPENAI_EXTRACTION_MODEL=gpt-4o "
+                "Raise throughput with LLM_MODEL=<higher-tier model> "
                 "and a matching OPENAI_TPM.",
                 eta,
                 estimate,
@@ -434,10 +443,7 @@ class AnthropicClient(BaseLLMClient[T]):
     def __init__(self, config: Optional[LLMConfig] = None):
         """Initialize Anthropic client."""
         if config is None:
-            config = LLMConfig(
-                provider=LLMProvider.ANTHROPIC,
-                model="claude-3-5-sonnet-20241022",
-            )
+            config = LLMConfig(provider=LLMProvider.ANTHROPIC)
         super().__init__(config)
 
         self._client = None
@@ -559,7 +565,7 @@ class AnthropicClient(BaseLLMClient[T]):
 
 
 def create_llm_client(
-    provider: LLMProvider = LLMProvider.OPENAI,
+    provider: Optional[LLMProvider | str] = None,
     model: Optional[str] = None,
     temperature: float = 0.1,
     api_key: Optional[str] = None,
@@ -579,25 +585,21 @@ def create_llm_client(
     Raises:
         ValueError: If provider is not a valid LLMProvider.
     """
-    # Validate provider before creating config
-    if not isinstance(provider, LLMProvider):
-        raise ValueError(f"Unsupported provider: {provider}")
-
+    # ``LLM_PROVIDER`` is the operator lever; an explicit argument still wins
+    # for callers that construct a provider deliberately.
+    resolved = LLMProvider(resolve_llm_provider(
+        provider.value if isinstance(provider, LLMProvider) else provider
+    ))
     config = LLMConfig(
-        provider=provider,
+        provider=resolved,
+        model=model,
         temperature=temperature,
         api_key=api_key,
     )
 
-    if model:
-        config.model = model
-
-    if provider == LLMProvider.OPENAI:
+    if resolved == LLMProvider.OPENAI:
         return OpenAIClient(config)
-    elif provider == LLMProvider.ANTHROPIC:
-        return AnthropicClient(config)
-    else:
-        raise ValueError(f"Unsupported provider: {provider}")
+    return AnthropicClient(config)
 
 
 # Singleton clients
@@ -641,13 +643,14 @@ def get_openai_client(
     """
     Get or create singleton OpenAI client.
 
-    The extraction model resolves env-first: ``OPENAI_EXTRACTION_MODEL`` wins
-    when set (the operator's throughput lever — see SM-6), so a single env flip
-    reaches every extractor including callers that pass an explicit model;
-    otherwise the passed ``model``, otherwise ``gpt-4-turbo``.
+    The extraction model resolves through :func:`resolve_llm_model`, so
+    ``LLM_MODEL`` (or the legacy ``OPENAI_EXTRACTION_MODEL``) wins over the
+    passed ``model``; otherwise the passed ``model``, otherwise the current
+    OpenAI default.
 
     Args:
-        model: OpenAI model name; overridden by ``OPENAI_EXTRACTION_MODEL``.
+        model: OpenAI model name; overridden by ``LLM_MODEL`` (or the legacy
+            ``OPENAI_EXTRACTION_MODEL``).
         temperature: Temperature for generation.
 
     Returns:
@@ -656,7 +659,7 @@ def get_openai_client(
     global _openai_client
 
     if _openai_client is None:
-        resolved_model = os.getenv("OPENAI_EXTRACTION_MODEL") or model or "gpt-4-turbo"
+        resolved_model = resolve_llm_model("openai", explicit=model)
         config = LLMConfig(
             provider=LLMProvider.OPENAI,
             model=resolved_model,
@@ -668,7 +671,7 @@ def get_openai_client(
 
 
 def get_anthropic_client(
-    model: str = "claude-3-5-sonnet-20241022",
+    model: Optional[str] = None,
     temperature: float = 0.1,
 ) -> AnthropicClient:
     """
@@ -686,7 +689,7 @@ def get_anthropic_client(
     if _anthropic_client is None:
         config = LLMConfig(
             provider=LLMProvider.ANTHROPIC,
-            model=model,
+            model=resolve_llm_model("anthropic", explicit=model),
             temperature=temperature,
         )
         _anthropic_client = AnthropicClient(config)

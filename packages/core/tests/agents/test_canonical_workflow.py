@@ -13,6 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 from agentic_kg.agents.config import AgentConfig, AgentLLMConfig
+from agentic_kg.llm_config import DEFAULT_OPENAI_MODEL
 from agentic_kg.agents.continuation import ContinuationAgent
 from agentic_kg.agents.evaluation import EvaluationAgent
 from agentic_kg.agents.graph_port import SOURCE_CANONICAL, CanonicalGraphPort
@@ -356,4 +357,4 @@ def test_agent_config_reads_the_graph_source(monkeypatch):
 
 
 def test_llm_config_defaults_are_unchanged():
-    assert AgentLLMConfig().model == "gpt-4o"
+    assert AgentLLMConfig().model == DEFAULT_OPENAI_MODEL

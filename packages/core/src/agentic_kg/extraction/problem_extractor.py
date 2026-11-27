@@ -21,6 +21,7 @@ from agentic_kg.extraction.schemas import (
     ExtractionResult,
 )
 from agentic_kg.extraction.section_segmenter import Section, SectionType
+from agentic_kg.llm_config import default_chat_model
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,8 @@ logger = logging.getLogger(__name__)
 class ExtractionConfig:
     """Configuration for the problem extractor."""
 
-    # LLM settings
-    model: str = "gpt-4-turbo"
+    # LLM settings (see agentic_kg.llm_config for the env surface)
+    model: str = field(default_factory=default_chat_model)
     temperature: float = 0.1
 
     # Extraction settings

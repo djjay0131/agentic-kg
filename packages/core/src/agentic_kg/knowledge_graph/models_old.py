@@ -183,7 +183,7 @@ class ExtractionMetadata(BaseModel):
 
     extracted_at: datetime = Field(default_factory=_utc_now)
     extractor_version: str = Field(default="1.0.0")
-    extraction_model: str = Field(..., description="Model used (e.g., 'gpt-4', 'claude-3')")
+    extraction_model: str = Field(..., description="Model used (LLM_MODEL)")
     confidence_score: float = Field(ge=0, le=1, description="Extraction confidence")
     human_reviewed: bool = Field(default=False)
     reviewed_by: Optional[str] = Field(default=None)
@@ -396,7 +396,7 @@ class ProblemConcept(BaseModel):
 
     # Synthesis metadata
     synthesis_method: str = Field(default="llm_synthesis", description="How statement was created")
-    synthesis_model: Optional[str] = Field(default=None, description="Model used (e.g., 'gpt-4')")
+    synthesis_model: Optional[str] = Field(default=None, description="Model used (LLM_MODEL)")
     synthesized_at: Optional[datetime] = Field(default=None, description="When synthesized")
     synthesized_by: Optional[str] = Field(default=None, description="Agent or human user")
     human_edited: bool = Field(

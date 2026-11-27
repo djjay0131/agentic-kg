@@ -267,7 +267,7 @@ class ProblemConcept(BaseModel):
 
     # Synthesis metadata
     synthesis_method: str = Field(default="llm_synthesis", description="How statement was created")
-    synthesis_model: Optional[str] = Field(default=None, description="Model used (e.g., 'gpt-4')")
+    synthesis_model: Optional[str] = Field(default=None, description="Model used (LLM_MODEL)")
     synthesized_at: Optional[datetime] = Field(default=None, description="When synthesized")
     synthesized_by: Optional[str] = Field(default=None, description="Agent or human user")
     human_edited: bool = Field(
