@@ -65,6 +65,9 @@ class ResearchState(TypedDict, total=False):
     messages: list[dict]  # Log of agent actions
     human_checkpoints: list[dict]  # Serialized HumanCheckpoint records
     errors: list[str]
+    #: Per-call token usage (input/reasoning/output) so budgets can be tuned
+    #: from evidence. Written by ``BaseAgent._record_llm_usage``.
+    llm_usage: list[dict]
 
 
 def create_initial_state(
@@ -101,6 +104,7 @@ def create_initial_state(
         messages=[],
         human_checkpoints=[],
         errors=[],
+        llm_usage=[],
     )
 
 

@@ -74,7 +74,7 @@ class EvaluationAgent(BaseAgent):
             context = self.port.load_context(proposal.problem_id)
 
             # Step 1: Generate evaluation code
-            code = await self._generate_code(proposal, context)
+            code, state = await self._generate_code(proposal, context, state)
             state = add_message(state, self.name, f"Generated evaluation code ({len(code)} chars)")
 
             # Step 2: Execute in sandbox
@@ -138,7 +138,9 @@ class EvaluationAgent(BaseAgent):
         )
         eval_result.provenance = provenance
 
-    async def _generate_code(self, proposal: ContinuationProposal, context) -> str:
+    async def _generate_code(
+        self, proposal: ContinuationProposal, context, state
+    ) -> tuple[str, ResearchState]:
         """Generate Python evaluation script via LLM."""
         steps_text = "\n".join(
             f"  {s.step_number}. {s.description}" for s in proposal.experimental_steps
@@ -159,6 +161,11 @@ class EvaluationAgent(BaseAgent):
             prompt=user_prompt,
             response_model=GeneratedCode,
             system_prompt=EVALUATION_SYSTEM_PROMPT,
+            max_tokens=self.max_tokens,
+            call_site="evaluation.code_generation",
+        )
+        state = self._record_llm_usage(
+            state, "evaluation.code_generation", response, budget=self.max_tokens
         )
 
         # Extract code block from response. Real clients return GeneratedCode;
@@ -174,7 +181,7 @@ class EvaluationAgent(BaseAgent):
             elif "```" in code:
                 code = code.split("```", 1)[1]
                 code = code.split("```", 1)[0]
-        return code.strip()
+        return code.strip(), state
 
     def _execute_code(self, code: str) -> SandboxResult:
         """Execute code in the Docker sandbox."""

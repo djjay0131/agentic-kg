@@ -10,16 +10,28 @@ import os
 from dataclasses import dataclass, field
 
 from agentic_kg.agents.graph_port import graph_source_from_env
-from agentic_kg.llm_config import default_chat_model
+from agentic_kg.llm_config import (
+    CONTINUATION_MAX_OUTPUT_TOKENS,
+    EVALUATION_CODE_MAX_OUTPUT_TOKENS,
+    SYNTHESIS_MAX_OUTPUT_TOKENS,
+    default_chat_model,
+    resolve_max_output_tokens,
+)
 
 
 @dataclass
 class AgentLLMConfig:
-    """LLM settings for a specific agent."""
+    """LLM settings for a specific agent.
+
+    ``max_tokens`` is the completion budget for one call (reasoning + visible
+    output), passed through to the client per call. The default reads
+    ``LLM_MAX_OUTPUT_TOKENS``; an agent that legitimately needs more sets an
+    explicit budget below.
+    """
 
     model: str = field(default_factory=default_chat_model)
     temperature: float = 0.3
-    max_tokens: int = 4096
+    max_tokens: int = field(default_factory=resolve_max_output_tokens)
 
 
 @dataclass
@@ -102,18 +114,28 @@ class AgentConfig:
 
     ranking: AgentLLMConfig = field(default_factory=lambda: AgentLLMConfig(
         temperature=0.2,
+        # Per ranking *batch*; the env default already leaves room for
+        # reasoning, and batching keeps the visible output small.
+        max_tokens=resolve_max_output_tokens(),
     ))
     continuation: AgentLLMConfig = field(default_factory=lambda: AgentLLMConfig(
         temperature=0.5,
-        max_tokens=8192,
+        max_tokens=max(
+            resolve_max_output_tokens(), CONTINUATION_MAX_OUTPUT_TOKENS
+        ),
     ))
     evaluation: AgentLLMConfig = field(default_factory=lambda: AgentLLMConfig(
         temperature=0.2,
-        max_tokens=8192,
+        # Evaluation returns a complete Python script, so the visible output is
+        # larger than a normal structured response. The override is a floor:
+        # an operator can still raise it with LLM_MAX_OUTPUT_TOKENS.
+        max_tokens=max(
+            resolve_max_output_tokens(), EVALUATION_CODE_MAX_OUTPUT_TOKENS
+        ),
     ))
     synthesis: AgentLLMConfig = field(default_factory=lambda: AgentLLMConfig(
         temperature=0.3,
-        max_tokens=4096,
+        max_tokens=max(resolve_max_output_tokens(), SYNTHESIS_MAX_OUTPUT_TOKENS),
     ))
     sandbox: SandboxConfig = field(default_factory=SandboxConfig)
     checkpoints: CheckpointConfig = field(default_factory=CheckpointConfig)

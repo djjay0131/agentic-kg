@@ -195,6 +195,8 @@ class HaterAgent:
                 prompt=prompt,
                 response_model=HaterLLMResponse,
                 system_prompt=HATER_SYSTEM_PROMPT,
+                max_tokens=self.max_tokens,
+                call_site="matching.hater",
             )
 
             llm_result = response.content

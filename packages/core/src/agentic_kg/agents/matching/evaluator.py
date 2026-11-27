@@ -205,6 +205,8 @@ class EvaluatorAgent:
                 prompt=prompt,
                 response_model=EvaluatorLLMResponse,
                 system_prompt=EVALUATOR_SYSTEM_PROMPT,
+                max_tokens=self.max_tokens,
+                call_site="matching.evaluator",
             )
 
             llm_result = response.content

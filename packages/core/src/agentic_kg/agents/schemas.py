@@ -120,6 +120,31 @@ class RankingResult(BaseModel):
     )
 
 
+class RankedProblemScore(BaseModel):
+    """The compact per-candidate output of one bounded ranking batch.
+
+    It deliberately omits the problem statement (the caller already has it) and
+    the per-dimension scores: a batch response must stay small so the visible
+    output does not grow with the candidate list. The caller expands each score
+    back into a full :class:`RankedProblem` using the candidate it already
+    holds.
+    """
+
+    problem_id: str = Field(..., description="ID of the problem from the batch")
+    score: float = Field(ge=0, le=1, description="Overall ranking score (0-1)")
+    rationale: str = Field(
+        ..., min_length=10, description="One short sentence explaining the score"
+    )
+
+
+class RankingBatchResult(BaseModel):
+    """Output of one bounded ranking batch: ids + scores + short rationales."""
+
+    scores: list[RankedProblemScore] = Field(
+        default_factory=list, description="Scores for the candidates in the batch"
+    )
+
+
 # =============================================================================
 # Continuation Agent Schemas
 # =============================================================================

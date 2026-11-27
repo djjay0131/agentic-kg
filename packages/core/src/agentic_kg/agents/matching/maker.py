@@ -194,6 +194,8 @@ class MakerAgent:
                 prompt=prompt,
                 response_model=MakerLLMResponse,
                 system_prompt=MAKER_SYSTEM_PROMPT,
+                max_tokens=self.max_tokens,
+                call_site="matching.maker",
             )
 
             llm_result = response.content
