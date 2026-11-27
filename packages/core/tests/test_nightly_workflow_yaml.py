@@ -214,11 +214,108 @@ def test_init_assignments_are_staging_values() -> None:
     assignments = {key: value for item in init["assign"] for key, value in item.items()}
 
     # staging.tfvars: nightly_curate_enabled = true, research_cycle_enabled = false
-    assert assignments["curate"] == "${default(args.curate, true)}"
-    assert assignments["researchCycle"] == "${default(args.research_cycle, false)}"
+    assert assignments["trigger"] == '${default(map.get(args, "trigger"), "schedule")}'
+    assert assignments["curate"] == '${default(map.get(args, "curate"), true)}'
+    assert assignments["researchCycle"] == (
+        '${default(map.get(args, "research_cycle"), false)}'
+    )
     # Workflows has no ternary operator; the flag must go through if().
     assert assignments["curateFlag"] == '${if(curate, "true", "false")}'
     assert "?" not in assignments["curateFlag"]
+
+
+def test_no_workflow_expression_reads_an_optional_arg_with_dot_access() -> None:
+    """A missing map key read as ``args.<key>`` raises KeyError on Workflows.
+
+    Every optional argument must be read with ``map.get(args, "key")``, which
+    returns null instead of raising, and then wrapped in ``default(...)``.
+    """
+    for line in _rendered().splitlines():
+        for start, end in _expressions(line):
+            expression = line[start : end + 1]
+            assert not re.search(r"\bargs\s*\.", expression), (
+                "bare args.<key> access raises KeyError when the key is "
+                f"missing; use map.get(args, \"key\"): {expression}"
+            )
+            if re.search(r"\bargs\b", expression):
+                assert re.search(r"map\.get\(\s*args\s*,", expression), expression
+
+
+_MAP_GET_DEFAULT = re.compile(
+    r'^\$\{default\(map\.get\(args, "(?P<key>[^"]+)"\), (?P<fallback>.+)\)\}$'
+)
+_IF_FLAG = re.compile(
+    r'^\$\{if\((?P<condition>[A-Za-z_][A-Za-z0-9_]*), "true", "false"\)\}$'
+)
+
+
+def _literal(text: str) -> Any:
+    text = text.strip()
+    if text == "null":
+        return None
+    if text == "true":
+        return True
+    if text == "false":
+        return False
+    if len(text) >= 2 and text[0] == text[-1] == '"':
+        return text[1:-1]
+    raise AssertionError(f"unsupported literal in init expression: {text!r}")
+
+
+def _evaluate_init_expression(
+    expression: str, args: dict[str, Any] | None, variables: dict[str, Any]
+) -> Any:
+    """Model the two Cloud Workflows expression shapes the init step uses.
+
+    ``map.get`` returns null (never raises) for a missing key or a null/non-map
+    input, so this mirrors Cloud Workflows and proves the manual and scheduler
+    payloads both resolve. An unknown shape fails the test rather than guessing.
+    """
+    match = _MAP_GET_DEFAULT.match(expression)
+    if match is not None:
+        if args is not None and match.group("key") in args:
+            return args[match.group("key")]
+        return _literal(match.group("fallback"))
+    match = _IF_FLAG.match(expression)
+    if match is not None:
+        return "true" if variables[match.group("condition")] else "false"
+    raise AssertionError(f"unsupported init expression: {expression}")
+
+
+def _resolve_init(args: dict[str, Any] | None) -> dict[str, Any]:
+    document = yaml.safe_load(_rendered())
+    steps = document["main"]["steps"]
+    init = next(step["init"] for step in steps if "init" in step)
+    resolved: dict[str, Any] = {}
+    for item in init["assign"]:
+        for key, value in item.items():
+            if isinstance(value, str) and value.startswith("${"):
+                resolved[key] = _evaluate_init_expression(value, args, resolved)
+            else:
+                resolved[key] = value
+    return resolved
+
+
+@pytest.mark.parametrize(
+    ("args", "trigger", "curate", "curate_flag"),
+    [
+        ({"trigger": "manual"}, "manual", True, "true"),
+        ({"trigger": "schedule", "curate": True}, "schedule", True, "true"),
+        ({"trigger": "schedule", "curate": False}, "schedule", False, "false"),
+        (None, "schedule", True, "true"),
+        ({}, "schedule", True, "true"),
+    ],
+    ids=["manual", "scheduler-curate", "scheduler-no-curate", "null-args", "empty-args"],
+)
+def test_init_resolves_manual_and_scheduler_payloads(
+    args: dict[str, Any] | None, trigger: str, curate: bool, curate_flag: str
+) -> None:
+    resolved = _resolve_init(args)
+    assert resolved["trigger"] == trigger
+    assert resolved["curate"] is curate
+    assert resolved["curateFlag"] == curate_flag
+    # staging.tfvars: research_cycle_enabled = false
+    assert resolved["researchCycle"] is False
 
 
 def test_workflow_passes_the_curate_flag_to_the_ingest_job() -> None:
