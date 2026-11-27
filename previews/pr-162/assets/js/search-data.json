@@ -1373,7 +1373,7 @@
   },"196": {
     "doc": "Extraction throughput (OpenAI rate limits)",
     "title": "The two levers",
-    "content": "| Knob | Env var | Default | What it does | . | Model / tier | LLM_MODEL | gpt-6.2-sol | The real throughput lever. LLM_MODEL is the one model surface (OPENAI_EXTRACTION_MODEL is a legacy alias). | . | TPM budget | OPENAI_TPM | 30000 | The proactive throttle’s budget. Set it to match your account’s ceiling for the chosen model so the throttle paces calls correctly. | . The throttle is a correctness safety-net, not a throughput fix: it stops concurrent calls from all 429-ing, but at a low TPM tier it can only do so by waiting minutes per paper. Raising the model/tier is what makes entities actually flow; the throttle then keeps that larger budget from being blown by concurrency. ",
+    "content": "| Knob | Env var | Default | What it does | . | Model / tier | LLM_MODEL | gpt-6.2-sol | The real throughput lever. LLM_MODEL is the one model surface (OPENAI_EXTRACTION_MODEL is a legacy alias). | . | TPM budget | OPENAI_TPM | 30000 | The proactive throttle’s budget. Set it to match your account’s ceiling for the chosen model so the throttle paces calls correctly. | . | Completion budget | LLM_MAX_OUTPUT_TOKENS | 16384 | Reasoning + visible output per chat call. Reasoning tokens count against the same ceiling, so an output-sized value truncates a reasoning call. Ranking is batched, so no single response needs the model’s full window. | . | TPM reservation | OPENAI_TPM_RESERVE_TOKENS | 4096 | Completion tokens the throttle reserves before a call. The completion budget is a truncation ceiling, not a forecast; reserving all of it would pace every call at 16k; 4096 matches the historical output-sized reservation. Actual provider-reported usage above this reserve is charged after the call. | . The throttle is a correctness safety-net, not a throughput fix: it stops concurrent calls from all 429-ing, but at a low TPM tier it can only do so by waiting minutes per paper. Raising the model/tier is what makes entities actually flow; the throttle then keeps that larger budget from being blown by concurrency. ",
     "url": "/agentic-kg/previews/pr-162/operations/extraction-throughput-runbook.html#the-two-levers",
     
     "relUrl": "/operations/extraction-throughput-runbook.html#the-two-levers"
@@ -1394,7 +1394,7 @@
   },"199": {
     "doc": "Extraction throughput (OpenAI rate limits)",
     "title": "Notes",
-    "content": ". | The deployed default comes from Terraform (llm_model, currently gpt-6.2-sol); a per-run override is an operator action, not a code change. | CI’s smoke-ingest workflow sets LLM_MODEL=gpt-6-luna + OPENAI_TPM=30000 so the Ingest + Assert job proves entities flow under the real ceiling. | agentic-kg llm-check makes one tiny real call per configured model and exits non-zero with the provider’s message; deploy-master runs it after a deploy and the nightly Job runs it before ingest. | Match OPENAI_TPM to your account’s actual tier for the chosen model. Setting it higher than your real ceiling defeats the throttle and reintroduces 429s; setting it lower just paces more conservatively (safe, but slower). | . ",
+    "content": ". | The deployed default comes from Terraform (llm_model, currently gpt-6.2-sol); a per-run override is an operator action, not a code change. | CI’s smoke-ingest workflow sets LLM_MODEL=gpt-6-luna + OPENAI_TPM=30000 so the Ingest + Assert job proves entities flow under the real ceiling. | agentic-kg llm-check makes one tiny real call per configured model, then a bounded ranking-batch probe that mirrors the largest real structured call, and exits non-zero with the provider’s message (including a truncation at the configured completion budget); deploy-master runs it after a deploy and the nightly Job runs it before ingest. | Match OPENAI_TPM to your account’s actual tier for the chosen model. Setting it higher than your real ceiling defeats the throttle and reintroduces 429s; setting it lower just paces more conservatively (safe, but slower). | . ",
     "url": "/agentic-kg/previews/pr-162/operations/extraction-throughput-runbook.html#notes",
     
     "relUrl": "/operations/extraction-throughput-runbook.html#notes"
@@ -1469,61 +1469,61 @@
     
     "relUrl": "/about/"
   },"210": {
-    "doc": "Design",
-    "title": "Design &amp; Architecture",
-    "content": "Human-readable design notes for every completed feature in the project — the why, the key decisions, and how the shipped system actually works. These are distilled from the full engineering specs in llm/features/ and reconciled against the code that shipped, so where the implementation diverged from the original plan, these notes describe what was built, not what was proposed. For the graph’s node/edge definitions these features produced, see the Reference → Domain Model &amp; Taxonomy section. ",
-    "url": "/agentic-kg/previews/pr-162/design/#design--architecture",
-    
-    "relUrl": "/design/#design--architecture"
-  },"211": {
-    "doc": "Design",
-    "title": "How to read these",
-    "content": "Each page follows the same shape: . | Why — the gap it closed. | What shipped — the outcome now in the system. | Design decisions — the choices that mattered, with rationale. | How it works — data model, edges, and flow, with code pointers. | Verification — how we know it’s done (tests, CI smoke, acceptance). | . Status key: VERIFIED = shipped and all quality gates pass. ",
-    "url": "/agentic-kg/previews/pr-162/design/#how-to-read-these",
-    
-    "relUrl": "/design/#how-to-read-these"
-  },"212": {
-    "doc": "Design",
-    "title": "Completed features",
-    "content": "Entity-expansion arc . The arc that turned the graph from problems + papers into a richly typed research graph. Each entity type is a first-class node with embeddings and dedup. | Feature | What it added | . | E-1 · Topic entities | First-class Topic hierarchy; closed-set taxonomy; BELONGS_TO / RESEARCHES | . | E-2 · ResearchConcept entities | Named concepts as nodes; INVOLVES_CONCEPT / DISCUSSES; embedding dedup | . | E-3 · Model entities | ML models as nodes; hybrid open-set + canonical seeds; USES_MODEL | . | E-4 · Method entities | Research methods as nodes; pure open-set; APPLIES_METHOD | . | E-5 · Citation graph | CITES edges from reference lists; stub papers; influence analysis | . | E-6 · Entity descriptions | Create-time descriptions for richer {name}: {description} embeddings | . | E-7 · Cross-entity normalization | LLM router disambiguates Concept vs Model vs Method | . | E-8 · Extraction prompt expansion | Extractors that populate the new entity types from paper text (V1 + V2) | . | Entity pipeline orchestration | Wires the whole arc into production ingestion, default-on with audit | . Ingestion &amp; infrastructure . | Feature | What it added | . | D-1 · Ingest real papers | End-to-end ingestion CLI: search → import → extract → integrate | . | D-1a · Cloud Run Jobs ingestion | Durable async ingestion as a Terraform-managed Cloud Run Job | . | CI smoke test | GHA workflow asserting entity edges land in an ephemeral Neo4j | . Docs &amp; site . | Feature | What it added | . | Enhance GitHub Pages | Docs generator reading llm/memory_bank/; unified nav; auto-published backlog | . ",
-    "url": "/agentic-kg/previews/pr-162/design/#completed-features",
-    
-    "relUrl": "/design/#completed-features"
-  },"213": {
-    "doc": "Design",
-    "title": "Design",
-    "content": " ",
-    "url": "/agentic-kg/previews/pr-162/design/",
-    
-    "relUrl": "/design/"
-  },"214": {
-    "doc": "Operations",
-    "title": "Operations",
-    "content": "Operator runbooks for running and tuning the agentic-kg pipeline in staging and production — the concrete steps to take when a run misbehaves, and the knobs that change its behavior. | Extraction throughput (OpenAI rate limits) | Embedding backfill (semantic search recovery) | Structured re-sync (@snapshot= locators) | Neo4j hardening (private staging + password rotation) | Semantic Scholar API key (staging ingest Job) | API key rotation (staging gated endpoints) | Reviewing the nightly queue | Research-progression cycle (gated loop) | Experiment execution (EvaluationAgent) | Research agents on the canonical graph | Deploy paths (automatic vs manual) | Nightly pipeline notifications | Adding a tester (staging Google sign-in) | . ",
-    "url": "/agentic-kg/previews/pr-162/operations/",
-    
-    "relUrl": "/operations/"
-  },"215": {
     "doc": "Status",
     "title": "Status",
     "content": "Live project-state dashboard, auto-regenerated from llm/memory_bank/ and llm/features/ on every push to master. ",
     "url": "/agentic-kg/previews/pr-162/status/",
     
     "relUrl": "/status/"
-  },"216": {
+  },"211": {
     "doc": "Status",
     "title": "Graph snapshot",
     "content": "| Metric | Value | . | Last updated | 2026-09-17 | . | Graph nodes | 282 | . | Graph edges | 151 | . | Problem mentions | 18 | . | Problem concepts | 18 | . | Sanity checks | 5/5 passing | . | Completed sprints | 11 | . | Tests passing | 2207 | . ",
     "url": "/agentic-kg/previews/pr-162/status/#graph-snapshot",
     
     "relUrl": "/status/#graph-snapshot"
-  },"217": {
+  },"212": {
     "doc": "Status",
     "title": "Drill-down",
     "content": ". | Backlog → — active and resolved features, auto-regenerated from llm/features/BACKLOG.md | Sprints → — all 11 completed sprints with links to source docs | Changelog → — curated highlights | Service inventory → — deployed endpoints and infra components | . ",
     "url": "/agentic-kg/previews/pr-162/status/#drill-down",
     
     "relUrl": "/status/#drill-down"
+  },"213": {
+    "doc": "Design",
+    "title": "Design &amp; Architecture",
+    "content": "Human-readable design notes for every completed feature in the project — the why, the key decisions, and how the shipped system actually works. These are distilled from the full engineering specs in llm/features/ and reconciled against the code that shipped, so where the implementation diverged from the original plan, these notes describe what was built, not what was proposed. For the graph’s node/edge definitions these features produced, see the Reference → Domain Model &amp; Taxonomy section. ",
+    "url": "/agentic-kg/previews/pr-162/design/#design--architecture",
+    
+    "relUrl": "/design/#design--architecture"
+  },"214": {
+    "doc": "Design",
+    "title": "How to read these",
+    "content": "Each page follows the same shape: . | Why — the gap it closed. | What shipped — the outcome now in the system. | Design decisions — the choices that mattered, with rationale. | How it works — data model, edges, and flow, with code pointers. | Verification — how we know it’s done (tests, CI smoke, acceptance). | . Status key: VERIFIED = shipped and all quality gates pass. ",
+    "url": "/agentic-kg/previews/pr-162/design/#how-to-read-these",
+    
+    "relUrl": "/design/#how-to-read-these"
+  },"215": {
+    "doc": "Design",
+    "title": "Completed features",
+    "content": "Entity-expansion arc . The arc that turned the graph from problems + papers into a richly typed research graph. Each entity type is a first-class node with embeddings and dedup. | Feature | What it added | . | E-1 · Topic entities | First-class Topic hierarchy; closed-set taxonomy; BELONGS_TO / RESEARCHES | . | E-2 · ResearchConcept entities | Named concepts as nodes; INVOLVES_CONCEPT / DISCUSSES; embedding dedup | . | E-3 · Model entities | ML models as nodes; hybrid open-set + canonical seeds; USES_MODEL | . | E-4 · Method entities | Research methods as nodes; pure open-set; APPLIES_METHOD | . | E-5 · Citation graph | CITES edges from reference lists; stub papers; influence analysis | . | E-6 · Entity descriptions | Create-time descriptions for richer {name}: {description} embeddings | . | E-7 · Cross-entity normalization | LLM router disambiguates Concept vs Model vs Method | . | E-8 · Extraction prompt expansion | Extractors that populate the new entity types from paper text (V1 + V2) | . | Entity pipeline orchestration | Wires the whole arc into production ingestion, default-on with audit | . Ingestion &amp; infrastructure . | Feature | What it added | . | D-1 · Ingest real papers | End-to-end ingestion CLI: search → import → extract → integrate | . | D-1a · Cloud Run Jobs ingestion | Durable async ingestion as a Terraform-managed Cloud Run Job | . | CI smoke test | GHA workflow asserting entity edges land in an ephemeral Neo4j | . Docs &amp; site . | Feature | What it added | . | Enhance GitHub Pages | Docs generator reading llm/memory_bank/; unified nav; auto-published backlog | . ",
+    "url": "/agentic-kg/previews/pr-162/design/#completed-features",
+    
+    "relUrl": "/design/#completed-features"
+  },"216": {
+    "doc": "Design",
+    "title": "Design",
+    "content": " ",
+    "url": "/agentic-kg/previews/pr-162/design/",
+    
+    "relUrl": "/design/"
+  },"217": {
+    "doc": "Operations",
+    "title": "Operations",
+    "content": "Operator runbooks for running and tuning the agentic-kg pipeline in staging and production — the concrete steps to take when a run misbehaves, and the knobs that change its behavior. | Extraction throughput (OpenAI rate limits) | Embedding backfill (semantic search recovery) | Structured re-sync (@snapshot= locators) | Neo4j hardening (private staging + password rotation) | Semantic Scholar API key (staging ingest Job) | API key rotation (staging gated endpoints) | Reviewing the nightly queue | Research-progression cycle (gated loop) | Experiment execution (EvaluationAgent) | Research agents on the canonical graph | Deploy paths (automatic vs manual) | Nightly pipeline notifications | Adding a tester (staging Google sign-in) | . ",
+    "url": "/agentic-kg/previews/pr-162/operations/",
+    
+    "relUrl": "/operations/"
   },"218": {
     "doc": "Home",
     "title": "Agentic KG",
