@@ -43,8 +43,8 @@ too slow to absorb even a single full paper across five extractors.</p>
     <tr>
       <td><strong>TPM reservation</strong></td>
       <td><code class="language-plaintext highlighter-rouge">OPENAI_TPM_RESERVE_TOKENS</code></td>
-      <td><code class="language-plaintext highlighter-rouge">8192</code></td>
-      <td>Completion tokens the throttle reserves before a call. The completion budget is a truncation ceiling, not a forecast; reserving all of it would pace every call at 16k. Actual provider-reported usage above this reserve is charged after the call.</td>
+      <td><code class="language-plaintext highlighter-rouge">4096</code></td>
+      <td>Completion tokens the throttle reserves before a call. The completion budget is a truncation ceiling, not a forecast; reserving all of it would pace every call at 16k; 4096 matches the historical output-sized reservation. Actual provider-reported usage above this reserve is charged after the call.</td>
     </tr>
   </tbody>
 </table>
