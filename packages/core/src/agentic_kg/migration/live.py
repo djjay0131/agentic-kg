@@ -358,9 +358,10 @@ class LiveOpenAICompletionClient:
         # Resolve through the same surface as `extraction.llm_client`
         # (`LLM_MODEL`/legacy env first, then the passed model, then the
         # current default), so one env flip reaches this adapter too.
-        from agentic_kg.llm_config import resolve_llm_model
+        from agentic_kg.llm_config import resolve_llm_model, resolve_reasoning_effort
 
         model = resolve_llm_model("openai", explicit=self._model)
+        reasoning_effort = resolve_reasoning_effort()
         client = AsyncOpenAI(api_key=key)
         # The OpenAI SDK's message param type is a union of TypedDicts; this
         # adapter is a staging-only path and the SDK is imported lazily, so the
@@ -375,9 +376,17 @@ class LiveOpenAICompletionClient:
             # transport binds to the loop, and `complete` drives a fresh
             # `asyncio.run` each time, so a shared client would cross loops.
             try:
-                response = await client.chat.completions.create(
-                    model=model, messages=messages, temperature=self._temperature
-                )
+                # Same request-shape rule as `extraction.llm_client`: name the
+                # reasoning effort explicitly, and omit sampling parameters for
+                # a reasoning request (current reasoning models reject them).
+                kwargs: dict[str, Any] = {
+                    "model": model,
+                    "messages": messages,
+                    "reasoning_effort": reasoning_effort,
+                }
+                if reasoning_effort == "none":
+                    kwargs["temperature"] = self._temperature
+                response = await client.chat.completions.create(**kwargs)
                 return response.choices[0].message.content or ""
             finally:
                 await client.close()
