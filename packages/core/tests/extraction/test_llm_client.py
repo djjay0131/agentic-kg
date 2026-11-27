@@ -933,7 +933,7 @@ class TestTpmReserve:
     """The pre-call reservation is bounded; actual usage is reconciled later."""
 
     def test_reserve_is_capped_at_the_default(self):
-        assert tpm_reserve(16384) == 8192
+        assert tpm_reserve(16384) == 4096
 
     def test_reserve_never_exceeds_a_small_budget(self):
         assert tpm_reserve(1000) == 1000

@@ -43,10 +43,10 @@ _DEFAULT_TPM = 30000
 # Pre-call reservation for a completion whose max budget is larger than a
 # typical response. Reserving the full completion budget (now reasoning-aware,
 # 16k+) makes the throttle wait ~34s per call at a 30k TPM tier even when the
-# call actually uses ~2k. Reserve a bounded expected completion and reconcile
-# the real provider-reported total after the call. Operators can tune the bound
-# with OPENAI_TPM_RESERVE_TOKENS.
-_DEFAULT_TPM_RESERVE = 8192
+# call actually uses ~2k. Reserve the historical output-sized 4096 as the
+# expected completion, then reconcile the provider-reported total after the
+# call. Operators can tune the bound with OPENAI_TPM_RESERVE_TOKENS.
+_DEFAULT_TPM_RESERVE = 4096
 
 
 def _read_tpm_budget() -> int:

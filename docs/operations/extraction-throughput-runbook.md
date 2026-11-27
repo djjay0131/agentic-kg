@@ -23,7 +23,7 @@ too slow to absorb even a single full paper across five extractors.
 | **Model / tier** | `LLM_MODEL` | `gpt-6.2-sol` | The real throughput lever. `LLM_MODEL` is the one model surface (`OPENAI_EXTRACTION_MODEL` is a legacy alias). |
 | **TPM budget** | `OPENAI_TPM` | `30000` | The proactive throttle's budget. Set it to match your account's ceiling for the chosen model so the throttle paces calls correctly. |
 | **Completion budget** | `LLM_MAX_OUTPUT_TOKENS` | `16384` | Reasoning + visible output per chat call. Reasoning tokens count against the same ceiling, so an output-sized value truncates a reasoning call. Ranking is batched, so no single response needs the model's full window. |
-| **TPM reservation** | `OPENAI_TPM_RESERVE_TOKENS` | `8192` | Completion tokens the throttle reserves before a call. The completion budget is a truncation ceiling, not a forecast; reserving all of it would pace every call at 16k. Actual provider-reported usage above this reserve is charged after the call. |
+| **TPM reservation** | `OPENAI_TPM_RESERVE_TOKENS` | `4096` | Completion tokens the throttle reserves before a call. The completion budget is a truncation ceiling, not a forecast; reserving all of it would pace every call at 16k; 4096 matches the historical output-sized reservation. Actual provider-reported usage above this reserve is charged after the call. |
 
 The **throttle is a correctness safety-net**, not a throughput fix: it stops
 concurrent calls from all 429-ing, but at a low TPM tier it can only do so by
