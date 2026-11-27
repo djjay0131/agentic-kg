@@ -90,9 +90,8 @@ async def test_real_openai_client_has_structured_extract():
         ],
         total_candidates=1,
     )
-    with patch.object(
-        client, "_get_instructor_client", return_value=_instruction_client(result)
-    ):
+    instructor_client = _instruction_client(result)
+    with patch.object(client, "_get_instructor_client", return_value=instructor_client):
         response = await client.structured_extract(
             response_model=RankingResult,
             system_prompt="rank",
@@ -101,6 +100,16 @@ async def test_real_openai_client_has_structured_extract():
 
     assert isinstance(response.content, RankingResult)
     assert response.content.ranked_problems[0].problem_id == "p1"
+    # The agent path must use the same structured-output request shape as
+    # ``extract``: pydantic model, explicit reasoning effort, no function tools.
+    kwargs = (
+        instructor_client.chat.completions.create_with_completion.call_args.kwargs
+    )
+    assert kwargs["response_model"] is RankingResult
+    assert kwargs["reasoning_effort"] == "medium"
+    assert "tools" not in kwargs
+    assert "functions" not in kwargs
+    assert "temperature" not in kwargs
 
 
 @pytest.mark.asyncio

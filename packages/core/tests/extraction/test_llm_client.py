@@ -238,6 +238,62 @@ class TestOpenAIClient:
         )
         assert kwargs["max_completion_tokens"] == client.config.max_tokens
         assert "max_tokens" not in kwargs
+        # Structured extraction goes through schema-constrained outputs, not
+        # function tools, and the reasoning effort is explicit. Reasoning
+        # requests reject sampling parameters, so temperature is omitted.
+        assert kwargs["response_model"] is SampleExtraction
+        assert kwargs["reasoning_effort"] == "medium"
+        assert "temperature" not in kwargs
+        assert "tools" not in kwargs
+        assert "functions" not in kwargs
+
+    @pytest.mark.asyncio
+    async def test_extract_sends_none_effort_with_temperature(self):
+        """An explicit non-reasoning effort keeps the sampling parameter."""
+        config = LLMConfig(
+            provider=LLMProvider.OPENAI,
+            api_key="test-key",
+            reasoning_effort="none",
+        )
+        client = OpenAIClient(config)
+        mock_completion = MagicMock()
+        mock_completion.usage = MagicMock(
+            prompt_tokens=1, completion_tokens=1, total_tokens=2
+        )
+        mock_completion.choices = [MagicMock(finish_reason="stop")]
+        mock_instructor = MagicMock()
+        mock_instructor.chat.completions.create_with_completion = AsyncMock(
+            return_value=(
+                SampleExtraction(title="t", summary="s", confidence=0.5),
+                mock_completion,
+            )
+        )
+
+        with patch.object(client, "_get_instructor_client", return_value=mock_instructor):
+            await client.extract(prompt="Extract", response_model=SampleExtraction)
+
+        kwargs = (
+            mock_instructor.chat.completions.create_with_completion.call_args.kwargs
+        )
+        assert kwargs["reasoning_effort"] == "none"
+        assert kwargs["temperature"] == config.temperature
+        assert "tools" not in kwargs
+        assert "functions" not in kwargs
+
+    def test_instructor_client_uses_json_schema_mode(self, client):
+        """The OpenAI instructor client must not default to function tools."""
+        import instructor
+
+        fake_sdk = object()
+        with patch.object(client, "_get_client", return_value=fake_sdk), patch(
+            "instructor.from_openai"
+        ) as from_openai:
+            from_openai.return_value = MagicMock()
+            client._get_instructor_client()
+
+        args, kwargs = from_openai.call_args
+        assert args[0] is fake_sdk
+        assert kwargs["mode"] is instructor.Mode.JSON_SCHEMA
 
     @pytest.mark.asyncio
     async def test_extract_rate_limit_error(self, client):

@@ -1,10 +1,14 @@
 """The one configuration surface for LLM and embedding model selection.
 
-Every model id used at runtime resolves here. Operators set three environment
+Every model id used at runtime resolves here. Operators set four environment
 variables:
 
 * ``LLM_PROVIDER`` -- ``openai`` (default) or ``anthropic``;
 * ``LLM_MODEL`` -- the chat/extraction model for that provider;
+* ``LLM_REASONING_EFFORT`` -- the reasoning effort for models that expose one
+  (default ``medium``, the GPT-6.2 default; OpenAI's Chat Completions accepts it
+  as ``reasoning_effort``). Set this together with ``LLM_MODEL``: a value the
+  model rejects is a provider error, and GPT-6.2 Sol/Astra reject ``none``;
 * ``EMBEDDING_MODEL`` -- the OpenAI embedding model (default
   ``text-embedding-3-small``, 1536 dimensions, matching the existing vector
   index).
@@ -37,6 +41,7 @@ from typing import Mapping, Optional
 
 LLM_PROVIDER_ENV = "LLM_PROVIDER"
 LLM_MODEL_ENV = "LLM_MODEL"
+REASONING_EFFORT_ENV = "LLM_REASONING_EFFORT"
 EMBEDDING_MODEL_ENV = "EMBEDDING_MODEL"
 LEGACY_OPENAI_MODEL_ENV = "OPENAI_EXTRACTION_MODEL"
 
@@ -44,6 +49,22 @@ DEFAULT_LLM_PROVIDER = "openai"
 DEFAULT_OPENAI_MODEL = "gpt-6.2-sol"
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5-5"
 DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
+
+# The reasoning effort values OpenAI documents for reasoning models. Not every
+# model accepts every value: GPT-6.2 Sol/Astra reject ``none`` (and GPT-6.1 Sol
+# rejects ``none``/``minimal``). The default is the GPT-6.2 default, so sending
+# it explicitly does not change model behaviour; a value the configured model
+# rejects surfaces as a provider error from ``agentic-kg llm-check``.
+DEFAULT_REASONING_EFFORT = "medium"
+SUPPORTED_REASONING_EFFORTS = (
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+)
 
 SUPPORTED_PROVIDERS = ("openai", "anthropic")
 
@@ -116,6 +137,29 @@ def resolve_llm_model(
     return default_model_for(provider)
 
 
+def resolve_reasoning_effort(
+    explicit: Optional[str] = None,
+    *,
+    env: Optional[Mapping[str, str]] = None,
+) -> str:
+    """Resolve the reasoning effort for a chat-completion request.
+
+    Precedence: an explicit argument, then ``LLM_REASONING_EFFORT``, then
+    :data:`DEFAULT_REASONING_EFFORT`. An unknown value raises rather than being
+    forwarded to a provider, because a typo would otherwise surface only at the
+    first real call.
+    """
+    source = os.environ if env is None else env
+    raw = explicit if explicit is not None else _value(source, REASONING_EFFORT_ENV)
+    effort = (raw or DEFAULT_REASONING_EFFORT).strip().lower()
+    if effort not in SUPPORTED_REASONING_EFFORTS:
+        raise ValueError(
+            f"unsupported reasoning effort {raw!r}; expected one of "
+            f"{', '.join(SUPPORTED_REASONING_EFFORTS)}"
+        )
+    return effort
+
+
 def resolve_embedding_model(
     explicit: Optional[str] = None,
     *,
@@ -141,14 +185,18 @@ __all__ = [
     "DEFAULT_EMBEDDING_MODEL",
     "DEFAULT_LLM_PROVIDER",
     "DEFAULT_OPENAI_MODEL",
+    "DEFAULT_REASONING_EFFORT",
     "EMBEDDING_MODEL_ENV",
     "LEGACY_OPENAI_MODEL_ENV",
     "LLM_MODEL_ENV",
     "LLM_PROVIDER_ENV",
+    "REASONING_EFFORT_ENV",
     "SUPPORTED_PROVIDERS",
+    "SUPPORTED_REASONING_EFFORTS",
     "default_chat_model",
     "default_model_for",
     "resolve_embedding_model",
     "resolve_llm_model",
     "resolve_llm_provider",
+    "resolve_reasoning_effort",
 ]

@@ -5,19 +5,19 @@ Tests environment variable parsing, IngestionRun persistence,
 exit code determination, and the main entrypoint.
 """
 
-import pytest
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+import sys
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from agentic_kg.job_runner import (
-    _parse_env,
-    persist_ingestion_run,
-    _determine_exit_code,
-    main,
-)
+import pytest
 from agentic_kg.ingestion import IngestionResult
-
+from agentic_kg.job_runner import (
+    _determine_exit_code,
+    _parse_env,
+    main,
+    persist_ingestion_run,
+)
 
 # =============================================================================
 # _parse_env Tests
@@ -190,6 +190,19 @@ class TestDetermineExitCode:
 
 class TestMain:
     """Tests for the main entrypoint."""
+
+    def test_llm_check_argument_delegates_to_cli(self, monkeypatch):
+        """A `llm-check` execution override runs the same CLI the check uses."""
+        monkeypatch.setattr(sys, "argv", ["job_runner", "llm-check"])
+
+        with (
+            patch("agentic_kg.cli.main") as cli_main,
+            patch("agentic_kg.job_runner.ingest_papers") as mock_ingest,
+        ):
+            main()
+
+        cli_main.assert_called_once_with(["llm-check"])
+        mock_ingest.assert_not_called()
 
     def test_main_complete_exits_0(self, monkeypatch):
         """Successful ingestion exits with code 0."""
