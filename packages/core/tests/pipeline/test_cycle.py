@@ -547,7 +547,13 @@ async def test_auto_policy_resolves_a_gate_without_a_human():
         {
             "version": "auto-select",
             "gates": {
-                "select_problem": {"mode": "auto"},
+                "select_problem": {
+                    "mode": "auto",
+                    "promotion": {
+                        "min_decisions": 0,
+                        "min_agreement_lower_bound": 0.0,
+                    },
+                },
                 "approve_proposal": {"mode": "human"},
                 "review_evaluation": {"mode": "human"},
             },
@@ -591,3 +597,221 @@ def test_read_paths_do_not_require_the_autonomy_policy(monkeypatch):
 
     with pytest.raises(FileNotFoundError):
         _ = service.policy
+
+
+def _policy_with_promotion(gate: str, *, mode: str = "auto") -> object:
+    gates = {
+        "select_problem": {"mode": "human"},
+        "approve_proposal": {"mode": "human"},
+        "review_evaluation": {"mode": "human"},
+    }
+    gates[gate] = {
+        "mode": mode,
+        "promotion": {"min_decisions": 0, "min_agreement_lower_bound": 0.0},
+    }
+    return parse_policy({"version": "evidence-test", "gates": gates})
+
+
+async def test_auto_mode_falls_back_when_promotion_criteria_are_unmet():
+    repo = FakeCycleRepository()
+    runner = FakeRunner()
+    policy = parse_policy(
+        {
+            "version": "unmet",
+            "gates": {
+                "select_problem": {
+                    "mode": "auto",
+                    "promotion": {
+                        "min_decisions": 5,
+                        "min_agreement_lower_bound": 0.9,
+                    },
+                },
+                "approve_proposal": {"mode": "human"},
+                "review_evaluation": {"mode": "human"},
+            },
+        }
+    )
+    result = await run_cycle(
+        config=CycleConfig(enabled=True, top_k=1),
+        cycles=repo,
+        runner=runner,
+        policy=policy,
+        now=NOW,
+        write_json=False,
+        write_neo4j=False,
+    )
+    workflow = result.cycle.workflow_runs[0]
+    assert workflow.pending_gate == "select_problem"
+    assert workflow.gate_decisions == []
+    assert runner.resumes == []
+
+
+async def test_auto_mode_without_promotion_criteria_is_refused():
+    repo = FakeCycleRepository()
+    runner = FakeRunner()
+    policy = parse_policy(
+        {
+            "version": "no-criteria",
+            "gates": {
+                "select_problem": {"mode": "auto"},
+                "approve_proposal": {"mode": "human"},
+                "review_evaluation": {"mode": "human"},
+            },
+        }
+    )
+    result = await run_cycle(
+        config=CycleConfig(enabled=True, top_k=1),
+        cycles=repo,
+        runner=runner,
+        policy=policy,
+        now=NOW,
+        write_json=False,
+        write_neo4j=False,
+    )
+    assert result.cycle.workflow_runs[0].pending_gate == "select_problem"
+    assert runner.resumes == []
+
+
+def _evaluation_state(*, abstained: bool) -> dict:
+    return {
+        "status": "running",
+        "selected_problem_id": "p0",
+        "proposal": {"problem_id": "p0", "confidence": 0.9},
+        "proposal_approved": True,
+        "evaluation_result": {
+            "proposal_id": "p0",
+            "verdict": "promising",
+            "feasibility_score": 0.9,
+            "provenance": {"abstained": abstained, "citations": []},
+        },
+        "evaluation_approved": False,
+        "synthesis_report": None,
+        "errors": [],
+    }
+
+
+async def test_review_evaluation_auto_is_refused_when_provenance_abstains():
+    cycle = _gated_cycle()
+    workflow = cycle.workflow_runs[0]
+    workflow.pending_gate = "review_evaluation"
+    repo = FakeCycleRepository([cycle])
+    runner = FakeRunner()
+    runner.states["wf-1"] = _evaluation_state(abstained=True)
+    await run_cycle(
+        config=CycleConfig(enabled=True, top_k=1),
+        cycles=repo,
+        runner=runner,
+        policy=_policy_with_promotion("review_evaluation"),
+        now=NOW,
+        write_json=False,
+        write_neo4j=False,
+    )
+    saved = repo.cycles["cycle-1"].workflow("wf-1")
+    assert saved is not None
+    assert saved.pending_gate == "review_evaluation"
+    assert [d for d in saved.gate_decisions if d.gate == "review_evaluation"] == []
+    assert runner.resumes == []
+
+
+async def test_review_evaluation_auto_proceeds_with_grounded_provenance():
+    cycle = _gated_cycle()
+    workflow = cycle.workflow_runs[0]
+    workflow.pending_gate = "review_evaluation"
+    repo = FakeCycleRepository([cycle])
+    runner = FakeRunner()
+    runner.states["wf-1"] = _evaluation_state(abstained=False)
+    result = await run_cycle(
+        config=CycleConfig(enabled=True, top_k=1),
+        cycles=repo,
+        runner=runner,
+        policy=_policy_with_promotion("review_evaluation"),
+        now=NOW,
+        write_json=False,
+        write_neo4j=False,
+    )
+    saved = repo.cycles["cycle-1"].workflow("wf-1")
+    assert saved is not None
+    decision = saved.gate("review_evaluation")
+    assert decision is not None
+    assert decision.decision == "auto_approve"
+    assert decision.human_decision is None
+    assert decision.agreed is None
+    assert result.exit_code == 0
+
+
+async def test_recommendation_is_persisted_while_the_gate_is_pending():
+    result = await run_cycle(
+        config=CycleConfig(enabled=True, top_k=1),
+        cycles=FakeCycleRepository(),
+        runner=FakeRunner(),
+        policy=_policy_all_human(),
+        now=NOW,
+        write_json=False,
+        write_neo4j=False,
+    )
+    workflow = result.cycle.workflow_runs[0]
+    recommendation = workflow.pending_recommendation
+    assert recommendation is not None
+    assert recommendation.action == "approve"
+    assert recommendation.details["problem_id"] == "p0"
+
+
+async def test_human_decision_records_recommendation_and_agreement():
+    cycle = _gated_cycle()
+    repo = FakeCycleRepository([cycle])
+    runner = FakeRunner()
+    runner.states["wf-1"] = {
+        "status": "running",
+        "ranked_problems": [
+            {"problem_id": "p0", "score": 0.9},
+            {"problem_id": "p1", "score": 0.7},
+        ],
+        "selected_problem_id": None,
+    }
+    service = ResearchCycleService(repo, runner, policy=_policy_all_human())
+
+    updated = await service.decide_gate(
+        "cycle-1",
+        "wf-1",
+        gate="select_problem",
+        decision="approve",
+        user_id="alice",
+        note="go",
+        now=NOW,
+    )
+    decision = updated.workflow("wf-1").gate("select_problem")
+    assert decision.agent_recommendation is not None
+    assert decision.agent_recommendation.details["problem_id"] == "p0"
+    assert decision.agent_recommendation.details["score_margin"] == 0.2
+    assert decision.human_decision == "approve"
+    assert decision.agreed is True
+    assert decision.disagreement_reason == ""
+    assert decision.cycle_id == "cycle-1"
+    assert decision.workflow_run_id == "wf-1"
+    assert decision.policy_version == cycle.policy_version
+
+
+async def test_human_disagreement_preserves_the_free_text_reason():
+    cycle = _gated_cycle()
+    repo = FakeCycleRepository([cycle])
+    runner = FakeRunner()
+    runner.states["wf-1"] = {
+        "status": "running",
+        "ranked_problems": [{"problem_id": "p0", "score": 0.9}],
+        "selected_problem_id": None,
+    }
+    service = ResearchCycleService(repo, runner, policy=_policy_all_human())
+
+    updated = await service.decide_gate(
+        "cycle-1",
+        "wf-1",
+        gate="select_problem",
+        decision="reject",
+        user_id="alice",
+        note="wrong problem for this cycle",
+        now=NOW,
+    )
+    decision = updated.workflow("wf-1").gate("select_problem")
+    assert decision.agreed is False
+    assert decision.human_decision == "reject"
+    assert decision.disagreement_reason == "wrong problem for this cycle"

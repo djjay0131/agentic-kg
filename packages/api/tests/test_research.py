@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import pytest
+from agentic_kg.agents.autonomy import parse_policy
+from agentic_kg.agents.gate_agreement import build_agreement_report
 from agentic_kg.knowledge_graph.models.research_cycle import (
+    AgentRecommendation,
     CycleBudget,
     CycleWorkflow,
     GateDecision,
@@ -62,6 +65,39 @@ class FakeService:
 
     def pending_gates(self, limit=50):
         return [self.cycle]
+
+    def agreement(self, *, gate=None, since=None, last_n=10):
+        cycle = make_cycle()
+        recommendation = AgentRecommendation(
+            action="approve", rationale="top-ranked p0", details={"problem_id": "p0"}
+        )
+        cycle.workflow_runs[0].gate_decisions.append(
+            GateDecision(
+                gate="select_problem",
+                decision="approve",
+                decided_by="alice",
+                decided_at="2026-10-26T04:00:00Z",
+                cycle_id="cycle-1",
+                workflow_run_id="wf-1",
+                policy_version="1",
+                agent_recommendation=recommendation,
+                human_decision="approve",
+                agreed=True,
+            )
+        )
+        policy = parse_policy(
+            {
+                "version": "1",
+                "gates": {
+                    "select_problem": {"mode": "human"},
+                    "approve_proposal": {"mode": "human"},
+                    "review_evaluation": {"mode": "human"},
+                },
+            }
+        )
+        return build_agreement_report(
+            [cycle], policy=policy, gate=gate, since=since, last_n=last_n
+        )
 
     async def decide_gate(self, cycle_id, workflow_run_id, **kwargs):
         self.calls.append((cycle_id, workflow_run_id, kwargs))
@@ -125,6 +161,7 @@ def test_lists_cycles_and_pending_gates(client):
         "problem_statement": "How to scale things",
         "gate": "select_problem",
         "updated_at": "2026-10-26T03:00:00Z",
+        "recommendation": None,
     }
 
 
@@ -196,3 +233,36 @@ def test_decision_records_the_verified_email(client, service, iap_mode):
     decision = response.json()["workflow_runs"][0]["gate_decisions"][0]
     assert decision["decided_by"] == "tester@vt.edu"
     assert service.calls[0][2]["user_id"] == "tester@vt.edu"
+
+
+def test_agreement_endpoint_reports_rate_lower_bound_and_mode(client):
+    response = client.get("/api/research/agreement")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total_decisions"] == 1
+    assert body["total_agreed"] == 1
+    by_gate = {item["gate"]: item for item in body["gates"]}
+    assert set(by_gate) == {
+        "select_problem",
+        "approve_proposal",
+        "review_evaluation",
+    }
+    select = by_gate["select_problem"]
+    assert select["mode"] == "human"
+    assert select["decisions"] == 1
+    assert select["agreed"] == 1
+    assert select["agreement_rate"] == 1.0
+    assert select["lower_bound"] == pytest.approx(0.2065, abs=1e-4)
+    assert select["promotion_met"] is False  # no promotion criteria in this policy
+    assert select["last_disagreements"] == []
+
+
+def test_agreement_endpoint_filters_by_gate_and_rejects_unknown(client):
+    filtered = client.get("/api/research/agreement?gate=select_problem")
+    assert filtered.status_code == 200
+    assert [item["gate"] for item in filtered.json()["gates"]] == [
+        "select_problem"
+    ]
+
+    unknown = client.get("/api/research/agreement?gate=nope")
+    assert unknown.status_code == 400

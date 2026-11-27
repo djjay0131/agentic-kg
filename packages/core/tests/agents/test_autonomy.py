@@ -69,3 +69,65 @@ def test_resolve_semantics():
     assert auto_if.resolve(0.79) is False
     # An absent confidence never satisfies a threshold.
     assert auto_if.resolve(None) is False
+
+
+def test_auto_when_confident_requires_a_threshold():
+    with pytest.raises(ValueError, match="confidence_threshold"):
+        parse_policy(_raw(select_problem={"mode": "auto_when_confident"}))
+
+
+def test_auto_when_confident_resolves_like_auto_if():
+    policy = parse_policy(
+        _raw(
+            select_problem={
+                "mode": "auto_when_confident",
+                "confidence_threshold": 0.75,
+                "promotion": {
+                    "min_decisions": 10,
+                    "min_agreement_lower_bound": 0.8,
+                },
+            }
+        )
+    )
+    gate = policy.gate("select_problem")
+    assert gate.needs_confidence is True
+    assert gate.resolve(0.75) is True
+    assert gate.resolve(0.74) is False
+    assert gate.resolve(None) is False
+    assert gate.promotion is not None
+    assert gate.promotion.min_decisions == 10
+    assert gate.promotion.min_agreement_lower_bound == 0.8
+
+
+def test_promotion_criteria_are_bounded():
+    with pytest.raises(ValueError):
+        parse_policy(
+            _raw(
+                select_problem={
+                    "mode": "human",
+                    "promotion": {
+                        "min_decisions": -1,
+                        "min_agreement_lower_bound": 0.9,
+                    },
+                }
+            )
+        )
+    with pytest.raises(ValueError):
+        parse_policy(
+            _raw(
+                select_problem={
+                    "mode": "human",
+                    "promotion": {
+                        "min_decisions": 1,
+                        "min_agreement_lower_bound": 1.5,
+                    },
+                }
+            )
+        )
+
+
+def test_shipped_policy_declares_promotion_criteria_but_stays_human():
+    policy = load_policy(DEFAULT_POLICY_PATH)
+    assert policy.all_human()
+    for gate in CheckpointType:
+        assert policy.gate(gate.value).promotion is not None
