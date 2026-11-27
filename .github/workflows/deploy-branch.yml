@@ -94,6 +94,14 @@ jobs:
   # Deploy to target environment
   deploy:
     needs: [build]
+    # A manual branch deploy that targets staging rolls the same Cloud Run
+    # services as deploy-master.yml, so it joins the same repository-wide
+    # `deploy-staging` group. `cancel-in-progress: false` means a queued deploy
+    # waits for an in-flight one instead of cancelling it mid-roll. Non-staging
+    # targets (dev) get their own group via the expression.
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     permissions:

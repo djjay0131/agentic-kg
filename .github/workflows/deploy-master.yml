@@ -26,6 +26,18 @@ env:
 permissions:
   contents: read
 
+# Staging deploys must be strictly serial: two pushes to master a few seconds
+# apart used to run their deploys concurrently, and the older commit's deploy
+# could finish last (runs 46040927025 / 46040957438). A single repository-wide
+# group is shared with deploy-branch.yml when it targets staging. A queued run
+# waits; it never cancels an in-flight deploy, so a cancellation cannot leave a
+# half-rolled environment. The default queue (`single`) also drops a superseded
+# pending run in favour of the newest, and the `staging-head-guard` job below
+# makes the newest commit win even if GitHub's FIFO ordering slips.
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
 jobs:
   # Detect which packages changed
   changes:
@@ -105,11 +117,42 @@ jobs:
             -m "not integration and not costly" \
             -x --tb=short
 
+  # Newest-wins guard. Concurrency serialises runs, but GitHub does not
+  # guarantee the order in which queued runs acquire the group; the older run
+  # of two closely spaced pushes could still execute after the newer one. This
+  # job skips the build and deploy when origin/<branch> has moved past this
+  # commit in a path that would itself trigger a deploy. A docs-only commit
+  # after this one does not supersede it (see scripts/staging_deploy_guard.sh).
+  # Full history is fetched so the guard can diff this commit against HEAD.
+  staging-head-guard:
+    name: Check this commit is still current
+    needs: [changes]
+    if: needs.changes.outputs.any_service == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      superseded: ${{ steps.guard.outputs.superseded }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compare with the branch tip
+        id: guard
+        run: ./scripts/staging_deploy_guard.sh
+
   # Build changed services. build-images parses the services string with grep,
   # so trailing commas from skipped services are harmless.
+  #
+  # Gated on the guard as well as the deploy: a superseded run must not even
+  # push its `latest` image, or the older build could overwrite the newer tag
+  # after the newer deploy already ran.
   build:
-    needs: [changes, test]
-    if: needs.changes.outputs.any_service == 'true'
+    needs: [changes, test, staging-head-guard]
+    if: >-
+      needs.changes.outputs.any_service == 'true' &&
+      needs.staging-head-guard.outputs.superseded != 'true'
     # build-images.yml (reusable) requests id-token: write for WIF auth. The
     # repo's default GITHUB_TOKEN permission is read-only, and a reusable call
     # cannot request more than the caller grants — without this block GitHub
@@ -130,8 +173,10 @@ jobs:
 
   # Deploy to staging
   deploy-staging:
-    needs: [changes, build]
-    if: needs.changes.outputs.any_service == 'true'
+    needs: [changes, build, staging-head-guard]
+    if: >-
+      needs.changes.outputs.any_service == 'true' &&
+      needs.staging-head-guard.outputs.superseded != 'true'
     runs-on: ubuntu-latest
     environment: staging
     permissions:
