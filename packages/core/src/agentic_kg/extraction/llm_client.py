@@ -24,7 +24,11 @@ from tenacity import (
 
 from agentic_kg.data_acquisition.config import RateLimitConfig
 from agentic_kg.data_acquisition.rate_limiter import TokenBucketRateLimiter
-from agentic_kg.llm_config import resolve_llm_model, resolve_llm_provider
+from agentic_kg.llm_config import (
+    resolve_llm_model,
+    resolve_llm_provider,
+    resolve_reasoning_effort,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +119,31 @@ def _rate_limit_wait(retry_state) -> float:
 T = TypeVar("T", bound=BaseModel)
 
 
+def _strict_schema_supported(response_model: type[BaseModel]) -> bool:
+    """Whether OpenAI's strict structured-output subset can express the model.
+
+    Structured outputs accept a JSON schema either strictly (OpenAI's restricted
+    subset, which guarantees adherence) or as a best-effort schema. A schema
+    with an arbitrary mapping (``dict[str, ...]``) cannot be made strict — the
+    synthesis report and the batch extraction result both have one — so forcing
+    ``strict=True`` would break those call sites at request-build time.
+
+    ``instructor`` owns the conversion; ask it rather than guessing. If the
+    introspection API is unavailable in a resolved instructor version, decline
+    strict mode (still a JSON-schema request, validated by pydantic, with
+    instructor's re-ask on validation failure) instead of risking a crash.
+    """
+    try:
+        from instructor.v2.core.schema import make_strict_schema
+    except Exception:  # noqa: BLE001 - optional introspection, not a hard dep
+        return False
+    try:
+        make_strict_schema(response_model.model_json_schema())
+    except Exception:  # noqa: BLE001 - unsupported schema, not a failure
+        return False
+    return True
+
+
 class LLMProvider(str, Enum):
     """Supported LLM providers."""
 
@@ -183,14 +212,17 @@ class LLMConfig:
     timeout: float = 60.0
     max_retries: int = 3
     api_key: Optional[str] = None
+    reasoning_effort: Optional[str] = None
 
     def __post_init__(self):
-        """Resolve provider/model from the one config surface, then the key."""
+        """Resolve provider/model/effort from the one config surface, then the key."""
         if self.provider is None:
             self.provider = LLMProvider(resolve_llm_provider())
         elif not isinstance(self.provider, LLMProvider):
             self.provider = LLMProvider(resolve_llm_provider(str(self.provider)))
         self.model = resolve_llm_model(self.provider.value, explicit=self.model)
+        if self.reasoning_effort is None:
+            self.reasoning_effort = resolve_reasoning_effort()
 
         if self.api_key is None:
             if self.provider == LLMProvider.OPENAI:
@@ -328,8 +360,17 @@ class OpenAIClient(BaseLLMClient[T]):
                     f"dependency version conflict: {e}"
                 ) from e
 
+            # Schema-constrained structured outputs via ``response_format:
+            # {type: json_schema}``, not function tools. Current reasoning
+            # model families reject function tools on /v1/chat/completions when
+            # reasoning_effort is not ``none`` (and some reject ``none`` too), so
+            # JSON_SCHEMA keeps one request shape working for every model we
+            # configure. Instructor still validates the parsed result against
+            # the pydantic model, including re-asks on validation failure.
             client = self._get_client()
-            self._instructor_client = instructor.from_openai(client)
+            self._instructor_client = instructor.from_openai(
+                client, mode=instructor.Mode.JSON_SCHEMA
+            )
 
         return self._instructor_client
 
@@ -385,16 +426,34 @@ class OpenAIClient(BaseLLMClient[T]):
         if waited:
             logger.info("TPM throttle: waited %.1fs for ~%d tokens", waited, estimate)
 
+        # Reasoning effort is explicit so the request shape never depends on a
+        # model family's implicit default. Reasoning models reject sampling
+        # parameters (``temperature``) when they are actually reasoning, so only
+        # send it when the effort is ``none`` — where a non-reasoning request
+        # accepts it. The current GPT-6.2 family rejects ``none`` itself; the
+        # default is ``medium`` (see ``agentic_kg.llm_config``).
+        effort = self.config.reasoning_effort
+        request_kwargs: dict[str, Any] = {
+            "model": self.config.model,
+            "messages": messages,
+            "response_model": response_model,
+            # Strict schema adherence where OpenAI's subset can express the
+            # pydantic model; best-effort JSON schema (still validated by
+            # instructor/pydantic) where it cannot.
+            "strict": _strict_schema_supported(response_model),
+            # Current OpenAI models reject the legacy ``max_tokens``
+            # parameter ("use max_completion_tokens instead"); this is the
+            # successor name for the same completion budget.
+            "max_completion_tokens": self.config.max_tokens,
+        }
+        if effort:
+            request_kwargs["reasoning_effort"] = effort
+        if effort in (None, "", "none"):
+            request_kwargs["temperature"] = self.config.temperature
+
         try:
             response, completion = await client.chat.completions.create_with_completion(
-                model=self.config.model,
-                messages=messages,
-                response_model=response_model,
-                temperature=self.config.temperature,
-                # Current OpenAI models reject the legacy ``max_tokens``
-                # parameter ("use max_completion_tokens instead"); this is the
-                # successor name for the same completion budget.
-                max_completion_tokens=self.config.max_tokens,
+                **request_kwargs
             )
 
             # Track token usage
@@ -488,6 +547,11 @@ class AnthropicClient(BaseLLMClient[T]):
                     f"dependency version conflict: {e}"
                 ) from e
 
+            # Anthropic has no analogue of OpenAI's Chat-Completions
+            # "function tools with reasoning effort" restriction: tool use is
+            # supported alongside extended thinking, and this client does not
+            # request a thinking budget. Keep instructor's native tool mode —
+            # it is Anthropic's reliable structured-output path.
             client = self._get_client()
             self._instructor_client = instructor.from_anthropic(client)
 

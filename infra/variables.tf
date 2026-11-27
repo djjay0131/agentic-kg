@@ -276,6 +276,26 @@ variable "llm_model" {
   }
 }
 
+variable "llm_reasoning_effort" {
+  description = <<-EOT
+    Reasoning effort sent to OpenAI reasoning models on Chat Completions
+    (LLM_REASONING_EFFORT). Current GPT-6.2 models default to "medium" and
+    reject "none"; "low" trades some quality for latency/cost. This is set
+    with llm_model so the request shape is explicit. It is ignored by
+    Anthropic, whose thinking budget is not controlled here.
+  EOT
+  type        = string
+  default     = "medium"
+
+  validation {
+    condition = contains(
+      ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+      var.llm_reasoning_effort,
+    )
+    error_message = "llm_reasoning_effort must be a documented OpenAI reasoning effort."
+  }
+}
+
 variable "embedding_model" {
   description = <<-EOT
     OpenAI embedding model. The default (text-embedding-3-small) is 1536

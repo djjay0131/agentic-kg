@@ -16,9 +16,11 @@ from agentic_kg.llm_config import (
     DEFAULT_ANTHROPIC_MODEL,
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_OPENAI_MODEL,
+    DEFAULT_REASONING_EFFORT,
     resolve_embedding_model,
     resolve_llm_model,
     resolve_llm_provider,
+    resolve_reasoning_effort,
 )
 
 
@@ -68,6 +70,29 @@ class TestProviderPrecedence:
     def test_unknown_provider_raises(self):
         with pytest.raises(ValueError, match="unsupported LLM provider"):
             resolve_llm_provider(env={"LLM_PROVIDER": "bedrock"})
+
+
+class TestReasoningEffort:
+    def test_default(self):
+        assert resolve_reasoning_effort(env={}) == DEFAULT_REASONING_EFFORT
+
+    def test_env_wins(self):
+        assert (
+            resolve_reasoning_effort(env={"LLM_REASONING_EFFORT": "high"}) == "high"
+        )
+
+    def test_explicit_when_no_env(self):
+        assert resolve_reasoning_effort("low", env={}) == "low"
+
+    def test_env_normalized_to_lowercase(self):
+        assert (
+            resolve_reasoning_effort(env={"LLM_REASONING_EFFORT": "  MEDIUM  "})
+            == "medium"
+        )
+
+    def test_unknown_effort_raises(self):
+        with pytest.raises(ValueError, match="unsupported reasoning effort"):
+            resolve_reasoning_effort(env={"LLM_REASONING_EFFORT": "extreme"})
 
 
 class TestEmbeddingModel:

@@ -495,6 +495,7 @@ def clean_env(monkeypatch) -> Generator[None, None, None]:
         "EMBEDDING_MODEL",
         "LLM_PROVIDER",
         "LLM_MODEL",
+        "LLM_REASONING_EFFORT",
         "OPENAI_EXTRACTION_MODEL",
         "ENVIRONMENT",
         "DEBUG",
