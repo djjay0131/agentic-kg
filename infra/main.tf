@@ -2659,13 +2659,19 @@ resource "google_workflows_workflow" "nightly" {
       steps:
         - init:
             assign:
-              - trigger: '$${default(args.trigger, "schedule")}'
-              - curate: $${default(args.curate, ${var.nightly_curate_enabled})}
+              # Every argument is optional: the manual GHA run sends only
+              # {"trigger":"manual"} and the scheduler sends trigger+curate.
+              # Reading a missing key with `args.key` raises KeyError before
+              # default() runs, so every read goes through map.get(), which
+              # returns null for a missing key (or when args is null/not a
+              # map), and default() supplies the fallback.
+              - trigger: '$${default(map.get(args, "trigger"), "schedule")}'
+              - curate: '$${default(map.get(args, "curate"), ${var.nightly_curate_enabled})}'
               # Workflows has no ternary operator; use if(condition, a, b).
               # The single quotes are required so YAML does not read the
               # commas/quotes as structure.
               - curateFlag: '$${if(curate, "true", "false")}'
-              - researchCycle: $${default(args.research_cycle, ${var.research_cycle_enabled})}
+              - researchCycle: '$${default(map.get(args, "research_cycle"), ${var.research_cycle_enabled})}'
               - resultOperation: null
               - failure: null
         - runIngest:
