@@ -1,0 +1,340 @@
+<h1 id="rq1-annotation-guide--extraction-reliability">RQ1 annotation guide — extraction reliability</h1>
+
+<p><strong>Status:</strong> active harness; annotation set partially populated
+<strong>Schema:</strong> <code class="language-plaintext highlighter-rouge">rq1-annotation/v1</code>
+<strong>Code:</strong> <code class="language-plaintext highlighter-rouge">packages/core/src/agentic_kg/evaluation/</code>
+<strong>Entry point:</strong> <code class="language-plaintext highlighter-rouge">python -m agentic_kg.evaluation.rq1</code></p>
+
+<p>This guide defines how RQ1 (proposal §V-H1) measures extraction reliability:
+precision, recall and F1 of extracted <strong>problems, assumptions, constraints,
+datasets, metrics and baselines</strong> against human annotations, overall and
+stratified by section type, with inter-annotator agreement.</p>
+
+<p>The harness is deliberately independent of <code class="language-plaintext highlighter-rouge">kg_eval</code>. It runs on a default
+install with no model call, no external service, and no optional extra, so CI
+can grade a frozen prediction fixture deterministically.</p>
+
+<h2 id="what-is-already-annotated-honest-coverage">What is already annotated (honest coverage)</h2>
+
+<p>The eight-paper <code class="language-plaintext highlighter-rouge">ground_truth_chain</code> corpus is committed under
+<code class="language-plaintext highlighter-rouge">packages/core/tests/extraction/fixtures/ground_truth_chain/</code>. Today:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Papers</th>
+      <th>Annotation available</th>
+      <th>Answer key used</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">cskg</code>, <code class="language-plaintext highlighter-rouge">cskg2</code></td>
+      <td>human + Claude independent reviews, reconciled</td>
+      <td><code class="language-plaintext highlighter-rouge">reconciled</code></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">empire</code>, <code class="language-plaintext highlighter-rouge">fact_completion</code></td>
+      <td>human review (Claude review exists for <code class="language-plaintext highlighter-rouge">fact_completion</code>)</td>
+      <td><code class="language-plaintext highlighter-rouge">human</code></td>
+    </tr>
+    <tr>
+      <td>the other four</td>
+      <td>none</td>
+      <td>ungraded</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>All existing gold files annotate <strong>problems</strong> only. Assumptions, constraints,
+datasets, metrics and baselines have no gold records yet, so their metrics are
+reported as honest nulls — not as <code class="language-plaintext highlighter-rouge">0.0</code>, and not as false positives. Adding
+those fields to a gold file automatically makes them graded; no code change is
+needed. Predictions on an unannotated <code class="language-plaintext highlighter-rouge">(paper, field)</code> cell are excluded from
+precision rather than counted as hallucinations.</p>
+
+<p>The converter emits one <strong>coverage</strong> record per paper/reviewer. That is what
+distinguishes “the reviewer looked for datasets and found none” from “nobody
+looked”. A field is graded only when a reviewer marked it as attempted.</p>
+
+<h2 id="file-format-versioned-jsonl">File format: versioned JSONL</h2>
+
+<p>One JSON object per line. Every record carries
+<code class="language-plaintext highlighter-rouge">"schema_version": "rq1-annotation/v1"</code>. Unknown versions are rejected at load
+time. Two record types share the file.</p>
+
+<h3 id="annotation-record">Annotation record</h3>
+
+<div class="language-json highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">{</span><span class="w">
+  </span><span class="nl">"schema_version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"rq1-annotation/v1"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"record_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"annotation"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"paper_doi"</span><span class="p">:</span><span class="w"> </span><span class="s2">"10.1007/978-3-031-19433-7_39"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"paper_slug"</span><span class="p">:</span><span class="w"> </span><span class="s2">"cskg"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"section"</span><span class="p">:</span><span class="w"> </span><span class="s2">"abstract"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"field_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"problem"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"text"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Existing scholarly knowledge graphs cover only a small number of articles..."</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"aliases"</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span><span class="w">
+  </span><span class="nl">"char_span"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nl">"start"</span><span class="p">:</span><span class="w"> </span><span class="mi">225</span><span class="p">,</span><span class="w"> </span><span class="nl">"end"</span><span class="p">:</span><span class="w"> </span><span class="mi">446</span><span class="p">},</span><span class="w">
+  </span><span class="nl">"evidence_quote"</span><span class="p">:</span><span class="w"> </span><span class="s2">"A common limitation of these solutions is that they address..."</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"implicit"</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"annotator_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"human"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"provenance"</span><span class="p">:</span><span class="w"> </span><span class="s2">"gold:human"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"present"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"notes"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="w">
+</span><span class="p">}</span><span class="w">
+</span></code></pre></div></div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Required</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">paper_doi</code></td>
+      <td>yes</td>
+      <td>DOI of the paper. Case-folded on load; <code class="language-plaintext highlighter-rouge">slug</code> is optional metadata.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">section</code></td>
+      <td>no</td>
+      <td>Section type (<code class="language-plaintext highlighter-rouge">abstract</code>, <code class="language-plaintext highlighter-rouge">introduction</code>, <code class="language-plaintext highlighter-rouge">methods</code>, <code class="language-plaintext highlighter-rouge">experiments</code>, …). Defaults to <code class="language-plaintext highlighter-rouge">unknown</code>. Normalized to lower snake case.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">field_type</code></td>
+      <td>yes</td>
+      <td>One of <code class="language-plaintext highlighter-rouge">problem</code>, <code class="language-plaintext highlighter-rouge">assumption</code>, <code class="language-plaintext highlighter-rouge">constraint</code>, <code class="language-plaintext highlighter-rouge">dataset</code>, <code class="language-plaintext highlighter-rouge">metric</code>, <code class="language-plaintext highlighter-rouge">baseline</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">text</code></td>
+      <td>yes</td>
+      <td>The annotated statement/name. This is what the matcher compares.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">aliases</code></td>
+      <td>no</td>
+      <td>Other surface forms of the same item, e.g. <code class="language-plaintext highlighter-rouge">"entity resolution"</code> for <code class="language-plaintext highlighter-rouge">"entity merging"</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">char_span</code></td>
+      <td>no</td>
+      <td>Half-open <code class="language-plaintext highlighter-rouge">{start, end}</code> offsets into the paper text. Optional; string matching still works without it.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">evidence_quote</code></td>
+      <td>no</td>
+      <td>Verbatim grounding quote. The converter fills this from the existing <code class="language-plaintext highlighter-rouge">quoted_text</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">implicit</code></td>
+      <td>no</td>
+      <td>Use <code class="language-plaintext highlighter-rouge">true</code> for an assumption that is inferred rather than stated. Missed implicit assumptions are their own error bucket.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">annotator_id</code></td>
+      <td>yes</td>
+      <td>Stable id (<code class="language-plaintext highlighter-rouge">human</code>, <code class="language-plaintext highlighter-rouge">claude</code>, <code class="language-plaintext highlighter-rouge">reconciled</code>, or a person’s name).</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">provenance</code></td>
+      <td>no</td>
+      <td>Where the record came from (<code class="language-plaintext highlighter-rouge">gold:human</code>, <code class="language-plaintext highlighter-rouge">prediction:importer-output</code>, …).</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">present</code></td>
+      <td>no</td>
+      <td>Default <code class="language-plaintext highlighter-rouge">true</code>. Set <code class="language-plaintext highlighter-rouge">false</code> only for an explicit negative annotation.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">notes</code></td>
+      <td>no</td>
+      <td>Free text for judgment calls.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="coverage-record">Coverage record</h3>
+
+<div class="language-json highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="p">{</span><span class="w">
+  </span><span class="nl">"schema_version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"rq1-annotation/v1"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"record_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"coverage"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"paper_doi"</span><span class="p">:</span><span class="w"> </span><span class="s2">"10.1007/978-3-031-19433-7_39"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"paper_slug"</span><span class="p">:</span><span class="w"> </span><span class="s2">"cskg"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"annotator_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"human"</span><span class="p">,</span><span class="w">
+  </span><span class="nl">"fields"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"problem"</span><span class="p">]</span><span class="w">
+</span><span class="p">}</span><span class="w">
+</span></code></pre></div></div>
+
+<p>Add a field to <code class="language-plaintext highlighter-rouge">fields</code> when the annotator actually reviewed that field. Add it
+even when the result is zero items — that is a measured zero, not a gap. Do not
+add a field the annotator did not review.</p>
+
+<h2 id="how-to-annotate">How to annotate</h2>
+
+<ol>
+  <li>Work from the committed <code class="language-plaintext highlighter-rouge">paper_&lt;slug&gt;.txt</code> fixture (the extractor’s own
+input) or the PDF; the committed text is authoritative for quotes and spans.</li>
+  <li>For each item, decide the <strong>field type</strong> using the extraction schema
+(<code class="language-plaintext highlighter-rouge">packages/core/src/agentic_kg/extraction/schemas.py</code>):
+    <ul>
+      <li><strong>problem</strong> — the research problem/limitation/open question, not a method
+or a result.</li>
+      <li><strong>assumption</strong> — a premise the work relies on. Mark <code class="language-plaintext highlighter-rouge">implicit: true</code> when
+the paper never states it in one sentence.</li>
+      <li><strong>constraint</strong> — a computational/data/methodological/theoretical limit.</li>
+      <li><strong>dataset</strong> — a named dataset/corpus used or released.</li>
+      <li><strong>metric</strong> — a named evaluation measure (F1, BLEU, nDCG, …).</li>
+      <li><strong>baseline</strong> — a named comparison system, not a generic family.</li>
+    </ul>
+  </li>
+  <li>Copy the <strong>evidence quote verbatim</strong>. Whitespace and ligatures are allowed
+to differ from the PDF transcription; the converter locates the quote
+modulo whitespace and NFKC. If the quote cannot be located the span is left
+null rather than guessed.</li>
+  <li>Record the <strong>section</strong> the quote comes from. Section is a stratification
+label, not a matching key: a correct item in the wrong section is still a
+true positive, and it is also counted in the <code class="language-plaintext highlighter-rouge">wrong_section</code> error bucket.</li>
+  <li>Add <strong>aliases</strong> only for genuine surface variants of the same item. Do not
+pad aliases with related-but-different terms; aliases widen the precision
+hit set.</li>
+</ol>
+
+<h3 id="what-counts-as-a-match">What counts as a match</h3>
+
+<p>Deterministic by default, in this priority order:</p>
+
+<ol>
+  <li><strong>Normalized string</strong> — NFKC (ligatures fold), case-fold, whitespace
+collapse, Unicode dashes unified, edge punctuation stripped. Two items match
+when their canonical/alias surface sets intersect. No stemming, no edit
+distance.</li>
+  <li><strong>Span overlap</strong> — when both items have a char span, IoU must be at least
+<code class="language-plaintext highlighter-rouge">--span-iou</code> (default <code class="language-plaintext highlighter-rouge">0.5</code>).</li>
+  <li><strong>Embedding similarity</strong> — only when <code class="language-plaintext highlighter-rouge">--embedding-similarity</code> is passed;
+then cosine similarity must be at least <code class="language-plaintext highlighter-rouge">--embedding-threshold</code> (default
+<code class="language-plaintext highlighter-rouge">0.8</code>). CI never enables it, and the default install does not include a
+model.</li>
+</ol>
+
+<p>Alignment is one-to-one and greedy over the best pair, with deterministic tie
+breaks. A duplicate correct prediction is a false positive after the first, by
+design.</p>
+
+<h3 id="error-buckets">Error buckets</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Bucket</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">missed_implicit_assumption</code></td>
+      <td>An implicit assumption in gold was not extracted.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">missed_field</code></td>
+      <td>Any other gold item not extracted.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">wrong_section</code></td>
+      <td>Matched item attributed to a different section than gold.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">bad_evidence_link</code></td>
+      <td>Matched item whose evidence quote/span does not overlap gold’s grounding, or has no evidence when gold does.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">hallucinated_field</code></td>
+      <td>A prediction with no gold counterpart in a graded cell.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>A pair can appear in more than one bucket (for example, wrong section <em>and</em> bad
+evidence link).</p>
+
+<h2 id="metrics">Metrics</h2>
+
+<ul>
+  <li><strong>Micro</strong> pools TP/FP/FN across papers within a slice.</li>
+  <li><strong>Macro</strong> computes P/R/F1 per paper, then averages; papers with no denominator
+for a metric are skipped for that metric and the report says so.</li>
+  <li>Slices: overall, each field type, each section type.</li>
+  <li><strong>95% CIs</strong> are a clustered bootstrap over papers (the independent unit),
+seeded (<code class="language-plaintext highlighter-rouge">--seed</code>, default <code class="language-plaintext highlighter-rouge">20261026</code>) and reproducible. Fewer than 20 defined
+resamples withholds the interval rather than printing a misleading one.</li>
+  <li><strong>Agreement</strong>: pairwise Cohen’s kappa and nominal Krippendorff’s alpha over
+the union of items in cells both reviewers covered. Uncovered cells are
+missing, never negative labels. With fewer than two annotators, null.</li>
+</ul>
+
+<h2 id="commands">Commands</h2>
+
+<p>Evaluate:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>python <span class="nt">-m</span> agentic_kg.evaluation.rq1 <span class="se">\</span>
+  <span class="nt">--gold</span> packages/core/tests/evaluation/fixtures/rq1/gold.jsonl <span class="se">\</span>
+  <span class="nt">--pred</span> packages/core/tests/evaluation/fixtures/rq1/predictions.jsonl <span class="se">\</span>
+  <span class="nt">--corpus</span> packages/core/tests/evaluation/fixtures/rq1/corpus.json <span class="se">\</span>
+  <span class="nt">--out</span> report.json <span class="nt">--markdown</span> report.md
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">--gold</code> and <code class="language-plaintext highlighter-rouge">--pred</code> also accept a directory, a <code class="language-plaintext highlighter-rouge">.gold.yml</code> file, or the
+importer-output YAML directory (converted on the fly). <code class="language-plaintext highlighter-rouge">--pred</code> may be a run id
+resolved under <code class="language-plaintext highlighter-rouge">--runs-dir</code> (<code class="language-plaintext highlighter-rouge">&lt;id&gt;.jsonl</code> or <code class="language-plaintext highlighter-rouge">&lt;id&gt;/predictions.jsonl</code>), so a
+live extraction run can be graded without copying it into the fixture tree.</p>
+
+<p>Regenerate the frozen fixtures:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>python <span class="nt">-m</span> agentic_kg.evaluation.rq1 convert <span class="se">\</span>
+  <span class="nt">--gold-yaml</span> packages/core/tests/extraction/fixtures/ground_truth_chain <span class="se">\</span>
+  <span class="nt">--out</span> packages/core/tests/evaluation/fixtures/rq1/gold.jsonl
+
+python <span class="nt">-m</span> agentic_kg.evaluation.rq1 convert <span class="se">\</span>
+  <span class="nt">--importer-output</span> docs/ground-truth/importer-output <span class="se">\</span>
+  <span class="nt">--out</span> packages/core/tests/evaluation/fixtures/rq1/predictions.jsonl
+</code></pre></div></div>
+
+<p>or <code class="language-plaintext highlighter-rouge">make rq1-eval</code>. The CI job
+<code class="language-plaintext highlighter-rouge">.github/workflows/rq1-eval.yml</code> reruns the harness on the frozen fixtures with
+no LLM call and uploads <code class="language-plaintext highlighter-rouge">rq1-report.json</code> / <code class="language-plaintext highlighter-rouge">rq1-report.md</code>.</p>
+
+<h2 id="provenance-scoring-bug-kg_eval">Provenance-scoring bug (<code class="language-plaintext highlighter-rouge">kg_eval</code>)</h2>
+
+<p>The brief names a bug in <code class="language-plaintext highlighter-rouge">kg_eval.metrics._unsupported_assertions</code>: it counted
+only <code class="language-plaintext highlighter-rouge">SUPPORTS</code> refs while KGIS producers emit <code class="language-plaintext highlighter-rouge">DERIVED_FROM</code>, so real
+extraction output scored 100% unsupported. <strong>That bug is already fixed at this
+repository’s pinned <code class="language-plaintext highlighter-rouge">agentic-kgis</code> v0.6.0</strong> (<code class="language-plaintext highlighter-rouge">285ca1d</code>): the module now uses
+<code class="language-plaintext highlighter-rouge">_GROUNDING_RELATIONSHIPS = {SUPPORTS, DERIVED_FROM}</code>, and the upstream fix
+landed in agentic-kgis #60/#62. There is therefore no separate upstream PR to
+open. <code class="language-plaintext highlighter-rouge">packages/core/tests/migration/evaluation/test_kg_eval_grounding_support.py</code>
+pins the resolved dependency’s behaviour, including <code class="language-plaintext highlighter-rouge">SUPPORTS</code> vs
+<code class="language-plaintext highlighter-rouge">DERIVED_FROM</code> and the deliberate exclusion of <code class="language-plaintext highlighter-rouge">CONTRADICTS</code>/<code class="language-plaintext highlighter-rouge">CONTEXTUALIZES</code>.
+That test runs in the migration CI job, which installs the <code class="language-plaintext highlighter-rouge">migration</code> extra;
+default-install jobs skip it cleanly.</p>
+
+<p>The RQ1 harness does not depend on <code class="language-plaintext highlighter-rouge">kg_eval</code>, so this bug cannot distort its
+numbers either way.</p>
+
+<h2 id="open-questions--limitations">Open questions / limitations</h2>
+
+<ul>
+  <li>Only <strong>problems</strong> have gold annotations today. The five structured fields are
+supported by the schema and metrics but have no data. Annotating them is the
+next data task, not a code task.</li>
+  <li>Only four of the eight corpus papers have any annotation. The report states
+this explicitly (corpus size vs gold papers vs graded papers) and never
+pretends the other four were measured.</li>
+  <li>Section inference is heading-based. A quote in an unrecognised section falls
+back to <code class="language-plaintext highlighter-rouge">unknown</code>; section-stratified numbers reflect that rather than a
+guess.</li>
+  <li>The existing gold files label only abstract/introduction/methods/experiments
+scope. Items in related work or conclusions are deliberately absent; the
+harness cannot recover a label that was never in the answer key.</li>
+</ul>
