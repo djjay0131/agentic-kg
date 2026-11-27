@@ -46,6 +46,14 @@ from pathlib import Path
 from typing import Any, Optional, Protocol
 
 from agentic_kg.agents.autonomy import AutonomyPolicy, load_policy
+from agentic_kg.agents.gate_agreement import (
+    GateAgreementReport,
+    build_agreement_report,
+    build_recommendation,
+    evaluation_provenance_allows_auto,
+    promotion_by_gate,
+    recommendation_agrees,
+)
 from agentic_kg.agents.schemas import (
     CheckpointDecision,
     CheckpointType,
@@ -319,6 +327,13 @@ def _sync_entry(entry: CycleWorkflow, state: dict, *, now: str) -> CycleWorkflow
     entry.state = new_state  # type: ignore[assignment]
     entry.current_step = str(state.get("current_step") or "")
     entry.pending_gate = pending  # type: ignore[assignment]
+    # Produce the agent's recommendation while the gate is still pending, so it
+    # is durable *before* any human decision can be recorded (ADR-0013). The
+    # decision keeps its own copy; the pending slot is cleared when no gate is
+    # waiting.
+    entry.pending_recommendation = (
+        build_recommendation(pending, state, produced_at=now) if pending else None
+    )
     entry.problem_statement = (
         state.get("selected_problem_statement") or entry.problem_statement
     )
@@ -532,23 +547,60 @@ async def _auto_advance(
     cycle: ResearchCycle,
     runner: CycleWorkflowRunner,
     policy: AutonomyPolicy,
+    promotion: dict[str, bool],
     now_iso: str,
 ) -> dict:
-    """Resolve gates the policy says may proceed without a human.
+    """Resolve gates the policy and the evidence say may proceed without a human.
 
-    The shipped policy is all ``human``, so this returns immediately. It exists
-    so ``auto_if``/``auto`` are a data change, not a code change, once ADR-0011's
-    evidence is accepted. Every automatic decision is recorded on the cycle with
-    ``decided_by="policy:<mode>"``.
+    The shipped policy is all ``human``, so this returns immediately. Two
+    independent guards must both pass before an automatic decision is recorded:
+
+    1. the mode's confidence rule (``auto_if`` / ``auto_when_confident``), and
+    2. the gate's promotion criteria over recorded human agreement. A policy
+       edited to ``auto`` while the evidence is absent or unmet is refused and
+       falls back to a human (ADR-0013).
+
+    ``review_evaluation`` additionally needs a non-abstaining provenance
+    envelope: the write gate may never be resolved by an unattributed result.
+    Every automatic decision is recorded on the cycle with
+    ``decided_by="policy:<mode>"`` and no human decision, so it never counts as
+    agreement evidence.
     """
     for _ in range(len(GATE_ORDER)):
         gate = entry.pending_gate
         if gate is None:
             break
         gate_policy = policy.gate(gate)
+        if gate_policy.mode == "human":
+            break
+        if not promotion.get(gate, False):
+            logger.info(
+                "autonomy refused at %s: promotion criteria not met", gate
+            )
+            break
+        if gate == CheckpointType.REVIEW_EVALUATION.value and not (
+            evaluation_provenance_allows_auto(state)
+        ):
+            logger.info(
+                "autonomy refused at review_evaluation: provenance envelope "
+                "is absent or abstaining"
+            )
+            break
         if not gate_policy.resolve(gate_confidence(gate, state)):
             break
-        if gate == CheckpointType.APPROVE_PROPOSAL.value:
+
+        recommendation = entry.pending_recommendation or build_recommendation(
+            gate, state, produced_at=now_iso
+        )
+        auto_decision = (
+            "auto_reject"
+            if recommendation is not None and recommendation.action == "reject"
+            else "auto_approve"
+        )
+        if (
+            gate == CheckpointType.APPROVE_PROPOSAL.value
+            and auto_decision == "auto_approve"
+        ):
             if cycle.budget.max_experiments and (
                 cycle.budget.experiments >= cycle.budget.max_experiments
             ):
@@ -562,17 +614,26 @@ async def _auto_advance(
         entry.gate_decisions.append(
             GateDecision(
                 gate=gate,  # type: ignore[arg-type]
-                decision="auto_approve",
+                decision=auto_decision,  # type: ignore[arg-type]
                 decided_by=f"policy:{gate_policy.mode}",
                 decided_at=now_iso,
                 note=f"resolved by autonomy policy v{policy.version}",
+                cycle_id=cycle.cycle_id,
+                workflow_run_id=entry.workflow_run_id,
+                policy_version=policy.version,
+                agent_recommendation=recommendation,
             )
         )
+        entry.pending_recommendation = None
         try:
             state = await runner.resume_workflow(
                 entry.workflow_run_id,
                 checkpoint_type=CheckpointType(gate),
-                decision=CheckpointDecision.APPROVE,
+                decision=(
+                    CheckpointDecision.REJECT
+                    if auto_decision == "auto_reject"
+                    else CheckpointDecision.APPROVE
+                ),
                 feedback=f"autonomy policy v{policy.version}",
             )
         except Exception as exc:  # noqa: BLE001 - recorded, not silently swallowed
@@ -589,6 +650,7 @@ async def _reconcile(
     runner: CycleWorkflowRunner,
     *,
     policy: AutonomyPolicy,
+    promotion: dict[str, bool],
     now_iso: str,
 ) -> ResearchCycle:
     """Refresh every workflow entry from its durable state."""
@@ -607,6 +669,7 @@ async def _reconcile(
                 cycle=cycle,
                 runner=runner,
                 policy=policy,
+                promotion=promotion,
                 now_iso=now_iso,
             )
     cycle.status = _cycle_status(cycle)  # type: ignore[assignment]
@@ -682,9 +745,22 @@ async def run_cycle(
             skipped_reason="another_cycle_running",
         )
 
+    # Evidence bar for any non-human gate. Measured from decisions recorded
+    # before this tick; a policy cannot grant autonomy until the evidence meets
+    # its promotion criteria (ADR-0013). A read failure fails closed.
+    try:
+        promotion = promotion_by_gate(
+            build_agreement_report(cycles.list(limit=1000), policy=policy)
+        )
+    except Exception as exc:  # noqa: BLE001 - evidence read failure must not auto-approve
+        logger.warning("gate-agreement evidence unavailable: %s", exc)
+        promotion = {gate: False for gate in GATE_ORDER}
+
     # Reconcile every cycle that is waiting at a gate before re-ranking.
     for waiting in cycles.find_status(("awaiting_gate",)):
-        await _reconcile(waiting, runner, policy=policy, now_iso=stamp)
+        await _reconcile(
+            waiting, runner, policy=policy, promotion=promotion, now_iso=stamp
+        )
         if _cycle_status(waiting) not in ("running", "awaiting_gate"):
             waiting.finished_at = waiting.finished_at or stamp
         cycles.save(waiting)
@@ -817,6 +893,7 @@ async def run_cycle(
                     cycle=cycle,
                     runner=runner,
                     policy=policy,
+                    promotion=promotion,
                     now_iso=stamp,
                 )
         except Exception as exc:  # noqa: BLE001 - state read is best effort
@@ -876,6 +953,27 @@ class ResearchCycleService:
     def pending_gates(self, limit: int = 50) -> list[ResearchCycle]:
         return self._cycles.list_pending_gates(limit=limit)
 
+    def agreement(
+        self,
+        *,
+        gate: Optional[str] = None,
+        since: Optional[str] = None,
+        last_n: int = 10,
+        limit: int = 1000,
+    ) -> GateAgreementReport:
+        """Recorded gate agreement plus the evidence for each promotion bar."""
+        try:
+            policy = self.policy
+        except FileNotFoundError:
+            policy = None
+        return build_agreement_report(
+            self._cycles.list(limit=limit),
+            policy=policy,
+            gate=gate,
+            since=since,
+            last_n=last_n,
+        )
+
     async def decide_gate(
         self,
         cycle_id: str,
@@ -922,6 +1020,19 @@ class ResearchCycleService:
             cycle.budget.experiments += 1
 
         stamp = iso(now or utc_now())
+        recommendation = entry.pending_recommendation
+        if recommendation is None:
+            # A cycle written by an older version has no pending recommendation.
+            # Derive it from the pre-decision state rather than leaving the
+            # evidence blank; a read failure is recorded as no recommendation.
+            try:
+                pre_decision_state = await self._runner.get_state(workflow_run_id)
+            except Exception:  # noqa: BLE001 - the action still has to be recorded
+                pre_decision_state = {}
+            recommendation = build_recommendation(
+                gate, pre_decision_state, produced_at=stamp
+            )
+        agreed = recommendation_agrees(recommendation, decision)
         record = GateDecision(
             gate=gate,  # type: ignore[arg-type]
             decision=decision,  # type: ignore[arg-type]
@@ -929,8 +1040,16 @@ class ResearchCycleService:
             decided_at=stamp,
             note=note,
             edited_data=edited_data,
+            cycle_id=cycle_id,
+            workflow_run_id=workflow_run_id,
+            policy_version=cycle.policy_version,
+            agent_recommendation=recommendation,
+            human_decision=decision,  # type: ignore[arg-type]
+            agreed=agreed,
+            disagreement_reason=note if agreed is False else "",
         )
         entry.gate_decisions.append(record)
+        entry.pending_recommendation = None
         entry.updated_at = stamp
 
         checkpoint_type = CheckpointType(gate)

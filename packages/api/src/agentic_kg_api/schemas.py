@@ -1019,6 +1019,17 @@ class ReviewDecisionRequest(BaseModel):
 # the cycle node (``decided_by`` / ``decided_at`` / ``note``).
 
 
+class ResearchAgentRecommendation(BaseModel):
+    """The agent's recommendation, produced before the human decided."""
+
+    action: str
+    rationale: str = ""
+    confidence: Optional[float] = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    provenance_abstained: Optional[bool] = None
+    produced_at: str = ""
+
+
 class ResearchGateDecisionResponse(BaseModel):
     """One recorded gate decision."""
 
@@ -1028,6 +1039,13 @@ class ResearchGateDecisionResponse(BaseModel):
     decided_at: str
     note: str = ""
     edited_data: Optional[dict[str, Any]] = None
+    cycle_id: str = ""
+    workflow_run_id: str = ""
+    policy_version: str = ""
+    agent_recommendation: Optional[ResearchAgentRecommendation] = None
+    human_decision: Optional[str] = None
+    agreed: Optional[bool] = None
+    disagreement_reason: str = ""
 
 
 class ResearchWorkflowResponse(BaseModel):
@@ -1092,6 +1110,7 @@ class PendingResearchGate(BaseModel):
     problem_statement: str = ""
     gate: str
     updated_at: str = ""
+    recommendation: Optional[ResearchAgentRecommendation] = None
 
 
 class PendingResearchGateListResponse(BaseModel):
@@ -1099,6 +1118,43 @@ class PendingResearchGateListResponse(BaseModel):
 
     gates: list[PendingResearchGate] = Field(default_factory=list)
     total: int = 0
+
+
+class ResearchGateDisagreement(BaseModel):
+    """One gate where the human did not match the agent's recommendation."""
+
+    cycle_id: str
+    workflow_run_id: str
+    gate: str
+    agent_action: str
+    human_decision: str
+    decided_by: str
+    decided_at: str
+    reason: str = ""
+
+
+class ResearchGateAgreement(BaseModel):
+    """Per-gate agreement rate and promotion status."""
+
+    gate: str
+    mode: str
+    decisions: int = 0
+    agreed: int = 0
+    agreement_rate: Optional[float] = None
+    lower_bound: Optional[float] = None
+    min_decisions: Optional[int] = None
+    min_agreement_lower_bound: Optional[float] = None
+    promotion_met: bool = False
+    last_disagreements: list[ResearchGateDisagreement] = Field(default_factory=list)
+
+
+class ResearchAgreementResponse(BaseModel):
+    """Response for GET /api/research/agreement."""
+
+    since: Optional[str] = None
+    total_decisions: int = 0
+    total_agreed: int = 0
+    gates: list[ResearchGateAgreement] = Field(default_factory=list)
 
 
 class ResearchGateDecisionRequest(BaseModel):

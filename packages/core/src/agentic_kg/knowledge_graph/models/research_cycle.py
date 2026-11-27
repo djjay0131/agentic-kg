@@ -97,6 +97,28 @@ class CycleBudget(BaseModel):
     stopped_by_budget: bool = False
 
 
+RecommendationAction = Literal["approve", "reject", "edit"]
+HumanDecision = Literal["approve", "reject", "edit"]
+
+
+class AgentRecommendation(BaseModel):
+    """The agent's own recommendation, produced before a human decides.
+
+    ``details`` carries the gate-specific evidence: the selected problem id and
+    score margin for ``select_problem``, the proposed action/rationale for the
+    other gates. ``provenance_abstained`` is meaningful for
+    ``review_evaluation``: a write recommendation backed by an abstaining
+    provenance envelope can never be auto-approved.
+    """
+
+    action: RecommendationAction
+    rationale: str = ""
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    details: dict[str, Any] = Field(default_factory=dict)
+    provenance_abstained: Optional[bool] = None
+    produced_at: str = ""
+
+
 class GateDecision(BaseModel):
     """One human (or policy) decision at a workflow gate.
 
@@ -104,6 +126,14 @@ class GateDecision(BaseModel):
     ``policy:<mode>`` when an autonomy policy resolved it. The note and edit
     payload are kept verbatim so the audit trail says what the human saw and
     what they changed.
+
+    Agreement fields (ADR-0013) are additive and optional so older cycles remain
+    readable. ``agent_recommendation`` is the recommendation the workflow
+    produced *before* the decision; ``human_decision`` is the person's action;
+    ``agreed`` compares their action (``edit`` counts as an approving action);
+    ``disagreement_reason`` records the human's own words when they differ.
+    Automatic decisions leave ``human_decision``/``agreed`` unset so they never
+    inflate the human-agreement evidence.
     """
 
     gate: GateName
@@ -112,6 +142,14 @@ class GateDecision(BaseModel):
     decided_at: str
     note: str = ""
     edited_data: Optional[dict[str, Any]] = None
+
+    cycle_id: str = ""
+    workflow_run_id: str = ""
+    policy_version: str = ""
+    agent_recommendation: Optional[AgentRecommendation] = None
+    human_decision: Optional[HumanDecision] = None
+    agreed: Optional[bool] = None
+    disagreement_reason: str = ""
 
 
 class CycleWorkflow(BaseModel):
@@ -127,6 +165,8 @@ class CycleWorkflow(BaseModel):
     updated_at: str = ""
     finished_at: Optional[str] = None
     gate_decisions: list[GateDecision] = Field(default_factory=list)
+    #: The recommendation for ``pending_gate``, produced before the decision.
+    pending_recommendation: Optional[AgentRecommendation] = None
     error: Optional[str] = None
 
     def gate(self, name: str) -> Optional[GateDecision]:
@@ -228,6 +268,7 @@ class ResearchCycle(BaseModel):
 
 
 __all__ = [
+    "AgentRecommendation",
     "CycleBudget",
     "CycleStatus",
     "CycleTrigger",
@@ -235,6 +276,8 @@ __all__ = [
     "CycleWorkflowState",
     "GateDecision",
     "GateName",
+    "HumanDecision",
+    "RecommendationAction",
     "ResearchCycle",
     "research_cycle_uid",
 ]

@@ -317,6 +317,15 @@ export interface StartWorkflowResponse {
   websocket_url: string;
 }
 
+export interface ResearchAgentRecommendation {
+  action: string;
+  rationale: string;
+  confidence: number | null;
+  details: Record<string, unknown>;
+  provenance_abstained: boolean | null;
+  produced_at: string;
+}
+
 export interface ResearchGateDecision {
   gate: string;
   decision: string;
@@ -324,6 +333,13 @@ export interface ResearchGateDecision {
   decided_at: string;
   note: string;
   edited_data: Record<string, unknown> | null;
+  cycle_id: string;
+  workflow_run_id: string;
+  policy_version: string;
+  agent_recommendation: ResearchAgentRecommendation | null;
+  human_decision: string | null;
+  agreed: boolean | null;
+  disagreement_reason: string;
 }
 
 export interface ResearchWorkflow {
@@ -376,11 +392,43 @@ export interface PendingResearchGate {
   problem_statement: string;
   gate: string;
   updated_at: string;
+  recommendation: ResearchAgentRecommendation | null;
 }
 
 export interface PendingResearchGateListResponse {
   gates: PendingResearchGate[];
   total: number;
+}
+
+export interface ResearchGateDisagreement {
+  cycle_id: string;
+  workflow_run_id: string;
+  gate: string;
+  agent_action: string;
+  human_decision: string;
+  decided_by: string;
+  decided_at: string;
+  reason: string;
+}
+
+export interface ResearchGateAgreement {
+  gate: string;
+  mode: string;
+  decisions: number;
+  agreed: number;
+  agreement_rate: number | null;
+  lower_bound: number | null;
+  min_decisions: number | null;
+  min_agreement_lower_bound: number | null;
+  promotion_met: boolean;
+  last_disagreements: ResearchGateDisagreement[];
+}
+
+export interface ResearchAgreementResponse {
+  since: string | null;
+  total_decisions: number;
+  total_agreed: number;
+  gates: ResearchGateAgreement[];
 }
 
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
@@ -553,6 +601,17 @@ export const api = {
     fetchAPI<ResearchCycle>(`/api/research/cycles/${encodeURIComponent(cycleId)}`),
 
   listPendingGates: () => fetchAPI<PendingResearchGateListResponse>('/api/research/gates'),
+
+  getGateAgreement: (params?: { gate?: string; since?: string; last_n?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.gate) searchParams.set('gate', params.gate);
+    if (params?.since) searchParams.set('since', params.since);
+    if (params?.last_n) searchParams.set('last_n', String(params.last_n));
+    const query = searchParams.toString();
+    return fetchAPI<ResearchAgreementResponse>(
+      `/api/research/agreement${query ? `?${query}` : ''}`
+    );
+  },
 
   decideGate: (
     cycleId: string,

@@ -23,6 +23,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -831,6 +832,50 @@ def build_parser() -> argparse.ArgumentParser:
         "-v", "--verbose", action="store_true", help="Enable verbose logging",
     )
 
+    # autonomy command (read-only evidence status; ADR-0013)
+    autonomy_cmd = subparsers.add_parser(
+        "autonomy",
+        help="Inspect the research-gate autonomy policy and its evidence",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    autonomy_sub = autonomy_cmd.add_subparsers(
+        dest="autonomy_command", help="Autonomy action",
+    )
+    autonomy_status = autonomy_sub.add_parser(
+        "status",
+        help=(
+            "Per gate: decisions, agreement rate, Wilson lower bound and "
+            "whether the promotion criteria are met. Read-only."
+        ),
+    )
+    autonomy_status.add_argument(
+        "--gate", default=None,
+        help="Only report this gate (select_problem | approve_proposal | review_evaluation).",
+    )
+    autonomy_status.add_argument(
+        "--since", default=None,
+        help="Only decisions at or after this ISO-8601 timestamp.",
+    )
+    autonomy_status.add_argument(
+        "--limit", type=int, default=1000,
+        help="Max cycles to scan (default 1000).",
+    )
+    autonomy_status.add_argument(
+        "--namespace", default=None,
+        help="Canonical namespace (default: KGCS_CANONICAL_NAMESPACE or 'canon').",
+    )
+    autonomy_status.add_argument(
+        "--policy", default=None,
+        help="Path to a versioned autonomy policy (default: config/research-autonomy.yaml).",
+    )
+    autonomy_status.add_argument(
+        "--json", dest="json_output", action="store_true",
+        help="Print the report as JSON.",
+    )
+    autonomy_status.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
     return parser
 
 
@@ -1532,6 +1577,97 @@ def run_migrate(args) -> None:
     print(json.dumps(summary.to_dict(), indent=2, default=str))
 
 
+def _percent(value: Optional[float]) -> str:
+    return "n/a" if value is None else f"{value * 100:.1f}%"
+
+
+def run_autonomy(args) -> None:
+    """Print the read-only autonomy evidence status (ADR-0013).
+
+    This never edits the policy. It reports, per gate, what agreement has been
+    measured and whether that clears the promotion criteria a human wrote into
+    the versioned file.
+    """
+    if getattr(args, "autonomy_command", None) != "status":
+        print(
+            "Error: `agentic-kg autonomy` needs a subcommand; the only one is "
+            "`status`.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    from agentic_kg.agents.autonomy import load_policy
+    from agentic_kg.agents.gate_agreement import GATE_NAMES, build_agreement_report
+    from agentic_kg.knowledge_graph.repository import get_repository
+    from agentic_kg.knowledge_graph.research_cycles import ResearchCycleRepository
+
+    if args.gate is not None and args.gate not in GATE_NAMES:
+        print(
+            f"Error: unknown gate {args.gate!r}; choose from {', '.join(GATE_NAMES)}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    policy = load_policy(args.policy or None)
+    namespace = args.namespace or os.getenv("KGCS_CANONICAL_NAMESPACE", "canon")
+    cycles = ResearchCycleRepository(get_repository(), namespace=namespace).list(
+        limit=args.limit
+    )
+    report = build_agreement_report(
+        cycles,
+        policy=policy,
+        gate=args.gate,
+        since=args.since,
+    )
+
+    if args.json_output:
+        print(json.dumps(report.as_dict(), indent=2))
+        return
+
+    print(f"Autonomy policy v{policy.version} (read-only evidence report)")
+    if report.since:
+        print(f"Since: {report.since}")
+    print()
+    headers = (
+        "gate",
+        "mode",
+        "decisions",
+        "agreed",
+        "rate",
+        "lower95",
+        "bar",
+        "status",
+    )
+    rows = []
+    for gate in report.gates:
+        bar = (
+            "none"
+            if gate.min_decisions is None
+            else f"n>={gate.min_decisions}, lb>={gate.min_agreement_lower_bound:.2f}"
+        )
+        rows.append(
+            (
+                gate.gate,
+                gate.mode,
+                str(gate.decisions),
+                str(gate.agreed),
+                _percent(gate.agreement_rate),
+                _percent(gate.lower_bound),
+                bar,
+                "criteria met (review for promotion)" if gate.promotion_met else "hold",
+            )
+        )
+    widths = [
+        max(len(headers[index]), *(len(row[index]) for row in rows))
+        for index in range(len(headers))
+    ]
+    print("  ".join(header.ljust(widths[index]) for index, header in enumerate(headers)))
+    for row in rows:
+        print("  ".join(value.ljust(widths[index]) for index, value in enumerate(row)))
+    print()
+    print("Promotion is a human edit of the versioned policy file in a PR.")
+
+
 def main(argv: Optional[list[str]] = None) -> None:
     """CLI entry point."""
     parser = build_parser()
@@ -1574,6 +1710,8 @@ def main(argv: Optional[list[str]] = None) -> None:
         run_backfill_embeddings(args)
     elif args.command == "migrate":
         run_migrate(args)
+    elif args.command == "autonomy":
+        run_autonomy(args)
     elif args.command == "extract":
         # Build pipeline config
         config = PipelineConfig(

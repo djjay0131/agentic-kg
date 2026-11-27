@@ -41,6 +41,10 @@ export default function ResearchPage() {
     queryKey: ['research-cycles'],
     queryFn: () => api.listResearchCycles(20),
   });
+  const agreementQuery = useQuery({
+    queryKey: ['research-agreement'],
+    queryFn: () => api.getGateAgreement({ last_n: 5 }),
+  });
 
   const decide = useMutation({
     mutationFn: ({
@@ -75,12 +79,17 @@ export default function ResearchPage() {
       setError(null);
       queryClient.invalidateQueries({ queryKey: ['research-gates'] });
       queryClient.invalidateQueries({ queryKey: ['research-cycles'] });
+      queryClient.invalidateQueries({ queryKey: ['research-agreement'] });
     },
     onError: (err: Error) => setError(err.message),
   });
 
   const gates = gatesQuery.data?.gates ?? [];
   const cycles = cyclesQuery.data?.cycles ?? [];
+  const agreement = agreementQuery.data?.gates ?? [];
+
+  const percent = (value: number | null) =>
+    value === null ? 'n/a' : `${(value * 100).toFixed(1)}%`;
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -129,6 +138,20 @@ export default function ResearchPage() {
                   <p className="mt-2 text-sm text-gray-900">
                     {gate.problem_statement || gate.problem_id}
                   </p>
+                  {gate.recommendation && (
+                    <p className="mt-1 text-xs text-gray-600">
+                      Agent recommends{' '}
+                      <span className="font-semibold">
+                        {gate.recommendation.action}
+                      </span>
+                      {gate.recommendation.confidence !== null
+                        ? ` (confidence ${gate.recommendation.confidence.toFixed(2)})`
+                        : ''}
+                      {gate.recommendation.rationale
+                        ? ` — ${gate.recommendation.rationale}`
+                        : ''}
+                    </p>
+                  )}
                   <textarea
                     value={notes[key] || ''}
                     onChange={(event) =>
@@ -192,6 +215,81 @@ export default function ResearchPage() {
               );
             })}
           </ul>
+        )}
+      </div>
+
+      <h2 className="text-lg font-semibold text-gray-900 mb-3">
+        Gate agreement
+      </h2>
+      <p className="text-sm text-gray-500 mb-3">
+        Evidence that a gate could be promoted off <code>human</code>. Promotion
+        is a reviewed edit of the versioned policy file; the system only reports
+        whether the bar is met.
+      </p>
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden mb-8">
+        {agreementQuery.isError ? (
+          <div className="p-8 text-center text-red-700">
+            Failed to load gate agreement:{' '}
+            {(agreementQuery.error as Error)?.message || 'request failed'}
+          </div>
+        ) : agreementQuery.isLoading ? (
+          <div className="p-8 text-center text-gray-500">
+            Loading agreement...
+          </div>
+        ) : agreement.length === 0 ? (
+          <div className="p-8 text-center text-gray-500">
+            No agreement evidence recorded yet. Decide a gate to start the
+            record.
+          </div>
+        ) : (
+          <table className="min-w-full">
+            <thead>
+              <tr>
+                <th scope="col">Gate</th>
+                <th scope="col">Mode</th>
+                <th scope="col">Decisions</th>
+                <th scope="col">Agreed</th>
+                <th scope="col">Rate</th>
+                <th scope="col">Wilson 95% lower</th>
+                <th scope="col">Promotion bar</th>
+                <th scope="col">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {agreement.map((gate) => (
+                <tr key={gate.gate}>
+                  <td>{GATE_LABELS[gate.gate] || gate.gate}</td>
+                  <td>
+                    <span className="badge bg-gray-100 text-gray-800">
+                      {gate.mode}
+                    </span>
+                  </td>
+                  <td>{gate.decisions}</td>
+                  <td>{gate.agreed}</td>
+                  <td>{percent(gate.agreement_rate)}</td>
+                  <td>{percent(gate.lower_bound)}</td>
+                  <td className="text-xs text-gray-600">
+                    {gate.min_decisions === null
+                      ? 'none'
+                      : `n ≥ ${gate.min_decisions}, lower ≥ ${percent(
+                          gate.min_agreement_lower_bound
+                        )}`}
+                  </td>
+                  <td>
+                    <span
+                      className={`badge ${
+                        gate.promotion_met
+                          ? 'bg-yellow-100 text-yellow-800'
+                          : 'bg-gray-100 text-gray-800'
+                      }`}
+                    >
+                      {gate.promotion_met ? 'criteria met (review)' : 'hold'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
 

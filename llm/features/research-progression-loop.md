@@ -52,6 +52,19 @@ close finished workflows
   optional weekly scheduler, all Terraform-gated (default off).
 - **AC-9** Offline tests cover scheduling, gate resumption across a simulated
   restart, budget stop, the default-human policy pin, and no-write-on-reject.
+- **AC-10** Each gate records the agent's recommendation *before* the human
+  decides (top problem + score margin; approve/reject + rationale +
+  confidence; write/do-not-write + rationale + confidence), the human decision,
+  `decided_by`, `agreed` and the human's free-text reason on disagreement.
+  `GET /api/research/agreement` and the Research Loop Agreement panel report
+  per-gate `decisions`, `agreed`, rate and a Wilson 95% lower bound, plus the
+  last N disagreements. ADR-0013 defines the evidence model.
+- **AC-11** The policy schema carries per-gate promotion criteria
+  (`min_decisions`, `min_agreement_lower_bound`) and `auto_when_confident`.
+  `agentic-kg autonomy status` is read-only. A non-human gate is refused at
+  runtime while its criteria are absent or unmet; `review_evaluation` also needs
+  a non-abstaining provenance envelope. Promotion stays a human edit of the
+  versioned policy, and the shipped file still keeps every gate `human`.
 
 ## Out of scope / honest nulls
 
