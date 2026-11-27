@@ -39,6 +39,19 @@ def test_email_is_normalised(iap_mode):
     assert current_user(x_user_id=None, iap_assertion=token) == "alice@vt.edu"
 
 
+def test_service_account_assertion_is_accepted_as_a_user(iap_mode):
+    """T54: the post-deploy browser suite authenticates as a service account.
+
+    IAP authenticates the service-account signed JWT at the edge and then
+    issues its own assertion with the service account's `email` and numeric
+    `sub`. That is a valid user identity for `current_user`; it must not be
+    rejected just because the principal is a robot.
+    """
+    service_account = "agentic-kg-e2e-staging@vt-gcp-00042.iam.gserviceaccount.com"
+    token = make_token(SIGNER, email=service_account, subject="102938475647382910")
+    assert current_user(x_user_id=None, iap_assertion=token) == service_account
+
+
 def test_missing_assertion_is_401(iap_mode):
     with pytest.raises(HTTPException) as exc:
         current_user(x_user_id=None, iap_assertion=None)

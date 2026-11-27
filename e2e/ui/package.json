@@ -1,0 +1,17 @@
+{
+  "name": "agentic-kg-e2e-ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Post-deploy browser tests for the IAP-protected agentic-kg staging UI.",
+  "scripts": {
+    "test": "playwright test",
+    "test:list": "playwright test --list",
+    "typecheck": "tsc --noEmit",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}

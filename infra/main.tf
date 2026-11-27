@@ -1207,6 +1207,51 @@ resource "google_service_account" "ui" {
   depends_on = [google_project_iam_member.deploy_service_account_admin]
 }
 
+# Post-deploy browser-suite identity (T54). The suite runs in GitHub Actions
+# with no stored key: the deploy identity signs a short-lived service-account
+# JWT for this account (IAP's documented programmatic path), and IAP accepts it
+# because the account is an httpsResourceAccessor on the UI service. It is
+# deliberately separate from `app_allowed_members`, which is for humans.
+resource "google_service_account" "e2e" {
+  count = var.app_iap_enabled ? 1 : 0
+
+  account_id   = "agentic-kg-e2e-${var.env}"
+  display_name = "Agentic KG post-deploy UI tests (${var.env})"
+  description  = "T54: service identity for the automated post-deploy browser suite; IAP access only."
+
+  depends_on = [google_project_iam_member.deploy_service_account_admin]
+}
+
+resource "google_iap_web_cloud_run_service_iam_member" "iap_web_e2e" {
+  provider = google-beta
+  count    = var.app_iap_enabled ? 1 : 0
+
+  project                = var.project_id
+  location               = var.region
+  cloud_run_service_name = google_cloud_run_v2_service.ui.name
+  role                   = "roles/iap.httpsResourceAccessor"
+  member                 = "serviceAccount:${one(google_service_account.e2e[*].email)}"
+
+  depends_on = [
+    google_project_service.apis,
+    google_project_service_identity.iap,
+  ]
+}
+
+# The workflow authenticates as the deploy identity, then calls the IAM
+# Credentials API to sign a JWT as the e2e account. `serviceAccountTokenCreator`
+# is the documented role for `signJwt`; scoped to this one account, never the
+# project.
+resource "google_service_account_iam_member" "deployer_acts_as_e2e" {
+  count = (
+    var.app_iap_enabled && var.deploy_service_account_email != "" ? 1 : 0
+  )
+
+  service_account_id = one(google_service_account.e2e[*].name)
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${var.deploy_service_account_email}"
+}
+
 # =============================================================================
 # Cloud Run — UI service (Next.js)
 # =============================================================================

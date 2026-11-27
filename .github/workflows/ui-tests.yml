@@ -1,0 +1,135 @@
+# On-demand run of the post-deploy UI suite (T54).
+#
+# The automatic path is the `post-deploy-ui-tests` job in deploy-master.yml.
+# This workflow exists so an owner can re-run the same suite without waiting
+# for a deploy, e.g. after applying the Terraform that creates the dedicated
+# test identity, or when investigating a staging UI problem.
+#
+# Auth is keyless and identical to the deploy job: Workload Identity Federation
+# login as the deploy identity, then a short-lived service-account JWT for
+# `agentic-kg-e2e-staging`, accepted by IAP because Terraform grants that
+# account roles/iap.httpsResourceAccessor on the UI service.
+name: UI Tests (post-deploy, IAP)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# The suite starts a workflow and runs one extraction, so two runs must not
+# overlap on shared staging.
+concurrency:
+  group: ui-tests-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ui-tests:
+    name: Post-deploy UI tests (IAP)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      REGION: us-central1
+      UI_SERVICE: agentic-kg-ui-staging
+      E2E_SERVICE_ACCOUNT: agentic-kg-e2e-staging@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Check the dedicated test identity and resolve the UI URL
+        id: probe
+        run: |
+          set -euo pipefail
+          if ! gcloud iam service-accounts describe "$E2E_SERVICE_ACCOUNT" >/dev/null 2>&1; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Post-deploy UI tests skipped::The dedicated test identity $E2E_SERVICE_ACCOUNT does not exist yet. Apply the Terraform from the PR that adds it (one apply)."
+            {
+              echo "## Post-deploy UI tests: skipped"
+              echo ""
+              echo "The dedicated test identity \`$E2E_SERVICE_ACCOUNT\` does not exist yet."
+              echo "Apply the Terraform from the PR that adds it once, then re-run this workflow."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          UI_URL="$(gcloud run services describe "$UI_SERVICE" \
+            --region="$REGION" --format='value(status.url)')"
+          if [ -z "$UI_URL" ]; then
+            echo "::error::could not resolve the staging UI URL"
+            exit 1
+          fi
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+          echo "ui_url=$UI_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node
+        if: steps.probe.outputs.exists == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright and browsers
+        if: steps.probe.outputs.exists == 'true'
+        working-directory: e2e/ui
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      # Mint after the slow install so the token's lifetime is spent on the
+      # suite, not on downloading a browser. The signed JWT is written to the
+      # runner temp directory and never echoed, stored in an output, or logged.
+      - name: Mint the IAP service-account JWT
+        if: steps.probe.outputs.exists == 'true'
+        env:
+          UI_URL: ${{ steps.probe.outputs.ui_url }}
+        run: |
+          set -euo pipefail
+          NOW="$(date +%s)"
+          CLAIM="$RUNNER_TEMP/e2e-iap-claim.json"
+          cat > "$CLAIM" <<EOF
+          {
+            "iss": "$E2E_SERVICE_ACCOUNT",
+            "sub": "$E2E_SERVICE_ACCOUNT",
+            "aud": "${UI_URL}/*",
+            "iat": ${NOW},
+            "exp": $((NOW + 2700))
+          }
+          EOF
+          gcloud iam service-accounts sign-jwt \
+            --iam-account="$E2E_SERVICE_ACCOUNT" \
+            "$CLAIM" "$RUNNER_TEMP/e2e-iap.jwt"
+          rm -f "$CLAIM"
+
+      - name: Run the post-deploy UI suite
+        if: steps.probe.outputs.exists == 'true'
+        working-directory: e2e/ui
+        env:
+          E2E_UI_URL: ${{ steps.probe.outputs.ui_url }}
+        run: |
+          : "${E2E_UI_URL:?E2E_UI_URL was not resolved}"
+          E2E_IAP_JWT="$(cat "$RUNNER_TEMP/e2e-iap.jwt")"
+          export E2E_IAP_JWT
+          npm test
+
+      - name: Upload Playwright report and traces
+        if: always() && steps.probe.outputs.exists == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-tests-playwright-report
+          path: |
+            e2e/ui/playwright-report
+            e2e/ui/test-results
+          retention-days: 14
+          if-no-files-found: warn
