@@ -20,6 +20,7 @@ from agentic_kg.agents.matching.state import (
     add_matching_error,
     add_matching_message,
 )
+from agentic_kg.llm_config import default_chat_model
 
 if TYPE_CHECKING:
     from agentic_kg.extraction.llm_client import BaseLLMClient
@@ -125,7 +126,7 @@ class EvaluatorAgent:
     def __init__(
         self,
         llm_client: BaseLLMClient,
-        model: str = "gpt-4o",
+        model: str | None = None,
         temperature: float = 0.2,
         max_tokens: int = 1024,
         timeout: float = 10.0,
@@ -135,13 +136,13 @@ class EvaluatorAgent:
 
         Args:
             llm_client: LLM client for making API calls.
-            model: LLM model to use (gpt-4o recommended for speed).
+            model: LLM model to use (default: LLM_MODEL).
             temperature: Lower temperature for more deterministic decisions.
             max_tokens: Token limit for response (~500 needed for structured output).
             timeout: Timeout in seconds (target: <5s response).
         """
         self.llm = llm_client
-        self.model = model
+        self.model = model or default_chat_model()
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.timeout = timeout
@@ -311,14 +312,14 @@ class EvaluatorAgent:
 
 def create_evaluator_agent(
     llm_client: BaseLLMClient,
-    model: str = "gpt-4o",
+    model: str | None = None,
 ) -> EvaluatorAgent:
     """
     Create an EvaluatorAgent with default configuration.
 
     Args:
         llm_client: LLM client to use.
-        model: LLM model (default: gpt-4o for speed).
+        model: LLM model (default: LLM_MODEL).
 
     Returns:
         Configured EvaluatorAgent instance.

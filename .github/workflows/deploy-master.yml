@@ -229,6 +229,50 @@ jobs:
             echo "agentic-kg-adviser-staging not present (Terraform nightly_curate_enabled not applied); skipping"
           fi
 
+      # Prove the configured models still answer before calling the deploy
+      # good. A retired model now fails here with the provider's message
+      # instead of surfacing as a 404 to a user (T57).
+      - name: Deploy LLM model-check Job to staging
+        if: needs.changes.outputs.job == 'true'
+        run: |
+          if gcloud run jobs describe agentic-kg-llm-check-staging \
+              --region=${{ env.REGION }} >/dev/null 2>&1; then
+            gcloud run jobs update agentic-kg-llm-check-staging \
+              --image=${{ needs.build.outputs.job_image }} \
+              --region=${{ env.REGION }} \
+              --update-labels=environment=staging,commit=${{ github.sha }}
+          else
+            echo "agentic-kg-llm-check-staging not present (Terraform not yet applied); skipping"
+          fi
+
+      - name: Check configured LLM models answer
+        if: needs.changes.outputs.api == 'true' || needs.changes.outputs.job == 'true'
+        run: |
+          set -euo pipefail
+          JOB="agentic-kg-llm-check-staging"
+          if ! gcloud run jobs describe "$JOB" --region=${{ env.REGION }} >/dev/null 2>&1; then
+            echo "::warning::$JOB not present; LLM model check skipped until Terraform creates it"
+            exit 0
+          fi
+          # A failed task makes `execute --wait` exit non-zero. The explicit
+          # status read afterwards is the fallback for gcloud versions that
+          # only report the execution, never the task outcome.
+          EXEC_RC=0
+          if ! gcloud run jobs execute "$JOB" --region=${{ env.REGION }} --wait; then
+            EXEC_RC=1
+            echo "::error::LLM model check failed; see the execution logs (keys are never printed)"
+          fi
+          EXECUTION="$(gcloud run jobs executions list --job "$JOB" \
+            --region=${{ env.REGION }} --limit=1 --format='value(name)')"
+          gcloud run jobs executions describe "$EXECUTION" \
+            --region=${{ env.REGION }} --format=json || true
+          FAILED="$(gcloud run jobs executions describe "$EXECUTION" \
+            --region=${{ env.REGION }} --format='value(status.failedCount)')"
+          if [ "${EXEC_RC}" != "0" ] || [ "${FAILED:-0}" != "0" ]; then
+            echo "::error::LLM model check execution ${EXECUTION} failed (failedCount=${FAILED:-unknown})"
+            exit 1
+          fi
+
       # Assert Cloud Run actually reports the SHA we just deployed. Logic lives
       # in a unit-tested script (label-only in PR-1; PR-3 adds --check-version).
       - name: Assert deployed SHA matches

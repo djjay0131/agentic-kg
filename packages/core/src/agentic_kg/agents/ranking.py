@@ -19,7 +19,7 @@ from agentic_kg.agents.graph_port import (
 from agentic_kg.agents.prompts import RANKING_SYSTEM_PROMPT, RANKING_USER_PROMPT
 from agentic_kg.agents.provenance import build_provenance, record_agent_output
 from agentic_kg.agents.schemas import RankedProblem, RankingResult, WorkflowStatus
-from agentic_kg.agents.state import ResearchState, add_message
+from agentic_kg.agents.state import ResearchState, add_error, add_message
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ class RankingAgent(BaseAgent):
         except Exception as e:
             logger.error(f"Ranking failed: {e}")
             state = add_message(state, self.name, f"Error: {e}")
-            return {**state, "errors": state.get("errors", []) + [str(e)]}
+            return add_error(state, str(e))
 
     def _attach_graph_features(
         self,

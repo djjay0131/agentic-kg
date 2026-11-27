@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from agentic_kg.extraction.llm_client import LLMError, LLMResponse, TokenUsage
+from agentic_kg.llm_config import DEFAULT_OPENAI_MODEL
 from agentic_kg.extraction.problem_extractor import (
     ExtractionConfig,
     ProblemExtractor,
@@ -23,7 +24,7 @@ class TestExtractionConfig:
         """Test default configuration values."""
         config = ExtractionConfig()
 
-        assert config.model == "gpt-4-turbo"
+        assert config.model == DEFAULT_OPENAI_MODEL
         assert config.temperature == 0.1
         assert config.min_confidence == 0.5
         assert config.max_problems_per_section == 10

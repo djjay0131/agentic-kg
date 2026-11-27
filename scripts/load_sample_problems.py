@@ -204,7 +204,7 @@ def create_sample_problems() -> list[Problem]:
                 "RNNs or convolution.",
             ),
             extraction_metadata=ExtractionMetadata(
-                extraction_model="gpt-4",
+                extraction_model="sample-seed",
                 confidence_score=0.92,
                 human_reviewed=True,
                 reviewed_by="researcher@example.com",
@@ -267,7 +267,7 @@ def create_sample_problems() -> list[Problem]:
                 "(800M words) and English Wikipedia (2,500M words).",
             ),
             extraction_metadata=ExtractionMetadata(
-                extraction_model="gpt-4",
+                extraction_model="sample-seed",
                 confidence_score=0.88,
                 human_reviewed=False,
             ),
@@ -322,7 +322,7 @@ def create_sample_problems() -> list[Problem]:
                 "the zero-shot and one-shot settings.",
             ),
             extraction_metadata=ExtractionMetadata(
-                extraction_model="claude-3",
+                extraction_model="sample-seed",
                 confidence_score=0.85,
                 human_reviewed=True,
                 reviewed_by="ml_researcher@example.com",
@@ -383,7 +383,7 @@ def create_sample_problems() -> list[Problem]:
                 "a degradation problem has been exposed.",
             ),
             extraction_metadata=ExtractionMetadata(
-                extraction_model="gpt-4",
+                extraction_model="sample-seed",
                 confidence_score=0.95,
                 human_reviewed=True,
                 reviewed_by="cv_expert@example.com",
@@ -445,7 +445,7 @@ def create_sample_problems() -> list[Problem]:
                 "without strong regularization, these models yield modest accuracies.",
             ),
             extraction_metadata=ExtractionMetadata(
-                extraction_model="claude-3",
+                extraction_model="sample-seed",
                 confidence_score=0.9,
                 human_reviewed=False,
             ),
@@ -513,7 +513,7 @@ def create_sample_problems() -> list[Problem]:
                 "truthfulness and reductions in toxic output generation.",
             ),
             extraction_metadata=ExtractionMetadata(
-                extraction_model="gpt-4",
+                extraction_model="sample-seed",
                 confidence_score=0.87,
                 human_reviewed=True,
                 reviewed_by="safety_researcher@example.com",

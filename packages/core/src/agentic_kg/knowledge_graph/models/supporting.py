@@ -83,7 +83,7 @@ class ExtractionMetadata(BaseModel):
 
     extracted_at: datetime = Field(default_factory=_utc_now)
     extractor_version: str = Field(default="1.0.0")
-    extraction_model: str = Field(..., description="Model used (e.g., 'gpt-4', 'claude-3')")
+    extraction_model: str = Field(..., description="Model used (the configured LLM_MODEL)")
     confidence_score: float = Field(ge=0, le=1, description="Extraction confidence")
     human_reviewed: bool = Field(default=False)
     reviewed_by: Optional[str] = Field(default=None)

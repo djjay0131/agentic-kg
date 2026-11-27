@@ -26,6 +26,7 @@ from agentic_kg.extraction.llm_client import (
     get_tpm_limiter,
     reset_llm_clients,
 )
+from agentic_kg.llm_config import DEFAULT_ANTHROPIC_MODEL, DEFAULT_OPENAI_MODEL
 from pydantic import BaseModel
 from tenacity import RetryError
 
@@ -101,7 +102,7 @@ class TestLLMConfig:
         config = LLMConfig()
 
         assert config.provider == LLMProvider.OPENAI
-        assert config.model == "gpt-4-turbo"
+        assert config.model == DEFAULT_OPENAI_MODEL
         assert config.temperature == 0.1
         assert config.max_tokens == 4096
         assert config.max_retries == 3
@@ -131,6 +132,7 @@ class TestLLMConfig:
         with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "anthropic-key"}):
             config = LLMConfig(provider=LLMProvider.ANTHROPIC)
             assert config.api_key == "anthropic-key"
+            assert config.model == DEFAULT_ANTHROPIC_MODEL
 
 
 class TestLLMExceptions:
@@ -229,6 +231,13 @@ class TestOpenAIClient:
         assert result.content.title == "Test Title"
         assert result.usage.total_tokens == 80
         assert result.finish_reason == "stop"
+        # Current OpenAI models reject the legacy `max_tokens` parameter; the
+        # completion budget must go through `max_completion_tokens`.
+        kwargs = (
+            mock_instructor.chat.completions.create_with_completion.call_args.kwargs
+        )
+        assert kwargs["max_completion_tokens"] == client.config.max_tokens
+        assert "max_tokens" not in kwargs
 
     @pytest.mark.asyncio
     async def test_extract_rate_limit_error(self, client):
@@ -593,7 +602,7 @@ class TestRateLimitWait:
 
 
 class TestGetOpenAIClientModel:
-    """AC-4: extraction model is env-first, default gpt-4-turbo."""
+    """AC-4: extraction model is env-first, with a current default."""
 
     def setup_method(self):
         reset_llm_clients()
@@ -602,25 +611,28 @@ class TestGetOpenAIClientModel:
         reset_llm_clients()
 
     def test_default_model_when_env_and_arg_unset(self, monkeypatch):
+        monkeypatch.delenv("LLM_MODEL", raising=False)
         monkeypatch.delenv("OPENAI_EXTRACTION_MODEL", raising=False)
         client = get_openai_client()
-        assert client.config.model == "gpt-4-turbo"
+        assert client.config.model == DEFAULT_OPENAI_MODEL
 
-    def test_env_overrides_default(self, monkeypatch):
-        monkeypatch.setenv("OPENAI_EXTRACTION_MODEL", "gpt-4o")
+    def test_legacy_env_overrides_default(self, monkeypatch):
+        monkeypatch.delenv("LLM_MODEL", raising=False)
+        monkeypatch.setenv("OPENAI_EXTRACTION_MODEL", "gpt-6-luna")
         client = get_openai_client()
-        assert client.config.model == "gpt-4o"
+        assert client.config.model == "gpt-6-luna"
 
     def test_env_wins_over_explicit_arg(self, monkeypatch):
         """The env lever must reach even callers that pass an explicit model."""
-        monkeypatch.setenv("OPENAI_EXTRACTION_MODEL", "gpt-4o")
-        client = get_openai_client(model="gpt-4-turbo")
-        assert client.config.model == "gpt-4o"
+        monkeypatch.setenv("LLM_MODEL", "gpt-6-luna")
+        client = get_openai_client(model="gpt-6.2-sol")
+        assert client.config.model == "gpt-6-luna"
 
     def test_arg_used_when_env_unset(self, monkeypatch):
+        monkeypatch.delenv("LLM_MODEL", raising=False)
         monkeypatch.delenv("OPENAI_EXTRACTION_MODEL", raising=False)
-        client = get_openai_client(model="gpt-4o-mini")
-        assert client.config.model == "gpt-4o-mini"
+        client = get_openai_client(model="gpt-6-luna")
+        assert client.config.model == "gpt-6-luna"
 
 
 def _mock_instructor_ok():
@@ -743,7 +755,7 @@ class TestExtractThrottle:
                     await client.extract(prompt="p", response_model=SampleExtraction)
 
         assert any(
-            "TPM throttle: ~" in r.message and "OPENAI_EXTRACTION_MODEL" in r.message
+            "TPM throttle: ~" in r.message and "LLM_MODEL" in r.message
             for r in caplog.records
         )
 

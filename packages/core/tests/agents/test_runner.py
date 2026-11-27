@@ -51,3 +51,89 @@ class TestUnknownWorkflow:
     async def test_cancel_workflow_unknown_raises_keyerror(self):
         with pytest.raises(KeyError):
             await _runner_with_tracked().cancel_workflow("nope")
+
+
+class _Snapshot:
+    def __init__(self, values: dict, next_nodes: tuple = ()):  # noqa: A002
+        self.values = values
+        self.next = next_nodes
+
+
+class _FakeGraph:
+    """A graph whose node raises, plus a state store for the failure write."""
+
+    def __init__(self, *, raise_on_invoke: bool = False, states: dict | None = None):
+        self._raise = raise_on_invoke
+        self.states = states or {}
+        self.writes: list[dict] = []
+
+    async def ainvoke(self, *_args, **_kwargs):
+        if self._raise:
+            raise RuntimeError("ranking exploded")
+        return None
+
+    async def aget_state(self, config):
+        return self.states.get(config["configurable"]["thread_id"], _Snapshot({}))
+
+    async def aupdate_state(self, config, values):
+        thread = config["configurable"]["thread_id"]
+        self.writes.append(values)
+        self.states[thread] = _Snapshot(dict(values), ())
+
+
+class _ListingCheckpointer:
+    def __init__(self, *thread_ids: str):
+        self._thread_ids = list(thread_ids)
+
+    def list_thread_ids(self):
+        return list(self._thread_ids)
+
+
+def _bare_runner(graph, checkpointer=None) -> WorkflowRunner:
+    runner = WorkflowRunner.__new__(WorkflowRunner)
+    runner._graph = graph
+    runner._checkpointer = checkpointer or _ListingCheckpointer()
+    runner._workflows = {}
+    return runner
+
+
+async def test_start_workflow_records_a_raising_node_as_failed_not_running():
+    graph = _FakeGraph(raise_on_invoke=True)
+    runner = _bare_runner(graph)
+
+    run_id = await runner.start_workflow()
+
+    meta = runner._workflows[run_id]
+    assert meta["status"] == "failed"
+    assert meta["current_step"] == "ranking"
+    assert "ranking exploded" in meta["error"]
+    state = await runner.get_state(run_id)
+    assert state["status"] == "failed"
+    assert "ranking exploded" in state["errors"][-1]
+
+
+async def test_reconcile_marks_only_non_resumable_running_threads():
+    graph = _FakeGraph(
+        states={
+            "dead": _Snapshot(
+                {"run_id": "dead", "status": "running", "current_step": "ranking"},
+                (),
+            ),
+            "gated": _Snapshot(
+                {"run_id": "gated", "status": "running", "current_step": "ranking"},
+                ("select_problem",),
+            ),
+        }
+    )
+    runner = _bare_runner(graph, _ListingCheckpointer("dead", "gated"))
+    runner._workflows = {
+        "dead": {"run_id": "dead", "status": "running", "current_step": "ranking"},
+        "gated": {"run_id": "gated", "status": "running", "current_step": "ranking"},
+    }
+
+    stale = await runner.reconcile_stale_runs()
+
+    assert stale == ["dead"]
+    assert runner._workflows["dead"]["status"] == "failed"
+    assert "stale" in runner._workflows["dead"]["error"]
+    assert runner._workflows["gated"]["status"] == "running"

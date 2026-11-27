@@ -326,8 +326,9 @@ class LiveOpenAICompletionClient:
     The KGIS extractors ask for a JSON document and parse it themselves, so this
     adapter returns the model's raw text rather than a structured object (the
     repo's ``OpenAIClient.extract`` is instructor-based and would double-parse).
-    The model resolves through ``OPENAI_EXTRACTION_MODEL`` — the same lever the
-    rest of the repo uses — and the key through ``OPENAI_API_KEY``. Marked
+    The model resolves through ``LLM_MODEL`` (legacy
+    ``OPENAI_EXTRACTION_MODEL``) — the same lever the rest of the repo uses —
+    and the key through ``OPENAI_API_KEY``. Marked
     non-deterministic, so the run's honest nulls drop the replay warning and the
     pipeline's dry-run refuses to claim its plan is a measurement.
     """
@@ -354,10 +355,12 @@ class LiveOpenAICompletionClient:
                 "OPENAI_API_KEY is not set; the live KGIS extraction client "
                 "needs it, or inject a deterministic client for a replay run"
             )
-        # Same resolution order and fallback as `extraction.llm_client`
-        # (`OPENAI_EXTRACTION_MODEL` wins, then the passed model, then the
-        # repo's default), so one env flip reaches this adapter too.
-        model = self._model or os.getenv("OPENAI_EXTRACTION_MODEL") or "gpt-4-turbo"
+        # Resolve through the same surface as `extraction.llm_client`
+        # (`LLM_MODEL`/legacy env first, then the passed model, then the
+        # current default), so one env flip reaches this adapter too.
+        from agentic_kg.llm_config import resolve_llm_model
+
+        model = resolve_llm_model("openai", explicit=self._model)
         client = AsyncOpenAI(api_key=key)
         # The OpenAI SDK's message param type is a union of TypedDicts; this
         # adapter is a staging-only path and the SDK is imported lazily, so the

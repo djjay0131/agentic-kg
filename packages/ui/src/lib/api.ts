@@ -296,6 +296,7 @@ export interface WorkflowStatus {
   updated_at: string;
   total_steps: number;
   completed_steps: number;
+  error?: string;
 }
 
 export interface WorkflowState {

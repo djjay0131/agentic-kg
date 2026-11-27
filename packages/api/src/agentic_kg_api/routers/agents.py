@@ -80,6 +80,7 @@ class WorkflowStatusResponse(BaseModel):
     updated_at: str
     total_steps: int = 7
     completed_steps: int = 0
+    error: str = ""
 
 
 class WorkflowStateResponse(BaseModel):
@@ -111,9 +112,10 @@ async def start_workflow(request: StartWorkflowRequest) -> StartWorkflowResponse
             max_problems=request.max_problems,
             min_confidence=request.min_confidence,
         )
+        summary = await runner.get_status(run_id)
         return StartWorkflowResponse(
             run_id=run_id,
-            status="running",
+            status=summary.status.value,
             websocket_url=f"/ws/workflows/{run_id}",
         )
     except Exception as e:
@@ -133,6 +135,7 @@ async def list_workflows() -> list[WorkflowStatusResponse]:
             current_step=w.get("current_step", ""),
             created_at=w.get("created_at", ""),
             updated_at=w.get("updated_at", ""),
+            error=w.get("error", ""),
         )
         for w in workflows
     ]
@@ -155,9 +158,15 @@ async def get_workflow(run_id: str) -> WorkflowStateResponse:
         logger.error(f"Failed to read workflow {run_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+    errors = list(state.get("errors", []))
+    # A failure recorded before the first checkpoint lives only in the
+    # runner's metadata; surface it here so the detail page shows the reason.
+    last_error = runner.get_last_error(run_id)
+    if last_error and last_error not in errors:
+        errors.append(last_error)
     return WorkflowStateResponse(
         run_id=state.get("run_id", run_id),
-        status=state.get("status", "unknown"),
+        status=state.get("status") or "unknown",
         current_step=state.get("current_step", ""),
         ranked_problems=state.get("ranked_problems", []),
         selected_problem_id=state.get("selected_problem_id"),
@@ -165,7 +174,7 @@ async def get_workflow(run_id: str) -> WorkflowStateResponse:
         evaluation_result=state.get("evaluation_result"),
         synthesis_report=state.get("synthesis_report"),
         messages=state.get("messages", []),
-        errors=state.get("errors", []),
+        errors=errors,
     )
 
 

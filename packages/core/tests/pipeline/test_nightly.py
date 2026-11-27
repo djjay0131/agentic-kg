@@ -150,6 +150,58 @@ def test_planner_exception_yields_failed_report(tmp_path):
     assert result.report.failures[0].step == "plan"
 
 
+def test_llm_preflight_failure_fails_before_ingest(tmp_path):
+    catalog = _catalog(("a", 3))
+    ran: list[str] = []
+
+    def broken_check():
+        raise RuntimeError("model retired")
+
+    def runner(query, limit, *, run_id, namespace):
+        ran.append(query)
+        return QueryOutcome()
+
+    result = run_nightly(
+        now=NOW,
+        catalog=catalog,
+        runner=runner,
+        runs_dir=tmp_path,
+        write_neo4j=False,
+        llm_check=broken_check,
+    )
+
+    assert result.exit_code == 2
+    assert result.report.status == "failed"
+    assert result.report.failures[0].step == "llm_check"
+    assert "model retired" in result.report.failures[0].message
+    assert result.report.queries[0].status == "skipped"
+    assert ran == []
+
+
+def test_llm_preflight_runs_before_ingest(tmp_path):
+    catalog = _catalog(("a", 3))
+    order: list[str] = []
+
+    def check():
+        order.append("check")
+
+    def runner(query, limit, *, run_id, namespace):
+        order.append("ingest")
+        return QueryOutcome(papers_seen=1)
+
+    result = run_nightly(
+        now=NOW,
+        catalog=catalog,
+        runner=runner,
+        runs_dir=tmp_path,
+        write_neo4j=False,
+        llm_check=check,
+    )
+
+    assert result.exit_code == 0
+    assert order == ["check", "ingest"]
+
+
 def test_budget_stops_the_run(tmp_path):
     catalog = _catalog(("a", 8), ("b", 8), ("c", 8))
     outcomes = {

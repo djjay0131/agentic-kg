@@ -62,6 +62,9 @@ class CheckpointStore(Protocol):
     def delete_thread(self, thread_id: str) -> None:
         """Remove every checkpoint for ``thread_id``."""
 
+    def list_thread_ids(self) -> list[str]:
+        """Return every thread id with a stored checkpoint."""
+
 
 class InMemoryCheckpointStore:
     """Process-local store. The same instance can outlive a saver (tests)."""
@@ -78,6 +81,9 @@ class InMemoryCheckpointStore:
 
     def delete_thread(self, thread_id: str) -> None:
         self._payloads.pop(thread_id, None)
+
+    def list_thread_ids(self) -> list[str]:
+        return list(self._payloads)
 
 
 class Neo4jCheckpointStore:
@@ -137,6 +143,18 @@ class Neo4jCheckpointStore:
 
         with self._repo.session() as session:
             session.execute_write(_delete)
+
+    def list_thread_ids(self) -> list[str]:
+        def _list(tx: Any) -> list[str]:
+            records = tx.run(
+                f"MATCH (c:{LABEL_AGENT_CHECKPOINT} {{ns: $ns}}) "
+                "RETURN c.thread_id AS thread_id",
+                ns=self.namespace,
+            )
+            return [str(record["thread_id"]) for record in records]
+
+        with self._repo.session() as session:
+            return session.execute_read(_list)
 
 
 class DurableCheckpointSaver(InMemorySaver):
@@ -231,6 +249,13 @@ class DurableCheckpointSaver(InMemorySaver):
         """Whether the store has any checkpoint for ``thread_id``."""
         self._ensure_loaded(thread_id)
         return bool(self.storage.get(thread_id))
+
+    def list_thread_ids(self) -> list[str]:
+        """Every thread id the durable store knows about."""
+        lister = getattr(self._store, "list_thread_ids", None)
+        if lister is None:
+            return list(self.storage)
+        return lister()
 
     # -- BaseCheckpointSaver overrides -------------------------------------
 

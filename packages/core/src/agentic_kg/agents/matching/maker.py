@@ -19,6 +19,7 @@ from agentic_kg.agents.matching.state import (
     add_matching_error,
     add_matching_message,
 )
+from agentic_kg.llm_config import default_chat_model
 
 if TYPE_CHECKING:
     from agentic_kg.extraction.llm_client import BaseLLMClient
@@ -117,7 +118,7 @@ class MakerAgent:
     def __init__(
         self,
         llm_client: BaseLLMClient,
-        model: str = "gpt-4o",
+        model: str | None = None,
         temperature: float = 0.3,
         max_tokens: int = 1500,
         timeout: float = 15.0,
@@ -133,7 +134,7 @@ class MakerAgent:
             timeout: Timeout in seconds.
         """
         self.llm = llm_client
-        self.model = model
+        self.model = model or default_chat_model()
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.timeout = timeout
@@ -288,14 +289,14 @@ class MakerAgent:
 
 def create_maker_agent(
     llm_client: BaseLLMClient,
-    model: str = "gpt-4o",
+    model: str | None = None,
 ) -> MakerAgent:
     """
     Create a MakerAgent with default configuration.
 
     Args:
         llm_client: LLM client to use.
-        model: LLM model (default: gpt-4o).
+        model: LLM model (default: LLM_MODEL).
 
     Returns:
         Configured MakerAgent instance.

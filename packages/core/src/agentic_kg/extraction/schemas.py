@@ -24,6 +24,7 @@ from agentic_kg.knowledge_graph.models import (
     Problem,
     ProblemStatus,
 )
+from agentic_kg.llm_config import default_chat_model
 
 
 def _utc_now() -> datetime:
@@ -193,7 +194,7 @@ def extracted_to_kg_problem(
     paper_doi: Optional[str],
     paper_title: Optional[str],
     section: str,
-    extraction_model: str = "gpt-4-turbo",
+    extraction_model: Optional[str] = None,
     extractor_version: str = "1.0.0",
 ) -> Problem:
     """
@@ -210,6 +211,9 @@ def extracted_to_kg_problem(
     Returns:
         Problem entity ready for storage in the Knowledge Graph.
     """
+    if extraction_model is None:
+        extraction_model = default_chat_model()
+
     # Convert assumptions
     assumptions = [
         Assumption(
