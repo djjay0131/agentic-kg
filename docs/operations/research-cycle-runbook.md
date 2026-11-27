@@ -59,6 +59,33 @@ lists cycles. The decision is recorded on the cycle before the workflow is
 resumed, so a failed resume leaves an audit record. Approve/edit resumes the
 workflow; reject closes it without a canonical write.
 
+Each pending gate also carries the agent's own recommendation, produced before
+the human decides (`select_problem`: top problem and score margin;
+`approve_proposal`: approve/reject, rationale, confidence; `review_evaluation`:
+write/do-not-write, rationale, confidence and whether provenance abstained).
+The decision records that recommendation beside the human decision, `agreed`,
+and the human's free-text reason when they differ (ADR-0013).
+
+## Agreement and autonomy status
+
+```bash
+# Per gate: decisions, agreed, rate, Wilson 95% lower bound, criteria, status.
+agentic-kg autonomy status
+agentic-kg autonomy status --gate approve_proposal --since 2026-11-01 --json
+```
+
+The same evidence is `GET /api/research/agreement?gate=&since=` and the
+**Gate agreement** panel on the Research Loop page. `decisions` counts only
+gates with both a recommendation and a human decision; automatic decisions are
+excluded. `promotion_met` means the recorded evidence clears the gate's
+`promotion` criteria in `config/research-autonomy.yaml`. The system only
+reports this: promotion is a human edit of that versioned file in a PR.
+
+A non-`human` mode is refused at runtime and falls back to a human while its
+criteria are absent or unmet. For `review_evaluation`, an auto decision also
+requires a non-abstaining provenance envelope. The shipped policy keeps every
+gate `human`.
+
 ## Budgets and the kill switch
 
 | Env | Terraform | Meaning |

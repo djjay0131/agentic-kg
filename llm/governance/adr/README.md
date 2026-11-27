@@ -33,3 +33,4 @@ individually numbered here.
 | [0010](0010-research-agents-canonical-graph.md) | Research agents over the canonical graph | Proposed |
 | [0011](0011-autonomy-policy-research-loop.md) | Autonomy policy for the research loop | Proposed |
 | [0012](0012-staging-google-sign-in-iap.md) | Staging sign-in is Google IAP; human decisions carry a verified email | Proposed |
+| [0013](0013-gate-agreement-evidence.md) | Gate agreement evidence and evidence-based autonomy criteria | Proposed |

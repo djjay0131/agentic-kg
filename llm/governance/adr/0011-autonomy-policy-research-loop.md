@@ -155,6 +155,7 @@ Any future ADR that flips a gate must present, for that gate:
 - `packages/core/src/agentic_kg/pipeline/cycle.py`
 - `llm/features/research-progression-loop.md`
 - `docs/operations/research-cycle-runbook.md`
+- ADR-0013 (gate agreement evidence and evidence-based promotion criteria)
 - ADR-0008 (nightly ingestion; the cycle runs after curate)
 - ADR-0004 / ADR-0005 (the app-namespace node convention)
 

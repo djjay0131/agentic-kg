@@ -7,6 +7,34 @@ Last updated: 2026-11-12
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
 
+## Gate agreement evidence (2026-11-27, T55)
+
+`feat/gate-agreement-evidence` supplies the evidence ADR-0011 left open and
+records it in ADR-0013:
+
+- **Before the decision.** Each pending gate stores an `AgentRecommendation` on
+  its `:Canon__ResearchCycle` workflow entry: `select_problem` = top problem id +
+  score margin; `approve_proposal` = approve/reject + rationale + confidence;
+  `review_evaluation` = write/do-not-write + rationale + confidence + whether
+  provenance abstained. The `GateDecision` records cycle/workflow id, policy
+  version, recommendation, human decision, `decided_by`, `agreed` and the
+  human's free-text reason on disagreement.
+- **Statistic.** `GET /api/research/agreement?gate=&since=` and the Research
+  Loop **Gate agreement** panel report per-gate comparable decisions (both a
+  recommendation and a human decision; auto decisions excluded), agreed, rate,
+  Wilson 95% lower bound and the last N disagreements. `agentic-kg autonomy
+  status` is the read-only CLI view.
+- **Promotion.** The policy schema gains per-gate
+  `promotion.{min_decisions,min_agreement_lower_bound}` and
+  `mode: auto_when_confident`. The system only reports `promotion_met`;
+  promotion is a human PR to the versioned file. At runtime a non-human gate is
+  refused while criteria are absent/unmet, and `review_evaluation` auto also
+  needs a non-abstaining provenance envelope. The shipped file keeps every gate
+  `human` and the pin test now also asserts promotion criteria exist.
+- **Tests/docs.** `tests/agents/test_gate_agreement.py`,
+  `test_autonomy_cli.py`, extended cycle/API tests; runbook and feature AC-10/11;
+  ADR-0013.
+
 ## Staging UI blockers fix (2026-11-12, T51)
 
 `fix/staging-ui-blockers` fixes the four backend blockers from the 2026-11-11
