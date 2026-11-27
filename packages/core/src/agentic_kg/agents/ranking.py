@@ -16,10 +16,19 @@ from agentic_kg.agents.graph_port import (
     blend_canonical_score,
     format_problems,
 )
-from agentic_kg.agents.prompts import RANKING_SYSTEM_PROMPT, RANKING_USER_PROMPT
+from agentic_kg.agents.prompts import (
+    RANKING_BATCH_SYSTEM_PROMPT,
+    RANKING_BATCH_USER_PROMPT,
+)
 from agentic_kg.agents.provenance import build_provenance, record_agent_output
-from agentic_kg.agents.schemas import RankedProblem, RankingResult, WorkflowStatus
+from agentic_kg.agents.schemas import (
+    RankedProblem,
+    RankingBatchResult,
+    RankingResult,
+    WorkflowStatus,
+)
 from agentic_kg.agents.state import ResearchState, add_error, add_message
+from agentic_kg.llm_config import resolve_ranking_batch_size
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +70,11 @@ class RankingAgent(BaseAgent):
 
             state = add_message(state, self.name, f"Found {len(candidates)} candidate problems")
 
-            problems_text = format_problems(candidates)
-
-            # Ask LLM to rank
-            result = await self._rank_with_llm(
-                problems_text, len(candidates), state.get("topic_filter")
+            # Ask LLM to rank in bounded batches. The output size is a function
+            # of the batch, never of the candidate list, so a long list cannot
+            # exhaust the completion budget.
+            result, state = await self._rank_with_llm(
+                candidates, state.get("topic_filter"), state
             )
 
             ranked = self._attach_graph_features(
@@ -79,7 +88,7 @@ class RankingAgent(BaseAgent):
             return {
                 **state,
                 "ranked_problems": [rp.model_dump(mode="json") for rp in ranked],
-                "total_candidates": result.total_candidates or len(candidates),
+                "total_candidates": len(candidates),
             }
 
         except Exception as e:
@@ -162,18 +171,106 @@ class RankingAgent(BaseAgent):
         return "\n\n".join(lines)
 
     async def _rank_with_llm(
-        self, problems_text: str, count: int, topic: str | None
-    ) -> RankingResult:
-        """Use LLM to score and rank problems."""
-        user_prompt = RANKING_USER_PROMPT.format(
-            count=count,
-            topic=topic or "all topics",
-            problems_text=problems_text,
-        )
+        self,
+        candidates: list[GraphProblem],
+        topic: str | None,
+        state: ResearchState,
+        *,
+        batch_size: int | None = None,
+    ) -> tuple[RankingResult, ResearchState]:
+        """Score candidates in bounded batches and merge the results.
 
-        response = await self.llm.structured_extract(
-            response_model=RankingResult,
-            system_prompt=RANKING_SYSTEM_PROMPT,
-            user_prompt=user_prompt,
+        A single call over a growing candidate list is what truncated staging:
+        the visible output plus reasoning tokens outgrew the completion budget.
+        Each batch asks only for ``(id, score, short rationale)`` and the caller
+        expands it against the candidate it already holds, so the response is
+        bounded by ``batch_size``.
+        """
+        size = (
+            batch_size
+            if batch_size is not None
+            else resolve_ranking_batch_size()
         )
-        return response.content
+        by_id = {c.problem_id: c for c in candidates}
+        merged: dict[str, RankedProblem] = {}
+        unscored: list[str] = []
+
+        for offset in range(0, len(candidates), size):
+            batch = candidates[offset : offset + size]
+            batch_number = offset // size + 1
+            call_site = f"ranking.batch[{batch_number}]"
+            problems_text = format_problems(batch)
+            user_prompt = RANKING_BATCH_USER_PROMPT.format(
+                count=len(batch),
+                topic=topic or "all topics",
+                problems_text=problems_text,
+            )
+            response = await self.llm.structured_extract(
+                response_model=RankingBatchResult,
+                system_prompt=RANKING_BATCH_SYSTEM_PROMPT,
+                user_prompt=user_prompt,
+                max_tokens=self.max_tokens,
+                call_site=call_site,
+            )
+            state = self._record_llm_usage(
+                state, call_site, response, budget=self.max_tokens
+            )
+            state = add_message(
+                state,
+                self.name,
+                f"Scored batch {batch_number} ({len(batch)} candidates)",
+            )
+
+            batch_ids = {c.problem_id for c in batch}
+            returned: set[str] = set()
+            for scored in response.content.scores:
+                candidate = by_id.get(scored.problem_id)
+                if candidate is None or scored.problem_id not in batch_ids:
+                    logger.warning(
+                        "Ranking batch returned unknown problem id %r; ignoring",
+                        scored.problem_id,
+                    )
+                    continue
+                returned.add(scored.problem_id)
+                existing = merged.get(scored.problem_id)
+                if existing is not None and existing.score >= scored.score:
+                    continue
+                merged[scored.problem_id] = RankedProblem(
+                    problem_id=candidate.problem_id,
+                    statement=candidate.statement,
+                    score=scored.score,
+                    # The compact batch schema reports one overall score; the
+                    # historical per-dimension fields are informational.
+                    tractability=scored.score,
+                    data_availability=scored.score,
+                    cross_domain_impact=scored.score,
+                    rationale=scored.rationale,
+                )
+            unscored.extend(
+                c.problem_id for c in batch if c.problem_id not in returned
+            )
+
+        ranked = sorted(merged.values(), key=lambda item: item.score, reverse=True)
+        if unscored:
+            logger.warning(
+                "Ranking returned no score for %d candidate(s): %s",
+                len(unscored),
+                ", ".join(unscored[:10]),
+            )
+            state = add_message(
+                state,
+                self.name,
+                f"No score returned for {len(unscored)} candidate(s)",
+            )
+
+        batch_count = len(range(0, len(candidates), size))
+        return (
+            RankingResult(
+                ranked_problems=ranked,
+                query_summary=(
+                    f"{len(candidates)} candidates in {batch_count} batch(es)"
+                ),
+                total_candidates=len(candidates),
+            ),
+            state,
+        )

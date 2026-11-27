@@ -109,6 +109,7 @@ class TopicExtractor:
                 prompt=prompt,
                 response_model=self.envelope_model,
                 system_prompt=self._system_prompt,
+                call_site="extraction.topic",
             )
         except LLMError as e:
             logger.warning("Topic extraction failed: %s", e)

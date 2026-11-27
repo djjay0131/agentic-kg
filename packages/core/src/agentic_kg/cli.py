@@ -882,8 +882,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Make one tiny real call per configured model; exit non-zero on failure",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
-            "Reads LLM_PROVIDER, LLM_MODEL and EMBEDDING_MODEL (the same "
-            "surface the app uses), makes one structured chat call and one "
+            "Reads LLM_PROVIDER, LLM_MODEL, LLM_MAX_OUTPUT_TOKENS and "
+            "EMBEDDING_MODEL (the same surface the app uses), makes one "
+            "structured chat call, one bounded ranking-batch call and one "
             "embedding call, and exits non-zero with the provider's message. "
             "Keys are never printed."
         ),
@@ -899,7 +900,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     llm_check_cmd.add_argument(
         "--skip-embedding", action="store_true",
-        help="Only check the chat model.",
+        help="Do not check the embedding model.",
+    )
+    llm_check_cmd.add_argument(
+        "--skip-ranking", action="store_true",
+        help="Do not run the ranking-batch truncation probe.",
     )
     llm_check_cmd.add_argument(
         "--json", dest="json_output", action="store_true",
@@ -1715,6 +1720,7 @@ def run_llm_check(args) -> None:
             model=args.model,
             embedding_model=args.embedding_model,
             check_embedding=not args.skip_embedding,
+            check_ranking=not args.skip_ranking,
         )
     except LLMCheckError as exc:
         print(f"LLM check failed: {exc}", file=sys.stderr)

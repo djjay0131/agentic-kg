@@ -182,10 +182,11 @@ locals {
   # embeds text) gets these three values, so no source file carries a default
   # model id that can silently drift from production.
   llm_env = {
-    LLM_PROVIDER         = var.llm_provider
-    LLM_MODEL            = var.llm_model
-    LLM_REASONING_EFFORT = var.llm_reasoning_effort
-    EMBEDDING_MODEL      = var.embedding_model
+    LLM_PROVIDER          = var.llm_provider
+    LLM_MODEL             = var.llm_model
+    LLM_REASONING_EFFORT  = var.llm_reasoning_effort
+    LLM_MAX_OUTPUT_TOKENS = tostring(var.llm_max_output_tokens)
+    EMBEDDING_MODEL       = var.embedding_model
   }
 
   # Referenced by both services' env, so it must not depend on either resource

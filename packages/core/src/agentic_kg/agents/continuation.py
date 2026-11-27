@@ -49,7 +49,7 @@ class ContinuationAgent(BaseAgent):
             context = self.port.load_context(problem_id)
             state = add_message(state, self.name, f"Loaded context for problem {problem_id}")
 
-            proposal = await self._generate_proposal(context)
+            proposal, state = await self._generate_proposal(context, state)
             self._attach_provenance(
                 proposal,
                 context,
@@ -132,7 +132,9 @@ class ContinuationAgent(BaseAgent):
             "related_problems": list(context.related_problems),
         }
 
-    async def _generate_proposal(self, context) -> ContinuationProposal:
+    async def _generate_proposal(
+        self, context, state
+    ) -> tuple[ContinuationProposal, ResearchState]:
         """Generate a structured proposal via LLM."""
         datasets = (
             "\n".join(
@@ -166,10 +168,15 @@ class ContinuationAgent(BaseAgent):
             response_model=ContinuationProposal,
             system_prompt=CONTINUATION_SYSTEM_PROMPT,
             user_prompt=user_prompt,
+            max_tokens=self.max_tokens,
+            call_site="continuation.proposal",
+        )
+        state = self._record_llm_usage(
+            state, "continuation.proposal", response, budget=self.max_tokens
         )
 
         proposal = response.content
         # Ensure problem_id is set
         if not proposal.problem_id:
             proposal.problem_id = context.problem_id
-        return proposal
+        return proposal, state

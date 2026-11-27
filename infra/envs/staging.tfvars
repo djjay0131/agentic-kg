@@ -36,10 +36,11 @@ canonical_namespace = "staging"
 # LLM configuration surface. These are the only place a model id is chosen;
 # the API service and every LLM-calling Job read them from Terraform. See
 # packages/core/src/agentic_kg/llm_config.py and the provider docs linked there.
-llm_provider         = "openai"
-llm_model            = "gpt-6.2-sol"
-llm_reasoning_effort = "medium"
-embedding_model      = "text-embedding-3-small"
+llm_provider          = "openai"
+llm_model             = "gpt-6.2-sol"
+llm_reasoning_effort  = "medium"
+llm_max_output_tokens = 16384
+embedding_model       = "text-embedding-3-small"
 
 # ADR-0010: research agents stay on the legacy graph on staging by default.
 # Flip to "canonical" once the canonical Problem read and review queue are

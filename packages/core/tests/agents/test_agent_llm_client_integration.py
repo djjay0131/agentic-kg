@@ -12,13 +12,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from agentic_kg.agents.continuation import ContinuationAgent
+from agentic_kg.agents.graph_port import GraphProblem
 from agentic_kg.agents.ranking import RankingAgent
 from agentic_kg.agents.schemas import (
     ContinuationProposal,
     ExperimentalStep,
     RankedProblem,
+    RankedProblemScore,
+    RankingBatchResult,
     RankingResult,
 )
+from agentic_kg.agents.state import create_initial_state
 from agentic_kg.agents.synthesis import SynthesisAgent
 from agentic_kg.extraction.llm_client import (
     AnthropicClient,
@@ -131,26 +135,26 @@ async def test_real_anthropic_client_has_structured_extract():
 @pytest.mark.asyncio
 async def test_ranking_agent_uses_real_openai_client():
     llm = _openai_client()
-    result = RankingResult(
-        ranked_problems=[
-            RankedProblem(
+    result = RankingBatchResult(
+        scores=[
+            RankedProblemScore(
                 problem_id="p1",
-                statement="How can systems scale?",
                 score=0.7,
-                tractability=0.7,
-                data_availability=0.7,
-                cross_domain_impact=0.7,
                 rationale="A sufficiently long rationale.",
             )
-        ],
-        total_candidates=1,
+        ]
     )
     agent = RankingAgent(llm_client=llm, repository=MagicMock())
+    candidates = [
+        GraphProblem(problem_id="p1", statement="How can systems scale?")
+    ]
 
     with patch.object(
         llm, "_get_instructor_client", return_value=_instruction_client(result)
     ):
-        ranked = await agent._rank_with_llm("1. (ID: p1) ...", 1, None)
+        ranked, _state = await agent._rank_with_llm(
+            candidates, None, create_initial_state()
+        )
 
     assert ranked.total_candidates == 1
     assert ranked.ranked_problems[0].problem_id == "p1"
@@ -187,7 +191,9 @@ async def test_continuation_agent_uses_real_openai_client():
     with patch.object(
         llm, "_get_instructor_client", return_value=_instruction_client(proposal)
     ):
-        generated = await agent._generate_proposal(context)
+        generated, _state = await agent._generate_proposal(
+            context, create_initial_state()
+        )
 
     assert generated.problem_id == "p1"
     assert generated.title == "Scale it"
@@ -222,6 +228,8 @@ async def test_synthesis_agent_uses_real_openai_client():
     with patch.object(
         llm, "_get_instructor_client", return_value=_instruction_client(report)
     ):
-        generated = await agent._generate_report(context, proposal, evaluation)
+        generated, _state = await agent._generate_report(
+            context, proposal, evaluation, create_initial_state()
+        )
 
     assert generated.summary == report.summary

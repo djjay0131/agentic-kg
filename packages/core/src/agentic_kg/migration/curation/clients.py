@@ -217,7 +217,9 @@ class OpenAICompletionClient:
         client: Any = OpenAIClient(config)
 
         async def _extract() -> str:
-            response = await client.extract(request.prompt, _AdmissionPayload)
+            response = await client.extract(
+                request.prompt, _AdmissionPayload, call_site="adviser.admission"
+            )
             return response.content.model_dump_json()
 
         try:

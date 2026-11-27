@@ -118,6 +118,7 @@ class ProblemExtractor:
                     prompt=prompt.user_prompt,
                     response_model=ExtractionResult,
                     system_prompt=prompt.system_prompt,
+                    call_site=f"extraction.section[{section.section_type.value}]",
                 )
 
                 result = response.content

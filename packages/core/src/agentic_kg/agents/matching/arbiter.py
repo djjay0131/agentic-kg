@@ -275,6 +275,8 @@ class ArbiterAgent:
                 prompt=prompt,
                 response_model=ArbiterLLMResponse,
                 system_prompt=ARBITER_SYSTEM_PROMPT,
+                max_tokens=self.max_tokens,
+                call_site="matching.arbiter",
             )
 
             llm_result = response.content

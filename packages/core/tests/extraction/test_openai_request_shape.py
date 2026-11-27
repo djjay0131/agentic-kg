@@ -18,7 +18,12 @@ from typing import Any
 
 import httpx
 import pytest
-from agentic_kg.extraction.llm_client import LLMConfig, LLMProvider, OpenAIClient
+from agentic_kg.extraction.llm_client import (
+    LLMConfig,
+    LLMProvider,
+    LLMTruncationError,
+    OpenAIClient,
+)
 from openai import AsyncOpenAI
 from pydantic import BaseModel
 
@@ -163,3 +168,105 @@ async def test_non_reasoning_effort_keeps_temperature(
     assert body["temperature"] == client.config.temperature
     assert "tools" not in body
     assert "functions" not in body
+
+
+async def _extract_with_budget_sequence(
+    client: OpenAIClient,
+    *,
+    finish_reasons: list[str],
+    reasoning_tokens: int = 0,
+) -> tuple[Any, list[dict[str, Any]]]:
+    """Drive a real request through the fake transport, one response per call.
+
+    ``finish_reasons`` is consumed in order; the last entry repeats if the
+    client makes more requests than responses supplied. Each captured body is
+    returned so the test can assert the retry raised ``max_completion_tokens``.
+    """
+    bodies: list[dict[str, Any]] = []
+    responses = list(finish_reasons)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        reason = responses.pop(0) if len(responses) > 1 else responses[0]
+        body = _completion_body(client.config.model)
+        body["choices"][0]["finish_reason"] = reason
+        usage = body["usage"]
+        usage["completion_tokens_details"] = {"reasoning_tokens": reasoning_tokens}
+        return httpx.Response(200, json=body)
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client._client = AsyncOpenAI(api_key="test-key", http_client=http_client)
+    try:
+        response = await client.extract(
+            prompt="Return the requested structured JSON.",
+            response_model=_Ping,
+            system_prompt="Reply with the requested structured JSON only.",
+            call_site="test.truncation",
+        )
+    finally:
+        await http_client.aclose()
+    return response, bodies
+
+
+@pytest.mark.asyncio
+async def test_length_finish_reason_retries_once_with_a_larger_budget(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    client = _client(monkeypatch, max_tokens=1000)
+
+    response, bodies = await _extract_with_budget_sequence(
+        client, finish_reasons=["length", "stop"]
+    )
+
+    assert response.content.ok is True
+    assert [body["max_completion_tokens"] for body in bodies] == [1000, 2000]
+    assert bodies[0]["reasoning_effort"] == "medium"
+
+
+@pytest.mark.asyncio
+async def test_truncation_after_one_retry_names_call_site_budget_and_effort(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    client = _client(monkeypatch, max_tokens=1000)
+
+    with pytest.raises(LLMTruncationError) as exc_info:
+        await _extract_with_budget_sequence(
+            client, finish_reasons=["length", "length"]
+        )
+
+    message = str(exc_info.value)
+    assert "test.truncation" in message
+    assert "max_completion_tokens=2000" in message
+    assert "reasoning_effort='medium'" in message
+    assert exc_info.value.call_site == "test.truncation"
+    assert exc_info.value.budget == 2000
+
+
+@pytest.mark.asyncio
+async def test_reasoning_tokens_are_recorded(monkeypatch: pytest.MonkeyPatch):
+    client = _client(monkeypatch, max_tokens=1000)
+
+    response, _ = await _extract_with_budget_sequence(
+        client, finish_reasons=["stop"], reasoning_tokens=7
+    )
+
+    assert response.usage.reasoning_tokens == 7
+    assert response.usage.total_tokens == 8
+
+
+@pytest.mark.asyncio
+async def test_ceiling_budget_does_not_retry_without_a_larger_value(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from agentic_kg.llm_config import OUTPUT_TOKEN_CEILING
+
+    client = _client(monkeypatch, max_tokens=OUTPUT_TOKEN_CEILING)
+
+    with pytest.raises(LLMTruncationError) as exc_info:
+        await _extract_with_budget_sequence(
+            client, finish_reasons=["length", "length"]
+        )
+
+    message = str(exc_info.value)
+    assert "no larger budget was available within the ceiling" in message
+    assert exc_info.value.budget == OUTPUT_TOKEN_CEILING

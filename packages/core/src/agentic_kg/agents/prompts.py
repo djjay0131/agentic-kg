@@ -40,6 +40,30 @@ Problems:
 
 Score each problem and provide rationale. Return results sorted by overall score descending."""
 
+# Ranking is scored in bounded batches. This prompt asks for the compact
+# response the batch schema accepts: the caller already has the statements, so
+# repeating them only makes the visible output grow (and competes with the
+# reasoning budget).
+RANKING_BATCH_SYSTEM_PROMPT = """You are a research strategist who evaluates and ranks open \
+research problems.
+
+For EACH problem in the batch, return only:
+- the problem id exactly as given,
+- one overall score from 0 to 1, and
+- ONE short sentence of rationale.
+
+Weigh tractability (0.4), data availability (0.3) and cross-domain impact (0.3) \
+when choosing the overall score. Do not restate the problem statement."""
+
+RANKING_BATCH_USER_PROMPT = """Score the following {count} research problems.
+
+Topic filter: {topic}
+Problems:
+
+{problems_text}
+
+Return one id, one score and one short rationale per problem."""
+
 # =============================================================================
 # Continuation Agent Prompts
 # =============================================================================

@@ -1,7 +1,7 @@
 """The one configuration surface for LLM and embedding model selection.
 
-Every model id used at runtime resolves here. Operators set four environment
-variables:
+Every model id and token budget used at runtime resolves here. Operators set
+these environment variables:
 
 * ``LLM_PROVIDER`` -- ``openai`` (default) or ``anthropic``;
 * ``LLM_MODEL`` -- the chat/extraction model for that provider;
@@ -9,6 +9,14 @@ variables:
   (default ``medium``, the GPT-6.2 default; OpenAI's Chat Completions accepts it
   as ``reasoning_effort``). Set this together with ``LLM_MODEL``: a value the
   model rejects is a provider error, and GPT-6.2 Sol/Astra reject ``none``;
+* ``LLM_MAX_OUTPUT_TOKENS`` -- the completion budget for every chat call.
+  Reasoning models count reasoning tokens *and* visible output against this
+  one ceiling, so an output-sized budget (the old 4096) truncates a reasoning
+  call. Default :data:`DEFAULT_MAX_OUTPUT_TOKENS`; per-call needs are expressed
+  as explicit ``max_tokens`` arguments at the call site;
+* ``LLM_RANKING_BATCH_SIZE`` -- how many candidates one ranking call scores
+  (default :data:`DEFAULT_RANKING_BATCH_SIZE`), so ranking output does not grow
+  without bound with the candidate list;
 * ``EMBEDDING_MODEL`` -- the OpenAI embedding model (default
   ``text-embedding-3-small``, 1536 dimensions, matching the existing vector
   index).
@@ -42,6 +50,8 @@ from typing import Mapping, Optional
 LLM_PROVIDER_ENV = "LLM_PROVIDER"
 LLM_MODEL_ENV = "LLM_MODEL"
 REASONING_EFFORT_ENV = "LLM_REASONING_EFFORT"
+MAX_OUTPUT_TOKENS_ENV = "LLM_MAX_OUTPUT_TOKENS"
+RANKING_BATCH_SIZE_ENV = "LLM_RANKING_BATCH_SIZE"
 EMBEDDING_MODEL_ENV = "EMBEDDING_MODEL"
 LEGACY_OPENAI_MODEL_ENV = "OPENAI_EXTRACTION_MODEL"
 
@@ -67,6 +77,36 @@ SUPPORTED_REASONING_EFFORTS = (
 )
 
 SUPPORTED_PROVIDERS = ("openai", "anthropic")
+
+# ---------------------------------------------------------------------------
+# Completion budgets
+# ---------------------------------------------------------------------------
+# A reasoning model counts reasoning tokens AND visible output against
+# ``max_completion_tokens``. 4096 (the historical output-only budget) was spent
+# on reasoning alone by a 20-candidate ranking call, so the response arrived
+# ``finish_reason="length"`` and instructor raised "The output is incomplete due
+# to a max_tokens length limit". The default below leaves room for reasoning
+# plus a normal structured response; calls whose visible output is legitimately
+# larger (e.g. evaluation code generation) pass an explicit ``max_tokens``.
+#
+# The ceiling bounds a truncation retry. It is deliberately below the documented
+# maximum completion tokens of current OpenAI reasoning families; a configured
+# model with a smaller ceiling will reject an over-large request with its own
+# provider error, which is preferable to an unbounded retry. The default is
+# intentionally conservative: ranking is batched, so no single response needs a
+# model's full output window.
+DEFAULT_MAX_OUTPUT_TOKENS = 16384
+OUTPUT_TOKEN_CEILING = 32768
+
+#: Larger fixed budgets for call sites whose *visible* output can legitimately
+#: exceed a normal structured response. These are overrides, not defaults.
+EVALUATION_CODE_MAX_OUTPUT_TOKENS = 24576
+SYNTHESIS_MAX_OUTPUT_TOKENS = 16384
+CONTINUATION_MAX_OUTPUT_TOKENS = 16384
+
+#: Ranking scores candidates in bounded batches so the response size is a
+#: function of the batch, never of the whole candidate set.
+DEFAULT_RANKING_BATCH_SIZE = 8
 
 
 def _value(env: Mapping[str, str], name: str) -> Optional[str]:
@@ -160,6 +200,69 @@ def resolve_reasoning_effort(
     return effort
 
 
+def _positive_int(raw: str, name: str) -> int:
+    """Parse a positive integer configuration value or raise with its name."""
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a positive integer; got {raw!r}") from exc
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer; got {value}")
+    return value
+
+
+def resolve_max_output_tokens(
+    explicit: Optional[int] = None,
+    *,
+    env: Optional[Mapping[str, str]] = None,
+) -> int:
+    """Resolve the completion budget for a chat call.
+
+    Precedence: an explicit per-call value, then ``LLM_MAX_OUTPUT_TOKENS``, then
+    :data:`DEFAULT_MAX_OUTPUT_TOKENS`. The result may not exceed
+    :data:`OUTPUT_TOKEN_CEILING`; an over-large value raises instead of being
+    forwarded, because silently clamping would make an operator's setting look
+    applied when it was not.
+    """
+    source = os.environ if env is None else env
+    if explicit is not None:
+        budget = _positive_int(str(explicit), "max_tokens")
+    else:
+        raw = _value(source, MAX_OUTPUT_TOKENS_ENV)
+        budget = (
+            _positive_int(raw, MAX_OUTPUT_TOKENS_ENV)
+            if raw is not None
+            else DEFAULT_MAX_OUTPUT_TOKENS
+        )
+    if budget > OUTPUT_TOKEN_CEILING:
+        raise ValueError(
+            f"max output tokens {budget} exceeds the supported ceiling "
+            f"{OUTPUT_TOKEN_CEILING}; lower {MAX_OUTPUT_TOKENS_ENV} or the "
+            "call-site budget"
+        )
+    return budget
+
+
+def resolve_ranking_batch_size(
+    explicit: Optional[int] = None,
+    *,
+    env: Optional[Mapping[str, str]] = None,
+) -> int:
+    """Resolve how many candidates one ranking call may score.
+
+    Precedence: an explicit value, then ``LLM_RANKING_BATCH_SIZE``, then
+    :data:`DEFAULT_RANKING_BATCH_SIZE`. Batching is what keeps a ranking
+    response bounded by the batch rather than by the whole candidate list.
+    """
+    source = os.environ if env is None else env
+    if explicit is not None:
+        return _positive_int(str(explicit), "ranking batch size")
+    raw = _value(source, RANKING_BATCH_SIZE_ENV)
+    if raw is not None:
+        return _positive_int(raw, RANKING_BATCH_SIZE_ENV)
+    return DEFAULT_RANKING_BATCH_SIZE
+
+
 def resolve_embedding_model(
     explicit: Optional[str] = None,
     *,
@@ -181,22 +284,32 @@ def default_chat_model(*, env: Optional[Mapping[str, str]] = None) -> str:
 
 
 __all__ = [
+    "CONTINUATION_MAX_OUTPUT_TOKENS",
     "DEFAULT_ANTHROPIC_MODEL",
     "DEFAULT_EMBEDDING_MODEL",
     "DEFAULT_LLM_PROVIDER",
+    "DEFAULT_MAX_OUTPUT_TOKENS",
     "DEFAULT_OPENAI_MODEL",
+    "DEFAULT_RANKING_BATCH_SIZE",
     "DEFAULT_REASONING_EFFORT",
     "EMBEDDING_MODEL_ENV",
+    "EVALUATION_CODE_MAX_OUTPUT_TOKENS",
     "LEGACY_OPENAI_MODEL_ENV",
     "LLM_MODEL_ENV",
     "LLM_PROVIDER_ENV",
+    "MAX_OUTPUT_TOKENS_ENV",
+    "OUTPUT_TOKEN_CEILING",
+    "RANKING_BATCH_SIZE_ENV",
     "REASONING_EFFORT_ENV",
     "SUPPORTED_PROVIDERS",
     "SUPPORTED_REASONING_EFFORTS",
+    "SYNTHESIS_MAX_OUTPUT_TOKENS",
     "default_chat_model",
     "default_model_for",
     "resolve_embedding_model",
     "resolve_llm_model",
     "resolve_llm_provider",
+    "resolve_max_output_tokens",
+    "resolve_ranking_batch_size",
     "resolve_reasoning_effort",
 ]

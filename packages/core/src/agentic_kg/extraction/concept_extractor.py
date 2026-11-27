@@ -60,6 +60,7 @@ class ConceptExtractor:
                 prompt=prompt,
                 response_model=_ConceptEnvelope,
                 system_prompt=self._system_prompt,
+                call_site="extraction.concept",
             )
         except LLMError as e:
             logger.warning("Concept extraction failed: %s", e)
