@@ -18,7 +18,9 @@ from __future__ import annotations
 
 import logging
 
+from agentic_kg.agents.gate_agreement import GATE_NAMES
 from agentic_kg.knowledge_graph.models.research_cycle import (
+    AgentRecommendation,
     GateDecision,
     ResearchCycle,
 )
@@ -32,16 +34,35 @@ from agentic_kg_api.dependencies import current_user, get_research_cycles
 from agentic_kg_api.schemas import (
     PendingResearchGate,
     PendingResearchGateListResponse,
+    ResearchAgentRecommendation,
+    ResearchAgreementResponse,
     ResearchCycleBudgetResponse,
     ResearchCycleListResponse,
     ResearchCycleResponse,
+    ResearchGateAgreement,
     ResearchGateDecisionRequest,
     ResearchGateDecisionResponse,
+    ResearchGateDisagreement,
     ResearchWorkflowResponse,
 )
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/research", tags=["research"])
+
+
+def _recommendation(
+    record: AgentRecommendation | None,
+) -> ResearchAgentRecommendation | None:
+    if record is None:
+        return None
+    return ResearchAgentRecommendation(
+        action=record.action,
+        rationale=record.rationale,
+        confidence=record.confidence,
+        details=record.details,
+        provenance_abstained=record.provenance_abstained,
+        produced_at=record.produced_at,
+    )
 
 
 def _decision(record: GateDecision) -> ResearchGateDecisionResponse:
@@ -52,6 +73,13 @@ def _decision(record: GateDecision) -> ResearchGateDecisionResponse:
         decided_at=record.decided_at,
         note=record.note,
         edited_data=record.edited_data,
+        cycle_id=record.cycle_id,
+        workflow_run_id=record.workflow_run_id,
+        policy_version=record.policy_version,
+        agent_recommendation=_recommendation(record.agent_recommendation),
+        human_decision=record.human_decision,
+        agreed=record.agreed,
+        disagreement_reason=record.disagreement_reason,
     )
 
 
@@ -98,6 +126,48 @@ def list_cycles(
     return ResearchCycleListResponse(cycles=[_cycle(cycle) for cycle in cycles], total=len(cycles))
 
 
+@router.get("/agreement", response_model=ResearchAgreementResponse)
+def gate_agreement(
+    gate: str | None = Query(default=None),
+    since: str | None = Query(default=None),
+    last_n: int = Query(default=10, ge=1, le=100),
+    service: ResearchCycleService = Depends(get_research_cycles),
+) -> ResearchAgreementResponse:
+    """Per-gate agent/human agreement and the current promotion recommendation.
+
+    ``decisions`` counts only gates with both a recommendation and a human
+    decision. ``lower_bound`` is the Wilson 95% lower bound; ``promotion_met``
+    says whether the recorded evidence clears the gate's criteria. It never
+    changes the policy — promotion is a reviewed edit of the versioned file.
+    """
+    if gate is not None and gate not in GATE_NAMES:
+        raise HTTPException(status_code=400, detail=f"unknown gate: {gate}")
+    report = service.agreement(gate=gate, since=since, last_n=last_n)
+    return ResearchAgreementResponse(
+        since=report.since,
+        total_decisions=report.total_decisions,
+        total_agreed=report.total_agreed,
+        gates=[
+            ResearchGateAgreement(
+                gate=item.gate,
+                mode=item.mode,
+                decisions=item.decisions,
+                agreed=item.agreed,
+                agreement_rate=item.agreement_rate,
+                lower_bound=item.lower_bound,
+                min_decisions=item.min_decisions,
+                min_agreement_lower_bound=item.min_agreement_lower_bound,
+                promotion_met=item.promotion_met,
+                last_disagreements=[
+                    ResearchGateDisagreement(**disagreement.as_dict())
+                    for disagreement in item.last_disagreements
+                ],
+            )
+            for item in report.gates
+        ],
+    )
+
+
 @router.get("/cycles/{cycle_id}", response_model=ResearchCycleResponse)
 def get_cycle(
     cycle_id: str,
@@ -127,6 +197,9 @@ def list_pending_gates(
                     problem_statement=workflow.problem_statement,
                     gate=workflow.pending_gate or "",
                     updated_at=workflow.updated_at,
+                    recommendation=_recommendation(
+                        workflow.pending_recommendation
+                    ),
                 )
             )
     return PendingResearchGateListResponse(gates=gates, total=len(gates))
