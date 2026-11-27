@@ -26,7 +26,11 @@ from agentic_kg.extraction.llm_client import (
     get_tpm_limiter,
     reset_llm_clients,
 )
-from agentic_kg.llm_config import DEFAULT_ANTHROPIC_MODEL, DEFAULT_OPENAI_MODEL
+from agentic_kg.llm_config import (
+    DEFAULT_ANTHROPIC_MODEL,
+    DEFAULT_MAX_OUTPUT_TOKENS,
+    DEFAULT_OPENAI_MODEL,
+)
 from pydantic import BaseModel
 from tenacity import RetryError
 
@@ -104,7 +108,7 @@ class TestLLMConfig:
         assert config.provider == LLMProvider.OPENAI
         assert config.model == DEFAULT_OPENAI_MODEL
         assert config.temperature == 0.1
-        assert config.max_tokens == 4096
+        assert config.max_tokens == DEFAULT_MAX_OUTPUT_TOKENS
         assert config.max_retries == 3
 
     def test_custom_config(self):

@@ -10,12 +10,14 @@ from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
-from agentic_kg.agents.matching.maker import (
-    MakerAgent,
-    MakerError,
-    MakerLLMResponse,
-    create_maker_agent,
+from agentic_kg.agents.matching.arbiter import (
+    ARBITER_CONFIDENCE_THRESHOLD,
+    ArbiterAgent,
+    ArbiterDecision,
+    ArbiterError,
+    ArbiterLLMResponse,
+    create_arbiter_agent,
+    format_arguments,
 )
 from agentic_kg.agents.matching.hater import (
     HaterAgent,
@@ -23,17 +25,13 @@ from agentic_kg.agents.matching.hater import (
     HaterLLMResponse,
     create_hater_agent,
 )
-from agentic_kg.agents.matching.arbiter import (
-    ArbiterAgent,
-    ArbiterError,
-    ArbiterLLMResponse,
-    ArbiterDecision,
-    ARBITER_CONFIDENCE_THRESHOLD,
-    create_arbiter_agent,
-    format_arguments,
+from agentic_kg.agents.matching.maker import (
+    MakerAgent,
+    MakerError,
+    MakerLLMResponse,
+    create_maker_agent,
 )
 from agentic_kg.agents.matching.state import create_matching_state
-
 
 # =============================================================================
 # Mock LLM Client
@@ -49,7 +47,13 @@ class MockLLMClient:
         self.call_count = 0
         self.last_prompt = None
 
-    async def _extract(self, prompt: str, response_model: type, system_prompt: Optional[str] = None):
+    async def _extract(
+        self,
+        prompt: str,
+        response_model: type,
+        system_prompt: Optional[str] = None,
+        **_kwargs,
+    ):
         self.call_count += 1
         self.last_prompt = prompt
         if self.response is None:

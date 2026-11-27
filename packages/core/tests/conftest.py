@@ -686,3 +686,21 @@ def reset_config_singleton():
     reset_config()
     yield
     reset_config()
+
+
+@pytest.fixture(autouse=True)
+def isolate_llm_throttle(monkeypatch):
+    """Keep the process-global TPM bucket from spilling between tests.
+
+    The budget now covers reasoning tokens too, so a single mocked call can
+    reserve most of the default minute's budget. Tests that exercise the
+    throttle set their own ``OPENAI_TPM`` (or delete it to assert the default)
+    and reset the limiter, so a high test-only ceiling here does not weaken
+    those assertions; it just stops ordinary tests sleeping on a real clock.
+    """
+    from agentic_kg.extraction.llm_client import reset_llm_clients
+
+    monkeypatch.setenv("OPENAI_TPM", "100000000")
+    reset_llm_clients()
+    yield
+    reset_llm_clients()

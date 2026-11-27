@@ -7,6 +7,33 @@ Last updated: 2026-11-12
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
 
+## Reasoning-aware token budgets + batched ranking (2026-11-27, T60)
+
+`fix/llm-token-budgets` fixes the staging ranking failure after #163:
+`finish_reason="length"` ("output is incomplete due to a max_tokens length
+limit") because reasoning tokens count against the old output-sized 4096 budget.
+`agentic_kg.llm_config` now owns the completion budget:
+`LLM_MAX_OUTPUT_TOKENS` (default 16384, ceiling 32768) with per-call overrides
+(evaluation code 24576; others max(env, override)); `LLM_RANKING_BATCH_SIZE`
+(default 8). Terraform sets `LLM_MAX_OUTPUT_TOKENS` next to `LLM_MODEL` for the
+API and every LLM Job. Agents pass their budget per call (the clients are
+shared), so the previously unused `AgentLLMConfig.max_tokens` is now live.
+
+Ranking scores candidates in bounded batches with a compact `(id, score, short
+rationale)` schema (`RankingBatchResult`), merges by id, sorts by score, and
+ignores ids outside the batch. Any call that hits the length limit retries once
+at `min(2×budget, ceiling)` and then raises `LLMTruncationError` naming the call
+site, budget and reasoning effort. Token usage (input, reasoning, output) is
+logged per call and recorded in `ResearchState.llm_usage`; there is still no
+per-call USD hook in the cycle, which keeps the documented estimate. `agentic-kg
+llm-check` adds a ranking-batch probe so deploy/nightly fail on truncation.
+
+Tests: budget/batch precedence (`tests/test_llm_config.py`), batch/merge
+(`tests/agents/test_ranking.py`), truncation retry over a fake HTTP transport
+(`tests/extraction/test_openai_request_shape.py`), llm-check probe
+(`tests/extraction/test_llm_check.py`). A session-autouse fixture pins the TPM
+bucket high and resets it per test so unit tests do not sleep on the real clock.
+
 ## Configurable LLM models + failed workflow state (2026-11-27, T57)
 
 Staging failed every LLM call because extraction defaulted to a retired model.

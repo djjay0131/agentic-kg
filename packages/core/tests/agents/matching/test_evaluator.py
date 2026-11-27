@@ -45,6 +45,7 @@ class MockLLMClient:
         prompt: str,
         response_model: type,
         system_prompt: Optional[str] = None,
+        **_kwargs,
     ):
         """Mock extract method."""
         self.call_count += 1

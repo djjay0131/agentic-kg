@@ -13,7 +13,6 @@ from types import SimpleNamespace
 
 import pytest
 from agentic_kg.agents.config import AgentConfig, AgentLLMConfig
-from agentic_kg.llm_config import DEFAULT_OPENAI_MODEL
 from agentic_kg.agents.continuation import ContinuationAgent
 from agentic_kg.agents.evaluation import EvaluationAgent
 from agentic_kg.agents.graph_port import SOURCE_CANONICAL, CanonicalGraphPort
@@ -23,12 +22,13 @@ from agentic_kg.agents.sandbox import SandboxResult
 from agentic_kg.agents.schemas import (
     ContinuationProposal,
     ExperimentalStep,
-    RankedProblem,
-    RankingResult,
+    RankedProblemScore,
+    RankingBatchResult,
     SynthesisReport,
 )
 from agentic_kg.agents.state import create_initial_state
 from agentic_kg.agents.synthesis import SynthesisAgent
+from agentic_kg.llm_config import DEFAULT_OPENAI_MODEL
 
 pytest.importorskip("kg_contracts")
 
@@ -137,31 +137,24 @@ class FakeLLM:
         self.target_id = target_id
 
     async def structured_extract(self, response_model, **kwargs):
-        if response_model is RankingResult:
+        if response_model is RankingBatchResult:
             return SimpleNamespace(
-                content=RankingResult(
-                    ranked_problems=[
-                        RankedProblem(
+                content=RankingBatchResult(
+                    scores=[
+                        RankedProblemScore(
                             problem_id=self.source_id,
-                            statement="How can GNNs scale?",
                             score=0.6,
-                            tractability=0.7,
-                            data_availability=0.6,
-                            cross_domain_impact=0.8,
                             rationale="A tractable and well evidenced problem.",
                         ),
-                        RankedProblem(
+                        RankedProblemScore(
                             problem_id=self.related_id,
-                            statement="A related problem about sampling.",
                             score=0.5,
-                            tractability=0.5,
-                            data_availability=0.4,
-                            cross_domain_impact=0.5,
                             rationale="A less connected problem.",
                         ),
-                    ],
-                    total_candidates=2,
-                )
+                    ]
+                ),
+                usage=None,
+                finish_reason="stop",
             )
         if response_model is ContinuationProposal:
             return SimpleNamespace(
