@@ -35,7 +35,77 @@
 
 <p><strong>Reporting.</strong> For each step, mark Pass or Fail in the results log at the end. On a Fail, leave a comment on that step with what you saw, the time, and a screenshot if you can. Comments on this doc reach Jason.</p>
 
-<p><strong>Not ready yet (skip if missing):</strong> the Research Loop page (A4) and the nightly-run email. Each is marked in its section.</p>
+<p><strong>Not ready yet (skip if missing):</strong> the nightly-run email. The Research Loop
+page (A4) is live, but research cycles are off by default on staging, so it may
+show true empty states until the owner enables them.</p>
+
+<h2 id="what-the-automated-post-deploy-suite-covers">What the automated post-deploy suite covers</h2>
+
+<p>A staging deploy now runs the <code class="language-plaintext highlighter-rouge">e2e/ui</code> Playwright suite automatically (the
+<code class="language-plaintext highlighter-rouge">post-deploy-ui-tests</code> job in <code class="language-plaintext highlighter-rouge">deploy-master.yml</code>; run it on demand from
+<strong>Actions → UI Tests (post-deploy, IAP)</strong>). It signs in through IAP with a
+short-lived service-account JWT — no stored key or password — and uploads the
+HTML report and traces with the run. The deploy fails on any failed check or on
+any <code class="language-plaintext highlighter-rouge">/api/*</code> response of 500 or more seen while browsing. Until the owner
+applies the Terraform that creates the <code class="language-plaintext highlighter-rouge">agentic-kg-e2e-staging</code> identity, the
+job skips with a notice in the run summary instead of failing the deploy.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Automated</th>
+      <th>What it asserts</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>A1.1</td>
+      <td>Dashboard counts for papers and problems are non-zero; graph status is Online.</td>
+    </tr>
+    <tr>
+      <td>A1.2, A1.4–A1.6</td>
+      <td>Problems list, status filter, pagination and problem detail; papers list, pagination and in-app paper detail.</td>
+    </tr>
+    <tr>
+      <td>A1.7</td>
+      <td>Search returns results for a common term.</td>
+    </tr>
+    <tr>
+      <td>A1.9</td>
+      <td>The graph renders and a node click opens the side panel.</td>
+    </tr>
+    <tr>
+      <td>A1.10</td>
+      <td>Extract From Text on a fixed short abstract returns at least one problem. This uses paid LLM calls and is allowed for the post-deploy run.</td>
+    </tr>
+    <tr>
+      <td>A2 (start and cleanup)</td>
+      <td>One workflow starts and reaches the <code class="language-plaintext highlighter-rouge">select_problem</code> gate without an error, then is rejected so it writes nothing.</td>
+    </tr>
+    <tr>
+      <td>A3, A4 (page load)</td>
+      <td>Runs, Review and Research Loop pages load with data or a true empty state, never a hidden 5xx.</td>
+    </tr>
+    <tr>
+      <td>B9</td>
+      <td>An unauthenticated POST is rejected with 401 or 403.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="what-still-needs-a-human">What still needs a human</h2>
+
+<ul>
+  <li><strong>Ranking and proposal quality (A2 steps 3 and 5).</strong> Whether the ranked
+problems and the proposed next step are worth doing.</li>
+  <li><strong>Agreement with the adviser (A3.5/A3.6).</strong> Whether you agree with each
+admit/reject/merge verdict. That rate is research evidence, not a pass/fail
+check.</li>
+  <li><strong>A1.3 citation following</strong>, <strong>A1.8 nonsense-word empty state</strong>, the
+<strong>A3.9 nightly email</strong>, and the subjective notes on problem/quote quality.</li>
+  <li><strong>Research-loop gate decisions (A4).</strong> The page load is automated; approving,
+editing or rejecting a gate and writing its note are not.</li>
+</ul>
 
 <h2 id="a1-browse-the-knowledge-graph">A1. Browse the knowledge graph</h2>
 
