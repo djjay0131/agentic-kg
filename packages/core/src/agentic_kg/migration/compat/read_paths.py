@@ -280,7 +280,7 @@ READ_PATHS: tuple[ReadPath, ...] = (
         id="agent.synthesis.problem_context",
         surface="SynthesisAgent.run (pre-LLM read through the port)",
         source_file=f"{CORE}/agents/synthesis.py",
-        snippet="context = self.port.load_context(problem_id or proposal.problem_id)",
+        snippet="context = self.port.load_context(problem_id)",
         labels=("Problem",),
         relationships=(),
         properties=("id", "statement"),
