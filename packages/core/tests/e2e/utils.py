@@ -221,17 +221,22 @@ class StagingAPIClient:
         self,
         domain_filter: str | None = None,
         max_problems: int = 10,
+        tag: str | None = None,
     ) -> dict[str, Any]:
         """Start an agent workflow."""
-        resp = self.client.post(
-            "/api/agents/workflows",
-            json={
-                "domain_filter": domain_filter,
-                "max_problems": max_problems,
-            },
-        )
+        payload: dict[str, Any] = {
+            "domain_filter": domain_filter,
+            "max_problems": max_problems,
+        }
+        if tag:
+            payload["tag"] = tag
+        resp = self.client.post("/api/agents/workflows", json=payload)
         resp.raise_for_status()
         return resp.json()
+
+    def cancel_workflow(self, run_id: str) -> None:
+        """Cancel a run this suite created, so it cannot linger at a gate."""
+        self.client.delete(f"/api/agents/workflows/{run_id}")
 
     @retry(max_attempts=3, delay=1.0)
     def get_workflow(self, run_id: str) -> dict[str, Any]:

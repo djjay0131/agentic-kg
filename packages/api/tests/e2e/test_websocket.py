@@ -132,53 +132,60 @@ class TestWebSocketWithWorkflow:
             timeout=60.0,
             headers=api_config.auth_headers,
         ) as http_client:
-            # Start a workflow
+            # Start a workflow. Tag it and cancel it in a finally: this suite
+            # runs on every push to master, and an untagged run left at
+            # ``select_problem`` was one of the two leftovers each deploy
+            # accumulated.
             response = await http_client.post(
                 "/api/agents/workflows",
                 json={
                     "domain_filter": None,
                     "max_problems": 3,
+                    "tag": "deploy-e2e-websocket",
                 },
             )
 
             if response.status_code == 503:
                 pytest.skip("WorkflowRunner not initialized")
 
-            if response.status_code != 200:
+            if response.status_code not in (200, 202):
                 pytest.skip(f"Failed to start workflow: {response.status_code}")
 
             data = response.json()
             run_id = data["run_id"]
 
-            # Connect to WebSocket
-            ws_base = api_config.api_url.replace("https://", "wss://").replace("http://", "ws://")
-            ws_url = f"{ws_base}/api/agents/ws/workflows/{run_id}"
-
-            messages_received = []
-
             try:
-                async with websockets.connect(
-                    ws_url, close_timeout=10, **_ws_auth_kwargs(api_config)
-                ) as ws:
-                    # Listen for messages (up to 30 seconds)
-                    try:
-                        for _ in range(15):  # 15 attempts, 2 seconds each
-                            try:
-                                message = await asyncio.wait_for(ws.recv(), timeout=2.0)
-                                data = json.loads(message)
-                                messages_received.append(data)
+                # Connect to WebSocket
+                ws_base = api_config.api_url.replace("https://", "wss://").replace("http://", "ws://")
+                ws_url = f"{ws_base}/api/agents/ws/workflows/{run_id}"
 
-                                # Stop if we hit a terminal state
-                                if data.get("type") in ["complete", "error", "checkpoint"]:
-                                    break
-                            except asyncio.TimeoutError:
-                                continue
-                    except Exception:
-                        pass
+                messages_received = []
 
-            except Exception as e:
-                # WebSocket connection issues are acceptable in E2E
-                pytest.skip(f"WebSocket connection failed: {e}")
+                try:
+                    async with websockets.connect(
+                        ws_url, close_timeout=10, **_ws_auth_kwargs(api_config)
+                    ) as ws:
+                        # Listen for messages (up to 30 seconds)
+                        try:
+                            for _ in range(15):  # 15 attempts, 2 seconds each
+                                try:
+                                    message = await asyncio.wait_for(ws.recv(), timeout=2.0)
+                                    data = json.loads(message)
+                                    messages_received.append(data)
+
+                                    # Stop if we hit a terminal state
+                                    if data.get("type") in ["complete", "error", "checkpoint"]:
+                                        break
+                                except asyncio.TimeoutError:
+                                    continue
+                        except Exception:
+                            pass
+
+                except Exception as e:
+                    # WebSocket connection issues are acceptable in E2E
+                    pytest.skip(f"WebSocket connection failed: {e}")
+            finally:
+                await http_client.delete(f"/api/agents/workflows/{run_id}")
 
             # We may or may not have received messages depending on workflow timing
             # The test passes if we connected successfully

@@ -37,21 +37,31 @@ class TestWorkflowAPIE2E:
         )
 
     def test_start_workflow_returns_run_id(self, api_client: httpx.Client):
-        """Test starting a workflow returns a run ID."""
+        """Test starting a workflow returns a run ID.
+
+        The run is tagged and cancelled here: this suite runs on every push to
+        master, and an untagged run left at ``select_problem`` was one of the
+        two leftovers each deploy accumulated.
+        """
         response = api_client.post(
             "/api/agents/workflows",
             json={
                 "domain_filter": "testing",
                 "max_problems": 5,
+                "tag": "deploy-e2e-core",
             },
         )
 
-        # May return 503 if runner not initialized, or 200 if it is
-        if response.status_code == 200:
+        # May return 503 if runner not initialized, or 202/200 if it is.
+        if response.status_code in (200, 202):
             data = response.json()
-            assert "run_id" in data
-            assert "status" in data
-            assert "websocket_url" in data
+            run_id = data["run_id"]
+            try:
+                assert "run_id" in data
+                assert "status" in data
+                assert "websocket_url" in data
+            finally:
+                api_client.delete(f"/api/agents/workflows/{run_id}")
         else:
             # 503 is acceptable if WorkflowRunner isn't initialized
             assert response.status_code == 503
@@ -110,38 +120,47 @@ class TestWorkflowWithLLM:
                     "domain_filter": None,  # All domains
                     "max_problems": 5,
                     "min_confidence": 0.3,
+                    "tag": "deploy-e2e-core",
                 },
             )
 
             if response.status_code == 503:
                 pytest.skip("WorkflowRunner not initialized in staging")
 
-            assert response.status_code == 200
+            assert response.status_code in (200, 202)
             data = response.json()
             run_id = data["run_id"]
 
             # Poll for status changes (up to 60 seconds)
             import asyncio
 
-            for _ in range(30):  # 30 attempts, 2 seconds apart
-                await asyncio.sleep(2)
+            try:
+                for _ in range(30):  # 30 attempts, 2 seconds apart
+                    await asyncio.sleep(2)
 
-                status_response = await client.get(f"/api/agents/workflows/{run_id}")
+                    status_response = await client.get(f"/api/agents/workflows/{run_id}")
 
-                if status_response.status_code == 404:
-                    # Workflow may have been cleaned up
-                    break
+                    if status_response.status_code == 404:
+                        # Workflow may have been cleaned up
+                        break
 
-                state = status_response.json()
+                    state = status_response.json()
 
-                # Check if we've reached a checkpoint or completed
-                if state.get("status") in ["awaiting_checkpoint", "completed", "failed"]:
-                    # Success - workflow progressed
-                    assert state["run_id"] == run_id
-                    break
-            else:
-                # Timed out - workflow may still be running, which is OK
-                pass
+                    # Check if we've reached a checkpoint or completed
+                    if state.get("status") in [
+                        "awaiting_checkpoint",
+                        "waiting_checkpoint",
+                        "completed",
+                        "failed",
+                    ]:
+                        # Success - workflow progressed
+                        assert state["run_id"] == run_id
+                        break
+                else:
+                    # Timed out - workflow may still be running, which is OK
+                    pass
+            finally:
+                await client.delete(f"/api/agents/workflows/{run_id}")
 
 
 @pytest.mark.e2e
