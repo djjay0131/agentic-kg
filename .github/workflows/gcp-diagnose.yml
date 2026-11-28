@@ -72,6 +72,69 @@ jobs:
               --format='table(timestamp,severity,jsonPayload.event,jsonPayload.status,jsonPayload.run_id,jsonPayload.message,textPayload)' || true
           done
 
+      # ---- Experiment sandbox diagnostics (read-only) ---------------------
+      # The experiment Job runs generated code on a dedicated VPC and is
+      # invisible from a terminal. This section prints the definition, the
+      # last executions, the last log lines and the prefix-scoped bucket IAM
+      # without printing any env value or object contents.
+      - name: "Experiment sandbox: Job definition and recent executions"
+        run: |
+          COORDS="$(gcloud run services describe agentic-kg-api-staging \
+              --region="$REGION" --project="$PROJECT_ID" --format=json | python3 -c 'import json,sys; d=json.load(sys.stdin); c=d["spec"]["template"]["spec"]["containers"][0]; env={e["name"]:e.get("value","") for e in (c.get("env") or [])}; print(env.get("EXPERIMENT_GCS_BUCKET",""), env.get("EXPERIMENT_GCS_PREFIX","staging"), env.get("EXPERIMENT_JOB_NAME","agentic-kg-experiment-staging"))')"
+          read -r BUCKET PREFIX EXP_JOB <<<"$COORDS"
+          EXP_JOB="${EXP_JOB:-agentic-kg-experiment-staging}"
+          echo "experiment bucket=${BUCKET} prefix=${PREFIX} job=${EXP_JOB}"
+          echo "== ${EXP_JOB} definition summary (no env values) =="
+          echo "image: $(gcloud run jobs describe "$EXP_JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.containers[0].image)' 2>/dev/null || true)"
+          echo "command: $(gcloud run jobs describe "$EXP_JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.containers[0].command)' 2>/dev/null || true)"
+          echo "args: $(gcloud run jobs describe "$EXP_JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.containers[0].args)' 2>/dev/null || true)"
+          echo "timeout: $(gcloud run jobs describe "$EXP_JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.timeout)' 2>/dev/null || true)"
+          echo "maxRetries: $(gcloud run jobs describe "$EXP_JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.maxRetries)' 2>/dev/null || true)"
+          echo "serviceAccount: $(gcloud run jobs describe "$EXP_JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.serviceAccount)' 2>/dev/null || true)"
+          echo "vpcAccess: $(gcloud run jobs describe "$EXP_JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.vpcAccess)' 2>/dev/null || true)"
+          echo "resources: $(gcloud run jobs describe "$EXP_JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.containers[0].resources.limits)' 2>/dev/null || true)"
+          echo "envNames: $(gcloud run jobs describe "$EXP_JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.containers[0].env[].name)' 2>/dev/null || true)"
+          echo "== ${EXP_JOB} last 5 executions =="
+          gcloud run jobs executions list --job="$EXP_JOB" --region="$REGION" \
+            --project="$PROJECT_ID" --limit=5 \
+            --format='yaml(metadata.name,metadata.creationTimestamp,status.startTime,status.completionTime,status.succeededCount,status.failedCount,status.cancelledCount,status.conditions)' || true
+          for execution in $(gcloud run jobs executions list --job="$EXP_JOB" \
+              --region="$REGION" --project="$PROJECT_ID" --limit=5 \
+              --format='value(name)'); do
+            echo "== ${execution} logs (last 100) =="
+            gcloud logging read \
+              "resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"${EXP_JOB}\" AND labels.\"run.googleapis.com/execution_name\"=\"${execution}\"" \
+              --project="$PROJECT_ID" --limit=100 --order=desc \
+              --format='value(timestamp,severity,textPayload,jsonPayload.message)' || true
+          done
+
+      - name: "Experiment sandbox: bucket IAM for the experiment prefix"
+        run: |
+          read -r BUCKET PREFIX <<<"$(gcloud run services describe agentic-kg-api-staging \
+              --region="$REGION" --project="$PROJECT_ID" --format=json | python3 -c 'import json,sys; d=json.load(sys.stdin); c=d["spec"]["template"]["spec"]["containers"][0]; env={e["name"]:e.get("value","") for e in (c.get("env") or [])}; print(env.get("EXPERIMENT_GCS_BUCKET",""), env.get("EXPERIMENT_GCS_PREFIX","staging"))')"
+          if [ -z "$BUCKET" ]; then
+            echo "no EXPERIMENT_GCS_BUCKET configured on the API; skipping bucket IAM"
+            exit 0
+          fi
+          # Members and roles for bindings scoped to this prefix. No object
+          # contents and no non-prefix bucket bindings are printed.
+          gcloud storage buckets get-iam-policy "gs://${BUCKET}" --project="$PROJECT_ID" \
+            --format=json | PREFIX="$PREFIX" python3 -c 'import json,os,sys; p=json.load(sys.stdin); pre=os.environ["PREFIX"].strip("/")+"/"; rows=[(b.get("role"),b.get("members"),(b.get("condition") or {}).get("title"),(b.get("condition") or {}).get("expression","")) for b in p.get("bindings",[]) if "objects/" in ((b.get("condition") or {}).get("expression","")) and pre in ((b.get("condition") or {}).get("expression",""))]; [print("role:",r,"members:",m,"condition:",t,"|",e) for r,m,t,e in rows] or print("no prefix-scoped bindings for",pre)'
+
+      - name: "Experiment sandbox: ingest Job definition summary"
+        run: |
+          for JOB in agentic-kg-ingest-staging agentic-kg-llm-check-staging; do
+            echo "== ${JOB} definition summary (no env values) =="
+            echo "image: $(gcloud run jobs describe "$JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.containers[0].image)' 2>/dev/null || true)"
+            echo "command: $(gcloud run jobs describe "$JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.containers[0].command)' 2>/dev/null || true)"
+            echo "args: $(gcloud run jobs describe "$JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.containers[0].args)' 2>/dev/null || true)"
+            echo "timeout: $(gcloud run jobs describe "$JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.timeout)' 2>/dev/null || true)"
+            echo "maxRetries: $(gcloud run jobs describe "$JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.maxRetries)' 2>/dev/null || true)"
+            echo "serviceAccount: $(gcloud run jobs describe "$JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.serviceAccount)' 2>/dev/null || true)"
+            echo "vpcAccess: $(gcloud run jobs describe "$JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.vpcAccess)' 2>/dev/null || true)"
+            echo "envNames: $(gcloud run jobs describe "$JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.containers[0].env[].name)' 2>/dev/null || true)"
+          done
+
       - name: Cloud Build triggers
         run: |
           gcloud builds triggers list --project="$PROJECT_ID" --region=global \

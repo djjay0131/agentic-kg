@@ -82,3 +82,70 @@ def test_experiment_sandbox_check_runs_for_api_or_job_changes() -> None:
     condition = step["if"]
     assert "needs.changes.outputs.api" in condition
     assert "needs.changes.outputs.job" in condition
+
+
+def test_each_deploy_check_prints_the_failing_execution_logs() -> None:
+    """A non-zero execution must not be reported as just "exited 1".
+
+    The failure category lives only in Cloud Logging; the workflow now reads
+    the failing execution's own message fields (never env values).
+    """
+    deploy = _load()["jobs"]["deploy-staging"]
+    for name in (
+        "Check configured LLM models answer",
+        "Workflow self-check (Job dispatch path)",
+        "Experiment sandbox self-check (Job dispatch path)",
+    ):
+        run = _step(deploy, name)["run"]
+        assert "gcloud logging read" in run, name
+        assert "resource.type=\\\"cloud_run_job\\\"" in run, name
+        assert "jsonPayload.message" in run, name
+        # Environment values must never be printed.
+        assert "env[].value" not in run, name
+
+
+def test_sandbox_check_echoes_its_one_line_verdict() -> None:
+    deploy = _load()["jobs"]["deploy-staging"]
+    run = _step(deploy, "Experiment sandbox self-check (Job dispatch path)")["run"]
+    assert "SANDBOX_CHECK_VERDICT" in run
+    assert "title=Experiment sandbox verdict::" in run
+    # On failure it also describes the experiment Job's latest execution.
+    assert "dump_experiment_job" in run
+    assert "gcloud run jobs executions describe" in run
+    assert "status.failedCount" in run
+
+
+def test_experiment_job_is_rolled_on_every_deploy() -> None:
+    """A skipped experiment build must not leave the Job on another tag."""
+    deploy = _load()["jobs"]["deploy-staging"]
+    step = _step(deploy, "Deploy experiment Job to staging")
+    assert "if" not in step or "needs.changes.outputs.experiment" not in step["if"]
+    assert "gcloud run jobs update agentic-kg-experiment-staging" in step["run"]
+    assert "experiment Job image:" in step["run"]
+
+
+def test_gcp_diagnose_has_a_read_only_experiment_sandbox_section() -> None:
+    import pathlib
+
+    path = (
+        pathlib.Path(__file__).resolve().parents[3]
+        / ".github"
+        / "workflows"
+        / "gcp-diagnose.yml"
+    )
+    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["diagnose"]["steps"]
+    names = [step.get("name") for step in steps]
+    assert "Experiment sandbox: Job definition and recent executions" in names
+    assert "Experiment sandbox: bucket IAM for the experiment prefix" in names
+    assert "Experiment sandbox: ingest Job definition summary" in names
+
+    joined = "\n".join(str(step.get("run", "")) for step in steps)
+    assert "agentic-kg-experiment-staging" in joined
+    # Env names only, never values.
+    assert "env[].value" not in joined
+    assert "envNames" in joined
+    assert "get-iam-policy" in joined
+    assert "vpcAccess" in joined
+    assert "maxRetries" in joined
+    assert "status.conditions" in joined
