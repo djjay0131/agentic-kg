@@ -650,6 +650,13 @@ async def _auto_advance(
         recommendation = entry.pending_recommendation or build_recommendation(
             gate, state, produced_at=now_iso
         )
+        if recommendation is not None and recommendation.action == "retry":
+            # An infrastructure failure is not a scientific result and must not
+            # be auto-approved or auto-rejected; a human retries evaluation.
+            logger.info(
+                "autonomy refused at %s: recommendation is retry evaluation", gate
+            )
+            break
         auto_decision = (
             "auto_reject"
             if recommendation is not None and recommendation.action == "reject"

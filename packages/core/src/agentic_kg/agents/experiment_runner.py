@@ -12,14 +12,80 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 _GS_SCHEME = "gs://"
 _MAX_CAPTURE_CHARS = 1_000_000
+
+#: The public GCS endpoint. The experiment Job normally uses the Private Google
+#: APIs VIP (``private.googleapis.com``) through its dedicated VPC; a runtime
+#: that cannot reach it falls back here and, if that is also blocked, fails fast
+#: with the real connectivity error instead of hanging to the platform timeout.
+_DEFAULT_GCS_ENDPOINT = "https://storage.googleapis.com"
+
+
+def _log(message: str) -> None:
+    """Write one diagnostic line to stderr immediately (Cloud Logging captures it)."""
+    sys.stderr.write(f"experiment-runner: {message}\n")
+    sys.stderr.flush()
+
+
+def _probe_endpoint(endpoint: str, timeout: float) -> bool:
+    """Return whether a TCP connect to ``endpoint`` succeeds quickly."""
+    parsed = urlparse(endpoint)
+    host = parsed.hostname
+    if not host:
+        return False
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError as exc:
+        _log(
+            f"endpoint {endpoint} is not reachable within {timeout:.1f}s: {exc}"
+        )
+        return False
+
+
+def _resolve_endpoint() -> tuple[str, bool]:
+    """Pick a GCS endpoint this Job can actually reach; never guess.
+
+    Returns ``(endpoint, used_fallback)``. This mirrors the worker's probe so a
+    missing Private Google Access path fails in seconds with a named
+    connectivity error rather than blocking the execution for its whole
+    platform timeout.
+    """
+    configured = (
+        os.environ.get("EXPERIMENT_GCS_ENDPOINT") or _DEFAULT_GCS_ENDPOINT
+    ).rstrip("/")
+    fallback = (
+        os.environ.get("EXPERIMENT_GCS_ENDPOINT_FALLBACK") or _DEFAULT_GCS_ENDPOINT
+    ).rstrip("/")
+    try:
+        timeout = float(os.environ.get("EXPERIMENT_GCS_CONNECT_TIMEOUT_SECONDS", "5"))
+    except ValueError:
+        timeout = 5.0
+    if configured == fallback or configured == _DEFAULT_GCS_ENDPOINT:
+        return configured, False
+    if _probe_endpoint(configured, timeout):
+        return configured, False
+    _log(f"falling back from {configured} to {fallback}")
+    if fallback == configured:
+        return fallback, True
+    if _probe_endpoint(fallback, timeout):
+        return fallback, True
+    raise RuntimeError(
+        "no reachable GCS endpoint: "
+        f"{configured} and {fallback} both failed a TCP connect "
+        f"within {timeout:.1f}s (check the Job's VPC, Private Google Access and "
+        "firewall allow-list)"
+    )
 
 
 def _split_uri(uri: str) -> tuple[str, str]:
@@ -32,22 +98,20 @@ def _split_uri(uri: str) -> tuple[str, str]:
 class _Store:
     def __init__(self) -> None:
         self._client = None
-        # The experiment Job has its own Private Google Access path, so it keeps
-        # its configured endpoint. It still fails fast on a broken path: a
-        # short per-request timeout with retries disabled reports the real
-        # connectivity error instead of a long client-side RetryError.
         self._timeout = float(
             os.environ.get("EXPERIMENT_GCS_REQUEST_TIMEOUT_SECONDS", "30")
+        )
+        self.endpoint, self.used_fallback = _resolve_endpoint()
+        _log(
+            "using GCS endpoint "
+            f"{self.endpoint}{' (fallback)' if self.used_fallback else ''}"
         )
 
     def _bucket(self):
         if self._client is None:
             from google.cloud import storage
 
-            client_options = None
-            endpoint = os.environ.get("EXPERIMENT_GCS_ENDPOINT", "")
-            if endpoint:
-                client_options = {"api_endpoint": endpoint}
+            client_options = {"api_endpoint": self.endpoint}
             self._client = storage.Client(client_options=client_options)
         return self._client
 
@@ -89,13 +153,29 @@ def _truncate(text: str) -> str:
 
 
 def run(script_uri: str) -> int:
+    _log(f"start uri={script_uri} pid={os.getpid()}")
     store = _Store()
     prefix = script_uri.rsplit("/", 1)[0]
-    code = store.download(script_uri)
+
+    _log(f"stage=download script={script_uri}")
+    try:
+        code = store.download(script_uri)
+    except Exception as exc:  # noqa: BLE001 - name the failing stage
+        raise RuntimeError(
+            f"download stage failed for {script_uri}: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
     if code is None:
         raise FileNotFoundError(f"Experiment script not found: {script_uri}")
 
-    raw_inputs = store.download(f"{prefix}/inputs.json")
+    _log(f"stage=download inputs={prefix}/inputs.json")
+    try:
+        raw_inputs = store.download(f"{prefix}/inputs.json")
+    except Exception as exc:  # noqa: BLE001 - name the failing stage
+        raise RuntimeError(
+            f"download stage failed for {prefix}/inputs.json: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
     inputs = json.loads(raw_inputs.decode("utf-8")) if raw_inputs else {}
 
     workdir = Path(tempfile.mkdtemp(prefix="experiment-", dir="/tmp"))
@@ -120,6 +200,7 @@ def run(script_uri: str) -> int:
         "PYTHONDONTWRITEBYTECODE": "1",
     }
 
+    _log(f"stage=exec script={script_path} timeout_s={timeout_s}")
     timed_out = False
     try:
         completed = subprocess.run(
@@ -142,28 +223,35 @@ def run(script_uri: str) -> int:
     stdout = _truncate(stdout)
     stderr = _truncate(stderr)
 
-    store.upload(
-        f"{prefix}/stdout.txt", stdout.encode("utf-8"), "text/plain; charset=utf-8"
-    )
-    store.upload(
-        f"{prefix}/stderr.txt", stderr.encode("utf-8"), "text/plain; charset=utf-8"
-    )
-    store.upload(
-        f"{prefix}/metrics.json",
-        json.dumps(parse_metrics(stdout)).encode("utf-8"),
-        "application/json",
-    )
-    store.upload(
-        f"{prefix}/result.json",
-        json.dumps(
-            {
-                "exit_code": exit_code,
-                "timed_out": timed_out,
-                "experiment_id": os.environ.get("EXPERIMENT_ID", ""),
-            }
-        ).encode("utf-8"),
-        "application/json",
-    )
+    _log(f"stage=upload prefix={prefix} exit_code={exit_code} timed_out={timed_out}")
+    try:
+        store.upload(
+            f"{prefix}/stdout.txt", stdout.encode("utf-8"), "text/plain; charset=utf-8"
+        )
+        store.upload(
+            f"{prefix}/stderr.txt", stderr.encode("utf-8"), "text/plain; charset=utf-8"
+        )
+        store.upload(
+            f"{prefix}/metrics.json",
+            json.dumps(parse_metrics(stdout)).encode("utf-8"),
+            "application/json",
+        )
+        store.upload(
+            f"{prefix}/result.json",
+            json.dumps(
+                {
+                    "exit_code": exit_code,
+                    "timed_out": timed_out,
+                    "experiment_id": os.environ.get("EXPERIMENT_ID", ""),
+                }
+            ).encode("utf-8"),
+            "application/json",
+        )
+    except Exception as exc:  # noqa: BLE001 - name the failing stage
+        raise RuntimeError(
+            f"upload stage failed for {prefix}: {type(exc).__name__}: {exc}"
+        ) from exc
+    _log(f"done exit_code={exit_code} timed_out={timed_out}")
     return exit_code
 
 

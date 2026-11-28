@@ -19,6 +19,7 @@ from agentic_kg.agents.provenance import build_provenance, record_agent_output
 from agentic_kg.agents.sandbox import (
     ExecutionBackend,
     SandboxResult,
+    classify_sandbox_error,
     create_execution_backend,
 )
 from agentic_kg.agents.schemas import (
@@ -44,6 +45,21 @@ def _limitation_excerpt(text: str) -> str:
     if len(text) <= _LIMITATION_CHARS:
         return text
     return text[:_LIMITATION_CHARS].rstrip() + "…"
+
+
+def _failure_kind(result: SandboxResult) -> str:
+    """Classify a failed sandbox run as infrastructure or experiment.
+
+    ``backend == "unavailable"`` means the backend could not even be built
+    (missing bucket/job config, auth, Docker daemon); a backend that marks the
+    failure at dispatch/poll is infrastructure too. A script that ran and
+    exited non-zero is an experiment failure: the science was tested.
+    """
+    if result.infrastructure_failure or result.backend == "unavailable":
+        return "infrastructure"
+    if not result.success:
+        return "experiment"
+    return ""
 
 
 class EvaluationAgent(BaseAgent):
@@ -251,6 +267,9 @@ class EvaluationAgent(BaseAgent):
                 stdout="",
                 stderr=f"{type(exc).__name__}: {exc}",
                 exit_code=-1,
+                infrastructure_failure=True,
+                failure_stage="start",
+                failure_category=classify_sandbox_error(exc),
                 backend="unavailable",
             )
 
@@ -289,8 +308,15 @@ class EvaluationAgent(BaseAgent):
                     )
                 )
 
-        # Determine verdict based on execution
-        if sandbox_result.timed_out:
+        # Determine verdict based on execution. An infrastructure failure is not
+        # a scientific result: the experiment never ran, so it must not be
+        # reported as ``not_viable``/0.10 (which reads as "the work failed").
+        failure_kind = _failure_kind(sandbox_result)
+        failure_category = str(sandbox_result.failure_category or "")
+        if failure_kind == "infrastructure":
+            verdict = "infrastructure_failed"
+            feasibility = 0.0
+        elif sandbox_result.timed_out:
             verdict = "not_viable"
             feasibility = 0.1
         elif not sandbox_result.success:
@@ -304,12 +330,23 @@ class EvaluationAgent(BaseAgent):
             feasibility = 0.5
 
         limitations = []
-        if sandbox_result.timed_out:
-            limitations.append("Execution timed out")
-        if not sandbox_result.success:
+        if failure_kind == "infrastructure":
+            category = f" [{failure_category}]" if failure_category else ""
             limitations.append(
-                f"Execution error: {_limitation_excerpt(sandbox_result.stderr)}"
+                "Experiment infrastructure failed"
+                f"{category}: {_limitation_excerpt(sandbox_result.stderr)}"
             )
+            limitations.append(
+                "The experiment never ran, so the science was not tested; "
+                "retry evaluation."
+            )
+        else:
+            if sandbox_result.timed_out:
+                limitations.append("Execution timed out")
+            if not sandbox_result.success:
+                limitations.append(
+                    f"Execution error: {_limitation_excerpt(sandbox_result.stderr)}"
+                )
         if not metrics_data:
             limitations.append("No structured metrics output produced")
 
@@ -333,6 +370,9 @@ class EvaluationAgent(BaseAgent):
             execution_stderr=sandbox_result.stderr[:5000],
             execution_exit_code=sandbox_result.exit_code,
             execution_success=sandbox_result.success,
+            failure_kind=failure_kind,
+            failure_category=failure_category,
+            retryable=failure_kind == "infrastructure",
             metrics_results=metrics_results,
             limitations=limitations,
             verdict=verdict,

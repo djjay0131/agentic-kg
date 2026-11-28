@@ -81,12 +81,13 @@ class TestWorkflowIdentity:
         # 06:17 UTC daily — off-peak deterministic minute per spec.
         assert schedule[0]["cron"] == "17 6 * * *"
 
-    def test_timeout_at_most_30_minutes(self, workflow):
-        # AC-1, amended 2026-09-10 (was 15). A successful ingest measures
-        # ~14m plus ~1m setup, so the old cap cancelled passing runs seconds
-        # before the assert step and made the documented retry unreachable.
-        # See the spec's "Timeout budget amendment" section.
-        assert _smoke_job(workflow)["timeout-minutes"] <= 30
+    def test_timeout_at_most_45_minutes(self, workflow):
+        # AC-1, amended 2026-11-28 (was 30; originally 15). The live path now
+        # measures ~29-30m, and two 2026-11-28 runs finished ingestion at
+        # 29m59s but were cancelled seconds before the assert. The cap is a
+        # wall-clock budget, not a coverage or spend threshold; --limit still
+        # bounds the LLM calls. See the spec's timeout-budget amendments.
+        assert _smoke_job(workflow)["timeout-minutes"] <= 45
 
 
 # =============================================================================

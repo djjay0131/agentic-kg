@@ -6,6 +6,8 @@ interface CheckpointFormProps {
   checkpointType: string;
   data: Record<string, unknown>;
   onSubmit: (decision: string, feedback: string, editedData?: Record<string, unknown>) => void;
+  onRetry?: () => void;
+  retrying?: boolean;
   loading?: boolean;
 }
 
@@ -163,6 +165,14 @@ function ReviewEvaluationSummary({
     typeof evaluation.feasibility_score === 'number'
       ? evaluation.feasibility_score
       : null;
+  const failureKind =
+    typeof evaluation.failure_kind === 'string' ? evaluation.failure_kind : '';
+  const failureCategory =
+    typeof evaluation.failure_category === 'string'
+      ? evaluation.failure_category
+      : '';
+  const retryable =
+    evaluation.retryable === true || failureKind === 'infrastructure';
   const metrics = Array.isArray(evaluation.metrics_results)
     ? (evaluation.metrics_results as MetricRow[])
     : [];
@@ -177,6 +187,8 @@ function ReviewEvaluationSummary({
           className={`text-xs px-2 py-0.5 rounded-full font-medium ${
             verdict === 'promising'
               ? 'bg-green-100 text-green-700'
+              : verdict === 'infrastructure_failed'
+              ? 'bg-orange-100 text-orange-700'
               : verdict === 'not_viable'
               ? 'bg-red-100 text-red-700'
               : 'bg-yellow-100 text-yellow-700'
@@ -198,6 +210,19 @@ function ReviewEvaluationSummary({
           {exitCode !== null ? ` (exit ${exitCode})` : ''}
         </span>
       </div>
+
+      {failureKind === 'infrastructure' && (
+        <div className="bg-orange-50 border border-orange-200 rounded p-3">
+          <p className="font-medium text-orange-800">
+            Experiment infrastructure failed
+            {failureCategory ? ` (${failureCategory})` : ''}
+          </p>
+          <p className="text-orange-700 mt-1">
+            The experiment never ran, so this is not a scientific verdict.
+            Retry evaluation from the approved proposal; earlier steps are kept.
+          </p>
+        </div>
+      )}
 
       {recommendation && (
         <div className="bg-gray-50 border rounded p-3">
@@ -307,6 +332,8 @@ export default function CheckpointForm({
   checkpointType,
   data,
   onSubmit,
+  onRetry,
+  retrying = false,
   loading = false,
 }: CheckpointFormProps) {
   const [feedback, setFeedback] = useState('');
@@ -321,6 +348,12 @@ export default function CheckpointForm({
     (data.evaluation_result as Record<string, unknown> | null) || null;
   const recommendation =
     (data.recommendation as ReviewRecommendation | null) || null;
+  const showRetry =
+    isReviewEvaluation &&
+    Boolean(onRetry) &&
+    evaluation !== null &&
+    (String(evaluation.failure_kind || '') === 'infrastructure' ||
+      evaluation.retryable === true);
 
   return (
     <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
@@ -405,6 +438,15 @@ export default function CheckpointForm({
       </div>
 
       <div className="flex gap-3">
+        {showRetry && (
+          <button
+            onClick={() => onRetry?.()}
+            disabled={loading || retrying}
+            className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 text-sm font-medium"
+          >
+            {retrying ? 'Retrying...' : 'Retry evaluation'}
+          </button>
+        )}
         <button
           onClick={() => {
             const editedData = isSelectProblem && selectedProblemId

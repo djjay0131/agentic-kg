@@ -13,6 +13,7 @@ import json
 import pytest
 from agentic_kg.agents.config import SandboxConfig
 from agentic_kg.agents.sandbox import (
+    SandboxCheckReport,
     classify_sandbox_error,
     resolve_gcs_endpoint,
     run_sandbox_check,
@@ -249,3 +250,49 @@ class TestEndpointResolution:
     )
     def test_error_classification(self, exc, category):
         assert classify_sandbox_error(exc) == category
+
+
+def test_cli_prints_a_compact_one_line_verdict(monkeypatch, capsys):
+    """The deploy step greps one stable line; it must not carry stdout/stderr."""
+    from types import SimpleNamespace
+
+    from agentic_kg import cli
+
+    report = SandboxCheckReport(
+        ok=False,
+        category="job_timeout",
+        message="Cloud Run Job execution exceeded 330s",
+        endpoint="https://private.googleapis.com",
+        used_fallback=False,
+        job="projects/p/locations/r/jobs/j",
+        stdout="a very large stdout should not be in the line",
+        stderr="a very large stderr should not be in the line",
+    )
+
+    monkeypatch.setattr(
+        "agentic_kg.agents.sandbox.run_sandbox_check",
+        lambda config, timeout_s=None: report,
+    )
+    args = SimpleNamespace(
+        backend="cloudrun_job",
+        bucket="bucket",
+        prefix="staging",
+        job="j",
+        project="project",
+        region="us-central1",
+        timeout=None,
+        json_output=False,
+    )
+
+    with pytest.raises(SystemExit):
+        cli.run_sandbox_check(args)
+
+    out = capsys.readouterr().out
+    line = next(
+        line for line in out.splitlines() if line.startswith("SANDBOX_CHECK_VERDICT ")
+    )
+    payload = json.loads(line[len("SANDBOX_CHECK_VERDICT "):])
+    assert payload["ok"] is False
+    assert payload["category"] == "job_timeout"
+    assert "stdout" not in payload
+    assert "stderr" not in payload

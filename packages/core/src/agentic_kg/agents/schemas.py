@@ -305,6 +305,19 @@ class EvaluationResult(BaseModel):
     execution_success: bool = Field(
         default=False, description="Whether execution completed without errors"
     )
+    #: ``""`` when the experiment ran (or was never attempted), ``"experiment"``
+    #: when the script ran and failed, ``"infrastructure"`` when the sandbox
+    #: could not run the script at all. Only the last case makes the verdict
+    #: meaningless for the science and should offer a retry.
+    failure_kind: str = Field(
+        default="", description="infrastructure, experiment, or empty"
+    )
+    failure_category: str = Field(
+        default="", description="Deploy-readable failure class when known"
+    )
+    retryable: bool = Field(
+        default=False, description="Whether re-running evaluation may help"
+    )
     metrics_results: list[MetricResult] = Field(
         default_factory=list, description="Results for each evaluated metric"
     )
@@ -313,7 +326,10 @@ class EvaluationResult(BaseModel):
     )
     verdict: str = Field(
         default="",
-        description="Overall verdict: promising, inconclusive, or not_viable",
+        description=(
+            "Overall verdict: promising, inconclusive, not_viable, or "
+            "infrastructure_failed"
+        ),
     )
     execution_provenance: Optional[ExecutionProvenance] = Field(
         default=None, description="Where/how the experiment was executed"
@@ -329,7 +345,13 @@ class EvaluationResult(BaseModel):
     @classmethod
     def validate_verdict(cls, v: str) -> str:
         """Normalize verdict."""
-        allowed = {"promising", "inconclusive", "not_viable", ""}
+        allowed = {
+            "promising",
+            "inconclusive",
+            "not_viable",
+            "infrastructure_failed",
+            "",
+        }
         normalized = v.lower().strip().replace(" ", "_")
         if normalized and normalized not in allowed:
             return "inconclusive"

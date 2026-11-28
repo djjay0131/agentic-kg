@@ -414,7 +414,9 @@ class WorkflowRunner:
             await self.advance_workflow(run_id)
         return run_id, dispatched
 
-    async def dispatch(self, run_id: str, *, phase: str) -> bool:
+    async def dispatch(
+        self, run_id: str, *, phase: str, record_message: bool = True
+    ) -> bool:
         """Try to hand ``run_id`` to a background Job; never raise in ``auto``.
 
         Every outcome is persisted on the run metadata (and, when a checkpoint
@@ -423,6 +425,12 @@ class WorkflowRunner:
         **not** get a ``heartbeat_at`` here: only the worker can prove it
         started. That is what lets the watchdog distinguish "accepted but never
         ran" from "running slowly".
+
+        ``record_message=False`` skips the checkpoint activity-log write. The
+        caller uses it when the checkpoint branch must not move (a retry that
+        just rewound the graph to the evaluation node); ``_record_message``
+        writes a plain state checkpoint, which would otherwise reset that
+        branch back to the review gate.
         """
         dispatcher = getattr(self, "_dispatcher", None)
         now = datetime.now(timezone.utc)
@@ -477,6 +485,8 @@ class WorkflowRunner:
             meta["worker_started_at"] = ""
         self._persist_metadata(run_id)
 
+        if not record_message:
+            return outcome.dispatched
         if outcome.dispatched:
             await self._record_message(
                 run_id,
@@ -833,6 +843,72 @@ class WorkflowRunner:
             await self.advance_workflow(run_id)
             return await self.get_state(run_id), False
         return state, True
+
+    async def retry_evaluation(self, run_id: str) -> tuple[ResearchState, bool]:
+        """Re-run evaluation from the already-approved proposal.
+
+        The review gate offers this only for an infrastructure failure: the
+        proposal is still approved, earlier steps (ranking/continuation) are
+        untouched, and the graph resumes at the evaluation node. It never
+        re-runs a scientific result a human already reviewed.
+        """
+        self._require_workflow(run_id)
+        thread_config = {"configurable": {"thread_id": run_id}}
+        current_state = await self._graph.aget_state(thread_config)
+        meta = self._merge_metadata(run_id)
+        pending_gate = self._pending_gate(current_state, meta)
+        if pending_gate != CheckpointType.REVIEW_EVALUATION.value:
+            raise GateMismatchError(run_id, "retry_evaluation", pending_gate)
+        state = dict(current_state.values)
+        if not state.get("proposal") or not state.get("proposal_approved"):
+            raise ValueError(
+                "cannot retry evaluation without an approved proposal"
+            )
+        retry_state = add_message(
+            {
+                **state,
+                "evaluation_result": None,
+                "evaluation_approved": False,
+                "current_step": "evaluation",
+                "status": WorkflowStatus.RUNNING.value,
+            },
+            "dispatcher",
+            "Retrying evaluation after an infrastructure failure",
+        )
+        # ``as_node='approve_proposal'`` makes the graph resume at evaluation
+        # (its approved-proposal route), leaving the ranking/continuation
+        # checkpoints intact instead of replaying them. This must be the last
+        # checkpoint write before the step runs: a plain ``aupdate_state`` after
+        # it would reset the branch back to ``review_evaluation``.
+        await self._graph.aupdate_state(
+            thread_config, retry_state, as_node="approve_proposal"
+        )
+
+        now = datetime.now(timezone.utc).isoformat()
+        meta = self._merge_metadata(run_id)
+        meta["current_step"] = "evaluation"
+        meta["step_started_at"] = now
+        meta["updated_at"] = now
+        meta["status"] = WorkflowStatus.RUNNING.value
+        # Re-evaluation is a fresh step: clear the previous dispatch evidence.
+        meta["execution_mode"] = ""
+        meta["dispatch_result"] = ""
+        meta["job_execution"] = ""
+        meta["dispatch_error"] = ""
+        meta["dispatched_at"] = ""
+        meta["worker_started_at"] = ""
+        meta["heartbeat_at"] = ""
+        self._persist_metadata(run_id)
+
+        dispatched = await self.dispatch(
+            run_id, phase="resume", record_message=False
+        )
+        if not dispatched:
+            await self.advance_workflow(run_id)
+            return await self.get_state(run_id), False
+        presented = dict(retry_state)
+        presented["updated_at"] = now
+        return presented, True
 
     async def resume_workflow(
         self,

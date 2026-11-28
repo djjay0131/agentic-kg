@@ -192,6 +192,40 @@ def _conflict_response(exc: WorkflowConflictError) -> HTTPException:
     return HTTPException(status_code=409, detail=detail)
 
 
+def _state_response(runner: Any, state: dict[str, Any]) -> WorkflowStateResponse:
+    """Build the UI's full-state payload from a runner state dict."""
+    run_id = str(state.get("run_id") or "")
+    meta = runner.get_run_metadata(run_id)
+    pending_gate = _pending_gate(state)
+    return WorkflowStateResponse(
+        run_id=run_id,
+        status=state.get("status", "unknown"),
+        current_step=state.get("current_step", ""),
+        created_at=str(meta.get("created_at") or state.get("created_at") or ""),
+        updated_at=str(meta.get("updated_at") or state.get("updated_at") or ""),
+        step_started_at=str(meta.get("step_started_at") or ""),
+        topic_filter=state.get("topic_filter"),
+        tag=state.get("tag") or meta.get("tag"),
+        ranked_problems=state.get("ranked_problems", []),
+        selected_problem_id=state.get("selected_problem_id"),
+        proposal=state.get("proposal"),
+        evaluation_result=state.get("evaluation_result"),
+        synthesis_report=state.get("synthesis_report"),
+        messages=state.get("messages", []),
+        errors=state.get("errors", []),
+        pending_gate=pending_gate,
+        gate_recommendation=_gate_recommendation(pending_gate, state),
+        execution_mode=str(meta.get("execution_mode") or ""),
+        dispatch_result=str(meta.get("dispatch_result") or ""),
+        job_execution=str(meta.get("job_execution") or ""),
+        dispatch_error=str(meta.get("dispatch_error") or ""),
+        dispatched_at=str(meta.get("dispatched_at") or ""),
+        worker_started_at=str(meta.get("worker_started_at") or ""),
+        heartbeat_at=str(meta.get("heartbeat_at") or ""),
+        lease_until=str(meta.get("lease_until") or ""),
+    )
+
+
 # --- Endpoints ---
 
 
@@ -407,6 +441,40 @@ async def submit_checkpoint(
         raise HTTPException(status_code=404, detail=f"Workflow {run_id} not found")
     except Exception as e:
         logger.error(f"Checkpoint submission failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
+    "/workflows/{run_id}/evaluation/retry",
+    status_code=202,
+)
+async def retry_evaluation(run_id: str) -> WorkflowStateResponse:
+    """Re-run evaluation from the already-approved proposal.
+
+    Offered at the review gate after an *infrastructure* failure (the Sandbox
+    never ran the script). It does not replay ranking or continuation and does
+    not overwrite a scientific result; it re-dispatches the evaluation step.
+    """
+    runner = _get_runner()
+    try:
+        state, dispatched = await runner.retry_evaluation(run_id)
+        await ws_manager.send_step_update(
+            run_id,
+            step="evaluation",
+            status="retried",
+            data={"dispatched": dispatched},
+        )
+        return _state_response(runner, state)
+    except GateMismatchError as exc:
+        raise _conflict_response(exc)
+    except WorkflowConflictError as exc:
+        raise _conflict_response(exc)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Workflow {run_id} not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail={"message": str(exc)})
+    except Exception as e:
+        logger.error(f"Evaluation retry failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

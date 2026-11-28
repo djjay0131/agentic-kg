@@ -73,11 +73,18 @@ class FakeRunClient:
                 f"{prefix}/result.json",
                 json.dumps({"exit_code": 1, "timed_out": False}).encode(),
             )
+        elif self.status == "timeout_with_result":
+            self.store.upload_bytes(f"{prefix}/stdout.txt", b"")
+            self.store.upload_bytes(f"{prefix}/stderr.txt", b"exceeded 5s")
+            self.store.upload_bytes(
+                f"{prefix}/result.json",
+                json.dumps({"exit_code": -1, "timed_out": True}).encode(),
+            )
         return "projects/p/locations/r/executions/e1"
 
     def get_execution(self, execution_name: str) -> dict:
         self.polled += 1
-        if self.status == "success":
+        if self.status in ("success", "success_no_result"):
             return {
                 "status": {
                     "completionTime": "2026-10-26T00:00:01Z",
@@ -218,6 +225,43 @@ class TestCloudRunJobBackend:
         assert result.success is False
         assert result.timed_out is True
         assert result.exit_code == -1
+        # No result.json was written: the Job never produced output, so this
+        # is an infrastructure failure, not a scientific timeout.
+        assert result.infrastructure_failure is True
+        assert result.failure_category == "job_timeout"
+        assert result.failure_stage == "poll"
+
+    def test_missing_result_object_is_infrastructure_even_if_execution_succeeds(self):
+        """A successful execution with no result.json is not a scientific result."""
+        store = FakeStore()
+        run = FakeRunClient(store, status="success_no_result")
+        backend = CloudRunJobBackend(_config(), store=store, run_client=run)
+
+        result = backend.execute("print('hi')", timeout_s=30)
+
+        assert result.success is False
+        assert result.infrastructure_failure is True
+        assert result.failure_category == "job_failed"
+        assert "without writing result.json" in result.stderr
+
+    def test_poll_timeout_with_a_result_object_is_an_experiment_timeout(self):
+        """A script that wrote its own timed_out result is a scientific result."""
+        store = FakeStore()
+        run = FakeRunClient(store, status="timeout_with_result")
+        clock = FakeClock()
+        backend = CloudRunJobBackend(
+            _config(poll_interval_seconds=2),
+            store=store,
+            run_client=run,
+            sleep=clock.sleep,
+            clock=clock,
+        )
+
+        result = backend.execute("while True: pass", timeout_s=5)
+
+        assert result.timed_out is True
+        assert result.infrastructure_failure is False
+        assert result.failure_category is None
 
 
 class TestExecutionStatus:
@@ -259,3 +303,114 @@ class TestExperimentRunner:
             "metrics": {"accuracy": 0.5}
         }
         assert b"accuracy" in store.objects[f"{prefix}/stdout.txt"]
+
+    def test_run_prints_a_start_line_immediately(self, monkeypatch, capsys):
+        store = FakeStore()
+        prefix = "gs://bucket/staging/exp1"
+        store.objects[f"{prefix}/script.py"] = b"print('hi')\n"
+        monkeypatch.setattr(experiment_runner, "_Store", lambda: store)
+        monkeypatch.setenv("EXPERIMENT_TIMEOUT_S", "30")
+
+        experiment_runner.run(f"{prefix}/script.py")
+
+        err = capsys.readouterr().err
+        assert "experiment-runner: start uri=gs://bucket/staging/exp1/script.py" in err
+        assert "stage=download" in err
+        assert "stage=exec" in err
+        assert "stage=upload" in err
+        assert "done exit_code=0" in err
+
+    def test_download_failure_names_the_stage(self, monkeypatch):
+        class _FailingDownload(FakeStore):
+            def download(self, uri: str):
+                raise TimeoutError("connect timed out")
+
+        import pytest
+
+        monkeypatch.setattr(experiment_runner, "_Store", lambda: _FailingDownload())
+
+        with pytest.raises(RuntimeError, match="download stage failed"):
+            experiment_runner.run("gs://bucket/staging/exp1/script.py")
+
+    def test_upload_failure_names_the_stage(self, monkeypatch):
+        class _FailingUpload(FakeStore):
+            def upload(self, uri: str, data: bytes, content_type: str) -> None:
+                raise TimeoutError("write timed out")
+
+        import pytest
+
+        store = _FailingUpload()
+        prefix = "gs://bucket/staging/exp1"
+        store.objects[f"{prefix}/script.py"] = b"print('hi')\n"
+        monkeypatch.setattr(experiment_runner, "_Store", lambda: store)
+        monkeypatch.setenv("EXPERIMENT_TIMEOUT_S", "30")
+
+        with pytest.raises(RuntimeError, match="upload stage failed"):
+            experiment_runner.run(f"{prefix}/script.py")
+
+    def test_missing_script_is_not_a_stage_failure(self, monkeypatch):
+        import pytest
+
+        store = FakeStore()
+        monkeypatch.setattr(experiment_runner, "_Store", lambda: store)
+
+        with pytest.raises(FileNotFoundError, match="script not found"):
+            experiment_runner.run("gs://bucket/staging/missing/script.py")
+
+
+class TestRunnerEndpointResolution:
+    """The experiment Job's private path is probed, never assumed."""
+
+    def test_default_endpoint_skips_the_probe(self, monkeypatch):
+        monkeypatch.delenv("EXPERIMENT_GCS_ENDPOINT", raising=False)
+
+        def _boom(endpoint, timeout):
+            raise AssertionError("the public default must not be probed")
+
+        monkeypatch.setattr(experiment_runner, "_probe_endpoint", _boom)
+        endpoint, used_fallback = experiment_runner._resolve_endpoint()
+        assert endpoint == "https://storage.googleapis.com"
+        assert used_fallback is False
+
+    def test_reachable_private_endpoint_is_used(self, monkeypatch):
+        monkeypatch.setenv(
+            "EXPERIMENT_GCS_ENDPOINT", "https://private.googleapis.com"
+        )
+        monkeypatch.setattr(
+            experiment_runner, "_probe_endpoint", lambda endpoint, timeout: True
+        )
+        endpoint, used_fallback = experiment_runner._resolve_endpoint()
+        assert endpoint == "https://private.googleapis.com"
+        assert used_fallback is False
+
+    def test_unreachable_private_endpoint_falls_back_to_public(self, monkeypatch):
+        monkeypatch.setenv(
+            "EXPERIMENT_GCS_ENDPOINT", "https://private.googleapis.com"
+        )
+        monkeypatch.setenv(
+            "EXPERIMENT_GCS_ENDPOINT_FALLBACK", "https://storage.googleapis.com"
+        )
+        monkeypatch.setattr(
+            experiment_runner,
+            "_probe_endpoint",
+            lambda endpoint, timeout: endpoint
+            == "https://storage.googleapis.com",
+        )
+        endpoint, used_fallback = experiment_runner._resolve_endpoint()
+        assert endpoint == "https://storage.googleapis.com"
+        assert used_fallback is True
+
+    def test_both_endpoints_unreachable_fails_fast(self, monkeypatch):
+        import pytest
+
+        monkeypatch.setenv(
+            "EXPERIMENT_GCS_ENDPOINT", "https://private.googleapis.com"
+        )
+        monkeypatch.setenv(
+            "EXPERIMENT_GCS_ENDPOINT_FALLBACK", "https://storage.googleapis.com"
+        )
+        monkeypatch.setattr(
+            experiment_runner, "_probe_endpoint", lambda endpoint, timeout: False
+        )
+        with pytest.raises(RuntimeError, match="no reachable GCS endpoint"):
+            experiment_runner._resolve_endpoint()

@@ -1850,6 +1850,10 @@ def run_sandbox_check(args) -> None:
             f"sandbox-check skipped: EXPERIMENT_BACKEND={config.backend!r} is "
             "not the cloudrun_job backend"
         )
+        print("SANDBOX_CHECK_VERDICT " + json.dumps(
+            {"ok": True, "category": "skipped", "message": message},
+            sort_keys=True,
+        ))
         print(message)
         return
 
@@ -1862,21 +1866,34 @@ def run_sandbox_check(args) -> None:
         except Exception:  # noqa: BLE001 - a missing project is reported below
             config.project_id = ""
     if not config.project_id:
-        print(
-            "sandbox-check failed: no GCP project (set GCP_PROJECT or "
-            "pass --project)",
-            file=sys.stderr,
-        )
+        message = "no GCP project (set GCP_PROJECT or pass --project)"
+        print("SANDBOX_CHECK_VERDICT " + json.dumps(
+            {"ok": False, "category": "error", "message": message},
+            sort_keys=True,
+        ))
+        print(f"sandbox-check failed: {message}", file=sys.stderr)
         raise SystemExit(1)
     if not config.gcs_bucket:
-        print(
-            "sandbox-check failed: EXPERIMENT_GCS_BUCKET is not configured "
-            "(pass --bucket)",
-            file=sys.stderr,
-        )
+        message = "EXPERIMENT_GCS_BUCKET is not configured (pass --bucket)"
+        print("SANDBOX_CHECK_VERDICT " + json.dumps(
+            {"ok": False, "category": "error", "message": message},
+            sort_keys=True,
+        ))
+        print(f"sandbox-check failed: {message}", file=sys.stderr)
         raise SystemExit(1)
 
     report = _run_check(config, timeout_s=args.timeout)
+
+    # A single machine-readable line the deploy step greps from the execution
+    # logs and echoes as a GitHub ``::error::``/``::notice::``. It is
+    # intentionally stable, compact and on one line: the full stdout/stderr is
+    # already in the execution logs.
+    verdict = {
+        key: value
+        for key, value in report.as_dict().items()
+        if key not in {"stdout", "stderr"}
+    }
+    print("SANDBOX_CHECK_VERDICT " + json.dumps(verdict, sort_keys=True))
 
     if args.json_output:
         print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
