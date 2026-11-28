@@ -83,17 +83,29 @@ jobs:
         id: parse
         run: |
           SERVICES="${{ inputs.services }}"
+          # Exact comma-token match, not a substring: `grep -q experiment`
+          # would also match a future service whose name contains the word,
+          # and a silently-false build flag is how a changed experiment image
+          # can be skipped (#171 printed `if [ "false" = "true" ]`).
+          SERVICES="$(printf '%s' "$SERVICES" | tr -d '[:space:]')"
+          has_service() {
+            case ",${SERVICES}," in
+              *",$1,"*) echo true ;;
+              *) echo false ;;
+            esac
+          }
           if [ "$SERVICES" = "all" ]; then
             echo "build_api=true" >> $GITHUB_OUTPUT
             echo "build_ui=true" >> $GITHUB_OUTPUT
             echo "build_job=true" >> $GITHUB_OUTPUT
             echo "build_experiment=true" >> $GITHUB_OUTPUT
           else
-            echo "build_api=$(echo $SERVICES | grep -q 'api' && echo true || echo false)" >> $GITHUB_OUTPUT
-            echo "build_ui=$(echo $SERVICES | grep -q 'ui' && echo true || echo false)" >> $GITHUB_OUTPUT
-            echo "build_job=$(echo $SERVICES | grep -q 'job' && echo true || echo false)" >> $GITHUB_OUTPUT
-            echo "build_experiment=$(echo $SERVICES | grep -q 'experiment' && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "build_api=$(has_service api)" >> $GITHUB_OUTPUT
+            echo "build_ui=$(has_service ui)" >> $GITHUB_OUTPUT
+            echo "build_job=$(has_service job)" >> $GITHUB_OUTPUT
+            echo "build_experiment=$(has_service experiment)" >> $GITHUB_OUTPUT
           fi
+          echo "::notice::build services='${SERVICES}' api=$(has_service api) ui=$(has_service ui) job=$(has_service job) experiment=$(has_service experiment)"
 
       - name: Set image metadata
         id: meta

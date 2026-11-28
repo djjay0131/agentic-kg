@@ -106,3 +106,33 @@ class TestExperimentImage:
         workflow = _BUILD_WORKFLOW.read_text(encoding="utf-8")
         assert "docker/Dockerfile.experiment" in workflow
         assert "experiment_image" in workflow
+
+    def test_build_workflow_parses_services_as_exact_tokens(self):
+        """A substring match can silently turn a real build into `false`.
+
+        #171's deploy printed `if [ "false" = "true" ]` for the experiment
+        image. The build flags are now exact comma tokens and the parsed set
+        is printed, so a skipped build is visible in the log.
+        """
+        workflow = _BUILD_WORKFLOW.read_text(encoding="utf-8")
+        assert 'case ",${SERVICES}," in' in workflow
+        assert '*",$1,"*' in workflow
+        assert "has_service experiment" in workflow
+        assert "::notice::build services=" in workflow
+        # The old substring parsers are gone.
+        assert "grep -q 'experiment'" not in workflow
+        assert "grep -q 'api'" not in workflow
+
+    def test_deploy_master_builds_experiment_when_it_changes(self):
+        deploy = (
+            _REPO_ROOT / ".github" / "workflows" / "deploy-master.yml"
+        ).read_text(encoding="utf-8")
+        # Changes to the runner source select the experiment service...
+        assert (
+            "packages/core/src/agentic_kg/agents/experiment_runner.py" in deploy
+        )
+        assert "'experiment'" in deploy
+        # ...and the build receives it alongside the other services.
+        assert "needs.changes.outputs.experiment == 'true'" in deploy
+        # The Job is rolled on every deploy, independent of the build flag.
+        assert "gcloud run jobs update agentic-kg-experiment-staging" in deploy

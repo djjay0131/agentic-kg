@@ -348,14 +348,22 @@ class TestExperimentRunner:
         with pytest.raises(RuntimeError, match="upload stage failed"):
             experiment_runner.run(f"{prefix}/script.py")
 
-    def test_missing_script_is_not_a_stage_failure(self, monkeypatch):
+    def test_missing_script_is_a_download_not_found(self, monkeypatch):
         import pytest
 
         store = FakeStore()
         monkeypatch.setattr(experiment_runner, "_Store", lambda: store)
 
-        with pytest.raises(FileNotFoundError, match="script not found"):
+        # The runner now writes error.json and reports the 404 as a download
+        # stage failure instead of a bare FileNotFoundError, so the backend can
+        # classify it without Cloud Logging.
+        with pytest.raises(experiment_runner._StageError, match="not found") as caught:
             experiment_runner.run("gs://bucket/staging/missing/script.py")
+        assert caught.value.stage == "download"
+        assert caught.value.category == "not_found"
+        assert json.loads(
+            store.objects["gs://bucket/staging/missing/error.json"]
+        )["stage"] == "download"
 
 
 class TestRunnerEndpointResolution:
