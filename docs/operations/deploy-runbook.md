@@ -75,6 +75,44 @@ so the build finishes **SUCCESS in seconds** without building or pushing
 anything. The guard is only skipped for a manual build (no `TRIGGER_NAME`) or
 when `_ALLOW_TRIGGER_DEPLOY=true` is passed deliberately.
 
+## Serial staging deploys (newest commit wins)
+
+Two merges to `master` a few seconds apart used to race. On 2026-11-27 the
+Deploy Master runs for `#157` and `#158` started 13s apart, the older commit's
+deploy finished last, and staging ended on `3f67f44` while the newer run failed
+its drift check (`Drift on api-staging: 3f67f44 != a4dc270`).
+
+Staging rolls are now **strictly serial and newest-wins**:
+
+- `deploy-master.yml` declares a workflow-level `concurrency` group named
+  `deploy-staging` with `cancel-in-progress: false`. A queued run waits for the
+  in-flight run; a cancellation can never leave a half-rolled environment.
+  With GitHub's default single queue, a newer pending run also replaces an older
+  pending one.
+- `deploy-branch.yml` uses the same group (`deploy-<environment>`, so
+  `deploy-staging`) for its `deploy` job. A manual branch deploy to staging is
+  therefore serialised with master deploys; `dev` gets its own group.
+- Before building, the `staging-head-guard` job runs
+  `scripts/staging_deploy_guard.sh`. If `origin/master` has moved past this
+  commit **in a path that triggers deploy-master** (`packages/**`, `docker/**`,
+  `pyproject.toml`, `.github/workflows/deploy-*.yml`), the run sets
+  `superseded=true` and both `build` and `deploy-staging` are skipped, so the
+  newest commit's run is the one that rolls staging. Skipping the build matters
+  too: an older build pushing `latest` after a newer deploy would otherwise
+  regress the image tag.
+- A **docs-only** commit after this one does not supersede the deploy, because
+  such a commit has no Deploy Master run of its own; skipping would strand
+  staging on an older image. This is why the guard diffs the deploy paths
+  instead of simply testing `github.sha == origin/master`.
+- A superseded run finishes with the guard and deploy jobs skipped and its
+  downstream jobs (`post-deploy-ui-tests`, `integration-test`,
+  `update-manifest`) skipped by their `needs`. It is never a failure.
+
+The structural contract is pinned by
+`packages/core/tests/test_deploy_workflow_concurrency.py`, which also exercises
+the guard against a temporary git repository (current tip, docs-only advance,
+newer deployable commit, workflow change).
+
 ## Manual escape hatch
 
 Build and roll a single service:
