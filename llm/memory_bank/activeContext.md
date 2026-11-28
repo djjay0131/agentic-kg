@@ -7,6 +7,41 @@ Last updated: 2026-11-28
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
 
+## Finished-execution detection, object-store completion, verdict on every path (2026-11-28, T69)
+
+`fix/execution-terminal-detection` fixes the deploy after #172: the experiment
+Job completed at 18:25:24 but the caller polled the Execution 115 more times and
+reported `job_timeout` at 18:29:29.
+
+- **v2 REST shape.** `_poll_execution` read `status.completionTime` (the
+  v1/gcloud view). The Run Admin v2 Execution carries `completionTime`,
+  `startTime`, `succeededCount`, `failedCount`, `cancelledCount`,
+  `runningCount`, `conditions[].state` and `reconciling` at the **top level**.
+  `is_execution_terminal` / `execution_succeeded` / `execution_condition_message`
+  now flatten both shapes: completionTime; a `Completed`/`Succeeded` condition
+  with `CONDITION_SUCCEEDED`/`CONDITION_FAILED`/`CONDITION_CANCELLED` (v2) or
+  `status: "True"/"False"` (v1); or finished counts with `runningCount == 0`.
+  An in-flight operation that omits `done` is detected by its `.../operations/`
+  name.
+- **Objects are the contract.** While polling, every few GETs `_poll_execution`
+  also checks for `result.json` / `error.json` under the experiment prefix and
+  returns a marked completion if either appeared, so a lagging control plane
+  cannot turn a finished experiment into a timeout. `_collect` treats
+  `result.json` with `exit_code == 0` as success.
+- **Verdict on every exit path.** `agentic-kg sandbox-check` prints
+  `SANDBOX_CHECK_VERDICT {...}` as the last stdout line for success, every
+  failure category, skip and an unexpected exception (the exception is caught
+  and reported). httpx/httpcore request logs are pinned to WARNING in the check
+  and workflow worker. `deploy-master`/`gcp-diagnose` read the verdict they
+  already grep for.
+- **Job definition formatter.** A gcloud v1 **Job** nests the task template at
+  `spec.template.spec.template.spec`; #172's fixture used the Execution shape
+  (`spec.template.spec`), so tests passed and the real Job printed blank
+  `image`/`serviceAccount`/`vpcAccess`. `scripts/format_run_job.py` now tries
+  the v1 Job path first and falls back to a recursive task-template search.
+  Recorded v2 Execution fixtures (`running`, `succeeded`, `failed`,
+  `cancelled`) and operation fixtures drive the terminal tests.
+
 ## Experiment script visibility, fail-fast execution, Job diagnosis (2026-11-28, T68)
 
 `fix/experiment-script-visibility` fixes the three defects #171's CI diagnosis
