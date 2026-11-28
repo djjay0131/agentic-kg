@@ -335,6 +335,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         level=os.environ.get("LOG_LEVEL", "INFO"),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
+    # The sandbox poll loop issues many GETs; at INFO each one buries the
+    # diagnosis. Keep the worker's own logs, silence per-request lines.
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     if args == ["selfcheck"]:
         return run_selfcheck_sync()
     if len(args) != 2 or args[0] not in PHASES:

@@ -1826,9 +1826,21 @@ def run_sandbox_check(args) -> None:
     Invoked by ``deploy-master`` through the ingest Job's execution-time args
     override. Uses the *worker's* runtime configuration, so it exercises the
     same endpoint resolution and identity a real evaluation step uses.
+
+    Every exit path prints one ``SANDBOX_CHECK_VERDICT {...}`` line as the last
+    stdout line. #172's timeout path printed only the human message, so the
+    deploy step reported "no SANDBOX_CHECK_VERDICT line" even though the check
+    had reached its report.
     """
+    import logging
+
     from agentic_kg.agents.config import SandboxConfig
     from agentic_kg.agents.sandbox import run_sandbox_check as _run_check
+
+    # The poll loop issues ~160 GETs; at INFO each becomes its own log line and
+    # buries the verdict and the diagnosis.
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
     config = SandboxConfig()
     if args.backend is not None:
@@ -1844,17 +1856,31 @@ def run_sandbox_check(args) -> None:
     if args.region is not None:
         config.region = args.region
 
+    def emit_verdict(
+        payload: dict,
+        *,
+        details: list[str] | None = None,
+        error: str | None = None,
+    ) -> None:
+        for line in details or []:
+            print(line)
+        if error:
+            print(error, file=sys.stderr)
+        print(
+            "SANDBOX_CHECK_VERDICT " + json.dumps(payload, sort_keys=True),
+            flush=True,
+        )
+
     backend = (config.backend or "docker").strip().lower()
     if backend not in {"cloudrun_job", "cloudrun-job", "cloudrun"}:
         message = (
             f"sandbox-check skipped: EXPERIMENT_BACKEND={config.backend!r} is "
             "not the cloudrun_job backend"
         )
-        print("SANDBOX_CHECK_VERDICT " + json.dumps(
+        emit_verdict(
             {"ok": True, "category": "skipped", "message": message},
-            sort_keys=True,
-        ))
-        print(message)
+            details=[message],
+        )
         return
 
     if not config.project_id:
@@ -1867,22 +1893,37 @@ def run_sandbox_check(args) -> None:
             config.project_id = ""
     if not config.project_id:
         message = "no GCP project (set GCP_PROJECT or pass --project)"
-        print("SANDBOX_CHECK_VERDICT " + json.dumps(
+        emit_verdict(
             {"ok": False, "category": "error", "message": message},
-            sort_keys=True,
-        ))
-        print(f"sandbox-check failed: {message}", file=sys.stderr)
+            error=f"sandbox-check failed: {message}",
+        )
         raise SystemExit(1)
     if not config.gcs_bucket:
         message = "EXPERIMENT_GCS_BUCKET is not configured (pass --bucket)"
-        print("SANDBOX_CHECK_VERDICT " + json.dumps(
+        emit_verdict(
             {"ok": False, "category": "error", "message": message},
-            sort_keys=True,
-        ))
-        print(f"sandbox-check failed: {message}", file=sys.stderr)
+            error=f"sandbox-check failed: {message}",
+        )
         raise SystemExit(1)
 
-    report = _run_check(config, timeout_s=args.timeout)
+    try:
+        report = _run_check(config, timeout_s=args.timeout)
+    except Exception as exc:  # noqa: BLE001 - the verdict is the contract
+        message = (
+            "sandbox-check crashed before it could report: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        emit_verdict(
+            {
+                "ok": False,
+                "category": "error",
+                "message": message,
+                "endpoint": config.gcs_endpoint or "",
+                "job": config.job_name or "",
+            },
+            error=message,
+        )
+        raise SystemExit(1)
 
     # A single machine-readable line the deploy step greps from the execution
     # logs and echoes as a GitHub ``::error::``/``::notice::``. It is
@@ -1893,28 +1934,33 @@ def run_sandbox_check(args) -> None:
         for key, value in report.as_dict().items()
         if key not in {"stdout", "stderr"}
     }
-    print("SANDBOX_CHECK_VERDICT " + json.dumps(verdict, sort_keys=True))
 
+    details: list[str] = []
     if args.json_output:
-        print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
+        details.append(json.dumps(report.as_dict(), indent=2, sort_keys=True))
     else:
         endpoint = report.endpoint + (
             " (fallback)" if report.used_fallback else ""
         )
-        print(f"sandbox-check endpoint: {endpoint}")
-        print(f"sandbox-check job: {report.job}")
-        print(f"sandbox-check result_uri: {report.result_uri}")
-        print(f"sandbox-check cleanup: {report.cleanup}")
-    if not report.ok:
-        print(
-            f"sandbox-check failed [{report.category}]: {report.message}",
-            file=sys.stderr,
+        details.extend(
+            [
+                f"sandbox-check endpoint: {endpoint}",
+                f"sandbox-check job: {report.job}",
+                f"sandbox-check result_uri: {report.result_uri}",
+                f"sandbox-check cleanup: {report.cleanup}",
+            ]
         )
+    error = None
+    if not report.ok:
+        error = f"sandbox-check failed [{report.category}]: {report.message}"
+    else:
+        details.append(
+            "sandbox-check OK: upload, experiment Job execution, poll and "
+            "read-back succeeded"
+        )
+    emit_verdict(verdict, details=details, error=error)
+    if not report.ok:
         raise SystemExit(1)
-    print(
-        "sandbox-check OK: upload, experiment Job execution, poll and "
-        "read-back succeeded"
-    )
 
 
 def main(argv: Optional[list[str]] = None) -> None:
