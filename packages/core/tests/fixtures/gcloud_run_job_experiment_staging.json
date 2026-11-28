@@ -1,0 +1,53 @@
+{
+  "apiVersion": "run.googleapis.com/v1",
+  "kind": "Job",
+  "metadata": {
+    "name": "agentic-kg-experiment-staging",
+    "namespace": "542888988741",
+    "selfLink": "/apis/run.googleapis.com/v1/namespaces/542888988741/jobs/agentic-kg-experiment-staging"
+  },
+  "spec": {
+    "parallelism": 1,
+    "taskCount": 1,
+    "template": {
+      "spec": {
+        "containers": [
+          {
+            "env": [
+              {
+                "name": "EXPERIMENT_BUCKET"
+              },
+              {
+                "name": "EXPERIMENT_GCS_PREFIX"
+              },
+              {
+                "name": "EXPERIMENT_GCS_ENDPOINT"
+              }
+            ],
+            "image": "us-central1-docker.pkg.dev/vt-gcp-00042/agentic-kg/experiment@sha256:6a3788ae5e8aacf2b7ad553c1149bd1414134506d9b3bde25de045c5db7b99d0",
+            "resources": {
+              "limits": {
+                "cpu": "1",
+                "memory": "2Gi"
+              }
+            }
+          }
+        ],
+        "maxRetries": 0,
+        "serviceAccountName": "agentic-kg-experiment-staging@vt-gcp-00042.iam.gserviceaccount.com",
+        "timeoutSeconds": "300",
+        "vpcAccess": {
+          "networkInterfaces": [
+            {
+              "network": "agentic-kg-experiments-staging",
+              "subnetwork": "agentic-kg-experiments-staging"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "status": {
+    "observedGeneration": 1
+  }
+}

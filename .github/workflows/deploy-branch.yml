@@ -125,17 +125,25 @@ jobs:
         id: parse
         run: |
           SERVICES="${{ inputs.services }}"
+          SERVICES="$(printf '%s' "$SERVICES" | tr -d '[:space:]')"
+          has_service() {
+            case ",${SERVICES}," in
+              *",$1,"*) echo true ;;
+              *) echo false ;;
+            esac
+          }
           if [ "$SERVICES" = "all" ]; then
             echo "deploy_api=true" >> $GITHUB_OUTPUT
             echo "deploy_ui=true" >> $GITHUB_OUTPUT
             echo "deploy_job=true" >> $GITHUB_OUTPUT
             echo "deploy_experiment=true" >> $GITHUB_OUTPUT
           else
-            echo "deploy_api=$(echo $SERVICES | grep -q 'api' && echo true || echo false)" >> $GITHUB_OUTPUT
-            echo "deploy_ui=$(echo $SERVICES | grep -q 'ui' && echo true || echo false)" >> $GITHUB_OUTPUT
-            echo "deploy_job=$(echo $SERVICES | grep -q 'job' && echo true || echo false)" >> $GITHUB_OUTPUT
-            echo "deploy_experiment=$(echo $SERVICES | grep -q 'experiment' && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "deploy_api=$(has_service api)" >> $GITHUB_OUTPUT
+            echo "deploy_ui=$(has_service ui)" >> $GITHUB_OUTPUT
+            echo "deploy_job=$(has_service job)" >> $GITHUB_OUTPUT
+            echo "deploy_experiment=$(has_service experiment)" >> $GITHUB_OUTPUT
           fi
+          echo "::notice::deploy services='${SERVICES}' api=$(has_service api) ui=$(has_service ui) job=$(has_service job) experiment=$(has_service experiment)"
 
       - name: Set environment suffix
         id: env

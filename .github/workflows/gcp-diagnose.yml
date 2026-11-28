@@ -20,6 +20,8 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - uses: actions/checkout@v4
+
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
@@ -85,15 +87,9 @@ jobs:
           EXP_JOB="${EXP_JOB:-agentic-kg-experiment-staging}"
           echo "experiment bucket=${BUCKET} prefix=${PREFIX} job=${EXP_JOB}"
           echo "== ${EXP_JOB} definition summary (no env values) =="
-          echo "image: $(gcloud run jobs describe "$EXP_JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.containers[0].image)' 2>/dev/null || true)"
-          echo "command: $(gcloud run jobs describe "$EXP_JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.containers[0].command)' 2>/dev/null || true)"
-          echo "args: $(gcloud run jobs describe "$EXP_JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.containers[0].args)' 2>/dev/null || true)"
-          echo "timeout: $(gcloud run jobs describe "$EXP_JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.timeout)' 2>/dev/null || true)"
-          echo "maxRetries: $(gcloud run jobs describe "$EXP_JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.maxRetries)' 2>/dev/null || true)"
-          echo "serviceAccount: $(gcloud run jobs describe "$EXP_JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.serviceAccount)' 2>/dev/null || true)"
-          echo "vpcAccess: $(gcloud run jobs describe "$EXP_JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.vpcAccess)' 2>/dev/null || true)"
-          echo "resources: $(gcloud run jobs describe "$EXP_JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.containers[0].resources.limits)' 2>/dev/null || true)"
-          echo "envNames: $(gcloud run jobs describe "$EXP_JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.containers[0].env[].name)' 2>/dev/null || true)"
+          gcloud run jobs describe "$EXP_JOB" --region="$REGION" \
+            --project="$PROJECT_ID" --format=json 2>/dev/null \
+            | python3 scripts/format_run_job.py || true
           echo "== ${EXP_JOB} last 5 executions =="
           gcloud run jobs executions list --job="$EXP_JOB" --region="$REGION" \
             --project="$PROJECT_ID" --limit=5 \
@@ -125,14 +121,9 @@ jobs:
         run: |
           for JOB in agentic-kg-ingest-staging agentic-kg-llm-check-staging; do
             echo "== ${JOB} definition summary (no env values) =="
-            echo "image: $(gcloud run jobs describe "$JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.containers[0].image)' 2>/dev/null || true)"
-            echo "command: $(gcloud run jobs describe "$JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.containers[0].command)' 2>/dev/null || true)"
-            echo "args: $(gcloud run jobs describe "$JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.containers[0].args)' 2>/dev/null || true)"
-            echo "timeout: $(gcloud run jobs describe "$JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.timeout)' 2>/dev/null || true)"
-            echo "maxRetries: $(gcloud run jobs describe "$JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.maxRetries)' 2>/dev/null || true)"
-            echo "serviceAccount: $(gcloud run jobs describe "$JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.serviceAccount)' 2>/dev/null || true)"
-            echo "vpcAccess: $(gcloud run jobs describe "$JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.vpcAccess)' 2>/dev/null || true)"
-            echo "envNames: $(gcloud run jobs describe "$JOB" --region="$REGION" --project="$PROJECT_ID" --format='value(template.template.containers[0].env[].name)' 2>/dev/null || true)"
+            gcloud run jobs describe "$JOB" --region="$REGION" \
+              --project="$PROJECT_ID" --format=json 2>/dev/null \
+              | python3 scripts/format_run_job.py || true
           done
 
       - name: Cloud Build triggers

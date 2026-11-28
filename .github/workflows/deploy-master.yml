@@ -240,7 +240,7 @@ jobs:
               --update-labels=environment=staging,commit=${{ github.sha }}
             echo "experiment Job image: $(gcloud run jobs describe agentic-kg-experiment-staging \
               --region=${{ env.REGION }} \
-              --format='value(spec.template.template.containers[0].image)')"
+              --format=json | python3 scripts/format_run_job.py --field image)"
           else
             echo "agentic-kg-experiment-staging not created yet; Terraform owns creation"
           fi
@@ -409,17 +409,14 @@ jobs:
               --format='value(timestamp,severity,textPayload,jsonPayload.message)' || true
           }
           dump_experiment_job() {
-            local job="$1"
+            local job="$1" job_json
             echo "== experiment Job ${job} definition (no env values) =="
-            echo "image: $(gcloud run jobs describe "$job" --region=${{ env.REGION }} --project="${PROJECT_ID}" --format='value(template.template.containers[0].image)' 2>/dev/null || true)"
-            echo "command: $(gcloud run jobs describe "$job" --region=${{ env.REGION }} --project="${PROJECT_ID}" --format='value(template.template.containers[0].command)' 2>/dev/null || true)"
-            echo "args: $(gcloud run jobs describe "$job" --region=${{ env.REGION }} --project="${PROJECT_ID}" --format='value(template.template.containers[0].args)' 2>/dev/null || true)"
-            echo "timeout: $(gcloud run jobs describe "$job" --region=${{ env.REGION }} --project="${PROJECT_ID}" --format='value(template.template.timeout)' 2>/dev/null || true)"
-            echo "maxRetries: $(gcloud run jobs describe "$job" --region=${{ env.REGION }} --project="${PROJECT_ID}" --format='value(template.template.maxRetries)' 2>/dev/null || true)"
-            echo "serviceAccount: $(gcloud run jobs describe "$job" --region=${{ env.REGION }} --project="${PROJECT_ID}" --format='value(template.template.serviceAccount)' 2>/dev/null || true)"
-            echo "vpcAccess: $(gcloud run jobs describe "$job" --region=${{ env.REGION }} --project="${PROJECT_ID}" --format='value(template.template.vpcAccess)' 2>/dev/null || true)"
-            echo "resources: $(gcloud run jobs describe "$job" --region=${{ env.REGION }} --project="${PROJECT_ID}" --format='value(template.template.containers[0].resources.limits)' 2>/dev/null || true)"
-            echo "envNames: $(gcloud run jobs describe "$job" --region=${{ env.REGION }} --project="${PROJECT_ID}" --format='value(template.template.containers[0].env[].name)' 2>/dev/null || true)"
+            job_json="$(gcloud run jobs describe "$job" --region=${{ env.REGION }} --project="${PROJECT_ID}" --format=json 2>/dev/null || true)"
+            if [ -n "${job_json}" ]; then
+              printf '%s' "${job_json}" | python3 scripts/format_run_job.py || true
+            else
+              echo "(could not describe experiment Job ${job})"
+            fi
             local execution
             execution="$(gcloud run jobs executions list --job "$job" \
               --region=${{ env.REGION }} --project="${PROJECT_ID}" \

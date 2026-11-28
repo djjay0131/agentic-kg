@@ -122,6 +122,9 @@ def test_experiment_job_is_rolled_on_every_deploy() -> None:
     assert "if" not in step or "needs.changes.outputs.experiment" not in step["if"]
     assert "gcloud run jobs update agentic-kg-experiment-staging" in step["run"]
     assert "experiment Job image:" in step["run"]
+    # The image is read through the tested formatter (the old
+    # ``--format='value(template.template...)`` printed blank, #171).
+    assert "scripts/format_run_job.py" in step["run"]
 
 
 def test_gcp_diagnose_has_a_read_only_experiment_sandbox_section() -> None:
@@ -144,8 +147,7 @@ def test_gcp_diagnose_has_a_read_only_experiment_sandbox_section() -> None:
     assert "agentic-kg-experiment-staging" in joined
     # Env names only, never values.
     assert "env[].value" not in joined
-    assert "envNames" in joined
     assert "get-iam-policy" in joined
-    assert "vpcAccess" in joined
-    assert "maxRetries" in joined
+    # The job definition comes from the tested, two-shape formatter.
+    assert joined.count("scripts/format_run_job.py") >= 2
     assert "status.conditions" in joined
