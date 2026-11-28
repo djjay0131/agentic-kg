@@ -1,0 +1,388 @@
+_note: IMPORTER OUTPUT — machine extraction to diff against the human answer key; NOT the reconciled ground
+  truth.
+_caveats:
+- Topic (BELONGS_TO) not populated — known bug (topics_linked counter increments but no edge persists).
+- Concepts/Models/Methods store name+aliases only; no per-paper quoted_text/confidence retained (only
+  Problems do).
+paper:
+  n: '4'
+  title: 'Large Language Models for Scholarly Ontology Generation: An Extensive Analysis in the Engineering
+    Field'
+  doi: 10.1016/j.ipm.2025.104262
+  year: 2025
+  venue: Information Processing & Management
+  s2_paper_id: 9df51ffe60ddfac3de8e7f0f06df9b8dd9dbebac
+  status: extracted
+topic:
+  domain: null
+  area: null
+  subtopic: null
+  _note: empty — BELONGS_TO bug
+research_concepts:
+- name: IEEE Thesaurus
+  aliases: []
+  description: null
+- name: IEEE-Rel-1K
+  aliases: []
+  description: null
+- name: Large Language Models
+  aliases:
+  - LLMs
+  description: null
+- name: Mixture-of-Experts Architecture
+  aliases: []
+  description: null
+- name: Ontology Generation
+  aliases: []
+  description: null
+- name: OpenOrca Corpus
+  aliases: []
+  description: null
+- name: Quantisation
+  aliases: []
+  description: null
+- name: SKOS Standard
+  aliases: []
+  description: null
+- name: Scientific Knowledge Graphs
+  aliases: []
+  description: null
+- name: Semantic Relationship Identification
+  aliases: []
+  description: null
+- name: Zero-Shot Learning
+  aliases: []
+  description: null
+models:
+- name: Claude 3 Haiku
+  aliases:
+  - Haiku
+- name: Claude 3 Sonnet
+  aliases:
+  - Sonnet
+- name: Dolphin-2.1-Mistral-7B
+  aliases:
+  - Dolphin-2.1
+  - Dolphin-2.6
+  - Dolphin-2.6-Mistral-7B-dpo-laser
+- name: Dolphin-2.1-OpenOrca-7B
+  aliases:
+  - Dolphin-OpenOrca
+- name: Dolphin-Mistral-7B
+  aliases:
+  - Dolphin-Mistral
+- name: EURUS-7B-SFT
+  aliases:
+  - EURUS
+- name: GPT-3.5-Turbo-Instruct
+  aliases:
+  - GPT-3.5
+  - GPT-4
+  - GPT-4-Turbo
+- name: Llama-2-70B
+  aliases:
+  - Llama-2
+- name: Mistral-7B
+  aliases:
+  - Mistral
+  - Mistral-7B-OpenOrca
+  - Mistral-OpenOrca
+- name: Mixtral-8×7B
+  aliases:
+  - Mixtral
+- name: OpenChat-3.5-0106-Gemma
+  aliases:
+  - OpenChat-Gemma
+- name: OpenChat-3.5-1210
+  aliases:
+  - OpenChat
+- name: SOLAR-10.7B-Instruct-v1.0
+  aliases:
+  - SOLAR
+methods:
+- name: Chain-of-Thought Prompting
+  aliases:
+  - CoT Prompting
+  method_type: data_processing
+- name: Demonstration-Based Learning
+  aliases: []
+  method_type: training
+- name: Direct Preference Optimization
+  aliases:
+  - DPO
+  method_type: training
+- name: Prompt Engineering
+  aliases: []
+  method_type: data_processing
+- name: Two-Way Strategy
+  aliases: []
+  method_type: evaluation
+problems:
+- statement: Enhancing the performance of lightweight models to reduce computational costs and environmental
+    impact when generating ontologies of research areas.
+  quoted_text: We are fine-tuning off-the-shelf models like BERT, Mistral, LLaMa 3, Flan T5, Gemma, Phi
+    3, and DeepSeek with the aim of enhancing the performance of lightweight models to reduce computational
+    costs and environmental impact when generating ontologies of research areas.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[{"name": "BERT", "paper_doi": null, "performance": {}}, {"name": "Mistral", "paper_doi":
+    null, "performance": {}}, {"name": "LLaMa 3", "paper_doi": null, "performance": {}}, {"name": "Flan
+    T5", "paper_doi": null, "performance": {}}, {"name": "Gemma", "paper_doi": null, "performance": {}},
+    {"name": "Phi 3", "paper_doi": null, "performance": {}}, {"name": "DeepSeek", "paper_doi": null, "performance":
+    {}}]'
+- statement: Incorporating a semantic reasoner into the pipeline to identify and resolve inconsistencies
+    in ontology generation.
+  quoted_text: Furthermore, we plan to incorporate a semantic reasoner, such as RDFox, into our pipeline
+    to identify and resolve inconsistencies.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: Exploring explainability techniques to understand how LLMs process ontological relationships.
+  quoted_text: Other directions include exploring explainability techniques, including SHAP values, attention
+    visualization, and the identification of monosemantic features to understand how LLMs process ontological
+    relationships.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: Investigating potential biases in LLM-generated ontologies, such as examining whether inference
+    error rates vary across different sub-domains of Engineering.
+  quoted_text: We also plan to investigate potential biases in LLM-generated ontologies, such as examining
+    whether inference error rates vary across different sub-domains of Engineering.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: Benchmarking findings against additional state-of-the-art ontology generation methods, including
+    rule-based systems and statistical approaches.
+  quoted_text: Additionally, we will benchmark our findings against additional state-of-the-art ontology
+    generation methods, including rule-based systems and statistical approaches.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: Developing a comprehensive, cross-disciplinary ontology of research topics by expanding analysis
+    to cover a variety of scientific domains.
+  quoted_text: Ultimately, our goal is to develop a comprehensive, cross-disciplinary ontology of research
+    topics. To this end, we plan to expand our analysis to cover a variety of scientific domains, including
+    materials science, medicine, and physics.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: Generating and maintaining ontologies of research topics is expensive and time-consuming,
+    requiring the involvement of several domain experts over an extended period of time. Current solutions
+    struggle to generate large-scale, detailed representations of research topics, leaving the challenge
+    far from being fully addressed.
+  quoted_text: Nevertheless, generating and maintaining ontologies of research topics is both expensive
+    and time-consuming, typically requiring the involvement of several domain experts over an extended
+    period of time. Moreover, the ever-increasing volume of literature, with approximately 2.5 million
+    new scientific papers published annually, demands continuous updates to ensure that these ontologies
+    accurately reflect the latest research developments. Over the past 25 years, Artificial Intelligence
+    (AI) researchers have developed several methods for the automated or semi-automated generation of
+    such ontologies, with varying degrees of success. Some notable achievements include the semi-automatic
+    pipeline for generating OpenAlex Topics and the automatic development of the Computer Science Ontology,
+    along with a few other initiatives. However, most of the ontologies in this domain are still manually
+    created because current solutions still struggle to generate large-scale, detailed representations
+    of research topics. Consequently, this challenge remains far from being fully addressed.
+  datasets: '[{"name": "IEEE Thesaurus", "url": null, "available": true, "size": null}]'
+  metrics: '[{"name": "F1", "description": "Measures the model''s accuracy in identifying semantic relationships
+    between research topics.", "baseline_value": 0.967}]'
+  baselines: '[{"name": "Claude 3 Sonnet", "paper_doi": null, "performance": {}}, {"name": "Dolphin-Mistral-7B",
+    "paper_doi": null, "performance": {}}]'
+- statement: The performance of LLMs in ontology generation is highly dependent on the prompting strategy
+    employed, with the two-way variant of Chain-of-Thought (CoT) prompting consistently outperforming
+    alternative approaches.
+  quoted_text: Our study produced several notable insights. First, many models exhibit strong zero-shot
+    reasoning capabilities for this task. Second, the performance of LLMs is highly dependent on the prompting
+    strategy employed. In particular, the two-way variant of CoT prompting consistently outperforms alternative
+    approaches. In fact, our results show that prompting strategies can lead to substantial performance
+    gains, with improvements exceeding 0.2 F1 points in several instances.
+  datasets: '[{"name": "IEEE-Rel-1K", "url": null, "available": true, "size": null}]'
+  metrics: '[{"name": "F1", "description": "Measures the model''s accuracy in identifying semantic relationships
+    between research topics.", "baseline_value": 0.967}]'
+  baselines: '[{"name": "Claude 3 Sonnet", "paper_doi": null, "performance": {}}, {"name": "Dolphin-Mistral-7B",
+    "paper_doi": null, "performance": {}}]'
+- statement: There is a performance gap between full open models and proprietary models in scholarly ontology
+    generation, with proprietary models like sonnet and gpt-4 significantly outperforming open models
+    such as mixtral.
+  quoted_text: Overall, we observe a clear performance gap between full open models and proprietary models.
+    For example, sonnet achieves an average F1-Score of 0.967, substantially outperforming mixtral which
+    has an average F1-Score of 0.779.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: The varied performance among models with the same base architecture but different fine-tuning
+    approaches highlights the critical role of instruction-tuning datasets.
+  quoted_text: The varied performance among models with the same base architecture but different fine-tuning
+    approaches highlights the critical role of instruction-tuning datasets [77].
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: The need to improve logical consistency in LLMs when using two-way validation strategies
+    to identify and rectify potential inconsistencies.
+  quoted_text: We investigated the two-way validation strategy to identify and rectify potential inconsistencies.
+    It draws inspiration from prior research showing that approaches to improve logical consistency can
+    enhance the overall performance of LLMs [76]. This approach leverages the inverse relationship between
+    broader and narrower, as well as the symmetric nature of the same-as and other relationships [22].
+    Conflicting answers suggest inconsistencies that may be addressed using heuristic methods.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: The challenge of designing effective empirical rules to detect and mitigate logical inconsistencies
+    in LLMs.
+  quoted_text: In order to detect and mitigate logical inconsistencies, we designed a set of empirical
+    rules (cyan boxes as referees in both Fig. 1a and 1b). The rules were designed to prioritise the development
+    of a hierarchical taxonomy.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: The performance gap between small open models and larger proprietary models remains a challenge,
+    even though the two-way strategy has reduced this gap.
+  quoted_text: Moreover, the two-way strategy has effectively reduced the performance gap between these
+    models and their larger, proprietary counterparts, narrowing the difference to just 0.113 F1 points.
+  datasets: '[]'
+  metrics: '[{"name": "F1-score", "description": "Measures the model''s accuracy in identifying relationships
+    such as broader, narrower, same-as, and others.", "baseline_value": 0.847}]'
+  baselines: '[{"name": "mixtral", "paper_doi": null, "performance": {}}, {"name": "dolphin-openorca",
+    "paper_doi": null, "performance": {}}, {"name": "sonnet", "paper_doi": null, "performance": {}}]'
+- statement: The need for effective strategies to enhance the performance of quantised models in complex
+    instruction following and reasoning tasks.
+  quoted_text: The strong performance of these quantised models when employing the two-way strategy likely
+    reflects recent advancements in their fine-tuning methodologies. Specifically, dolphin-mistral-dpo
+    benefits from Direct Preference Optimization (DPO), a technique that improves the model’s capacity
+    to follow complex instructions.
+  datasets: '[]'
+  metrics: '[{"name": "F1-score", "description": "Measures the model''s accuracy in identifying relationships
+    such as broader, narrower, same-as, and others.", "baseline_value": 0.78}]'
+  baselines: '[{"name": "dolphin-mistral-dpo", "paper_doi": null, "performance": {}}, {"name": "dolphin-openorca",
+    "paper_doi": null, "performance": {}}]'
+- statement: The counterintuitive behavior of larger models like gpt-4 and sonnet, which show a decline
+    in performance when using the CoT prompting strategy, needs further investigation to understand the
+    underlying causes and to improve their performance.
+  quoted_text: Notably, both gpt-4 and sonnet exhibit a slight decline in performance when using the CoT
+    prompting strategy, whereas haiku and gpt-3.5 show improved results under the same conditions. The
+    counterintuitive behavior of the larger models may arise from redundancy and cognitive overhead. Since
+    these models have already internalized complex semantic relationships during pre-training, explicitly
+    prompting them to articulate intermediate reasoning steps could introduce unnecessary noise. This
+    additional complexity may disrupt their internal inference mechanisms, ultimately impairing performance
+    and reducing accuracy.
+  datasets: '[]'
+  metrics: '[{"name": "F1-score", "description": "Measures the balance between precision and recall.",
+    "baseline_value": 0.911}]'
+  baselines: '[{"name": "gpt-4", "paper_doi": null, "performance": {}}, {"name": "sonnet", "paper_doi":
+    null, "performance": {}}]'
+- statement: The variation in performance across different versions of the same base model (e.g., different
+    mistral derivatives) suggests that fine-tuning procedures can either enhance or diminish domain-specific
+    capabilities present in the base model.
+  quoted_text: The variation in performance across different versions of the same base model (e.g., different
+    mistral derivatives) suggests that fine-tuning procedures can either enhance or diminish domain-specific
+    capabilities present in the base model.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: The preservation of performance post-quantisation indicates that the model’s parameters encode
+    knowledge efficiently, even under reduced precision constraints.
+  quoted_text: This preservation of performance post-quantisation is particularly noteworthy and indicates
+    that the model’s parameters encode knowledge efficiently, even under reduced precision constraints.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: The performance of models like llama-2, dolphin-openorca, gpt-4, and sonnet declines when
+    shifting from a one-way to a two-way strategy, indicating a need to understand the underlying reasons
+    for this decline.
+  quoted_text: Thirteen models showed overall improvement, while four models (llama-2, dolphin-openorca,
+    gpt-4, and sonnet) experienced a decline in performance.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: The sonnet model's performance declines with more complex prompts, and understanding the
+    cause is challenging due to its black-box nature.
+  quoted_text: Interestingly, unlike most open models, its performance declines with more complex prompts.
+    Since sonnet is a black-box system that may incorporate additional components, pinpointing the exact
+    cause of this behaviour is challenging.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: The domain-specific nature of the findings, which are currently confined to the IEEE taxonomy
+    and the engineering field, limits the generalizability of the results. A broader evaluation is required
+    to assess the performance of LLMs in other domains.
+  quoted_text: The first limitation lies in the domain-specific nature of our findings, which, as previously
+    discussed, are currently confined to the IEEE taxonomy and the engineering field. A broader evaluation
+    is required to assess the performance of LLMs in other domains.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: The evaluation only focuses on LLM-based strategies and does not compare these approaches
+    with traditional AI methods, such as rule-based, statistical, or hybrid techniques.
+  quoted_text: A second limitation is that our evaluation only focuses on LLM-based strategies. We do
+    not compare these approaches with traditional AI methods, such as rule-based, statistical, or hybrid
+    techniques.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: The dynamic nature of scientific research poses a challenge as LLMs trained on present-day
+    data may struggle to accurately classify relationships involving topics that have not yet emerged.
+  quoted_text: A third limitation arises from the dynamic nature of scientific research, where disciplines
+    are continuously redefined by emerging paradigms and discoveries. Although our current results provide
+    valuable insights, LLMs trained on present-day data may struggle to accurately classify relationships
+    involving topics that have not yet emerged.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: Future work needs to address the construction of a complete ontology, which entails resolving
+    challenges such as evaluating relationships across a much larger set of topics.
+  quoted_text: In addition, while this paper focused exclusively on identifying relationships among a
+    subset of topics, future work will need to address the construction of a complete ontology. This entails
+    resolving several challenges, including the evaluation of relationships across a much larger set of
+    topics.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: The manual development of ontologies is labor-intensive, time-consuming, and costly, and
+    while automatic and semi-automatic generation methods have emerged, they have yet to fully exploit
+    the potential of LLMs.
+  quoted_text: Furthermore, most existing systems are manually curated, and their manual development is
+    labour-intensive, time-consuming, and costly [1]. Although automatic and semi-automatic generation
+    methods have recently emerged, resulting in the creation of KOS such as CSO and OpenAlex Topics, these
+    approaches have yet to fully exploit the potential of LLMs.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: LLMs struggle with maintaining precise ontological consistency and cannot autonomously validate
+    ontological structures without human intervention.
+  quoted_text: Critically, they show that models struggles with maintaining precise ontological consistency
+    and their inability to autonomously validate ontological structures without human intervention.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: LLMs cannot consistently replace curated taxonomies and show significant variations in performance
+    across domain specialisations.
+  quoted_text: Their comprehensive analysis revealed that LLMs demonstrate outstanding capabilities, but
+    they cannot consistently replace curated taxonomies. Moreover, they found significant variations in
+    performance across domain specialisations and challenges in maintaining long-term consistency.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: The challenge of identifying semantic relationships between pairs of research topics, formalized
+    as a single-label, multi-class classification problem.
+  quoted_text: This paper addresses the challenge of identifying semantic relationships between pairs
+    of research topics, denoted in the following as tA and tB. We formalise this task as a single-label,
+    multi-class classification problem.
+  datasets: '[{"name": "IEEE-Rel-1K", "url": "https://github.com/ImTanay/LLM-Automatic-Ontology-Generation",
+    "available": true, "size": null}]'
+  metrics: '[{"name": "Classification Accuracy", "description": "Measures the accuracy of the model in
+    correctly classifying semantic relationships.", "baseline_value": null}]'
+  baselines: '[]'
+- statement: Manual creation of ontologies of research topics is expensive, slow, and often results in
+    outdated and overly general representations.
+  quoted_text: However, manual creation of these ontologies is expensive, slow, and often results in outdated
+    and overly general representations.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+- statement: Accurately assessing the semantic relationships between pairs of research topics is a key
+    challenge in automating ontology generation.
+  quoted_text: One of the key challenges in this domain is accurately assessing the semantic relationships
+    between pairs of research topics.
+  datasets: '[]'
+  metrics: '[]'
+  baselines: '[]'
+cites_within_set:
+- 10.1016/j.ipm.2025.104145

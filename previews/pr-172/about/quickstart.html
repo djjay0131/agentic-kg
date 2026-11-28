@@ -1,0 +1,22 @@
+<h1 id="quickstart">Quickstart</h1>
+
+<!-- TODO(phase-b): validate the commands below end-to-end on a fresh checkout, add a "first extraction" example. -->
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>git clone https://github.com/djjay0131/agentic-kg.git
+<span class="nb">cd </span>agentic-kg
+
+<span class="c"># Create virtual environment</span>
+python3.12 <span class="nt">-m</span> venv .venv
+<span class="nb">source</span> .venv/bin/activate
+
+<span class="c"># Install</span>
+uv <span class="nb">sync</span>  <span class="c"># or: pip install -e '.[dev]'</span>
+
+<span class="c"># Run unit tests (excludes live-Neo4j tests)</span>
+pytest packages/core/tests/ <span class="nt">--ignore</span><span class="o">=</span>packages/core/tests/e2e <span class="nt">-q</span>
+
+<span class="c"># Local stack</span>
+docker compose up
+</code></pre></div></div>
+
+<p>See <code class="language-plaintext highlighter-rouge">README.md</code> for the full setup guide.</p>
