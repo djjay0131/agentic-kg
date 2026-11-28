@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 
+from agentic_kg.agents.errors import GateMismatchError, WorkflowConflictError
 from agentic_kg.agents.gate_agreement import GATE_NAMES
 from agentic_kg.knowledge_graph.models.research_cycle import (
     AgentRecommendation,
@@ -238,6 +239,20 @@ async def decide_gate(
         raise HTTPException(
             status_code=404,
             detail=f"Cycle or workflow not found: {cycle_id}/{workflow_run_id}",
+        )
+    except GateMismatchError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": str(exc),
+                "requested_gate": exc.requested_gate,
+                "pending_gate": exc.pending_gate,
+            },
+        )
+    except WorkflowConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": str(exc), "run_id": exc.run_id},
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))

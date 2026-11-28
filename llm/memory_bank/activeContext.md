@@ -7,6 +7,49 @@ Last updated: 2026-11-12
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
 
+## Cross-process workflow state: durable store is the source of truth (2026-11-28, T65)
+
+`fix/cross-process-workflow-state` fixes the staging split after #168: the list
+showed `waiting_checkpoint` / `review_evaluation` while the detail page still
+showed `current_step=approve_proposal`, no `evaluation_result`, messages ending
+at the dispatch line and a frozen heartbeat. `DurableCheckpointSaver` subclasses
+`InMemorySaver` and loaded a thread once, so the API kept serving the gate it
+last saw while the Cloud Run Job advanced the durable checkpoint.
+
+- **Revisioned checkpoints.** Each stored payload carries a monotonically
+  increasing `revision` (and the node/row keeps it as a property). Before every
+  `get_tuple`/`list`, `DurableCheckpointSaver` compares the stored revision and
+  reloads a newer thread, discarding the stale in-memory copy. `get_state`,
+  `get_status`, `list`, `apply_checkpoint_decision` and `advance_workflow` all go
+  through that read.
+- **Compare-and-set writes.** `save_thread` / `save_run` accept
+  `expected_revision`; a stale writer gets `CheckpointConflictError` and the
+  newer stored row is untouched. The saver adopts the newer copy before
+  surfacing the conflict. Run-metadata writes replay only this process's delta
+  onto a newer row rather than writing a whole stale copy.
+- **Durable metadata is the base for reads.** Every mutation persists
+  synchronously, so the stored row is never older than the local copy; the merge
+  no longer lets the creating process mask the worker's heartbeat/status.
+- **Server-side gate check.** A decision must name the gate currently pending in
+  durable state. A stale gate (or a decision while a step is in flight) returns
+  **409** with `requested_gate` and the actual `pending_gate`; the UI refetches
+  and offers the right gate. `GateMismatchError` is also handled by the Research
+  Loop router.
+- **Detail evidence.** `GET /api/agents/workflows/{id}` returns `pending_gate`
+  and `gate_recommendation` (ADR-0013 helper). `EvaluationResult` now carries the
+  experiment `plan`, the actual generated script (`code_generated` used to hold
+  stdout on failure), `execution_exit_code` and `execution_stderr`; the review
+  gate renders plan/script/exit/stdout/stderr/metrics/recommendation, and the
+  completed run renders a readable synthesis report.
+- **Selfcheck deploy gate.** `workflow selfcheck` now builds a second saver over
+  the same store, reads the run before the worker advances, and asserts the
+  API-visible state matches the worker's new gate. (It cannot reach the API from
+  the Job without a URL/token; the runner boundary is the same state.)
+- **Tests.** Two savers over one store: A reads/decides, B advances, and A sees
+  every step without a restart; stale-gate decisions raise `GateMismatchError`
+  and return 409 through the API; store CAS rejects a stale write and keeps the
+  newer state. The compiled-graph and API walks still reach synthesis.
+
 ## Async dispatch fallback, visible outcome, watchdog (2026-11-28, T64)
 
 `fix/async-dispatch-fallback` fixes the regression after #167: a `select_problem`

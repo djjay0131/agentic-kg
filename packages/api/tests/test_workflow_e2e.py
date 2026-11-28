@@ -145,6 +145,7 @@ class _FakeOpenAI:
             return json.dumps(
                 {
                     "code": "print('{\"metrics\": {\"accuracy\": 0.9}}')\n",
+                    "plan": "1. run the baseline\n2. report accuracy",
                     "explanation": "Plausible but unused extra output. " * 10,
                 }
             )
@@ -840,3 +841,108 @@ def test_dispatched_worker_runs_to_the_next_gate_through_the_api(harness):
     body = client.get(f"/api/agents/workflows/{run_id}").json()
     assert body["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
     assert body["current_step"] == "approve_proposal"
+
+
+def test_api_reads_the_job_process_state_and_rejects_a_stale_gate(harness):
+    """API on instance A, an in-process Job on instance B, one shared store."""
+    import asyncio
+
+    client: TestClient = harness["client"]
+    store = harness["store"]
+    api_runner = _build_runner(
+        harness["llm"],
+        store,
+        outputs=harness["outputs"],
+        dispatcher=_RecordingDispatcher(),
+    )
+    job_runner = _build_runner(
+        harness["llm"], store, outputs=harness["outputs"]
+    )
+    agents.set_workflow_runner(api_runner)
+
+    run_id = _start(client, max_problems=20)
+    # Dispatched, not advanced: the API cached "no checkpoint yet".
+    detail = client.get(f"/api/agents/workflows/{run_id}").json()
+    assert detail["status"] == WorkflowStatus.RUNNING.value
+    assert detail["pending_gate"] is None
+
+    job_runner.record_worker_start(run_id, execution="exec-api-job")
+    asyncio.run(job_runner.advance_workflow(run_id))
+
+    detail = client.get(f"/api/agents/workflows/{run_id}").json()
+    assert detail["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert detail["current_step"] == CheckpointType.SELECT_PROBLEM.value
+    assert detail["pending_gate"] == CheckpointType.SELECT_PROBLEM.value
+    assert len(detail["ranked_problems"]) == 20
+    assert detail["gate_recommendation"]["action"] == "approve"
+
+    first = client.post(
+        f"/api/agents/workflows/{run_id}/checkpoints/select_problem",
+        json={
+            "decision": "approve",
+            "feedback": "go",
+            "edited_data": {"problem_id": "p0"},
+        },
+    )
+    assert first.status_code == 202, first.text
+    assert first.json()["status"] == WorkflowStatus.RUNNING.value
+    # While the Job is advancing, the detail shows the step in flight, not the
+    # gate whose decision was just consumed.
+    inflight = client.get(f"/api/agents/workflows/{run_id}").json()
+    assert inflight["status"] == WorkflowStatus.RUNNING.value
+    assert inflight["current_step"] == "continuation"
+    assert inflight["pending_gate"] is None
+
+    asyncio.run(job_runner.advance_workflow(run_id))
+    detail = client.get(f"/api/agents/workflows/{run_id}").json()
+    assert detail["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert detail["current_step"] == CheckpointType.APPROVE_PROPOSAL.value
+    assert detail["proposal"]["problem_id"] == "p0"
+    assert detail["pending_gate"] == CheckpointType.APPROVE_PROPOSAL.value
+
+    stale = client.post(
+        f"/api/agents/workflows/{run_id}/checkpoints/select_problem",
+        json={"decision": "approve", "edited_data": {"problem_id": "p1"}},
+    )
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["detail"]["pending_gate"] == (
+        CheckpointType.APPROVE_PROPOSAL.value
+    )
+    assert stale.json()["detail"]["requested_gate"] == (
+        CheckpointType.SELECT_PROBLEM.value
+    )
+    # The stale decision did not change the durable state.
+    detail = client.get(f"/api/agents/workflows/{run_id}").json()
+    assert detail["selected_problem_id"] == "p0"
+
+    assert (
+        client.post(
+            f"/api/agents/workflows/{run_id}/checkpoints/approve_proposal",
+            json={"decision": "approve", "feedback": "approved"},
+        ).status_code
+        == 202
+    )
+    inflight = client.get(f"/api/agents/workflows/{run_id}").json()
+    assert inflight["status"] == WorkflowStatus.RUNNING.value
+    assert inflight["current_step"] == "evaluation"
+    assert inflight["pending_gate"] is None
+    asyncio.run(job_runner.advance_workflow(run_id))
+    detail = client.get(f"/api/agents/workflows/{run_id}").json()
+    assert detail["current_step"] == CheckpointType.REVIEW_EVALUATION.value
+    assert detail["pending_gate"] == CheckpointType.REVIEW_EVALUATION.value
+    assert detail["evaluation_result"]["verdict"] == "promising"
+    assert detail["evaluation_result"]["plan"]
+    assert detail["evaluation_result"]["code_generated"]
+    assert detail["evaluation_result"]["execution_exit_code"] == 0
+
+    assert (
+        client.post(
+            f"/api/agents/workflows/{run_id}/checkpoints/review_evaluation",
+            json={"decision": "approve", "feedback": "write it"},
+        ).status_code
+        == 202
+    )
+    asyncio.run(job_runner.advance_workflow(run_id))
+    detail = client.get(f"/api/agents/workflows/{run_id}").json()
+    assert detail["status"] == WorkflowStatus.COMPLETED.value
+    assert detail["synthesis_report"]["source_problem_id"] == "p0"

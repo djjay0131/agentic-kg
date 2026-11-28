@@ -47,6 +47,9 @@ export default function WorkflowDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workflow', runId] });
     },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ['workflow', runId] });
+    },
   });
 
   if (isLoading) {
@@ -58,11 +61,8 @@ export default function WorkflowDetailPage() {
   }
 
   const isAtCheckpoint =
-    CHECKPOINT_STEPS.includes(workflow.current_step) &&
-    workflow.status !== 'completed' &&
-    workflow.status !== 'failed' &&
-    workflow.status !== 'rejected' &&
-    workflow.status !== 'cancelled';
+    workflow.status === 'waiting_checkpoint' &&
+    CHECKPOINT_STEPS.includes(workflow.current_step);
 
   const checkpointData = (() => {
     if (workflow.current_step === 'select_problem') {
@@ -72,7 +72,10 @@ export default function WorkflowDetailPage() {
       return { proposal: workflow.proposal };
     }
     if (workflow.current_step === 'review_evaluation') {
-      return { evaluation_result: workflow.evaluation_result };
+      return {
+        evaluation_result: workflow.evaluation_result,
+        recommendation: workflow.gate_recommendation,
+      };
     }
     return {};
   })();
@@ -111,6 +114,13 @@ export default function WorkflowDetailPage() {
 
       <WorkflowStepper currentStep={workflow.current_step} status={workflow.status} />
 
+      {checkpointMutation.isError && (
+        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+          Decision not applied: {(checkpointMutation.error as Error).message}. The
+          page has been refreshed to show the gate the run is actually waiting at.
+        </div>
+      )}
+
       {/* Checkpoint form */}
       {isAtCheckpoint && (
         <div className="mt-6">
@@ -148,9 +158,7 @@ export default function WorkflowDetailPage() {
 
         {workflow.synthesis_report && (
           <Section title="Synthesis Report">
-            <pre className="text-xs overflow-auto">
-              {JSON.stringify(workflow.synthesis_report, null, 2)}
-            </pre>
+            <SynthesisSummary report={workflow.synthesis_report} />
           </Section>
         )}
       </div>
@@ -194,6 +202,80 @@ function elapsedSince(start: string): string {
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   return `${minutes}m ${seconds % 60}s`;
+}
+
+function SynthesisSummary({ report }: { report: Record<string, unknown> }) {
+  const summary = typeof report.summary === 'string' ? report.summary : '';
+  const newProblems = Array.isArray(report.new_problems)
+    ? (report.new_problems as unknown[]).map(String)
+    : [];
+  const recommendations = Array.isArray(report.recommendations)
+    ? (report.recommendations as unknown[]).map(String)
+    : [];
+  const updates = Array.isArray(report.graph_updates)
+    ? (report.graph_updates as Record<string, unknown>[])
+    : [];
+
+  return (
+    <div className="space-y-3 text-sm">
+      {summary && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Summary
+          </p>
+          <p className="text-gray-800 whitespace-pre-wrap">{summary}</p>
+        </div>
+      )}
+      {newProblems.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            New problems
+          </p>
+          <ul className="list-disc list-inside text-gray-800">
+            {newProblems.map((problem, index) => (
+              <li key={index}>{problem}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {recommendations.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Recommendations
+          </p>
+          <ul className="list-disc list-inside text-gray-800">
+            {recommendations.map((recommendation, index) => (
+              <li key={index}>{recommendation}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {updates.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Graph updates
+          </p>
+          <ul className="list-disc list-inside text-gray-800">
+            {updates.map((update, index) => (
+              <li key={index}>
+                {String(update.operation || update.type || 'update')}
+                {update.target_id ? ` — ${String(update.target_id)}` : ''}
+                {update.details ? `: ${String(update.details)}` : ''}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <details className="mt-2">
+        <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-700">
+          Raw JSON
+        </summary>
+        <pre className="bg-white rounded p-3 text-xs overflow-auto max-h-64 mt-2 border">
+          {JSON.stringify(report, null, 2)}
+        </pre>
+      </details>
+    </div>
+  );
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

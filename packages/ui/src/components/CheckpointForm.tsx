@@ -15,6 +15,24 @@ interface ProposalStep {
   expected_output?: string;
 }
 
+interface MetricRow {
+  name?: string;
+  value?: number | null;
+  baseline_value?: number | null;
+  improvement?: number | null;
+  notes?: string;
+}
+
+interface ReviewRecommendation {
+  action?: string;
+  rationale?: string;
+  confidence?: number | null;
+}
+
+function formatMetric(value: number | null | undefined): string {
+  return typeof value === 'number' ? value.toFixed(4) : '—';
+}
+
 function RawJson({ value }: { value: unknown }) {
   return (
     <details className="mt-3">
@@ -121,6 +139,168 @@ function ProposalSummary({ proposal }: { proposal: Record<string, unknown> }) {
   );
 }
 
+function ReviewEvaluationSummary({
+  evaluation,
+  recommendation,
+}: {
+  evaluation: Record<string, unknown>;
+  recommendation: ReviewRecommendation | null;
+}) {
+  const plan = typeof evaluation.plan === 'string' ? evaluation.plan : '';
+  const script =
+    typeof evaluation.code_generated === 'string' ? evaluation.code_generated : '';
+  const stdout =
+    typeof evaluation.execution_output === 'string' ? evaluation.execution_output : '';
+  const stderr =
+    typeof evaluation.execution_stderr === 'string' ? evaluation.execution_stderr : '';
+  const success = evaluation.execution_success === true;
+  const exitCode =
+    typeof evaluation.execution_exit_code === 'number'
+      ? evaluation.execution_exit_code
+      : null;
+  const verdict = String(evaluation.verdict || 'unknown');
+  const feasibility =
+    typeof evaluation.feasibility_score === 'number'
+      ? evaluation.feasibility_score
+      : null;
+  const metrics = Array.isArray(evaluation.metrics_results)
+    ? (evaluation.metrics_results as MetricRow[])
+    : [];
+  const limitations = Array.isArray(evaluation.limitations)
+    ? (evaluation.limitations as unknown[]).map(String)
+    : [];
+
+  return (
+    <div className="bg-white rounded border p-4 mb-4 space-y-3 text-sm">
+      <div className="flex flex-wrap items-center gap-3">
+        <span
+          className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+            verdict === 'promising'
+              ? 'bg-green-100 text-green-700'
+              : verdict === 'not_viable'
+              ? 'bg-red-100 text-red-700'
+              : 'bg-yellow-100 text-yellow-700'
+          }`}
+        >
+          Verdict: {verdict}
+        </span>
+        {feasibility !== null && (
+          <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">
+            Feasibility: {feasibility.toFixed(2)}
+          </span>
+        )}
+        <span
+          className={`text-xs px-2 py-0.5 rounded ${
+            success ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+          }`}
+        >
+          Execution: {success ? 'success' : 'failed'}
+          {exitCode !== null ? ` (exit ${exitCode})` : ''}
+        </span>
+      </div>
+
+      {recommendation && (
+        <div className="bg-gray-50 border rounded p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Agent recommendation
+          </p>
+          <p className="text-gray-800">
+            <span className="font-medium capitalize">{recommendation.action || 'none'}</span>
+            {recommendation.rationale ? ` — ${recommendation.rationale}` : ''}
+          </p>
+        </div>
+      )}
+
+      {plan && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Experiment plan
+          </p>
+          <pre className="whitespace-pre-wrap text-gray-800 text-xs">{plan}</pre>
+        </div>
+      )}
+
+      {metrics.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Metrics
+          </p>
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left text-gray-500">
+                <th className="py-1">Metric</th>
+                <th className="py-1">Value</th>
+                <th className="py-1">Baseline</th>
+                <th className="py-1">Improvement</th>
+              </tr>
+            </thead>
+            <tbody>
+              {metrics.map((metric, index) => (
+                <tr key={`${metric.name || 'metric'}-${index}`} className="border-t">
+                  <td className="py-1 text-gray-800">{metric.name || '—'}</td>
+                  <td className="py-1">{formatMetric(metric.value)}</td>
+                  <td className="py-1">{formatMetric(metric.baseline_value)}</td>
+                  <td className="py-1">{formatMetric(metric.improvement)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <details>
+        <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-700">
+          Generated script {script ? `(${script.length} chars)` : '(not captured)'}
+        </summary>
+        <pre className="bg-gray-50 rounded p-3 text-xs overflow-auto max-h-72 mt-2 border">
+          {script || 'No generated script was captured for this evaluation.'}
+        </pre>
+      </details>
+
+      {(stdout || stderr) && (
+        <details>
+          <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-700">
+            Execution output
+          </summary>
+          <div className="mt-2 space-y-2">
+            {stdout && (
+              <div>
+                <p className="text-xs font-semibold text-gray-500">stdout excerpt</p>
+                <pre className="bg-gray-50 rounded p-3 text-xs overflow-auto max-h-48 border">
+                  {stdout}
+                </pre>
+              </div>
+            )}
+            {stderr && (
+              <div>
+                <p className="text-xs font-semibold text-gray-500">stderr excerpt</p>
+                <pre className="bg-red-50 rounded p-3 text-xs overflow-auto max-h-48 border">
+                  {stderr}
+                </pre>
+              </div>
+            )}
+          </div>
+        </details>
+      )}
+
+      {limitations.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Limitations
+          </p>
+          <ul className="list-disc list-inside text-gray-800">
+            {limitations.map((limitation, index) => (
+              <li key={index}>{limitation}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <RawJson value={evaluation} />
+    </div>
+  );
+}
+
 export default function CheckpointForm({
   checkpointType,
   data,
@@ -132,8 +312,13 @@ export default function CheckpointForm({
 
   const isSelectProblem = checkpointType === 'select_problem';
   const isApproveProposal = checkpointType === 'approve_proposal';
+  const isReviewEvaluation = checkpointType === 'review_evaluation';
   const rankedProblems = (data.ranked_problems as Record<string, unknown>[]) || [];
   const proposal = (data.proposal as Record<string, unknown> | null) || null;
+  const evaluation =
+    (data.evaluation_result as Record<string, unknown> | null) || null;
+  const recommendation =
+    (data.recommendation as ReviewRecommendation | null) || null;
 
   return (
     <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
@@ -191,7 +376,14 @@ export default function CheckpointForm({
 
       {isApproveProposal && proposal && <ProposalSummary proposal={proposal} />}
 
-      {!isSelectProblem && !isApproveProposal && (
+      {isReviewEvaluation && evaluation && (
+        <ReviewEvaluationSummary
+          evaluation={evaluation}
+          recommendation={recommendation}
+        />
+      )}
+
+      {!isSelectProblem && !isApproveProposal && !isReviewEvaluation && (
         <pre className="bg-white rounded p-3 text-xs overflow-auto max-h-48 mb-4 border">
           {JSON.stringify(data, null, 2)}
         </pre>
