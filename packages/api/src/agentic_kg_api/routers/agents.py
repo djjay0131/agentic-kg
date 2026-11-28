@@ -10,8 +10,14 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
+from agentic_kg.agents.errors import GateMismatchError, WorkflowConflictError
+from agentic_kg.agents.gate_agreement import build_recommendation
 from agentic_kg.agents.provenance import AgentOutputStore
-from agentic_kg.agents.schemas import CheckpointDecision, CheckpointType
+from agentic_kg.agents.schemas import (
+    CheckpointDecision,
+    CheckpointType,
+    WorkflowStatus,
+)
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
@@ -133,6 +139,12 @@ class WorkflowStateResponse(BaseModel):
     synthesis_report: Optional[dict] = None
     messages: list[dict] = []
     errors: list[str] = []
+    #: The gate the durable state is waiting at (``None`` while a step runs or
+    #: after it is terminal). The detail page must offer this gate's decision,
+    #: not the one an old in-memory checkpoint named.
+    pending_gate: Optional[str] = None
+    #: The agent's own pre-decision recommendation for ``pending_gate``.
+    gate_recommendation: Optional[dict] = None
     execution_mode: str = ""
     dispatch_result: str = ""
     job_execution: str = ""
@@ -141,6 +153,43 @@ class WorkflowStateResponse(BaseModel):
     worker_started_at: str = ""
     heartbeat_at: str = ""
     lease_until: str = ""
+
+
+# --- Helpers ---
+
+_GATE_NAMES = frozenset(gate.value for gate in CheckpointType)
+
+
+def _pending_gate(state: dict[str, Any]) -> Optional[str]:
+    """The gate a freshly read state is waiting at, if any."""
+    step = str(state.get("current_step") or "")
+    if state.get("status") == WorkflowStatus.WAITING_CHECKPOINT.value:
+        if step in _GATE_NAMES:
+            return step
+    return None
+
+
+def _gate_recommendation(
+    gate: Optional[str], state: dict[str, Any]
+) -> Optional[dict[str, Any]]:
+    """The agent's own recommendation for the pending gate."""
+    if not gate:
+        return None
+    recommendation = build_recommendation(gate, state)
+    return recommendation.model_dump(mode="json") if recommendation else None
+
+
+def _conflict_response(exc: WorkflowConflictError) -> HTTPException:
+    """A 409 that names the actual pending gate for the UI to refetch."""
+    if isinstance(exc, GateMismatchError):
+        detail: dict[str, Any] = {
+            "message": str(exc),
+            "requested_gate": exc.requested_gate,
+            "pending_gate": exc.pending_gate,
+        }
+    else:
+        detail = {"message": str(exc), "run_id": exc.run_id}
+    return HTTPException(status_code=409, detail=detail)
 
 
 # --- Endpoints ---
@@ -256,6 +305,7 @@ async def get_workflow(run_id: str) -> WorkflowStateResponse:
     if last_error and last_error not in errors:
         errors.append(last_error)
     meta = runner.get_run_metadata(run_id)
+    pending_gate = _pending_gate(state)
     return WorkflowStateResponse(
         run_id=state.get("run_id", run_id),
         status=state.get("status") or "unknown",
@@ -272,6 +322,8 @@ async def get_workflow(run_id: str) -> WorkflowStateResponse:
         synthesis_report=state.get("synthesis_report"),
         messages=state.get("messages", []),
         errors=errors,
+        pending_gate=pending_gate,
+        gate_recommendation=_gate_recommendation(pending_gate, state),
         execution_mode=str(meta.get("execution_mode") or ""),
         dispatch_result=str(meta.get("dispatch_result") or ""),
         job_execution=str(meta.get("job_execution") or ""),
@@ -319,6 +371,7 @@ async def submit_checkpoint(
         )
 
         meta = runner.get_run_metadata(run_id)
+        pending_gate = _pending_gate(state)
         return WorkflowStateResponse(
             run_id=state.get("run_id", run_id),
             status=state.get("status", "unknown"),
@@ -335,6 +388,8 @@ async def submit_checkpoint(
             synthesis_report=state.get("synthesis_report"),
             messages=state.get("messages", []),
             errors=state.get("errors", []),
+            pending_gate=pending_gate,
+            gate_recommendation=_gate_recommendation(pending_gate, state),
             execution_mode=str(meta.get("execution_mode") or ""),
             dispatch_result=str(meta.get("dispatch_result") or ""),
             job_execution=str(meta.get("job_execution") or ""),
@@ -344,6 +399,10 @@ async def submit_checkpoint(
             heartbeat_at=str(meta.get("heartbeat_at") or ""),
             lease_until=str(meta.get("lease_until") or ""),
         )
+    except GateMismatchError as exc:
+        raise _conflict_response(exc)
+    except WorkflowConflictError as exc:
+        raise _conflict_response(exc)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Workflow {run_id} not found")
     except Exception as e:

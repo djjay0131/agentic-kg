@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TypedDict
 
+import pytest
 from agentic_kg.agents.checkpoint_store import (
     DurableCheckpointSaver,
     InMemoryCheckpointStore,
@@ -125,7 +126,12 @@ class _FakeTx:
         from unittest.mock import MagicMock
 
         result = MagicMock()
-        result.single.return_value = None
+        if "RETURN c.revision AS revision" in query or (
+            "RETURN r.revision AS revision" in query
+        ):
+            result.single.return_value = {"revision": 1}
+        else:
+            result.single.return_value = None
         return result
 
 
@@ -193,3 +199,47 @@ def test_neo4j_store_rejects_a_namespace_mismatch_on_load_shape():
     query, params = repo.calls[-1]
     assert params["ns"] == "canon"
     assert params["thread_id"] == "missing"
+
+
+async def test_a_loaded_saver_reloads_a_thread_another_process_advanced():
+    """The API process must not keep serving an old checkpoint (T65)."""
+    store = InMemoryCheckpointStore()
+    api = DurableCheckpointSaver(store)
+    api_graph = _build(api)
+    # The API reads before the Job has written anything, caching "no thread".
+    assert (await api_graph.aget_state(CONFIG)).values == {}
+
+    job = DurableCheckpointSaver(store)
+    await _build(job).ainvoke({"value": 0}, config=CONFIG)
+
+    # No restart: the same saver must pick up the Job's newer revision.
+    snapshot = await api_graph.aget_state(CONFIG)
+    assert snapshot.values == {"value": 1}
+    assert snapshot.next == ("finish",)
+    assert store.thread_revision("thread-1") >= 1
+
+
+def test_store_revision_is_monotonic_and_compare_and_set_rejects_a_stale_write():
+    from agentic_kg.agents.errors import CheckpointConflictError
+
+    store = InMemoryCheckpointStore()
+    assert store.thread_revision("thread-1") == 0
+    assert store.save_thread("thread-1", {"value": 1}, expected_revision=0) == 1
+    with pytest.raises(CheckpointConflictError):
+        store.save_thread("thread-1", {"value": 99}, expected_revision=0)
+    # The newer stored state is untouched by the stale writer.
+    assert store.load_thread("thread-1")["value"] == 1
+    assert store.thread_revision("thread-1") == 1
+    assert store.save_thread("thread-1", {"value": 2}, expected_revision=1) == 2
+    assert store.load_thread("thread-1")["value"] == 2
+
+
+def test_run_metadata_revision_rejects_a_stale_metadata_write():
+    from agentic_kg.agents.errors import CheckpointConflictError
+
+    store = InMemoryCheckpointStore()
+    assert store.save_run("run-1", {"status": "running"}, expected_revision=0) == 1
+    with pytest.raises(CheckpointConflictError):
+        store.save_run("run-1", {"status": "cancelled"}, expected_revision=0)
+    assert store.load_run("run-1")["status"] == "running"
+    assert store.run_revision("run-1") == 1

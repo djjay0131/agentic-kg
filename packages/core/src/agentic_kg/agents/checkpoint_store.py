@@ -37,6 +37,7 @@ from typing import Any, Optional, Protocol, runtime_checkable
 
 from langgraph.checkpoint.memory import InMemorySaver
 
+from agentic_kg.agents.errors import CheckpointConflictError
 from agentic_kg.knowledge_graph.repository import Neo4jRepository
 
 LABEL_AGENT_CHECKPOINT = "Canon__AgentCheckpoint"
@@ -60,13 +61,29 @@ def _decode_typed(value: list[str]) -> tuple[str, bytes]:
 
 @runtime_checkable
 class CheckpointStore(Protocol):
-    """A durable place to keep one serialized thread payload."""
+    """A durable place to keep one serialized thread payload.
+
+    Every write is a compare-and-set on a monotonically increasing revision.
+    ``expected_revision=0`` means "the row must not exist yet"; a positive value
+    means "the row is at this revision". A mismatch raises
+    :class:`CheckpointConflictError` and leaves the stored copy untouched, so a
+    stale process can never overwrite a newer one.
+    """
 
     def load_thread(self, thread_id: str) -> Optional[dict[str, Any]]:
         """Return the stored payload for ``thread_id``, or ``None``."""
 
-    def save_thread(self, thread_id: str, payload: dict[str, Any]) -> None:
-        """Persist the payload for ``thread_id`` (upsert)."""
+    def thread_revision(self, thread_id: str) -> int:
+        """The stored revision for ``thread_id`` (``0`` when absent)."""
+
+    def save_thread(
+        self,
+        thread_id: str,
+        payload: dict[str, Any],
+        *,
+        expected_revision: Optional[int] = None,
+    ) -> int:
+        """Persist the payload for ``thread_id`` and return the new revision."""
 
     def delete_thread(self, thread_id: str) -> None:
         """Remove every checkpoint for ``thread_id``."""
@@ -74,8 +91,17 @@ class CheckpointStore(Protocol):
     def list_thread_ids(self) -> list[str]:
         """Return every thread id with a stored checkpoint."""
 
-    def save_run(self, run_id: str, metadata: dict[str, Any]) -> None:
-        """Persist the list/detail metadata for one workflow run (upsert)."""
+    def run_revision(self, run_id: str) -> int:
+        """The stored metadata revision for ``run_id`` (``0`` when absent)."""
+
+    def save_run(
+        self,
+        run_id: str,
+        metadata: dict[str, Any],
+        *,
+        expected_revision: Optional[int] = None,
+    ) -> int:
+        """Persist the list/detail metadata for one workflow run."""
 
     def load_run(self, run_id: str) -> Optional[dict[str, Any]]:
         """Return the persisted run metadata for ``run_id``, or ``None``."""
@@ -90,13 +116,33 @@ class InMemoryCheckpointStore:
     def __init__(self) -> None:
         self._payloads: dict[str, str] = {}
         self._runs: dict[str, str] = {}
+        self._run_revisions: dict[str, int] = {}
 
     def load_thread(self, thread_id: str) -> Optional[dict[str, Any]]:
         raw = self._payloads.get(thread_id)
         return json.loads(raw) if raw is not None else None
 
-    def save_thread(self, thread_id: str, payload: dict[str, Any]) -> None:
-        self._payloads[thread_id] = json.dumps(payload, sort_keys=True)
+    def thread_revision(self, thread_id: str) -> int:
+        payload = self.load_thread(thread_id)
+        if payload is None:
+            return 0
+        return int(payload.get("revision") or 0)
+
+    def save_thread(
+        self,
+        thread_id: str,
+        payload: dict[str, Any],
+        *,
+        expected_revision: Optional[int] = None,
+    ) -> int:
+        current = self.thread_revision(thread_id)
+        if expected_revision is not None and current != expected_revision:
+            raise CheckpointConflictError(thread_id, expected_revision, current)
+        revision = current + 1
+        stored = dict(payload)
+        stored["revision"] = revision
+        self._payloads[thread_id] = json.dumps(stored, sort_keys=True)
+        return revision
 
     def delete_thread(self, thread_id: str) -> None:
         self._payloads.pop(thread_id, None)
@@ -104,8 +150,25 @@ class InMemoryCheckpointStore:
     def list_thread_ids(self) -> list[str]:
         return list(self._payloads)
 
-    def save_run(self, run_id: str, metadata: dict[str, Any]) -> None:
+    def run_revision(self, run_id: str) -> int:
+        if run_id not in self._runs:
+            return 0
+        return int(self._run_revisions.get(run_id, 0))
+
+    def save_run(
+        self,
+        run_id: str,
+        metadata: dict[str, Any],
+        *,
+        expected_revision: Optional[int] = None,
+    ) -> int:
+        current = self.run_revision(run_id)
+        if expected_revision is not None and current != expected_revision:
+            raise CheckpointConflictError(run_id, expected_revision, current)
+        revision = current + 1
         self._runs[run_id] = json.dumps(metadata, sort_keys=True)
+        self._run_revisions[run_id] = revision
+        return revision
 
     def load_run(self, run_id: str) -> Optional[dict[str, Any]]:
         raw = self._runs.get(run_id)
@@ -141,7 +204,27 @@ class Neo4jCheckpointStore:
             raw = session.execute_read(_load)
         return json.loads(raw) if raw else None
 
-    def save_thread(self, thread_id: str, payload: dict[str, Any]) -> None:
+    def thread_revision(self, thread_id: str) -> int:
+        uid = f"{self.namespace}\x1f{thread_id}"
+
+        def _read(tx: Any) -> int:
+            record = tx.run(
+                f"MATCH (c:{LABEL_AGENT_CHECKPOINT} {{uid: $uid}}) "
+                "RETURN coalesce(c.revision, 0) AS revision LIMIT 1",
+                uid=uid,
+            ).single()
+            return int(record["revision"] or 0) if record else 0
+
+        with self._repo.session() as session:
+            return session.execute_read(_read)
+
+    def save_thread(
+        self,
+        thread_id: str,
+        payload: dict[str, Any],
+        *,
+        expected_revision: Optional[int] = None,
+    ) -> int:
         uid = f"{self.namespace}\x1f{thread_id}"
         props = {
             "uid": uid,
@@ -151,15 +234,48 @@ class Neo4jCheckpointStore:
             "updated_at": _now_iso(),
         }
 
-        def _save(tx: Any) -> None:
-            tx.run(
-                f"MERGE (c:{LABEL_AGENT_CHECKPOINT} {{uid: $uid}}) SET c = $props",
+        def _save(tx: Any) -> Optional[int]:
+            if expected_revision is None:
+                query = (
+                    f"MERGE (c:{LABEL_AGENT_CHECKPOINT} {{uid: $uid}}) "
+                    "WITH c, coalesce(c.revision, 0) AS current "
+                    "SET c = $props, c.revision = current + 1 "
+                    "RETURN c.revision AS revision"
+                )
+            elif expected_revision == 0:
+                # The row must not exist yet. MERGE lets this process create it
+                # atomically; an existing node at a non-zero revision fails the
+                # WHERE and returns no record (a conflict).
+                query = (
+                    f"MERGE (c:{LABEL_AGENT_CHECKPOINT} {{uid: $uid}}) "
+                    "ON CREATE SET c.revision = 0 "
+                    "WITH c, coalesce(c.revision, 0) AS current "
+                    "WHERE current = $expected "
+                    "SET c = $props, c.revision = current + 1 "
+                    "RETURN c.revision AS revision"
+                )
+            else:
+                query = (
+                    f"MATCH (c:{LABEL_AGENT_CHECKPOINT} {{uid: $uid}}) "
+                    "WITH c, coalesce(c.revision, 0) AS current "
+                    "WHERE current = $expected "
+                    "SET c = $props, c.revision = current + 1 "
+                    "RETURN c.revision AS revision"
+                )
+            record = tx.run(
+                query,
                 uid=uid,
                 props=props,
-            )
+                expected=expected_revision,
+            ).single()
+            return int(record["revision"]) if record else None
 
         with self._repo.session() as session:
-            session.execute_write(_save)
+            revision = session.execute_write(_save)
+        if revision is None:
+            actual = self.thread_revision(thread_id)
+            raise CheckpointConflictError(thread_id, expected_revision, actual)
+        return revision
 
     def delete_thread(self, thread_id: str) -> None:
         def _delete(tx: Any) -> None:
@@ -185,7 +301,27 @@ class Neo4jCheckpointStore:
         with self._repo.session() as session:
             return session.execute_read(_list)
 
-    def save_run(self, run_id: str, metadata: dict[str, Any]) -> None:
+    def run_revision(self, run_id: str) -> int:
+        uid = f"{self.namespace}\x1f{run_id}"
+
+        def _read(tx: Any) -> int:
+            record = tx.run(
+                f"MATCH (r:{LABEL_AGENT_RUN} {{uid: $uid}}) "
+                "RETURN coalesce(r.revision, 0) AS revision LIMIT 1",
+                uid=uid,
+            ).single()
+            return int(record["revision"] or 0) if record else 0
+
+        with self._repo.session() as session:
+            return session.execute_read(_read)
+
+    def save_run(
+        self,
+        run_id: str,
+        metadata: dict[str, Any],
+        *,
+        expected_revision: Optional[int] = None,
+    ) -> int:
         uid = f"{self.namespace}\x1f{run_id}"
         props = {
             "uid": uid,
@@ -195,15 +331,45 @@ class Neo4jCheckpointStore:
             "updated_at": _now_iso(),
         }
 
-        def _save(tx: Any) -> None:
-            tx.run(
-                f"MERGE (r:{LABEL_AGENT_RUN} {{uid: $uid}}) SET r = $props",
+        def _save(tx: Any) -> Optional[int]:
+            if expected_revision is None:
+                query = (
+                    f"MERGE (r:{LABEL_AGENT_RUN} {{uid: $uid}}) "
+                    "WITH r, coalesce(r.revision, 0) AS current "
+                    "SET r = $props, r.revision = current + 1 "
+                    "RETURN r.revision AS revision"
+                )
+            elif expected_revision == 0:
+                query = (
+                    f"MERGE (r:{LABEL_AGENT_RUN} {{uid: $uid}}) "
+                    "ON CREATE SET r.revision = 0 "
+                    "WITH r, coalesce(r.revision, 0) AS current "
+                    "WHERE current = $expected "
+                    "SET r = $props, r.revision = current + 1 "
+                    "RETURN r.revision AS revision"
+                )
+            else:
+                query = (
+                    f"MATCH (r:{LABEL_AGENT_RUN} {{uid: $uid}}) "
+                    "WITH r, coalesce(r.revision, 0) AS current "
+                    "WHERE current = $expected "
+                    "SET r = $props, r.revision = current + 1 "
+                    "RETURN r.revision AS revision"
+                )
+            record = tx.run(
+                query,
                 uid=uid,
                 props=props,
-            )
+                expected=expected_revision,
+            ).single()
+            return int(record["revision"]) if record else None
 
         with self._repo.session() as session:
-            session.execute_write(_save)
+            revision = session.execute_write(_save)
+        if revision is None:
+            actual = self.run_revision(run_id)
+            raise CheckpointConflictError(run_id, expected_revision, actual)
+        return revision
 
     def load_run(self, run_id: str) -> Optional[dict[str, Any]]:
         def _load(tx: Any) -> Optional[str]:
@@ -241,7 +407,9 @@ class DurableCheckpointSaver(InMemorySaver):
     def __init__(self, store: CheckpointStore) -> None:
         super().__init__()
         self._store = store
-        self._loaded: set[str] = set()
+        #: thread id -> revision this saver's in-memory copy corresponds to.
+        #: ``0`` means the store has no checkpoint for the thread.
+        self._loaded: dict[str, int] = {}
 
     # -- payload conversion -------------------------------------------------
 
@@ -311,17 +479,59 @@ class DurableCheckpointSaver(InMemorySaver):
                         _decode_typed(value)
                     )
 
+    def _drop_thread(self, thread_id: str) -> None:
+        """Discard this process's in-memory copy of one thread."""
+        self.storage.pop(thread_id, None)
+        for key in [key for key in list(self.writes) if key[0] == thread_id]:
+            self.writes.pop(key, None)
+        for key in [key for key in list(self.blobs) if key[0] == thread_id]:
+            self.blobs.pop(key, None)
+
+    def _stored_revision(self, thread_id: str) -> int:
+        reader = getattr(self._store, "thread_revision", None)
+        if reader is not None:
+            return int(reader(thread_id) or 0)
+        payload = self._store.load_thread(thread_id)
+        return int((payload or {}).get("revision", 0) or 0)
+
     def _ensure_loaded(self, thread_id: str) -> None:
-        if thread_id in self._loaded:
+        """Make the in-memory copy match the store's current revision.
+
+        ``InMemorySaver`` loads a thread once and never looks again. That is
+        wrong when a *different* process (the Cloud Run Job) advances the run:
+        the API would keep serving its stale gate, proposal and
+        ``evaluation_result``. The store is the source of truth, so a newer
+        stored revision replaces the in-memory copy before any read.
+        """
+        stored = self._stored_revision(thread_id)
+        known = self._loaded.get(thread_id)
+        if known is not None and known == stored:
             return
+        self._drop_thread(thread_id)
         payload = self._store.load_thread(thread_id)
         if payload:
             self._load_payload(thread_id, payload)
-        self._loaded.add(thread_id)
+        self._loaded[thread_id] = stored
 
     def _persist(self, thread_id: str) -> None:
-        self._store.save_thread(thread_id, self._serialise_thread(thread_id))
-        self._loaded.add(thread_id)
+        expected = self._loaded.get(thread_id, 0)
+        try:
+            revision = self._store.save_thread(
+                thread_id,
+                self._serialise_thread(thread_id),
+                expected_revision=expected,
+            )
+        except CheckpointConflictError:
+            # Adopt the newer stored copy before surfacing the conflict. Never
+            # leave stale bytes in this saver that a later read would serve.
+            self._drop_thread(thread_id)
+            fresh = self._stored_revision(thread_id)
+            payload = self._store.load_thread(thread_id)
+            if payload:
+                self._load_payload(thread_id, payload)
+            self._loaded[thread_id] = fresh
+            raise
+        self._loaded[thread_id] = int(revision)
 
     def has_thread(self, thread_id: str) -> bool:
         """Whether the store has any checkpoint for ``thread_id``."""
@@ -337,9 +547,21 @@ class DurableCheckpointSaver(InMemorySaver):
 
     # -- run metadata (alongside the checkpoints) --------------------------
 
-    def save_run(self, run_id: str, metadata: dict[str, Any]) -> None:
+    def save_run(
+        self,
+        run_id: str,
+        metadata: dict[str, Any],
+        *,
+        expected_revision: Optional[int] = None,
+    ) -> int:
         """Persist a run's list/detail metadata in the same durable store."""
-        self._store.save_run(run_id, metadata)
+        return self._store.save_run(
+            run_id, metadata, expected_revision=expected_revision
+        )
+
+    def run_revision(self, run_id: str) -> int:
+        reader = getattr(self._store, "run_revision", None)
+        return int(reader(run_id) or 0) if reader is not None else 0
 
     def load_run(self, run_id: str) -> Optional[dict[str, Any]]:
         return self._store.load_run(run_id)
@@ -410,12 +632,12 @@ class DurableCheckpointSaver(InMemorySaver):
 
     def delete_thread(self, thread_id: str) -> None:
         super().delete_thread(thread_id)
-        self._loaded.add(thread_id)
+        self._loaded[thread_id] = 0
         self._store.delete_thread(thread_id)
 
     async def adelete_thread(self, thread_id: str) -> None:
         await super().adelete_thread(thread_id)
-        self._loaded.add(thread_id)
+        self._loaded[thread_id] = 0
         self._store.delete_thread(thread_id)
 
 

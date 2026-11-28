@@ -225,7 +225,23 @@ async def run_selfcheck() -> int:
     run_id = runner.create_workflow(
         max_problems=SELFCHECK_MAX_PROBLEMS, tag=SELFCHECK_TAG
     )
+    # A second runner over the same store stands in for the API process. It
+    # reads the run before the worker advances (caching "no checkpoint yet"),
+    # then must see the worker's new gate without a restart. This is the
+    # cross-process read the durable-store fix is about; if an API URL were
+    # reachable we would query its detail endpoint instead, but the runner
+    # boundary is the same state.
+    api_checkpointer = create_durable_checkpointer(
+        repository, namespace=namespace
+    )
+    api_runner = _runner(
+        repository=repository,
+        checkpointer=api_checkpointer,
+        graph_source=graph_source,
+        sandbox=SandboxConfig(),
+    )
     try:
+        await api_runner.get_state(run_id)
         state = await runner.advance_workflow(run_id)
         status = str(state.get("status") or "")
         current_step = str(state.get("current_step") or "")
@@ -235,9 +251,28 @@ async def run_selfcheck() -> int:
             and current_step == "select_problem"
             and candidates
         ):
+            api_state = await api_runner.get_state(run_id)
+            if (
+                str(api_state.get("status") or "") != status
+                or str(api_state.get("current_step") or "") != current_step
+                or len(api_state.get("ranked_problems") or []) != len(candidates)
+            ):
+                logger.error(
+                    "workflow selfcheck: the API-visible state does not match the "
+                    "store after the worker advanced: run=%s worker=(%s,%s,%d) "
+                    "api=(%s,%s,%d)",
+                    run_id,
+                    status,
+                    current_step,
+                    len(candidates),
+                    api_state.get("status"),
+                    api_state.get("current_step"),
+                    len(api_state.get("ranked_problems") or []),
+                )
+                return 1
             logger.info(
                 "workflow selfcheck reached select_problem with %d candidate(s) "
-                "on run %s",
+                "on run %s; a second saver sees the same gate",
                 len(candidates),
                 run_id,
             )

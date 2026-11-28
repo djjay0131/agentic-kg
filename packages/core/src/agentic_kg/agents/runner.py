@@ -24,6 +24,11 @@ from agentic_kg.agents.dispatch import (
     WorkflowDispatcher,
     is_permission_denied,
 )
+from agentic_kg.agents.errors import (
+    CheckpointConflictError,
+    GateMismatchError,
+    WorkflowConflictError,
+)
 from agentic_kg.agents.evaluation import EvaluationAgent
 from agentic_kg.agents.graph_port import (
     SOURCE_CANONICAL,
@@ -146,6 +151,13 @@ class WorkflowRunner:
         self._config = config or get_agent_config()
         self._checkpointer = checkpointer or MemorySaver()
         self._workflows: dict[str, dict] = {}  # run_id -> metadata
+        #: run id -> revision of the durable metadata this process last read or
+        #: wrote. Metadata writes are compare-and-set on it.
+        self._run_revisions: dict[str, int] = {}
+        #: run id -> last durable metadata snapshot, used to replay only this
+        #: process's changes when a write loses a race instead of clobbering the
+        #: newer stored row.
+        self._run_baselines: dict[str, dict] = {}
         self._source = graph_source or self._config.graph_source
         self._reader = canonical_reader
         self._output_store = output_store or InMemoryAgentOutputStore()
@@ -509,21 +521,69 @@ class WorkflowRunner:
         return None
 
     def _persist_metadata(self, run_id: str) -> None:
+        """Persist metadata with a compare-and-set on its durable revision.
+
+        If another process wrote a newer row, this process replays only the
+        fields it actually changed (its delta against the last durable snapshot
+        it saw) onto that newer row. It never writes a whole stale copy over a
+        newer one.
+        """
         store = self._run_store()
         meta = self._workflows.get(run_id)
         if store is None or meta is None:
             return
+        expected = self._run_revisions.get(run_id)
         try:
-            store.save_run(run_id, dict(meta))
+            revision = store.save_run(
+                run_id, dict(meta), expected_revision=expected
+            )
+        except CheckpointConflictError:
+            durable = self._load_metadata(run_id) or {}
+            baseline = self._run_baselines.get(run_id, {})
+            changes = {
+                key: value
+                for key, value in meta.items()
+                if baseline.get(key) != value
+            }
+            removed = [key for key in baseline if key not in meta]
+            merged = {**durable, **changes}
+            for key in removed:
+                merged.pop(key, None)
+            merged.setdefault("run_id", run_id)
+            try:
+                revision = store.save_run(
+                    run_id,
+                    merged,
+                    expected_revision=self._run_revisions.get(run_id),
+                )
+            except CheckpointConflictError:
+                # The row moved again. Keeping the stored copy is the only
+                # honest outcome; a later read will surface it.
+                logger.warning(
+                    "metadata for %s changed concurrently; keeping the stored copy",
+                    run_id,
+                )
+                self._workflows[run_id] = dict(durable)
+                self._run_baselines[run_id] = dict(durable)
+                return
+            self._workflows[run_id] = merged
+            meta = merged
         except Exception:  # noqa: BLE001 - metadata write must not break a run
             logger.warning("could not persist metadata for %s", run_id)
+            return
+        self._run_revisions[run_id] = int(revision)
+        self._run_baselines[run_id] = dict(meta)
 
     def _load_metadata(self, run_id: str) -> dict | None:
         store = self._run_store()
         if store is None:
             return None
         try:
-            return store.load_run(run_id)
+            metadata = store.load_run(run_id)
+            revision = getattr(store, "run_revision", None)
+            if callable(revision) and metadata is not None:
+                self._run_revisions[run_id] = int(revision(run_id) or 0)
+            return metadata
         except Exception:  # noqa: BLE001 - a store read is best effort
             logger.warning("could not load metadata for %s", run_id)
             return None
@@ -541,13 +601,12 @@ class WorkflowRunner:
     def _merge_metadata(self, run_id: str) -> dict:
         """Merge the in-process and durable copies into one authoritative dict.
 
-        A dispatched run is owned by a **different process** (the Cloud Run
-        Job), so the durable copy carries the worker's heartbeat, status and
-        current step. Keeping the in-process copy from creation would make the
-        API watchdog believe a live worker never started, and would let a later
-        decision clobber the worker's progress. For a Job-owned run the store
-        therefore wins; otherwise the local process is the writer and its copy
-        wins.
+        A run may be advanced by a **different process** (the Cloud Run Job),
+        so the durable copy carries the worker's heartbeat, status and current
+        step. Every mutation persists synchronously, so the stored row is never
+        older than this process's copy; letting the local copy win (even for an
+        in-request run) is what let the API keep serving a gate the worker had
+        already left. The durable copy is therefore the base for every read.
         """
         local = self._workflows.get(run_id)
         durable = self._load_metadata(run_id)
@@ -556,12 +615,12 @@ class WorkflowRunner:
         elif durable is None:
             merged = dict(local)
         else:
-            mode = str(local.get("execution_mode") or durable.get("execution_mode") or "")
-            if mode == "job":
-                merged = {**local, **durable}
-            else:
-                merged = {**durable, **local}
+            merged = {**local, **durable}
             merged.setdefault("run_id", run_id)
+        if durable is not None:
+            # Remember the durable row this process is reasoning from, so a
+            # lost compare-and-set can replay only this process's changes.
+            self._run_baselines[run_id] = dict(durable)
         self._workflows[run_id] = merged
         return merged
 
@@ -589,6 +648,43 @@ class WorkflowRunner:
             state["current_step"] = next_nodes[0]
             state["status"] = WorkflowStatus.WAITING_CHECKPOINT.value
         return state
+
+    @staticmethod
+    def _gate_from_snapshot(snapshot: Any) -> str | None:
+        next_nodes = tuple(getattr(snapshot, "next", ()) or ())
+        if next_nodes and next_nodes[0] in _GATE_STEPS:
+            return str(next_nodes[0])
+        return None
+
+    def _pending_gate(self, snapshot: Any, meta: Mapping[str, Any]) -> str | None:
+        """The gate the durable state is actually waiting at, if any.
+
+        A dispatched step has consumed the previous gate's decision, so a run
+        that is ``running`` has no pending gate even while the raw checkpoint
+        still names the gate it was resumed from. A terminal run has none
+        either. Presenting the gate from fresh durable state is what makes a
+        stale decision (409) possible instead of applying it to old state.
+        """
+        values = dict(getattr(snapshot, "values", {}) or {})
+        if not values:
+            return None
+        status = str(meta.get("status") or "")
+        if status in _TERMINAL_STATUSES or status == WorkflowStatus.RUNNING.value:
+            return None
+        gate = self._gate_from_snapshot(snapshot)
+        step = str(meta.get("current_step") or "")
+        if step in _GATE_STEPS and gate and step != gate:
+            # Metadata is authoritative for a job-owned run; name the gate the
+            # store says it is waiting at.
+            return step
+        return gate or (step if step in _GATE_STEPS else None)
+
+    async def get_pending_gate(self, run_id: str) -> str | None:
+        """The gate this run is waiting at in the durable state, if any."""
+        self._require_workflow(run_id)
+        thread_config = {"configurable": {"thread_id": run_id}}
+        snapshot = await self._graph.aget_state(thread_config)
+        return self._pending_gate(snapshot, self._merge_metadata(run_id))
 
     def has_workflow(self, run_id: str) -> bool:
         """Return whether ``run_id`` names a known workflow.
@@ -650,7 +746,15 @@ class WorkflowRunner:
         """
         self._require_workflow(run_id)
         thread_config = {"configurable": {"thread_id": run_id}}
+        # ``aget_state`` goes through the durable saver, which reloads a thread
+        # another process advanced. The gate check below is therefore against
+        # the durable state, not a stale in-memory checkpoint.
         current_state = await self._graph.aget_state(thread_config)
+        meta = self._merge_metadata(run_id)
+        requested_gate = checkpoint_type.value
+        pending_gate = self._pending_gate(current_state, meta)
+        if pending_gate != requested_gate:
+            raise GateMismatchError(run_id, requested_gate, pending_gate)
         state = dict(current_state.values)
         state = CheckpointManager.apply_decision(
             state,
@@ -858,6 +962,16 @@ class WorkflowRunner:
             except Exception:  # noqa: BLE001 - never let cleanup mask a result
                 logger.warning("heartbeat task for %s ended badly", run_id)
         if failure is not None:
+            if isinstance(failure, WorkflowConflictError):
+                # Another process advanced this thread past the copy this
+                # worker was about to write. Its state is newer and valid, so
+                # do not manufacture a failure (and do not clear a lease this
+                # process no longer owns).
+                logger.warning(
+                    "workflow %s was advanced by another process; reloading",
+                    run_id,
+                )
+                return await self.get_state(run_id)
             logger.error(
                 "workflow %s failed while advancing",
                 run_id,

@@ -300,6 +300,22 @@ export interface WorkflowStatus {
   total_steps: number;
   completed_steps: number;
   error?: string;
+  execution_mode?: string;
+  dispatch_result?: string;
+  job_execution?: string;
+  dispatch_error?: string;
+  dispatched_at?: string;
+  worker_started_at?: string;
+  heartbeat_at?: string;
+}
+
+export interface WorkflowRecommendation {
+  action: string;
+  rationale: string;
+  confidence: number | null;
+  details: Record<string, unknown>;
+  provenance_abstained: boolean | null;
+  produced_at: string;
 }
 
 export interface WorkflowState {
@@ -318,6 +334,16 @@ export interface WorkflowState {
   synthesis_report: Record<string, unknown> | null;
   messages: { agent: string; content: string; timestamp: string }[];
   errors: string[];
+  pending_gate?: string | null;
+  gate_recommendation?: WorkflowRecommendation | null;
+  lease_until?: string;
+  execution_mode?: string;
+  dispatch_result?: string;
+  job_execution?: string;
+  dispatch_error?: string;
+  dispatched_at?: string;
+  worker_started_at?: string;
+  heartbeat_at?: string;
 }
 
 export interface StartWorkflowResponse {
@@ -451,7 +477,12 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(error.detail || 'API request failed');
+    const detail = error?.detail;
+    const message =
+      typeof detail === 'string'
+        ? detail
+        : detail?.message || (detail ? JSON.stringify(detail) : '');
+    throw new Error(message || res.statusText || 'API request failed');
   }
 
   return res.json();
