@@ -7,7 +7,7 @@ no Docker) and fails if the security properties regress:
 - a single concurrency group so two rotations never overlap
 - least privilege: top-level ``contents: read``; only the job escalates
   ``id-token: write`` for WIF
-- ``environment: staging``
+- ``environment: staging-infra``
 - WIF auth exactly as the deploy workflows
 - the generated password is masked before it is used, and is never echoed,
   written to ``GITHUB_OUTPUT``/``GITHUB_ENV``/the summary, or traced
@@ -70,8 +70,8 @@ def test_permissions_are_minimal(workflow: dict) -> None:
     assert job["permissions"] == {"contents": "read", "id-token": "write"}
 
 
-def test_runs_in_staging_environment(workflow: dict) -> None:
-    assert workflow["jobs"]["rotate"]["environment"] == "staging"
+def test_runs_in_staging_infra_environment(workflow: dict) -> None:
+    assert workflow["jobs"]["rotate"]["environment"] == "staging-infra"
 
 
 def test_wif_auth_matches_deploy_workflows(workflow: dict) -> None:

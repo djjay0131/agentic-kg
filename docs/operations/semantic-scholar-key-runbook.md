@@ -36,8 +36,10 @@ value as "no key" and sends no `x-api-key` header
 
 ## Preconditions
 
-- The GitHub environment `staging` has `GCP_WORKLOAD_IDENTITY_PROVIDER` and
-  `GCP_SERVICE_ACCOUNT` set, exactly as `deploy-master.yml` uses them.
+- The privileged roll workflow runs in the `staging-infra` GitHub environment
+  (required reviewer). The `GCP_WORKLOAD_IDENTITY_PROVIDER` and
+  `GCP_SERVICE_ACCOUNT` secrets are repository-scoped, so no environment copy
+  is needed; WIF is bound to the repository, not the environment name.
 - The Terraform changes that create the container, the seed version, the Job
   env and the `gh-ci-vendor-keys-staging` reader have been applied (dispatch
   the `Terraform` workflow; applying is the owner's approval).

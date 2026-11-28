@@ -7,7 +7,7 @@ fails if the security properties regress:
 - dispatchable only, never push/PR/schedule
 - one concurrency group per secret, queued runs never cancel a roll
 - least privilege: top-level ``contents: read``; only the job escalates
-  ``id-token: write`` for WIF; ``environment: staging``
+  ``id-token: write`` for WIF; ``environment: staging-infra``
 - the workflow NEVER reads a value: no ``versions access``, no GitHub-secret
   copies of vendor keys, no ``GITHUB_OUTPUT``/``GITHUB_ENV`` writes, no tracing
 - version numbers are compared as basenames, so the Terraform-seed guard fires
@@ -72,7 +72,7 @@ def test_rolls_never_overlap(workflow: dict) -> None:
 def test_least_privilege(workflow: dict) -> None:
     assert workflow["permissions"] == {"contents": "read"}
     assert _job(workflow)["permissions"] == {"contents": "read", "id-token": "write"}
-    assert _job(workflow)["environment"] == "staging"
+    assert _job(workflow)["environment"] == "staging-infra"
 
 
 def test_never_reads_or_exports_a_value(text: str) -> None:

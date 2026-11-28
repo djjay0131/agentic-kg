@@ -29,8 +29,10 @@ agent session or CI job applies on its own.
   Cloud Run).
 - The `job` image has been rebuilt since the last core change (the rotation
   job runs `python -m agentic_kg.rotate_password` from that image).
-- The GitHub environment `staging` has `GCP_WORKLOAD_IDENTITY_PROVIDER` and
-  `GCP_SERVICE_ACCOUNT` set, exactly as `deploy-master.yml` uses them.
+- The privileged rotation workflow runs in the `staging-infra` GitHub
+  environment (required reviewer). The `GCP_WORKLOAD_IDENTITY_PROVIDER` and
+  `GCP_SERVICE_ACCOUNT` secrets are repository-scoped, so no environment copy
+  is needed; WIF is bound to the repository, not the environment name.
 - **Do not** run these commands from an agent session or CI.
 
 Capture the current state first:

@@ -34,3 +34,4 @@ individually numbered here.
 | [0011](0011-autonomy-policy-research-loop.md) | Autonomy policy for the research loop | Proposed |
 | [0012](0012-staging-google-sign-in-iap.md) | Staging sign-in is Google IAP; human decisions carry a verified email | Proposed |
 | [0013](0013-gate-agreement-evidence.md) | Gate agreement evidence and evidence-based autonomy criteria | Proposed |
+| [0014](0014-split-staging-deploy-approvals.md) | Gate infrastructure and key rotation, not routine staging deploys | Proposed |
