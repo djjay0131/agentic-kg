@@ -102,6 +102,17 @@ class WorkflowStatusResponse(BaseModel):
     total_steps: int = 7
     completed_steps: int = 0
     error: str = ""
+    #: Dispatch evidence: ``job`` or ``in_request``; ``dispatched`` /
+    #: ``refused`` / ``failed`` / ``inline``; the Cloud Run operation name on a
+    #: successful hand-off; and the refusal/error text. A stuck run can always
+    #: be explained without reading logs.
+    execution_mode: str = ""
+    dispatch_result: str = ""
+    job_execution: str = ""
+    dispatch_error: str = ""
+    dispatched_at: str = ""
+    worker_started_at: str = ""
+    heartbeat_at: str = ""
 
 
 class WorkflowStateResponse(BaseModel):
@@ -122,6 +133,14 @@ class WorkflowStateResponse(BaseModel):
     synthesis_report: Optional[dict] = None
     messages: list[dict] = []
     errors: list[str] = []
+    execution_mode: str = ""
+    dispatch_result: str = ""
+    job_execution: str = ""
+    dispatch_error: str = ""
+    dispatched_at: str = ""
+    worker_started_at: str = ""
+    heartbeat_at: str = ""
+    lease_until: str = ""
 
 
 # --- Endpoints ---
@@ -201,6 +220,13 @@ async def list_workflows() -> list[WorkflowStatusResponse]:
                 total_steps=total,
                 completed_steps=completed,
                 error=w.get("error", ""),
+                execution_mode=w.get("execution_mode", ""),
+                dispatch_result=w.get("dispatch_result", ""),
+                job_execution=w.get("job_execution", ""),
+                dispatch_error=w.get("dispatch_error", ""),
+                dispatched_at=w.get("dispatched_at", ""),
+                worker_started_at=w.get("worker_started_at", ""),
+                heartbeat_at=w.get("heartbeat_at", ""),
             )
         )
     return rows
@@ -246,6 +272,14 @@ async def get_workflow(run_id: str) -> WorkflowStateResponse:
         synthesis_report=state.get("synthesis_report"),
         messages=state.get("messages", []),
         errors=errors,
+        execution_mode=str(meta.get("execution_mode") or ""),
+        dispatch_result=str(meta.get("dispatch_result") or ""),
+        job_execution=str(meta.get("job_execution") or ""),
+        dispatch_error=str(meta.get("dispatch_error") or ""),
+        dispatched_at=str(meta.get("dispatched_at") or ""),
+        worker_started_at=str(meta.get("worker_started_at") or ""),
+        heartbeat_at=str(meta.get("heartbeat_at") or ""),
+        lease_until=str(meta.get("lease_until") or ""),
     )
 
 
@@ -301,6 +335,14 @@ async def submit_checkpoint(
             synthesis_report=state.get("synthesis_report"),
             messages=state.get("messages", []),
             errors=state.get("errors", []),
+            execution_mode=str(meta.get("execution_mode") or ""),
+            dispatch_result=str(meta.get("dispatch_result") or ""),
+            job_execution=str(meta.get("job_execution") or ""),
+            dispatch_error=str(meta.get("dispatch_error") or ""),
+            dispatched_at=str(meta.get("dispatched_at") or ""),
+            worker_started_at=str(meta.get("worker_started_at") or ""),
+            heartbeat_at=str(meta.get("heartbeat_at") or ""),
+            lease_until=str(meta.get("lease_until") or ""),
         )
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Workflow {run_id} not found")

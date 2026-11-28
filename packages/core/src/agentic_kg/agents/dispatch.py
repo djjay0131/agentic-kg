@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import logging
 import os
+from dataclasses import dataclass
 from typing import Callable, Optional, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
@@ -80,12 +81,53 @@ class WorkflowDispatchError(RuntimeError):
     """A workflow Job execution could not be started."""
 
 
+#: ``dispatch_result`` values persisted on a run's metadata. A refused call is
+#: a permission/config failure (the in-request fallback is expected); a failed
+#: call is any other error; dispatched means the platform accepted the run.
+DISPATCHED = "dispatched"
+REFUSED = "refused"
+FAILED = "failed"
+INLINE = "inline"
+
+
+@dataclass(frozen=True)
+class DispatchOutcome:
+    """What happened when a workflow step was handed to a background Job.
+
+    A bool cannot carry the execution name or the reason a call was refused,
+    and both are needed to make a stuck run diagnosable from the API. The
+    runner persists this on the run metadata and appends it to the activity
+    log, so a decision that was applied but never executed names its cause.
+    """
+
+    dispatched: bool
+    result: str = DISPATCHED
+    execution: str = ""
+    error: str = ""
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "dispatch_result": self.result,
+            "job_execution": self.execution,
+            "dispatch_error": self.error,
+        }
+
+
+def is_permission_denied(exc: BaseException) -> bool:
+    """Whether ``exc`` is an IAM/permission refusal (not a transient error)."""
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status == 403:
+        return True
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return "403" in text or "permission" in text or "forbidden" in text
+
+
 @runtime_checkable
 class WorkflowDispatcher(Protocol):
     """Start/resume one workflow run outside the current HTTP process."""
 
-    def dispatch(self, run_id: str, *, phase: str) -> bool:
-        """Return ``True`` when a background execution was started."""
+    def dispatch(self, run_id: str, *, phase: str) -> DispatchOutcome:
+        """Start a background execution and report what happened."""
 
 
 class CloudRunJobDispatcher:
@@ -102,13 +144,13 @@ class CloudRunJobDispatcher:
         self._run_client = run_client
         self.strict = strict
 
-    def dispatch(self, run_id: str, *, phase: str) -> bool:
+    def dispatch(self, run_id: str, *, phase: str) -> DispatchOutcome:
         """Start one execution of the Job with an ``args`` override.
 
         Raises:
             WorkflowDispatchError: in ``strict`` mode, or when the client
-                reports a non-permission failure. The caller decides whether to
-                fall back in-request.
+                reports a failure. The caller decides whether to fall back
+                in-request.
         """
         args = ["workflow", phase, run_id]
         try:
@@ -116,6 +158,7 @@ class CloudRunJobDispatcher:
                 self.job_resource, args=args, env={}
             )
         except Exception as exc:  # noqa: BLE001 - the fallback is the safety net
+            result = REFUSED if is_permission_denied(exc) else FAILED
             message = (
                 "could not start the workflow Job execution "
                 f"({self.job_resource}, args={args!r}): {exc}. The API runtime "
@@ -125,15 +168,24 @@ class CloudRunJobDispatcher:
             logger.warning("%s", message)
             if self.strict:
                 raise WorkflowDispatchError(message) from exc
-            return False
+            return DispatchOutcome(
+                dispatched=False,
+                result=result,
+                error=message,
+            )
+        execution_name = str(execution or "")
         logger.info(
             "dispatched workflow %s (%s) to %s as %s",
             run_id,
             phase,
             self.job_resource,
-            execution,
+            execution_name,
         )
-        return True
+        return DispatchOutcome(
+            dispatched=True,
+            result=DISPATCHED,
+            execution=execution_name,
+        )
 
 
 def _build_run_client(project: str, region: str):
@@ -194,15 +246,21 @@ __all__ = [
     "CloudRunJobDispatcher",
     "DEFAULT_MODE",
     "DEFAULT_JOB_PREFIX",
+    "DISPATCHED",
+    "DispatchOutcome",
     "ENV_NAME_ENV",
     "EXECUTION_MODE_ENV",
+    "FAILED",
+    "INLINE",
     "JOB_NAME_ENV",
     "MODES",
     "PROJECT_ENV",
+    "REFUSED",
     "REGION_ENV",
     "WorkflowDispatchError",
     "WorkflowDispatcher",
     "build_dispatcher",
     "default_job_name",
+    "is_permission_denied",
     "job_resource_name",
 ]

@@ -929,10 +929,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     workflow_cmd.add_argument(
-        "phase", choices=["start", "resume", "advance"],
-        help="start a new run, resume a decided gate, or just advance",
+        "phase",
+        choices=["start", "resume", "advance", "selfcheck"],
+        help=(
+            "start a new run, resume a decided gate, just advance, or run the "
+            "deploy self-check"
+        ),
     )
-    workflow_cmd.add_argument("run_id", help="Workflow run id")
+    workflow_cmd.add_argument(
+        "run_id", nargs="?", default="", help="Workflow run id (not used by selfcheck)"
+    )
     workflow_cmd.add_argument(
         "-v", "--verbose", action="store_true", help="Enable verbose logging",
     )
@@ -1731,8 +1737,13 @@ def run_autonomy(args) -> None:
 
 def run_workflow(args) -> None:
     """Advance one workflow run (the asynchronous Job entrypoint)."""
-    from agentic_kg.agents.workflow_job import run_sync
+    from agentic_kg.agents.workflow_job import (
+        run_selfcheck_sync,
+        run_sync,
+    )
 
+    if args.phase == "selfcheck":
+        raise SystemExit(run_selfcheck_sync())
     raise SystemExit(run_sync(args.phase, args.run_id))
 
 

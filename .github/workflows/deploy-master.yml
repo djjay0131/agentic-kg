@@ -330,6 +330,39 @@ jobs:
             exit 1
           fi
 
+      # A real workflow smoke through the same Job-override path the API uses
+      # for asynchronous steps. It needs no browser and no IAP credential: the
+      # Job creates a tagged run against the real Neo4j store, runs ranking to
+      # the select_problem gate, asserts candidates were produced, and cancels
+      # the run. A worker entrypoint/arg/env regression fails the deploy here.
+      - name: Workflow self-check (Job dispatch path)
+        if: needs.changes.outputs.api == 'true' || needs.changes.outputs.job == 'true'
+        run: |
+          set -euo pipefail
+          JOB="agentic-kg-ingest-staging"
+          if ! gcloud run jobs describe "$JOB" --region=${{ env.REGION }} >/dev/null 2>&1; then
+            echo "::error::$JOB does not exist; cannot run the workflow self-check"
+            exit 1
+          fi
+          # gcloud's --args is a comma-separated list, which becomes the
+          # container args override after the Job's own command. job_runner
+          # forwards a leading `workflow` to the worker entrypoint.
+          EXEC_RC=0
+          if ! gcloud run jobs execute "$JOB" \
+              --args=workflow,selfcheck \
+              --region=${{ env.REGION }} --wait; then
+            EXEC_RC=1
+            echo "::error::workflow self-check failed; see the execution logs"
+          fi
+          EXECUTION="$(gcloud run jobs executions list --job "$JOB" \
+            --region=${{ env.REGION }} --limit=1 --format='value(name)')"
+          FAILED="$(gcloud run jobs executions describe "$EXECUTION" \
+            --region=${{ env.REGION }} --format='value(status.failedCount)')"
+          if [ "${EXEC_RC}" != "0" ] || [ "${FAILED:-0}" != "0" ]; then
+            echo "::error::workflow self-check execution ${EXECUTION} failed (failedCount=${FAILED:-unknown})"
+            exit 1
+          fi
+
       # Assert Cloud Run actually reports the SHA we just deployed. Logic lives
       # in a unit-tested script (label-only in PR-1; PR-3 adds --check-version).
       - name: Assert deployed SHA matches
