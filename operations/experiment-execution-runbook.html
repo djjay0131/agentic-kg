@@ -67,6 +67,33 @@ do when a run does not execute. The design decision is
   </tbody>
 </table>
 
+<h3 id="the-endpoint-is-resolved-per-runtime">The endpoint is resolved per runtime</h3>
+
+<p><code class="language-plaintext highlighter-rouge">EXPERIMENT_GCS_ENDPOINT</code> is <strong>not</strong> a coordinate that can be copied from one
+process to another. The API service and the ingest/nightly worker Jobs share the
+application VPC (Direct VPC egress, <code class="language-plaintext highlighter-rouge">PRIVATE_RANGES_ONLY</code>); the experiment Job
+uses its own VPC with Private Google Access. A workflow step runs the sandbox in
+the worker Job, not in the API, so the worker must reach the endpoint it will
+actually use.</p>
+
+<p><code class="language-plaintext highlighter-rouge">CloudRunJobBackend</code> therefore resolves the endpoint in the process that owns
+the sandbox:</p>
+
+<ol>
+  <li>it keeps that runtime’s own <code class="language-plaintext highlighter-rouge">EXPERIMENT_GCS_ENDPOINT</code> (or the public default
+when unset);</li>
+  <li>it probes the endpoint with a short TCP connect timeout;</li>
+  <li>if the probe fails, it logs the fallback and uses
+<code class="language-plaintext highlighter-rouge">EXPERIMENT_GCS_ENDPOINT_FALLBACK</code> (default <code class="language-plaintext highlighter-rouge">https://storage.googleapis.com</code>,
+reachable through Cloud Run managed egress).</li>
+</ol>
+
+<p>The API’s endpoint is no longer persisted into run metadata, and a worker
+ignores one if an older run carries it. GCS reads/writes use a short
+<code class="language-plaintext highlighter-rouge">EXPERIMENT_GCS_REQUEST_TIMEOUT_SECONDS</code> (default 30) with client retries
+disabled, so a broken path reports the real error instead of a 120 s
+<code class="language-plaintext highlighter-rouge">RetryError</code>.</p>
+
 <h2 id="what-happens-on-one-execution">What happens on one execution</h2>
 
 <ol>
@@ -103,8 +130,9 @@ egress. It has no peering to the application network, so Neo4j is not
 reachable;</li>
   <li>egress firewall denies <code class="language-plaintext highlighter-rouge">0.0.0.0/0</code>; only TCP/443 to
 <code class="language-plaintext highlighter-rouge">199.36.153.4/30</code> and <code class="language-plaintext highlighter-rouge">199.36.153.8/30</code> (Private Google APIs) is allowed;</li>
-  <li>the runner forces the GCS client to <code class="language-plaintext highlighter-rouge">https://private.googleapis.com</code>, so it
-uses the allowed VIP instead of a public GCS address;</li>
+  <li>the experiment runner forces its own GCS client to
+<code class="language-plaintext highlighter-rouge">https://private.googleapis.com</code>, so it uses the allowed VIP instead of a
+public GCS address;</li>
   <li>the image is <code class="language-plaintext highlighter-rouge">docker/Dockerfile.experiment</code>: non-root UID 10001, no
 agentic-kg application code, no Neo4j driver, no Docker client, no secrets;</li>
   <li>Cloud Run’s container filesystem is read-only except <code class="language-plaintext highlighter-rouge">/tmp</code>.</li>
@@ -139,6 +167,54 @@ gcloud storage <span class="nb">cat</span> <span class="se">\</span>
 
 <p><code class="language-plaintext highlighter-rouge">EvaluationResult.execution_provenance.result_uri</code> is the exact prefix; use it
 rather than reconstructing the id by hand.</p>
+
+<h2 id="deploy-time-sandbox-check">Deploy-time sandbox check</h2>
+
+<p><code class="language-plaintext highlighter-rouge">deploy-master</code> runs <code class="language-plaintext highlighter-rouge">agentic-kg sandbox-check</code> through the ingest Job’s
+execution-time args override, after the LLM check and the workflow self-check.
+It executes in the same Job, service account and network a real workflow step
+uses, and it reads the bucket/prefix/Job coordinates Terraform set on the API
+service. It deliberately does <strong>not</strong> forward the API’s endpoint.</p>
+
+<p>From inside that Job it uploads a tiny script, executes the experiment Job,
+polls the execution, reads the result back and attempts to delete its objects.
+A failure exits non-zero and names the phase:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Category</th>
+      <th>Meaning</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">connectivity</code></td>
+      <td>This runtime cannot reach the GCS endpoint it resolved</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">permission</code></td>
+      <td>A 403 on the bucket objects or on <code class="language-plaintext highlighter-rouge">:run</code> / <code class="language-plaintext highlighter-rouge">executions.get</code></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">not_found</code></td>
+      <td>The bucket or an expected object does not exist</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">job_timeout</code></td>
+      <td>The experiment Job did not finish within the budget</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">job_failed</code></td>
+      <td>The Job ran but the script/result was unsuccessful</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Cleanup is best effort: the runtime service account has <code class="language-plaintext highlighter-rouge">objectViewer</code> +
+<code class="language-plaintext highlighter-rouge">objectCreator</code>, not <code class="language-plaintext highlighter-rouge">objectDeleter</code>, so a cleanup 403 is reported and the
+bucket’s 30-day lifecycle rule removes anything left behind. Run the same
+command by hand inside the Job to reproduce a deploy failure.</p>
 
 <h2 id="troubleshooting">Troubleshooting</h2>
 
