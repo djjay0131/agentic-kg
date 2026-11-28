@@ -481,6 +481,30 @@ class CloudRunJobBackend:
                     finished_at=_utc_now(),
                     backend="cloudrun_job",
                 )
+            # A runner-written error.json is the cause even if the platform
+            # operation never reports terminal (it normally does now).
+            runner_error = self._error_json(result_uri)
+            if runner_error:
+                detail = self._runner_error_detail(runner_error)
+                return SandboxResult(
+                    success=False,
+                    stdout=partial_stdout,
+                    stderr=f"{exc}{status_note} {detail}".strip(),
+                    exit_code=-1,
+                    timed_out=False,
+                    infrastructure_failure=True,
+                    failure_stage=str(runner_error.get("stage") or "runner"),
+                    failure_category=str(
+                        runner_error.get("category") or "job_failed"
+                    ),
+                    experiment_id=experiment_id,
+                    result_uri=result_uri,
+                    code_hash=_code_hash(code),
+                    image_digest=self.config.image_digest,
+                    started_at=started_at,
+                    finished_at=_utc_now(),
+                    backend="cloudrun_job",
+                )
             return SandboxResult(
                 success=False,
                 stdout=partial_stdout,
@@ -565,9 +589,16 @@ class CloudRunJobBackend:
 
     def _result_json(self, result_uri: str) -> dict:
         """Read ``result.json`` or return ``{}``; never raises."""
+        return self._read_json_object(f"{result_uri}/result.json")
+
+    def _error_json(self, result_uri: str) -> dict:
+        """Read the runner's ``error.json`` or return ``{}``; never raises."""
+        return self._read_json_object(f"{result_uri}/error.json")
+
+    def _read_json_object(self, uri: str) -> dict:
         try:
-            raw = self._store.download_bytes(f"{result_uri}/result.json")
-        except Exception:  # noqa: BLE001 - an unreadable result is no result
+            raw = self._store.download_bytes(uri)
+        except Exception:  # noqa: BLE001 - an unreadable object is no object
             return {}
         if not raw:
             return {}
@@ -576,6 +607,21 @@ class CloudRunJobBackend:
         except (UnicodeDecodeError, json.JSONDecodeError):
             return {}
         return parsed if isinstance(parsed, dict) else {}
+
+    @staticmethod
+    def _runner_error_detail(error: dict) -> str:
+        """One readable line from the runner's ``error.json``."""
+        parts = [str(error.get("message") or "").strip()]
+        status = error.get("status")
+        if status:
+            parts.append(f"status={status}")
+        body = str(error.get("body_excerpt") or "").strip()
+        if body:
+            parts.append(f"body={body}")
+        last_log = str(error.get("last_log") or "").strip()
+        if last_log:
+            parts.append(f"last_log={last_log}")
+        return " | ".join(part for part in parts if part)
 
     def _collect(
         self,
@@ -604,14 +650,32 @@ class CloudRunJobBackend:
         # No result object at all means the runner never reached its upload
         # stage: the platform or the network failed before the experiment could
         # run (or the result could be read back). Report that as infrastructure,
-        # not as science.
+        # not as science. If the runner wrote error.json, its named stage and
+        # category are the cause (e.g. download/permission); otherwise the
+        # execution's own Completed condition is the best evidence available.
         infrastructure_failure = not raw_result
-        failure_category = "job_failed" if infrastructure_failure else None
-        if infrastructure_failure and not stderr:
-            stderr = (
-                "experiment Job finished without writing result.json "
-                f"(execution status: {execution.get('status')})"
-            )
+        failure_category: Optional[str] = "job_failed" if infrastructure_failure else None
+        failure_stage: Optional[str] = "collect" if infrastructure_failure else None
+        if infrastructure_failure:
+            runner_error = self._error_json(result_uri)
+            if runner_error:
+                stage = str(runner_error.get("stage") or "collect")
+                failure_stage = stage
+                failure_category = str(
+                    runner_error.get("category") or "job_failed"
+                )
+                detail = self._runner_error_detail(runner_error)
+                if detail and detail not in stderr:
+                    stderr = (stderr + "\n" if stderr else "") + detail
+            else:
+                detail = execution_condition_message(execution)
+                if detail and detail not in stderr:
+                    stderr = (stderr + "\n" if stderr else "") + detail
+                if not stderr:
+                    stderr = (
+                        "experiment Job finished without writing result.json "
+                        f"(execution status: {execution.get('status')})"
+                    )
 
         max_output = self.config.max_output_chars
         if len(stdout) > max_output:
@@ -635,7 +699,7 @@ class CloudRunJobBackend:
             timed_out=timed_out,
             metrics=metrics,
             infrastructure_failure=infrastructure_failure,
-            failure_stage="collect" if infrastructure_failure else None,
+            failure_stage=failure_stage,
             failure_category=failure_category,
             experiment_id=experiment_id,
             result_uri=result_uri,
@@ -796,6 +860,73 @@ def is_execution_terminal(execution: dict) -> bool:
     return bool(status.get("completionTime"))
 
 
+def is_operation(obj: dict) -> bool:
+    """Return whether ``obj`` is a long-running Operation, not an Execution.
+
+    ``POST .../jobs/<job>:run`` returns a ``GoogleLongRunningOperation``. The
+    operation is terminal when ``done`` is true; it carries either ``error`` or
+    a ``response`` that names the Execution. Polling its ``status`` like an
+    Execution is why #171 waited the full 330 s for an execution that had
+    already failed (#171's timeout message named ``.../operations/...``).
+    """
+    return isinstance(obj, dict) and "done" in obj
+
+
+def operation_execution_name(operation: dict) -> str | None:
+    """Extract the Execution resource name from a completed run operation."""
+    response = operation.get("response")
+    if isinstance(response, dict):
+        name = response.get("name")
+        if isinstance(name, str) and name:
+            return name
+    # Some LRO shapes put the created resource in metadata instead.
+    metadata = operation.get("metadata")
+    if isinstance(metadata, dict):
+        name = metadata.get("name")
+        if isinstance(name, str) and "/executions/" in name:
+            return name
+    return None
+
+
+class ExecutionOperationError(RuntimeError):
+    """A Cloud Run ``:run`` operation finished with an error (dispatch failure)."""
+
+    def __init__(self, operation: dict) -> None:
+        self.operation = operation
+        error = operation.get("error") or {}
+        message = ""
+        code = None
+        if isinstance(error, dict):
+            message = str(error.get("message") or "")
+            code = error.get("code")
+        elif error:
+            message = str(error)
+        if not message:
+            message = (
+                "the run operation finished without creating an execution "
+                f"(status: {operation.get('status') or 'unknown'})"
+            )
+        if code:
+            message = f"Cloud Run Job start failed ({code}): {message}"
+        else:
+            message = f"Cloud Run Job start failed: {message}"
+        super().__init__(message)
+
+
+def execution_condition_message(execution: dict) -> str:
+    """Return the Completed/Succeeded condition message, never a guess."""
+    status = execution.get("status") or {}
+    for condition in status.get("conditions") or []:
+        if condition.get("type") in {"Completed", "Succeeded"}:
+            message = condition.get("message") or ""
+            reason = condition.get("reason") or ""
+            if message and reason:
+                return f"{reason}: {message}"
+            if message:
+                return str(message)
+    return ""
+
+
 def execution_succeeded(execution: dict) -> bool:
     """Return whether a completed Cloud Run v2 execution succeeded."""
     status = execution.get("status") or {}
@@ -827,19 +958,45 @@ def _poll_execution(
     sleep: Any,
     interval: float,
 ) -> dict:
+    """Poll a run operation / execution until it is terminal.
+
+    ``:run`` returns an operation name. The operation finishes as soon as the
+    platform has created the execution (or failed to), so poll ``done`` first,
+    then poll the named Execution for its terminal ``completionTime``. This
+    returns in seconds for an execution that failed early instead of waiting
+    out the caller's budget on an object that never reports ``completionTime``.
+    """
     deadline = clock() + timeout
+    target = execution_name
     while True:
-        execution = run.get_execution(execution_name)
-        if is_execution_terminal(execution):
-            return execution
+        current = run.get_execution(target)
+        if is_operation(current):
+            if not current.get("done"):
+                if clock() >= deadline:
+                    raise TimeoutError(
+                        f"Cloud Run Job operation was not done within {timeout}s: "
+                        f"{target}"
+                    )
+                sleep(interval)
+                continue
+            if current.get("error"):
+                raise ExecutionOperationError(current)
+            resolved = operation_execution_name(current)
+            if not resolved:
+                raise ExecutionOperationError(current)
+            if resolved != target:
+                target = resolved
+                continue
+        if is_execution_terminal(current):
+            return current
         if clock() >= deadline:
             raise TimeoutError(
-                f"Cloud Run Job execution exceeded {timeout}s: {execution_name}"
+                f"Cloud Run Job execution exceeded {timeout}s: {target}"
             )
         sleep(interval)
         if clock() >= deadline:
             raise TimeoutError(
-                f"Cloud Run Job execution exceeded {timeout}s: {execution_name}"
+                f"Cloud Run Job execution exceeded {timeout}s: {target}"
             )
 
 
@@ -915,10 +1072,13 @@ class SandboxCheckReport:
 def _cleanup_objects(store: Any, result_uri: str) -> str:
     """Best-effort delete of the check's own objects.
 
-    The runtime service account has ``objectViewer`` + ``objectCreator`` but
-    not ``objectDeleter`` (ADR-0009 names only the first two), so a cleanup
-    403 is reported, not raised. The bucket's 30-day lifecycle rule removes
-    anything left behind.
+    The *experiment* runtime service account has ``objectViewer`` +
+    ``objectCreator`` but not ``objectDeleter`` (ADR-0009 names only the first
+    two), so a cleanup 403 is reported, not raised. The *worker* that runs this
+    check uses the ingest Job's default compute identity, which can delete, so
+    the value semantics differ by identity and a successful delete here is not
+    evidence that #170's claim was wrong. The bucket's 30-day lifecycle rule
+    removes anything left behind.
     """
     deleter = getattr(store, "delete_bytes", None)
     if deleter is None:
@@ -930,6 +1090,7 @@ def _cleanup_objects(store: Any, result_uri: str) -> str:
         "stderr.txt",
         "metrics.json",
         "result.json",
+        "error.json",
     )
     deleted = 0
     for name in names:
@@ -1006,6 +1167,27 @@ def run_sandbox_check(
         report.message = f"upload failed: {type(exc).__name__}: {exc}"
         return report
 
+    # Read the object name back from the caller's own store. A mismatch between
+    # the name this process writes and the name the runner derives from the URI
+    # is invisible to the upload call; this catches it before a Job is started.
+    try:
+        uploaded_script = store.download_bytes(script_uri)
+    except Exception as exc:  # noqa: BLE001 - the deploy should see the reason
+        report.category = classify_sandbox_error(exc)
+        report.message = (
+            "uploaded script could not be read back with the same URI: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        report.cleanup = _cleanup_objects(store, result_uri)
+        return report
+    if uploaded_script != _SANDBOX_CHECK_SCRIPT.encode("utf-8"):
+        report.category = "upload_unverified"
+        report.message = (
+            f"uploaded script read back as {uploaded_script!r} from {script_uri}"
+        )
+        report.cleanup = _cleanup_objects(store, result_uri)
+        return report
+
     try:
         execution_name = run.run_job(
             job,
@@ -1051,6 +1233,7 @@ def run_sandbox_check(
             job_result = json.loads(raw_result.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
             job_result = {}
+    runner_error = _store_json_object(store, f"{result_uri}/error.json")
     exit_code = int(
         job_result.get(
             "exit_code", 0 if execution_succeeded(execution) else 1
@@ -1061,10 +1244,23 @@ def run_sandbox_check(
     report.exit_code = exit_code
     report.cleanup = _cleanup_objects(store, result_uri)
 
-    if execution_succeeded(execution) and exit_code == 0:
+    if execution_succeeded(execution) and exit_code == 0 and not runner_error:
         report.ok = True
         report.category = "ok"
         report.message = "upload, experiment Job execution, poll and read-back succeeded"
+        return report
+
+    if runner_error:
+        # The runner named the stage and HTTP status; report that instead of a
+        # generic "job failed". This is the evidence that distinguishes a
+        # routing/Host 404 from an IAM 403 from a missing object.
+        stage = str(runner_error.get("stage") or "runner")
+        report.category = str(runner_error.get("category") or "job_failed")
+        detail = CloudRunJobBackend._runner_error_detail(runner_error)
+        report.message = (
+            f"experiment runner failed at stage={stage} "
+            f"[{report.category}]: {detail[:500]}"
+        )
         return report
 
     report.category = "job_failed"
@@ -1072,7 +1268,10 @@ def run_sandbox_check(
     if not detail:
         # The reason is usually only in the experiment Job's own logs, which
         # the deploy step prints separately. At least name the execution state.
+        condition = execution_condition_message(execution)
         detail = f"no output; execution status: {execution.get('status')}"
+        if condition:
+            detail = f"{detail}; {condition}"
     report.message = (
         f"experiment Job finished but the result was not successful "
         f"(exit_code={exit_code}): {detail[:500]}"
@@ -1083,6 +1282,17 @@ def run_sandbox_check(
 def _store_text(store: Any, uri: str) -> str:
     data = store.download_bytes(uri)
     return data.decode("utf-8", errors="replace") if data else ""
+
+
+def _store_json_object(store: Any, uri: str) -> dict:
+    data = store.download_bytes(uri)
+    if not data:
+        return {}
+    try:
+        parsed = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _env_name() -> str:
