@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -45,6 +45,7 @@ from agentic_kg.agents.provenance import InMemoryAgentOutputStore
 from agentic_kg.agents.runner import WorkflowRunner
 from agentic_kg.agents.sandbox import SandboxResult
 from agentic_kg.agents.schemas import (
+    CheckpointDecision,
     CheckpointType,
     WorkflowStatus,
 )
@@ -73,12 +74,18 @@ class _FakeOpenAI:
 
     def __init__(self) -> None:
         self.calls: list[str] = []
+        #: Raise one ``httpx.ReadTimeout`` for this response model's first call.
+        self.timeout_on_first: str | None = None
+        self._timed_out = False
 
     async def __call__(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         name = body["response_format"]["json_schema"]["name"]
         prompt = body["messages"][-1]["content"]
         self.calls.append(name)
+        if name == self.timeout_on_first and not self._timed_out:
+            self._timed_out = True
+            raise httpx.ReadTimeout("Request timed out")
         content = self._content(name, prompt)
         return httpx.Response(
             200,
@@ -350,6 +357,8 @@ def _build_runner(
     *,
     outputs: InMemoryAgentOutputStore,
     repo: _FakeRepo,
+    sandbox: Any | None = None,
+    dispatcher: Any | None = None,
 ) -> WorkflowRunner:
     return WorkflowRunner(
         llm_client=llm,
@@ -357,9 +366,52 @@ def _build_runner(
         checkpointer=DurableCheckpointSaver(store),
         config=AgentConfig(graph_source=SOURCE_LEGACY),
         graph_port=_FakeGraphPort(),
-        sandbox=_FakeSandbox(),
+        sandbox=sandbox or _FakeSandbox(),
         output_store=outputs,
+        dispatcher=dispatcher,
     )
+
+
+class _RecordingDispatcher:
+    """Records a dispatch and leaves the work for the test to drive."""
+
+    def __init__(self, *, fail: bool = False) -> None:
+        self.calls: list[tuple[str, str]] = []
+        self.fail = fail
+
+    def dispatch(self, run_id: str, *, phase: str) -> bool:
+        self.calls.append((run_id, phase))
+        if self.fail:
+            raise RuntimeError(
+                "403 run.jobs.runWithOverrides; needs "
+                "roles/run.jobsExecutorWithOverrides"
+            )
+        return True
+
+
+class _FailedSandbox:
+    def __init__(self, mode: str) -> None:
+        self.mode = mode
+
+    def execute(self, code: str, **_: Any) -> SandboxResult:
+        if self.mode == "unavailable":
+            raise RuntimeError("EXPERIMENT_GCS_BUCKET is required")
+        if self.mode == "timeout":
+            return SandboxResult(
+                success=False,
+                stdout="",
+                stderr="execution exceeded 300s",
+                exit_code=-1,
+                timed_out=True,
+                backend="cloudrun_job",
+            )
+        return SandboxResult(
+            success=False,
+            stdout="",
+            stderr="Traceback: ZeroDivisionError",
+            exit_code=1,
+            backend="cloudrun_job",
+        )
 
 
 @pytest.fixture
@@ -582,3 +634,192 @@ async def test_rejection_ends_the_graph_cleanly_at_every_gate(e2e):
         assert decision.decision == "reject"
         assert decision.agent_recommendation is not None
         assert decision.agreed is False
+
+
+@pytest.mark.asyncio
+async def test_async_start_and_resume_transition_through_running(e2e):
+    """A dispatched step returns immediately, then the worker completes it."""
+    store = e2e["store"]
+    dispatcher = _RecordingDispatcher()
+    runner = _build_runner(
+        e2e["llm"],
+        store,
+        outputs=e2e["outputs"],
+        repo=e2e["repo"],
+        dispatcher=dispatcher,
+    )
+
+    run_id, dispatched = await runner.start_workflow_async(
+        max_problems=20, tag="e2e-post-deploy"
+    )
+    assert dispatched is True
+    assert dispatcher.calls == [(run_id, "start")]
+    listed = {item["run_id"]: item for item in runner.list_workflows()}
+    assert listed[run_id]["tag"] == "e2e-post-deploy"
+    # Ranking has not run yet: the request returned the created run.
+    state = await runner.get_state(run_id)
+    assert state["status"] == WorkflowStatus.RUNNING.value
+    assert state["current_step"] == "ranking"
+    assert state.get("ranked_problems", []) == []
+    assert e2e["handler"].calls == []
+
+    # The Job is the worker; the test drives the same entry point.
+    await runner.advance_workflow(run_id)
+    state = await runner.get_state(run_id)
+    assert state["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert state["current_step"] == CheckpointType.SELECT_PROBLEM.value
+
+    # A gate decision is persisted and dispatched; the following agent runs
+    # only when the worker advances.
+    state, dispatched = await runner.submit_checkpoint(
+        run_id,
+        CheckpointType.SELECT_PROBLEM,
+        CheckpointDecision.APPROVE,
+        feedback="go",
+        edited_data={"problem_id": "p0"},
+    )
+    assert dispatched is True
+    assert dispatcher.calls[-1] == (run_id, "resume")
+    assert state["status"] == WorkflowStatus.RUNNING.value
+    assert state["current_step"] == "continuation"
+    # The checkpoint itself already carries the decision.
+    assert (await runner.get_state(run_id))["selected_problem_id"] == "p0"
+
+    await runner.advance_workflow(run_id)
+    state = await runner.get_state(run_id)
+    assert state["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert state["current_step"] == CheckpointType.APPROVE_PROPOSAL.value
+
+
+@pytest.mark.asyncio
+async def test_dispatch_failure_falls_back_in_request_without_regressing(e2e):
+    """No IAM yet: the Job call fails, the historical path still reaches a gate."""
+    runner = _build_runner(
+        e2e["llm"],
+        e2e["store"],
+        outputs=e2e["outputs"],
+        repo=e2e["repo"],
+        dispatcher=_RecordingDispatcher(fail=True),
+    )
+
+    run_id, dispatched = await runner.start_workflow_async(max_problems=20)
+
+    assert dispatched is False
+    state = await runner.get_state(run_id)
+    assert state["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert state["current_step"] == CheckpointType.SELECT_PROBLEM.value
+    assert state["ranked_problems"]
+
+
+@pytest.mark.asyncio
+async def test_expired_background_lease_becomes_a_failed_run(e2e):
+    """A killed worker cannot write its own failure; the lease says it is gone."""
+    runner = _build_runner(
+        e2e["llm"],
+        e2e["store"],
+        outputs=e2e["outputs"],
+        repo=e2e["repo"],
+        dispatcher=_RecordingDispatcher(),
+    )
+    run_id, _ = await runner.start_workflow_async(max_problems=20)
+
+    runner._workflows[run_id]["lease_until"] = (
+        datetime.now(timezone.utc) - timedelta(seconds=1)
+    ).isoformat()
+    runner._persist_metadata(run_id)
+
+    expired = await runner.expire_stale_leases()
+
+    assert expired == [run_id]
+    state = await runner.get_state(run_id)
+    assert state["status"] == WorkflowStatus.FAILED.value
+    assert "lease expired" in state["errors"][-1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["non_zero", "timeout", "unavailable"])
+async def test_sandbox_failures_reach_the_review_evaluation_gate(e2e, mode):
+    """A script failure, sandbox timeout or missing backend is reviewable."""
+    store = InMemoryCheckpointStore()
+    runner = _build_runner(
+        e2e["llm"],
+        store,
+        outputs=InMemoryAgentOutputStore(),
+        repo=e2e["repo"],
+        sandbox=_FailedSandbox(mode),
+    )
+
+    run_id = await runner.start_workflow(max_problems=20)
+    state = await runner.get_state(run_id)
+    assert state["current_step"] == CheckpointType.SELECT_PROBLEM.value
+
+    await runner.resume_workflow(
+        run_id,
+        CheckpointType.SELECT_PROBLEM,
+        CheckpointDecision.APPROVE,
+        edited_data={"problem_id": "p0"},
+    )
+    state = await runner.get_state(run_id)
+    assert state["current_step"] == CheckpointType.APPROVE_PROPOSAL.value
+
+    await runner.resume_workflow(
+        run_id,
+        CheckpointType.APPROVE_PROPOSAL,
+        CheckpointDecision.APPROVE,
+    )
+    state = await runner.get_state(run_id)
+
+    # The run did not crash; it stopped at the gate with a failed result.
+    assert state["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert state["current_step"] == CheckpointType.REVIEW_EVALUATION.value
+    result = state["evaluation_result"]
+    assert result["execution_success"] is False
+    if mode == "timeout":
+        assert result["verdict"] == "not_viable"
+        assert "timed out" in " ".join(result["limitations"]).lower()
+    elif mode == "unavailable":
+        assert result["verdict"] == "inconclusive"
+        assert result["execution_provenance"]["backend"] == "unavailable"
+    else:
+        assert result["verdict"] == "inconclusive"
+
+
+@pytest.mark.asyncio
+async def test_code_generation_times_out_once_then_succeeds(monkeypatch):
+    """A slow code-generation call retries once instead of hanging the run."""
+    monkeypatch.setenv("LLM_RANKING_BATCH_SIZE", "8")
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+    monkeypatch.setattr(
+        "agentic_kg.extraction.llm_client.TIMEOUT_RETRY_BACKOFF_SECONDS", 0
+    )
+    handler = _FakeOpenAI()
+    handler.timeout_on_first = "GeneratedCode"
+    llm, http_client = _build_llm(handler)
+    runner = _build_runner(
+        llm,
+        InMemoryCheckpointStore(),
+        outputs=InMemoryAgentOutputStore(),
+        repo=_FakeRepo(),
+    )
+
+    try:
+        run_id = await runner.start_workflow(max_problems=20)
+        await runner.resume_workflow(
+            run_id,
+            CheckpointType.SELECT_PROBLEM,
+            CheckpointDecision.APPROVE,
+            edited_data={"problem_id": "p0"},
+        )
+        state = await runner.resume_workflow(
+            run_id,
+            CheckpointType.APPROVE_PROPOSAL,
+            CheckpointDecision.APPROVE,
+        )
+    finally:
+        await http_client.aclose()
+
+    assert state["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert state["current_step"] == CheckpointType.REVIEW_EVALUATION.value
+    assert state["evaluation_result"]["verdict"] == "promising"
+    # The timeout happened once and the retry produced the script.
+    assert handler.calls.count("GeneratedCode") == 2

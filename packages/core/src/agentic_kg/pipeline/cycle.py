@@ -244,6 +244,25 @@ class WorkflowRunnerAdapter:
             )
         )
 
+    async def submit_checkpoint(
+        self,
+        run_id: str,
+        *,
+        checkpoint_type: CheckpointType,
+        decision: CheckpointDecision,
+        feedback: str = "",
+        edited_data: Optional[dict[str, Any]] = None,
+    ) -> tuple[dict, bool]:
+        """Persist the decision and dispatch or run the next step."""
+        state, dispatched = await self._runner.submit_checkpoint(
+            run_id,
+            checkpoint_type=checkpoint_type,
+            decision=decision,
+            feedback=feedback,
+            edited_data=edited_data,
+        )
+        return dict(state), dispatched
+
 
 class CycleBudgetExceeded(Exception):
     """Raised when a decision would exceed the cycle's budget."""
@@ -319,7 +338,12 @@ def derive_pending_gate(
     if state.get("synthesis_report"):
         return "completed", None
     if selected_decision and proposal_decision and evaluation_decision:
-        return "completed", None
+        # All three decisions exist but synthesis has not produced its report
+        # yet. That is a running background step, not a completed cycle: the
+        # decision is persisted before the worker starts (async resume).
+        if status == WorkflowStatus.COMPLETED.value:
+            return "completed", None
+        return "running", None
     return "running", None
 
 
@@ -345,6 +369,38 @@ def _sync_entry(entry: CycleWorkflow, state: dict, *, now: str) -> CycleWorkflow
     if state.get("errors"):
         entry.error = "; ".join(str(error) for error in state["errors"])
     return entry
+
+
+def sync_cycle_run(
+    run_id: str,
+    state: dict,
+    cycles: ResearchCycleRepository,
+) -> list[str]:
+    """Refresh every cycle that owns ``run_id`` from the workflow's state.
+
+    A background worker finishes a step outside the cycle process. Without
+    this, a cycle that was marked ``running`` when the decision was dispatched
+    would stay running until the next scheduled tick (and block that tick via
+    the one-at-a-time guard), and a newly reached gate would not appear on the
+    Research page. The worker calls this with its final state.
+    """
+    stamp = _now_iso()
+    updated: list[str] = []
+    for cycle in cycles.find_status(("running", "awaiting_gate")):
+        changed = False
+        for entry in cycle.workflow_runs:
+            if entry.workflow_run_id != run_id:
+                continue
+            _sync_entry(entry, state, now=stamp)
+            changed = True
+        if not changed:
+            continue
+        cycle.status = _cycle_status(cycle)  # type: ignore[assignment]
+        if cycle.status not in ("running", "awaiting_gate"):
+            cycle.finished_at = cycle.finished_at or stamp
+        cycles.save(cycle)
+        updated.append(cycle.cycle_id)
+    return updated
 
 
 def _cycle_status(cycle: ResearchCycle) -> str:
@@ -728,6 +784,32 @@ async def run_cycle(
             candidate.budget.stopped_by_budget = True
             cycles.save(candidate)
 
+    # Evidence bar for any non-human gate. Measured from decisions recorded
+    # before this tick; a policy cannot grant autonomy until the evidence meets
+    # its promotion criteria (ADR-0013). A read failure fails closed.
+    try:
+        promotion = promotion_by_gate(
+            build_agreement_report(cycles.list(limit=1000), policy=policy)
+        )
+    except Exception as exc:  # noqa: BLE001 - evidence read failure must not auto-approve
+        logger.warning("gate-agreement evidence unavailable: %s", exc)
+        promotion = {gate: False for gate in GATE_ORDER}
+
+    # A background worker can be the only thing keeping a cycle ``running``.
+    # Refresh those from the durable state before the guard: reading the run
+    # also expires a dead worker's lease, so a crashed step closes the cycle
+    # now instead of blocking every tick until the wall-time cap. A cycle with
+    # no workflow rows is left alone (it has no run whose lease could expire).
+    for active in cycles.find_status(("running",)):
+        if not active.workflow_runs:
+            continue
+        await _reconcile(
+            active, runner, policy=policy, promotion=promotion, now_iso=stamp
+        )
+        if _cycle_status(active) not in ("running", "awaiting_gate"):
+            active.finished_at = active.finished_at or stamp
+        cycles.save(active)
+
     running = cycles.find_running()
     if running:
         logger.info(
@@ -746,17 +828,6 @@ async def run_cycle(
             exit_code=0,
             skipped_reason="another_cycle_running",
         )
-
-    # Evidence bar for any non-human gate. Measured from decisions recorded
-    # before this tick; a policy cannot grant autonomy until the evidence meets
-    # its promotion criteria (ADR-0013). A read failure fails closed.
-    try:
-        promotion = promotion_by_gate(
-            build_agreement_report(cycles.list(limit=1000), policy=policy)
-        )
-    except Exception as exc:  # noqa: BLE001 - evidence read failure must not auto-approve
-        logger.warning("gate-agreement evidence unavailable: %s", exc)
-        promotion = {gate: False for gate in GATE_ORDER}
 
     # Reconcile every cycle that is waiting at a gate before re-ranking.
     for waiting in cycles.find_status(("awaiting_gate",)):
@@ -1061,14 +1132,33 @@ class ResearchCycleService:
             "edit": CheckpointDecision.EDIT,
         }[decision]
         try:
-            state = await self._runner.resume_workflow(
-                workflow_run_id,
-                checkpoint_type=checkpoint_type,
-                decision=checkpoint_decision,
-                feedback=note,
-                edited_data=edited_data,
-            )
+            submit = getattr(self._runner, "submit_checkpoint", None)
+            if callable(submit):
+                state, dispatched = await submit(
+                    workflow_run_id,
+                    checkpoint_type=checkpoint_type,
+                    decision=checkpoint_decision,
+                    feedback=note,
+                    edited_data=edited_data,
+                )
+            else:
+                state = await self._runner.resume_workflow(
+                    workflow_run_id,
+                    checkpoint_type=checkpoint_type,
+                    decision=checkpoint_decision,
+                    feedback=note,
+                    edited_data=edited_data,
+                )
+                dispatched = False
             _sync_entry(entry, state, now=stamp)
+            if dispatched:
+                # The worker owns the run now. Keep the cycle honest about
+                # that instead of deriving "completed" from a decision whose
+                # following step has not produced anything yet.
+                entry.state = "running"
+                entry.pending_gate = None
+                entry.current_step = str(state.get("current_step") or "")
+                entry.updated_at = stamp
         except Exception as exc:  # noqa: BLE001 - decision is recorded, resume failed
             entry.error = f"resume failed: {type(exc).__name__}: {exc}"
             entry.state = "failed"
@@ -1191,6 +1281,9 @@ class _NullRunner:
     async def resume_workflow(self, run_id: str, **kwargs: Any) -> dict:
         raise KeyError(run_id)
 
+    async def submit_checkpoint(self, run_id: str, **kwargs: Any) -> tuple[dict, bool]:
+        raise KeyError(run_id)
+
 
 class _NullCycleRepository:
     def find_running(self) -> list[ResearchCycle]:
@@ -1233,5 +1326,6 @@ __all__ = [
     "gate_confidence",
     "main",
     "new_cycle_id",
+    "sync_cycle_run",
     "run_cycle",
 ]

@@ -77,6 +77,13 @@ async def lifespan(app: FastAPI):
             repo, namespace=os.getenv("KGCS_CANONICAL_NAMESPACE", "canon")
         )
         graph_source = os.getenv("AGENT_GRAPH_SOURCE", "legacy")
+        # Gate decisions and workflow start run the next agent step on the
+        # existing Job image when its coordinates are present; otherwise they
+        # fall back to the historical in-request path. See agents/dispatch.py
+        # for the one IAM grant the Job path needs.
+        from agentic_kg.agents.dispatch import build_dispatcher
+
+        dispatcher = build_dispatcher()
         runner = WorkflowRunner(
             llm_client=llm_client,
             repository=repo,
@@ -85,6 +92,7 @@ async def lifespan(app: FastAPI):
             checkpointer=checkpointer,
             graph_source=graph_source,
             output_store=get_agent_outputs(repo),
+            dispatcher=dispatcher,
         )
         agents.set_workflow_runner(runner)
         # Close runs a previous process left ``running`` with no resumable

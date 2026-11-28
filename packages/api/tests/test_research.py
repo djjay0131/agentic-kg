@@ -183,7 +183,7 @@ def test_approve_records_the_decision_and_returns_the_cycle(client, service):
         headers={"X-User-ID": "alice"},
         json={"gate": "select_problem", "decision": "approve", "note": "go"},
     )
-    assert response.status_code == 200
+    assert response.status_code == 202
     body = response.json()
     decision = body["workflow_runs"][0]["gate_decisions"][0]
     assert decision["decided_by"] == "alice"
@@ -229,7 +229,7 @@ def test_decision_records_the_verified_email(client, service, iap_mode):
         headers={"x-goog-iap-jwt-assertion": token},
         json={"gate": "select_problem", "decision": "approve", "note": "go"},
     )
-    assert response.status_code == 200
+    assert response.status_code == 202
     decision = response.json()["workflow_runs"][0]["gate_decisions"][0]
     assert decision["decided_by"] == "tester@vt.edu"
     assert service.calls[0][2]["user_id"] == "tester@vt.edu"

@@ -26,6 +26,17 @@ export default function WorkflowsPage() {
     },
   });
 
+  const elapsed = (start: string | undefined) => {
+    if (!start) return '';
+    const seconds = Math.max(
+      0,
+      Math.floor((Date.now() - new Date(start).getTime()) / 1000),
+    );
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    return `${minutes}m ${seconds % 60}s`;
+  };
+
   const statusColor = (status: string) => {
     switch (status) {
       case 'completed': return 'bg-green-100 text-green-700';
@@ -96,6 +107,11 @@ export default function WorkflowsPage() {
                 </div>
                 <div className="text-xs text-gray-400 mt-1">
                   Started: {new Date(w.created_at).toLocaleString()}
+                  {w.status === 'running' && w.step_started_at ? (
+                    <span className="ml-2 text-blue-600">
+                      Running {elapsed(w.step_started_at)}
+                    </span>
+                  ) : null}
                 </div>
                 {w.status === 'failed' && w.error && (
                   <p className="text-sm text-red-600 mt-1 break-words">

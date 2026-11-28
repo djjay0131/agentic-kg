@@ -7,6 +7,7 @@ evaluation code in a sandboxed Docker environment.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from agentic_kg.agents.base import BaseAgent
@@ -88,8 +89,10 @@ class EvaluationAgent(BaseAgent):
             code, state = await self._generate_code(proposal, context, state)
             state = add_message(state, self.name, f"Generated evaluation code ({len(code)} chars)")
 
-            # Step 2: Execute in sandbox
-            sandbox_result = self._execute_code(code)
+            # Step 2: Execute in sandbox. Run it in a worker thread so the
+            # workflow's heartbeat/lease keeps ticking while a Cloud Run Job is
+            # polled; a blocking poll used to freeze the event loop for minutes.
+            sandbox_result = await self._execute_code(code)
             state = add_message(
                 state,
                 self.name,
@@ -174,6 +177,11 @@ class EvaluationAgent(BaseAgent):
             system_prompt=EVALUATION_SYSTEM_PROMPT,
             max_tokens=self.max_tokens,
             call_site="evaluation.code_generation",
+            # Code generation is long and largely mechanical; a lower effort
+            # keeps the call inside the request timeout without reducing the
+            # script's correctness. The per-call timeout is the longest one in
+            # the pipeline (see llm_config.CALL_SITE_REQUEST_TIMEOUTS).
+            reasoning_effort="low",
         )
         state = self._record_llm_usage(
             state, "evaluation.code_generation", response, budget=self.max_tokens
@@ -181,9 +189,14 @@ class EvaluationAgent(BaseAgent):
 
         # Extract code block from response. Real clients return GeneratedCode;
         # test doubles still return a plain string.
-        code = response.content
-        if isinstance(code, GeneratedCode):
-            code = code.code
+        content = response.content
+        code = content
+        if isinstance(content, GeneratedCode):
+            code = content.code
+            if content.plan:
+                state = add_message(
+                    state, self.name, f"Evaluation plan: {content.plan.strip()}"
+                )
         if isinstance(code, str):
             # Strip markdown code fences if present
             if "```python" in code:
@@ -194,15 +207,20 @@ class EvaluationAgent(BaseAgent):
                 code = code.split("```", 1)[0]
         return code.strip(), state
 
-    def _execute_code(self, code: str) -> SandboxResult:
+    async def _execute_code(self, code: str) -> SandboxResult:
         """Execute code in the configured sandbox.
+
+        The backend's ``execute`` is synchronous (Docker wait, Cloud Run Job
+        polling). Running it in a thread keeps the async workflow responsive:
+        the run's heartbeat continues while a sandbox is waited on, so a slow
+        experiment is not mistaken for a dead worker.
 
         A backend that cannot start (missing bucket/job configuration, GCS
         auth, Docker daemon) must still reach ``review_evaluation`` as a
         reviewable failed result instead of failing the whole run.
         """
         try:
-            return self.sandbox.execute(code)
+            return await asyncio.to_thread(self.sandbox.execute, code)
         except Exception as exc:  # noqa: BLE001 - surfaced as a failed result
             logger.error("Sandbox execution could not start: %s", exc)
             return SandboxResult(

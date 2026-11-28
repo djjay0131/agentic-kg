@@ -292,16 +292,51 @@ def _build_llm(handler: _FakeOpenAI):
     return client, http_client
 
 
-def _build_runner(llm, store, *, outputs):
+def _build_runner(llm, store, *, outputs, dispatcher=None, sandbox=None):
     return WorkflowRunner(
         llm_client=llm,
         repository=_FakeRepo(),
         checkpointer=DurableCheckpointSaver(store),
         config=AgentConfig(graph_source=SOURCE_LEGACY),
         graph_port=_FakeGraphPort(),
-        sandbox=_FakeSandbox(),
+        sandbox=sandbox or _FakeSandbox(),
         output_store=outputs,
+        dispatcher=dispatcher,
     )
+
+
+class _FailedSandbox:
+    def __init__(self, mode: str) -> None:
+        self.mode = mode
+
+    def execute(self, code: str, **_: Any) -> SandboxResult:
+        if self.mode == "unavailable":
+            raise RuntimeError("EXPERIMENT_GCS_BUCKET is required")
+        if self.mode == "timeout":
+            return SandboxResult(
+                success=False,
+                stdout="",
+                stderr="execution exceeded 300s",
+                exit_code=-1,
+                timed_out=True,
+                backend="cloudrun_job",
+            )
+        return SandboxResult(
+            success=False,
+            stdout="",
+            stderr="Traceback: ZeroDivisionError",
+            exit_code=1,
+            backend="cloudrun_job",
+        )
+
+
+class _RecordingDispatcher:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def dispatch(self, run_id: str, *, phase: str) -> bool:
+        self.calls.append((run_id, phase))
+        return True
 
 
 def _cycle_for(run_id: str, state: dict) -> ResearchCycle:
@@ -372,7 +407,7 @@ def harness(monkeypatch):
 
 def _start(client: TestClient, **payload: Any) -> str:
     response = client.post("/api/agents/workflows", json=payload)
-    assert response.status_code == 200, response.text
+    assert response.status_code == 202, response.text
     return response.json()["run_id"]
 
 
@@ -419,7 +454,7 @@ def test_workflows_page_walk_uses_the_ui_payloads(harness):
         response = client.post(
             f"/api/agents/workflows/{run_id}/checkpoints/{checkpoint}", json=payload
         )
-        assert response.status_code == 200, response.text
+        assert response.status_code == 202, response.text
         body = response.json()
         assert body["current_step"] in (next_step, "synthesis")
         if checkpoint == "select_problem":
@@ -464,7 +499,7 @@ def test_research_loop_walk_records_agreement_and_survives_a_restart(harness):
         headers={"X-User-ID": "alice"},
         json={"gate": "select_problem", "decision": "approve", "note": "go"},
     )
-    assert first.status_code == 200, first.text
+    assert first.status_code == 202, first.text
     decision = first.json()["workflow_runs"][0]["gate_decisions"][0]
     assert decision["decided_by"] == "alice"
     assert decision["agent_recommendation"] is not None
@@ -490,7 +525,7 @@ def test_research_loop_walk_records_agreement_and_survives_a_restart(harness):
             headers={"X-User-ID": "alice"},
             json={"gate": gate, "decision": "approve", "note": "ok"},
         )
-        assert response.status_code == 200, response.text
+        assert response.status_code == 202, response.text
 
     agreement = client.get("/api/research/agreement")
     assert agreement.status_code == 200
@@ -530,7 +565,7 @@ def test_reject_through_the_api_ends_the_run_cleanly(harness):
             "note": "not this problem",
         },
     )
-    assert response.status_code == 200, response.text
+    assert response.status_code == 202, response.text
     decision = response.json()["workflow_runs"][0]["gate_decisions"][-1]
     assert decision["decision"] == "reject"
     assert decision["agent_recommendation"] is not None
@@ -540,3 +575,131 @@ def test_reject_through_the_api_ends_the_run_cleanly(harness):
     assert final["status"] == WorkflowStatus.REJECTED.value
     assert final["synthesis_report"] is None
     assert final["current_step"] == "select_problem"
+
+
+def test_async_start_and_resume_return_before_the_worker(harness):
+    """POST returns 202 with a running step; the worker completes it later."""
+    import asyncio
+
+    client: TestClient = harness["client"]
+    dispatcher = _RecordingDispatcher()
+    runner = _build_runner(
+        harness["llm"],
+        harness["store"],
+        outputs=harness["outputs"],
+        dispatcher=dispatcher,
+    )
+    agents.set_workflow_runner(runner)
+
+    response = client.post("/api/agents/workflows", json={"max_problems": 20})
+    assert response.status_code == 202, response.text
+    run_id = response.json()["run_id"]
+    assert dispatcher.calls == [(run_id, "start")]
+
+    body = client.get(f"/api/agents/workflows/{run_id}").json()
+    assert body["status"] == WorkflowStatus.RUNNING.value
+    assert body["current_step"] == "ranking"
+
+    asyncio.run(runner.advance_workflow(run_id))
+    body = client.get(f"/api/agents/workflows/{run_id}").json()
+    assert body["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert body["current_step"] == "select_problem"
+
+    decision = client.post(
+        f"/api/agents/workflows/{run_id}/checkpoints/select_problem",
+        json={
+            "decision": "approve",
+            "feedback": "go",
+            "edited_data": {"problem_id": "p0"},
+        },
+    )
+    assert decision.status_code == 202, decision.text
+    assert dispatcher.calls[-1] == (run_id, "resume")
+    assert decision.json()["status"] == WorkflowStatus.RUNNING.value
+    assert decision.json()["current_step"] == "continuation"
+
+    asyncio.run(runner.advance_workflow(run_id))
+    body = client.get(f"/api/agents/workflows/{run_id}").json()
+    assert body["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert body["current_step"] == "approve_proposal"
+
+
+def test_async_research_gate_returns_202_and_leaves_the_cycle_running(harness):
+    """The Research Loop decision endpoint must not run evaluation in-request."""
+    import asyncio
+
+    client: TestClient = harness["client"]
+    dispatcher = _RecordingDispatcher()
+    runner = _build_runner(
+        harness["llm"],
+        harness["store"],
+        outputs=harness["outputs"],
+        dispatcher=dispatcher,
+    )
+    agents.set_workflow_runner(runner)
+
+    run_id = _start(client, max_problems=20)
+    asyncio.run(runner.advance_workflow(run_id))
+    state = asyncio.run(runner.get_state(run_id))
+    cycles = _FakeCycleRepository([_cycle_for(run_id, state)])
+    service = ResearchCycleService(
+        cycles, WorkflowRunnerAdapter(runner), policy=_policy()
+    )
+    app.dependency_overrides[get_research_cycles] = lambda: service
+
+    response = client.post(
+        f"/api/research/gates/cycle-api/{run_id}",
+        headers={"X-User-ID": "alice"},
+        json={"gate": "select_problem", "decision": "approve", "note": "go"},
+    )
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["status"] == "running"
+    assert body["workflow_runs"][0]["state"] == "running"
+    assert dispatcher.calls[-1] == (run_id, "resume")
+
+    asyncio.run(runner.advance_workflow(run_id))
+    body = client.get(f"/api/agents/workflows/{run_id}").json()
+    assert body["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert body["current_step"] == "approve_proposal"
+
+
+@pytest.mark.parametrize("mode", ["non_zero", "timeout", "unavailable"])
+def test_sandbox_failures_are_reviewable_through_the_api(harness, mode):
+    """A sandbox failure reaches review_evaluation instead of 500ing the run."""
+    client: TestClient = harness["client"]
+    runner = _build_runner(
+        harness["llm"],
+        harness["store"],
+        outputs=harness["outputs"],
+        sandbox=_FailedSandbox(mode),
+    )
+    agents.set_workflow_runner(runner)
+
+    run_id = _start(client, max_problems=20)
+    first = client.post(
+        f"/api/agents/workflows/{run_id}/checkpoints/select_problem",
+        json={
+            "decision": "approve",
+            "feedback": "go",
+            "edited_data": {"problem_id": "p0"},
+        },
+    )
+    assert first.status_code == 202, first.text
+
+    second = client.post(
+        f"/api/agents/workflows/{run_id}/checkpoints/approve_proposal",
+        json={"decision": "approve", "feedback": "run it"},
+    )
+    assert second.status_code == 202, second.text
+    body = second.json()
+    assert body["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert body["current_step"] == "review_evaluation"
+    result = body["evaluation_result"]
+    assert result["execution_success"] is False
+    if mode == "timeout":
+        assert result["verdict"] == "not_viable"
+    elif mode == "unavailable":
+        assert result["execution_provenance"]["backend"] == "unavailable"
+    else:
+        assert result["verdict"] == "inconclusive"

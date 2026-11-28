@@ -136,7 +136,7 @@ The code will be executed in a sandboxed Docker container with:
 - 5-minute timeout, 2GB memory limit
 - Output captured from stdout/stderr"""
 
-EVALUATION_CODE_PROMPT = """Generate a Python evaluation script for this research proposal:
+EVALUATION_CODE_PROMPT = """Generate a compact Python evaluation script for this research proposal:
 
 **Problem:** {statement}
 **Proposed Methodology:** {methodology}
@@ -145,13 +145,19 @@ EVALUATION_CODE_PROMPT = """Generate a Python evaluation script for this researc
 **Datasets:** {datasets}
 **Steps:** {steps}
 
-Write a self-contained Python script that:
-1. Simulates or implements the proposed methodology
-2. Evaluates against the specified metrics
-3. Prints results as JSON to stdout: \
+Return two fields:
+1. **plan** — at most 5 short bullets describing the simulation and metrics.
+2. **code** — a self-contained Python script (<= 120 lines) that:
+   - Simulates or implements a tractable version of the proposed methodology
+   - Evaluates against the specified metrics
+   - Prints results as JSON to stdout: \
 {{"metrics": {{"metric_name": value, ...}}, "success": true/false}}
+   - Finishes well within a 5-minute CPU budget
 
-Use only standard libraries + numpy, scipy, scikit-learn, pandas."""
+Sandbox constraints (ADR-0009): no network access, no secrets or credentials,
+no filesystem writes outside the working directory, and no subprocesses.
+Use only the standard library plus numpy, scipy, scikit-learn and pandas.
+Prefer a small deterministic simulation over a long training run."""
 
 # =============================================================================
 # Synthesis Agent Prompts

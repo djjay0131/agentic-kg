@@ -22,13 +22,16 @@ from pydantic import BaseModel
 
 from agentic_kg.agents.graph_port import GraphProblem, format_problems
 from agentic_kg.agents.prompts import (
+    EVALUATION_CODE_PROMPT,
+    EVALUATION_SYSTEM_PROMPT,
     RANKING_BATCH_SYSTEM_PROMPT,
     RANKING_BATCH_USER_PROMPT,
 )
-from agentic_kg.agents.schemas import RankingBatchResult
+from agentic_kg.agents.schemas import GeneratedCode, RankingBatchResult
 from agentic_kg.config import EmbeddingConfig
 from agentic_kg.extraction.llm_client import create_llm_client
 from agentic_kg.llm_config import (
+    EVALUATION_CODE_MAX_OUTPUT_TOKENS,
     resolve_llm_model,
     resolve_llm_provider,
     resolve_max_output_tokens,
@@ -122,6 +125,55 @@ async def _run_ranking_probe(
         )
 
 
+async def _run_code_generation_probe(
+    client,
+    *,
+    provider: str,
+    model: str,
+) -> None:
+    """Exercise the largest *real* call shape: evaluation code generation.
+
+    This is the call that timed out on staging. It asks for the same compact
+    plan + script the EvaluationAgent asks for, at the same completion budget
+    and the same per-call timeout, but the returned script is never executed.
+    """
+    try:
+        budget = max(
+            resolve_max_output_tokens(), EVALUATION_CODE_MAX_OUTPUT_TOKENS
+        )
+    except ValueError as exc:
+        raise LLMCheckError(f"code-generation probe configuration: {exc}") from exc
+    user_prompt = EVALUATION_CODE_PROMPT.format(
+        statement="Can a deterministic scheduler improve throughput?",
+        methodology="Compare a fixed baseline with a deterministic scheduler.",
+        expected_outcome="A measurable throughput improvement.",
+        metrics="- throughput",
+        datasets="- a synthetic tabular dataset",
+        steps="1. Simulate both schedulers. 2. Report throughput.",
+    )
+    try:
+        response = await client.structured_extract(
+            response_model=GeneratedCode,
+            system_prompt=EVALUATION_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
+            max_tokens=budget,
+            call_site="llm-check.code_generation",
+            reasoning_effort="low",
+        )
+    except Exception as exc:  # noqa: BLE001 - re-raised with the label
+        raise LLMCheckError(
+            f"{provider} code-generation probe (max_completion_tokens={budget}): "
+            f"{exc}"
+        ) from exc
+
+    result = getattr(response, "content", None)
+    if not isinstance(result, GeneratedCode) or not result.code.strip():
+        raise LLMCheckError(
+            f"{provider} code-generation probe returned no script "
+            f"(model {model!r})"
+        )
+
+
 async def run_llm_check(
     *,
     provider: Optional[str] = None,
@@ -129,11 +181,13 @@ async def run_llm_check(
     embedding_model: Optional[str] = None,
     check_embedding: bool = True,
     check_ranking: bool = True,
+    check_code_generation: bool = True,
 ) -> list[LLMCheckResult]:
     """Check the configured chat model and (by default) the embedding model.
 
-    Also runs the ranking-batch probe by default, because a tiny ping does not
-    prove the largest real call fits its budget.
+    Also runs the ranking-batch and evaluation-code-generation probes by
+    default, because a tiny ping does not prove the largest real calls fit
+    their budgets or their per-call timeouts.
 
     Raises:
         LLMCheckError: Carries the provider's message; the CLI/nightly code
@@ -174,6 +228,18 @@ async def run_llm_check(
             )
         )
 
+    if check_code_generation:
+        await _run_code_generation_probe(
+            client, provider=resolved_provider, model=resolved_model
+        )
+        results.append(
+            LLMCheckResult(
+                kind="code_generation",
+                provider=resolved_provider,
+                model=resolved_model,
+            )
+        )
+
     if check_embedding:
         config = EmbeddingConfig()
         if embedding_model:
@@ -209,6 +275,7 @@ def run_llm_check_sync(
     embedding_model: Optional[str] = None,
     check_embedding: bool = True,
     check_ranking: bool = True,
+    check_code_generation: bool = True,
 ) -> list[LLMCheckResult]:
     """Synchronous wrapper for the nightly Job and CLI."""
     return asyncio.run(
@@ -218,6 +285,7 @@ def run_llm_check_sync(
             embedding_model=embedding_model,
             check_embedding=check_embedding,
             check_ranking=check_ranking,
+            check_code_generation=check_code_generation,
         )
     )
 

@@ -21,6 +21,7 @@ import pytest
 from agentic_kg.extraction.llm_client import (
     LLMConfig,
     LLMProvider,
+    LLMTimeoutError,
     LLMTruncationError,
     OpenAIClient,
 )
@@ -270,3 +271,105 @@ async def test_ceiling_budget_does_not_retry_without_a_larger_value(
     message = str(exc_info.value)
     assert "no larger budget was available within the ceiling" in message
     assert exc_info.value.budget == OUTPUT_TOKEN_CEILING
+
+
+async def _extract_with_transport_errors(
+    client: OpenAIClient,
+    errors: list[Exception | None],
+    *,
+    call_site: str = "evaluation.code_generation",
+    timeout: float | None = None,
+) -> Any:
+    pending = list(errors)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        error = pending.pop(0) if pending else None
+        if error is not None:
+            raise error
+        return httpx.Response(200, json=_completion_body(client.config.model))
+
+    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    client._client = AsyncOpenAI(
+        api_key="test-key", http_client=http_client, max_retries=0
+    )
+    try:
+        return await client.extract(
+            prompt="Return the requested structured JSON.",
+            response_model=_Ping,
+            call_site=call_site,
+            timeout=timeout,
+        )
+    finally:
+        await http_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_timeout_retries_once_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        "agentic_kg.extraction.llm_client.TIMEOUT_RETRY_BACKOFF_SECONDS", 0
+    )
+    client = _client(monkeypatch)
+
+    response = await _extract_with_transport_errors(
+        client, [httpx.ReadTimeout("Request timed out"), None]
+    )
+
+    assert response.content.ok is True
+
+
+@pytest.mark.asyncio
+async def test_timeout_after_one_retry_names_call_site_timeout_and_budget(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        "agentic_kg.extraction.llm_client.TIMEOUT_RETRY_BACKOFF_SECONDS", 0
+    )
+    client = _client(monkeypatch, max_tokens=24576)
+
+    with pytest.raises(LLMTimeoutError) as exc_info:
+        await _extract_with_transport_errors(
+            client,
+            [httpx.ReadTimeout("Request timed out")] * 2,
+            timeout=600,
+        )
+
+    error = exc_info.value
+    assert error.call_site == "evaluation.code_generation"
+    assert error.timeout == 600
+    assert error.budget == 24576
+    message = str(error)
+    assert "evaluation.code_generation" in message
+    assert "timed out after 600s" in message
+    assert "max_completion_tokens=24576" in message
+
+
+@pytest.mark.asyncio
+async def test_code_generation_call_site_uses_the_long_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from agentic_kg.llm_config import (
+        CALL_SITE_REQUEST_TIMEOUTS,
+        CODE_GENERATION_TIMEOUT_SECONDS,
+        DEFAULT_REQUEST_TIMEOUT_SECONDS,
+        resolve_request_timeout,
+    )
+
+    assert CALL_SITE_REQUEST_TIMEOUTS["evaluation.code_generation"] == (
+        CODE_GENERATION_TIMEOUT_SECONDS
+    )
+    assert (
+        resolve_request_timeout(call_site="evaluation.code_generation", env={})
+        == CODE_GENERATION_TIMEOUT_SECONDS
+    )
+    assert (
+        resolve_request_timeout(call_site="ranking.batch", env={})
+        == DEFAULT_REQUEST_TIMEOUT_SECONDS
+    )
+    assert (
+        resolve_request_timeout(
+            30, call_site="evaluation.code_generation", env={}
+        )
+        == 30
+    )

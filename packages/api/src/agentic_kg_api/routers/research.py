@@ -3,8 +3,10 @@
 ``GET /api/research/cycles`` lists scheduling ticks; ``GET /api/research/gates``
 flattens every workflow currently waiting at a human gate so the Research page
 can show one work queue. ``POST /api/research/gates/{cycle}/{workflow}`` records
-a decision (who/when/note) on the cycle and resumes the workflow through the
-durable checkpoint store.
+a decision (who/when/note) on the cycle, persists it in the durable checkpoint
+store, and starts the following agent step on the workflow Job. It answers 202
+with the cycle while the step runs in the background; when no Job dispatcher is
+configured it runs in-request and answers 202 with the step already finished.
 
 Authentication is the shared :func:`agentic_kg_api.dependencies.current_user`
 dependency (ADR-0012): staging requires a verified IAP assertion and records the
@@ -208,6 +210,7 @@ def list_pending_gates(
 @router.post(
     "/gates/{cycle_id}/{workflow_run_id}",
     response_model=ResearchCycleResponse,
+    status_code=202,
 )
 async def decide_gate(
     cycle_id: str,

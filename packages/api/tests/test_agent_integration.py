@@ -18,7 +18,36 @@ from fastapi.testclient import TestClient
 def mock_runner():
     """Create a mock WorkflowRunner."""
     runner = AsyncMock()
-    runner.start_workflow = AsyncMock(return_value="test-run-001")
+    # The API uses the asynchronous entry points: create + dispatch, and
+    # persist decision + dispatch. A mock that only implements the old
+    # synchronous names would hide a router that still blocks.
+    runner.start_workflow_async = AsyncMock(return_value=("test-run-001", False))
+    runner.submit_checkpoint = AsyncMock(
+        return_value=(
+            {
+                "run_id": "test-run-001",
+                "status": "running",
+                "current_step": "continuation",
+                "ranked_problems": [{"problem_id": "p1", "score": 0.9}],
+                "selected_problem_id": "p1",
+                "proposal": None,
+                "evaluation_result": None,
+                "synthesis_report": None,
+                "messages": [],
+                "errors": [],
+            },
+            False,
+        )
+    )
+    runner.expire_stale_leases = AsyncMock(return_value=[])
+    runner.get_run_metadata = MagicMock(
+        return_value={
+            "run_id": "test-run-001",
+            "created_at": "2025-01-01T00:00:00Z",
+            "updated_at": "2025-01-01T00:00:01Z",
+            "step_started_at": "2025-01-01T00:00:01Z",
+        }
+    )
     runner.get_status = AsyncMock(
         return_value=WorkflowSummary(
             run_id="test-run-001",
@@ -88,21 +117,22 @@ class TestStartWorkflow:
             "/api/agents/workflows",
             json={"topic_filter": "topic-uuid-nlp"},
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 202
         data = resp.json()
         assert data["run_id"] == "test-run-001"
         assert data["status"] == "running"
         assert "websocket_url" in data
-        mock_runner.start_workflow.assert_awaited_once()
+        mock_runner.start_workflow_async.assert_awaited_once()
 
     def test_start_workflow_default_params(self, client_with_runner, mock_runner):
         resp = client_with_runner.post("/api/agents/workflows", json={})
-        assert resp.status_code == 200
-        mock_runner.start_workflow.assert_awaited_once_with(
+        assert resp.status_code == 202
+        mock_runner.start_workflow_async.assert_awaited_once_with(
             topic_filter=None,
             status_filter=None,
             max_problems=20,
             min_confidence=0.3,
+            tag=None,
         )
 
     def test_start_workflow_reports_a_failed_run(self, client_with_runner, mock_runner):
@@ -115,7 +145,7 @@ class TestStartWorkflow:
             updated_at="2025-01-01T00:00:01Z",
         )
         resp = client_with_runner.post("/api/agents/workflows", json={})
-        assert resp.status_code == 200
+        assert resp.status_code == 202
         assert resp.json()["status"] == "failed"
 
     def test_start_workflow_runner_unavailable(self):
@@ -177,24 +207,24 @@ class TestSubmitCheckpoint:
                 "edited_data": {"problem_id": "p1"},
             },
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 202
         data = resp.json()
         assert data["selected_problem_id"] == "p1"
-        mock_runner.resume_workflow.assert_awaited_once()
+        mock_runner.submit_checkpoint.assert_awaited_once()
 
     def test_reject_checkpoint(self, client_with_runner, mock_runner):
         resp = client_with_runner.post(
             "/api/agents/workflows/test-run-001/checkpoints/approve_proposal",
             json={"decision": "reject", "feedback": "Not feasible"},
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 202
 
     def test_submit_checkpoint_to_nonexistent_workflow(
         self, client_with_runner, mock_runner
     ):
         """Issue #76: a checkpoint against an unknown id must 404, not be
         accepted against a phantom workflow."""
-        mock_runner.resume_workflow.side_effect = KeyError("not found")
+        mock_runner.submit_checkpoint.side_effect = KeyError("not found")
         resp = client_with_runner.post(
             "/api/agents/workflows/nonexistent-run/checkpoints/select_problem",
             json={"decision": "approve", "feedback": "Test feedback"},

@@ -130,6 +130,12 @@ class _LazyWorkflowRunner:
 
         return dict(await _get_runner().resume_workflow(run_id, **kwargs))
 
+    async def submit_checkpoint(self, run_id: str, **kwargs):
+        from agentic_kg_api.routers.agents import _get_runner
+
+        state, dispatched = await _get_runner().submit_checkpoint(run_id, **kwargs)
+        return dict(state), dispatched
+
 
 def get_research_cycles(
     repo: Neo4jRepository = Depends(get_repo),

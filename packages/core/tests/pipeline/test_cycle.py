@@ -27,6 +27,7 @@ from agentic_kg.pipeline.cycle import (
     ResearchCycleService,
     derive_pending_gate,
     run_cycle,
+    sync_cycle_run,
 )
 
 NOW = datetime(2026, 10, 26, 3, 0, 0, tzinfo=timezone.utc)
@@ -815,3 +816,72 @@ async def test_human_disagreement_preserves_the_free_text_reason():
     assert decision.agreed is False
     assert decision.human_decision == "reject"
     assert decision.disagreement_reason == "wrong problem for this cycle"
+
+
+def _cycle_with(run_id: str, *, status: str = "running") -> ResearchCycle:
+    return ResearchCycle(
+        cycle_id="cycle-sync",
+        namespace="canon",
+        started_at="2026-10-26T03:00:00Z",
+        status=status,
+        trigger="manual",
+        policy_version="1",
+        workflow_runs=[
+            CycleWorkflow(
+                workflow_run_id=run_id,
+                problem_id="p0",
+                state="running",
+                current_step="continuation",
+                started_at="2026-10-26T03:00:00Z",
+                updated_at="2026-10-26T03:00:00Z",
+            )
+        ],
+    )
+
+
+def test_sync_cycle_run_moves_a_running_cycle_to_the_next_gate():
+    repo = FakeCycleRepository([_cycle_with("wf-1")])
+    state = {
+        "run_id": "wf-1",
+        "status": "waiting_checkpoint",
+        "current_step": "approve_proposal",
+        "ranked_problems": [{"problem_id": "p0", "score": 0.9}],
+        "selected_problem_id": "p0",
+        "proposal": {"problem_id": "p0", "title": "t"},
+        "proposal_approved": False,
+    }
+
+    updated = sync_cycle_run("wf-1", state, repo)
+
+    assert updated == ["cycle-sync"]
+    cycle = repo.get("cycle-sync")
+    assert cycle.workflow_runs[0].state == "awaiting_gate"
+    assert cycle.workflow_runs[0].pending_gate == "approve_proposal"
+    assert cycle.status == "awaiting_gate"
+
+
+async def test_running_cycle_with_a_dead_worker_is_recovered_before_the_guard():
+    cycle = _cycle_with("wf-dead", status="running")
+    repo = FakeCycleRepository([cycle])
+    runner = FakeRunner()
+    runner.states["wf-dead"] = {
+        "run_id": "wf-dead",
+        "status": "failed",
+        "current_step": "evaluation",
+        "errors": ["background execution lease expired"],
+    }
+
+    result = await run_cycle(
+        config=CycleConfig(enabled=True, top_k=1),
+        cycles=repo,
+        runner=runner,
+        policy=_policy_all_human(),
+        now=NOW,
+        write_json=False,
+        write_neo4j=False,
+    )
+
+    assert result.skipped_reason is None
+    recovered = repo.get("cycle-sync")
+    assert recovered.status in ("failed", "partial")
+    assert recovered.workflow_runs[0].state == "failed"
