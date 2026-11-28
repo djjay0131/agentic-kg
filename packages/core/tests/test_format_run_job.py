@@ -62,6 +62,63 @@ def test_formatter_field_mode_prints_one_value():
     )
 
 
+def test_the_recorded_fixture_is_the_real_two_level_v1_job_shape():
+    """A Job nests the task template under spec.template.spec.template.spec.
+
+    #172's fixture used the *Execution* shape (spec.template.spec.containers),
+    which is why the formatter passed in tests and printed blanks against the
+    real Job.
+    """
+    job = json.loads(_FIXTURE.read_text(encoding="utf-8"))
+    containers = job["spec"]["template"]["spec"]["template"]["spec"]["containers"]
+    assert containers[0]["image"].startswith("us-central1-docker.pkg.dev/")
+
+    result = _run_formatter(str(_FIXTURE))
+    assert result.returncode == 0, result.stderr
+    output = {
+        line.split(":", 1)[0]: line.split(":", 1)[1].strip()
+        for line in result.stdout.splitlines()
+    }
+    assert output["image"].startswith("us-central1-docker.pkg.dev/")
+    assert output["serviceAccount"].endswith(".iam.gserviceaccount.com")
+    assert "networkInterfaces" in output["vpcAccess"]
+    assert output["timeout"] == "300"
+    assert output["maxRetries"] == "0"
+
+
+def test_formatter_still_accepts_a_v1_execution_or_service_shape(tmp_path):
+    job = {
+        "apiVersion": "run.googleapis.com/v1",
+        "kind": "Execution",
+        "spec": {
+            "template": {
+                "spec": {
+                    "containers": [
+                        {
+                            "image": "example/execution:v1",
+                            "resources": {"limits": {"memory": "1Gi"}},
+                        }
+                    ],
+                    "serviceAccountName": "execution@example.iam.gserviceaccount.com",
+                    "timeoutSeconds": "60",
+                }
+            }
+        },
+    }
+    path = tmp_path / "execution.json"
+    path.write_text(json.dumps(job), encoding="utf-8")
+
+    result = _run_formatter(str(path))
+
+    assert result.returncode == 0, result.stderr
+    assert "image: example/execution:v1" in result.stdout
+    assert (
+        "serviceAccount: execution@example.iam.gserviceaccount.com"
+        in result.stdout
+    )
+    assert "timeout: 60" in result.stdout
+
+
 def test_formatter_also_accepts_the_v2_api_shape(tmp_path):
     job = {
         "template": {
