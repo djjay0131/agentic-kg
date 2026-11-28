@@ -1,5 +1,63 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 
+/** Domain filter that tags workflows created by this suite for cleanup. */
+export const WORKFLOW_E2E_TAG = 'e2e-post-deploy';
+
+const TERMINAL_STATUSES = new Set([
+  'completed',
+  'failed',
+  'rejected',
+  'cancelled',
+]);
+
+/** Cancel one run if it is still live (a rejected/completed run is left alone). */
+export async function cancelWorkflowIfActive(
+  page: Page,
+  runId: string,
+): Promise<void> {
+  const response = await page.request.get(
+    `/api/agents/workflows/${encodeURIComponent(runId)}`,
+    { headers: authorizationHeader() },
+  );
+  if (response.status() !== 200) return;
+  const state = (await response.json()) as { status?: string };
+  if (state.status && TERMINAL_STATUSES.has(state.status)) return;
+  await page.request.delete(
+    `/api/agents/workflows/${encodeURIComponent(runId)}`,
+    { headers: authorizationHeader() },
+  );
+}
+
+/**
+ * Cancel workflows left at a gate by an earlier failed deploy suite.
+ *
+ * Only runs carrying this suite's domain tag are touched, so a human's own
+ * pending gate is never swept away. This is what stops every deploy from
+ * leaving two workflows at ``select_problem`` forever.
+ */
+export async function cancelTaggedWorkflows(page: Page): Promise<number> {
+  const list = await page.request.get('/api/agents/workflows', {
+    headers: authorizationHeader(),
+  });
+  if (list.status() !== 200) return 0;
+  const workflows = (await list.json()) as {
+    run_id: string;
+    status: string;
+    tag?: string;
+  }[];
+  let cancelled = 0;
+  for (const workflow of workflows) {
+    if (TERMINAL_STATUSES.has(workflow.status)) continue;
+    if (workflow.tag !== WORKFLOW_E2E_TAG) continue;
+    await page.request.delete(
+      `/api/agents/workflows/${encodeURIComponent(workflow.run_id)}`,
+      { headers: authorizationHeader() },
+    );
+    cancelled += 1;
+  }
+  return cancelled;
+}
+
 /** Bearer token for direct API calls made alongside the UI. */
 export function authorizationHeader(): Record<string, string> {
   const token = process.env.E2E_IAP_JWT?.trim();

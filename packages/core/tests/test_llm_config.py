@@ -263,3 +263,64 @@ def test_no_source_file_contains_a_retired_model_id():
         "retired model id(s) in source; route model choice through "
         "agentic_kg.llm_config and Terraform instead:\n" + "\n".join(offenders)
     )
+
+
+class TestRequestTimeout:
+    """Reasoning calls need minutes; code generation needs the longest lease."""
+
+    def test_default(self):
+        from agentic_kg.llm_config import (
+            DEFAULT_REQUEST_TIMEOUT_SECONDS,
+            resolve_request_timeout,
+        )
+
+        assert (
+            resolve_request_timeout(env={})
+            == DEFAULT_REQUEST_TIMEOUT_SECONDS
+        )
+
+    def test_env_wins_over_default(self):
+        from agentic_kg.llm_config import resolve_request_timeout
+
+        assert (
+            resolve_request_timeout(env={"LLM_REQUEST_TIMEOUT_SECONDS": "240"})
+            == 240.0
+        )
+
+    def test_code_generation_keeps_its_floor_when_the_base_is_lower(self):
+        from agentic_kg.llm_config import (
+            CODE_GENERATION_TIMEOUT_SECONDS,
+            resolve_request_timeout,
+        )
+
+        monkeypatch_env = {"LLM_REQUEST_TIMEOUT_SECONDS": "30"}
+        assert (
+            resolve_request_timeout(
+                call_site="evaluation.code_generation", env=monkeypatch_env
+            )
+            == CODE_GENERATION_TIMEOUT_SECONDS
+        )
+
+    def test_explicit_timeout_wins(self):
+        from agentic_kg.llm_config import resolve_request_timeout
+
+        assert (
+            resolve_request_timeout(
+                12,
+                call_site="evaluation.code_generation",
+                env={"LLM_REQUEST_TIMEOUT_SECONDS": "240"},
+            )
+            == 12.0
+        )
+
+    def test_malformed_env_raises(self):
+        from agentic_kg.llm_config import resolve_request_timeout
+
+        with pytest.raises(ValueError, match="LLM_REQUEST_TIMEOUT_SECONDS"):
+            resolve_request_timeout(env={"LLM_REQUEST_TIMEOUT_SECONDS": "soon"})
+
+    def test_non_positive_env_raises(self):
+        from agentic_kg.llm_config import resolve_request_timeout
+
+        with pytest.raises(ValueError, match="LLM_REQUEST_TIMEOUT_SECONDS"):
+            resolve_request_timeout(env={"LLM_REQUEST_TIMEOUT_SECONDS": "0"})

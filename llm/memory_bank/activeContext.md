@@ -7,6 +7,48 @@ Last updated: 2026-11-12
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
 
+## Asynchronous workflow steps + LLM timeouts + reviewable sandbox failures (2026-11-28, T63)
+
+`feat/async-workflow-steps` fixes the staging run that passed ranking and all
+three early gates but failed evaluation with `OpenAI extraction failed: Request
+timed out`. Evaluation (code generation + Cloud Run Job sandbox) ran inside the
+HTTP gate request; the request deadline was shorter than the real call.
+
+- **Async gate resumption.** `WorkflowRunner` now separates
+  `create_workflow` / `apply_checkpoint_decision` from `advance_workflow`. The
+  API `POST /workflows` and both decision endpoints (Workflows detail and
+  Research Loop) persist the decision, dispatch the continuation to a Cloud Run
+  Job execution of the existing `job` image with an args override
+  (`workflow resume <run_id>`), and answer **202** with the running row. When
+  the Job cannot be started (no coordinates, or the API SA lacks
+  `roles/run.jobsExecutorWithOverrides` on the Job) the runner logs the missing
+  grant and falls back to the historical in-request path, so nothing regresses.
+  The Job reads the durable checkpoint + run metadata in Neo4j; settings the
+  ingest Job does not carry (`AGENT_GRAPH_SOURCE`, the experiment sandbox
+  coordinates) are persisted in run metadata, so no Terraform change is needed.
+- **Liveness.** Run metadata carries `heartbeat_at`/`lease_until`. The worker
+  extends the lease every 15 s (default lease 180 s); the API closes an expired
+  lease as `failed` on read/list/startup instead of hanging. The sandbox call
+  now runs in a thread, so a blocking Cloud Run poll cannot freeze the
+  heartbeat. The worker refreshes the owning research cycle (`sync_cycle_run`),
+  so a newly reached gate appears without waiting for the next scheduled tick.
+- **LLM timeouts as config.** `LLM_REQUEST_TIMEOUT_SECONDS` (default 180 s) with
+  per-call-site floors (`evaluation.code_generation` 600 s), explicit per-call
+  timeout/effort, one timeout retry with backoff, and `LLMTimeoutError` naming
+  call site, timeout and budget. The instructor `JSON_SCHEMA`
+  `create_with_completion` path has no stable streaming variant that preserves
+  usage/finish_reason, so this PR relies on the bounded timeout + heartbeat
+  rather than streaming. Code generation asks for a compact plan + <=120-line
+  script under ADR-0009 constraints (no network/secrets/subprocesses; stdlib +
+  numpy/scipy/scikit-learn/pandas; 5-minute budget) at `reasoning_effort="low"`.
+- **Sandbox failures stay reviewable.** Script non-zero, sandbox timeout and a
+  backend that cannot start all become a failed `EvaluationResult` at
+  `review_evaluation`; the compiled-graph and API e2e tests pin all three.
+- **llm-check** gains a code-generation probe at the real budget/effort/timeout.
+- **Deploy test cleanup.** The post-deploy Playwright workflow tags its runs and
+  cancels them in a `finally`, and sweeps only its own tagged leftovers, so
+  deploys stop leaving workflows at `select_problem`.
+
 ## Bound identifiers + adversarial e2e + readable gates (2026-11-28, T62)
 
 `fix/bind-ids-and-gate-ui` fixes the first staging run that passed ranking and

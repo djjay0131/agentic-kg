@@ -146,6 +146,10 @@ class TestBackendSelection:
         with pytest.raises(ValueError, match="EXPERIMENT_GCS_BUCKET"):
             CloudRunJobBackend(_config(gcs_bucket=""), store=FakeStore())
 
+    def test_sandbox_timeout_env_is_the_per_run_budget(self, monkeypatch):
+        monkeypatch.setenv("SANDBOX_TIMEOUT", "42")
+        assert SandboxConfig().timeout_seconds == 42
+
 
 class TestCloudRunJobBackend:
     def test_success_round_trip_and_provenance(self):
@@ -175,6 +179,9 @@ class TestCloudRunJobBackend:
         assert call["args"][0].endswith("/script.py")
         assert call["args"][0].startswith("gs://")
         assert result.experiment_id == call["env"]["EXPERIMENT_ID"]
+        # The runner's own cap is the per-run budget minus a small margin, so
+        # it can upload partial output before the Job platform timeout.
+        assert call["env"]["EXPERIMENT_TIMEOUT_S"] == "25"
 
         uploaded = {uri: data for uri, data in store.uploads}
         script_uri = call["args"][0]

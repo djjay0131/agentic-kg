@@ -11,7 +11,11 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-from agentic_kg.agents.schemas import RankedProblemScore, RankingBatchResult
+from agentic_kg.agents.schemas import (
+    GeneratedCode,
+    RankedProblemScore,
+    RankingBatchResult,
+)
 from agentic_kg.extraction import llm_check
 from agentic_kg.extraction.llm_check import LLMCheckError, run_llm_check
 
@@ -38,13 +42,18 @@ class _Client:
         ranking_error: Exception | None = None,
         ranking_finish_reason: str = "stop",
         ranking_scores: RankingBatchResult | None = None,
+        codegen_error: Exception | None = None,
+        codegen_code: str = "print('{\"metrics\": {\"accuracy\": 0.5}}')\n",
     ):
         self._ok = ok
         self._error = error
         self._ranking_error = ranking_error
         self._ranking_finish_reason = ranking_finish_reason
         self._ranking_scores = ranking_scores
+        self._codegen_error = codegen_error
+        self._codegen_code = codegen_code
         self.ranking_calls: list[dict] = []
+        self.codegen_calls: list[dict] = []
 
     async def extract(self, **_kwargs):
         if self._error is not None:
@@ -52,6 +61,17 @@ class _Client:
         return SimpleNamespace(content=SimpleNamespace(ok=self._ok))
 
     async def structured_extract(self, **kwargs):
+        if kwargs.get("response_model") is GeneratedCode:
+            self.codegen_calls.append(kwargs)
+            if self._codegen_error is not None:
+                raise self._codegen_error
+            return SimpleNamespace(
+                content=GeneratedCode(
+                    code=self._codegen_code,
+                    plan="- simulate\n- report metrics",
+                ),
+                finish_reason="stop",
+            )
         self.ranking_calls.append(kwargs)
         if self._ranking_error is not None:
             raise self._ranking_error
@@ -90,7 +110,12 @@ async def test_successful_chat_ranking_and_embedding_check(monkeypatch):
 
     results = await run_llm_check()
 
-    assert [result.kind for result in results] == ["chat", "ranking", "embedding"]
+    assert [result.kind for result in results] == [
+        "chat",
+        "ranking",
+        "code_generation",
+        "embedding",
+    ]
     assert all(result.ok for result in results)
     # The ranking probe must use the compact batch schema and the configured
     # completion budget, not a tiny ping.
@@ -99,6 +124,13 @@ async def test_successful_chat_ranking_and_embedding_check(monkeypatch):
     assert call["response_model"] is RankingBatchResult
     assert call["call_site"] == "llm-check.ranking_batch"
     assert call["max_tokens"] >= 1
+    # The code-generation probe must mirror the real call shape and effort.
+    assert client.codegen_calls
+    codegen = client.codegen_calls[0]
+    assert codegen["response_model"] is GeneratedCode
+    assert codegen["call_site"] == "llm-check.code_generation"
+    assert codegen["reasoning_effort"] == "low"
+    assert codegen["max_tokens"] >= 24576
 
 
 @pytest.mark.asyncio
@@ -117,7 +149,11 @@ async def test_ranking_probe_can_be_skipped(monkeypatch):
 
     results = await run_llm_check(check_ranking=False)
 
-    assert [result.kind for result in results] == ["chat", "embedding"]
+    assert [result.kind for result in results] == [
+        "chat",
+        "code_generation",
+        "embedding",
+    ]
     assert client.ranking_calls == []
 
 
@@ -148,6 +184,34 @@ async def test_ranking_probe_length_finish_reason_is_reported(monkeypatch):
     )
 
     with pytest.raises(LLMCheckError, match="would truncate"):
+        await run_llm_check(check_embedding=False)
+
+
+@pytest.mark.asyncio
+async def test_code_generation_probe_failure_is_reported(monkeypatch):
+    monkeypatch.setenv("LLM_MODEL", "gpt-6.2-sol")
+    monkeypatch.setattr(
+        llm_check,
+        "create_llm_client",
+        lambda **_kwargs: _Client(
+            codegen_error=RuntimeError("LLM call 'x' timed out after 600s")
+        ),
+    )
+
+    with pytest.raises(LLMCheckError, match="code-generation probe"):
+        await run_llm_check(check_embedding=False)
+
+
+@pytest.mark.asyncio
+async def test_code_generation_probe_without_a_script_is_refused(monkeypatch):
+    monkeypatch.setenv("LLM_MODEL", "gpt-6.2-sol")
+    monkeypatch.setattr(
+        llm_check,
+        "create_llm_client",
+        lambda **_kwargs: _Client(ok=True, codegen_code="   "),
+    )
+
+    with pytest.raises(LLMCheckError, match="returned no script"):
         await run_llm_check(check_embedding=False)
 
 
