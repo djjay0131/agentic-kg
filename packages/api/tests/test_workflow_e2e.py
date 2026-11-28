@@ -332,6 +332,36 @@ class _FailedSandbox:
         )
 
 
+class _FlakySandbox:
+    """Fails the first execution with infrastructure, then succeeds."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def execute(self, code: str, **_: Any) -> SandboxResult:
+        self.calls += 1
+        if self.calls == 1:
+            return SandboxResult(
+                success=False,
+                stdout="",
+                stderr="Cloud Run Job execution exceeded 330s",
+                exit_code=-1,
+                timed_out=True,
+                infrastructure_failure=True,
+                failure_stage="poll",
+                failure_category="job_timeout",
+                backend="cloudrun_job",
+            )
+        return SandboxResult(
+            success=True,
+            stdout='{"metrics": {"accuracy": 0.9}}',
+            stderr="",
+            exit_code=0,
+            backend="fake",
+            experiment_id="exp-api-retry",
+        )
+
+
 class _RecordingDispatcher:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
@@ -705,6 +735,67 @@ def test_sandbox_failures_are_reviewable_through_the_api(harness, mode):
         assert result["execution_provenance"]["backend"] == "unavailable"
     else:
         assert result["verdict"] == "inconclusive"
+
+
+def test_evaluation_retry_endpoint_reruns_only_evaluation(harness):
+    """The Retry action re-runs evaluation from the approved proposal."""
+    client: TestClient = harness["client"]
+    sandbox = _FlakySandbox()
+    runner = _build_runner(
+        harness["llm"],
+        harness["store"],
+        outputs=harness["outputs"],
+        sandbox=sandbox,
+    )
+    agents.set_workflow_runner(runner)
+
+    run_id = _start(client, max_problems=20)
+    first = client.post(
+        f"/api/agents/workflows/{run_id}/checkpoints/select_problem",
+        json={
+            "decision": "approve",
+            "feedback": "go",
+            "edited_data": {"problem_id": "p0"},
+        },
+    )
+    assert first.status_code == 202, first.text
+    second = client.post(
+        f"/api/agents/workflows/{run_id}/checkpoints/approve_proposal",
+        json={"decision": "approve", "feedback": "run it"},
+    )
+    assert second.status_code == 202, second.text
+    body = second.json()
+    assert body["current_step"] == "review_evaluation"
+    assert body["evaluation_result"]["verdict"] == "infrastructure_failed"
+    assert body["evaluation_result"]["retryable"] is True
+    assert body["gate_recommendation"]["action"] == "retry"
+
+    ranking_calls = harness["handler"].calls.count("RankingBatchResult")
+    continuation_calls = harness["handler"].calls.count("ContinuationProposal")
+
+    retried = client.post(f"/api/agents/workflows/{run_id}/evaluation/retry")
+    assert retried.status_code == 202, retried.text
+    body = retried.json()
+    assert body["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert body["current_step"] == "review_evaluation"
+    assert body["evaluation_result"]["verdict"] == "promising"
+    assert body["evaluation_result"]["execution_success"] is True
+    assert harness["handler"].calls.count("RankingBatchResult") == ranking_calls
+    assert harness["handler"].calls.count("ContinuationProposal") == continuation_calls
+    assert sandbox.calls == 2
+
+
+def test_retry_endpoint_refuses_a_scientific_result(harness):
+    """A real experiment result is not silently re-run; only gate mismatch."""
+    client: TestClient = harness["client"]
+    runner = harness["runner"]
+
+    run_id = _start(client, max_problems=20)
+    # Still at select_problem: retrying evaluation is a gate mismatch.
+    response = client.post(f"/api/agents/workflows/{run_id}/evaluation/retry")
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["requested_gate"] == "retry_evaluation"
+    assert response.json()["detail"]["pending_gate"] == "select_problem"
 
 
 class _FailingDispatcher:

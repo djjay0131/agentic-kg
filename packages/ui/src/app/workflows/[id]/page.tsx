@@ -52,6 +52,16 @@ export default function WorkflowDetailPage() {
     },
   });
 
+  const retryMutation = useMutation({
+    mutationFn: () => api.retryEvaluation(runId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workflow', runId] });
+    },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ['workflow', runId] });
+    },
+  });
+
   if (isLoading) {
     return <div className="text-center py-12 text-gray-500">Loading workflow...</div>;
   }
@@ -121,6 +131,12 @@ export default function WorkflowDetailPage() {
         </div>
       )}
 
+      {retryMutation.isError && (
+        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+          Evaluation retry not started: {(retryMutation.error as Error).message}.
+        </div>
+      )}
+
       {/* Checkpoint form */}
       {isAtCheckpoint && (
         <div className="mt-6">
@@ -128,6 +144,8 @@ export default function WorkflowDetailPage() {
             checkpointType={workflow.current_step}
             data={checkpointData}
             loading={checkpointMutation.isPending}
+            onRetry={() => retryMutation.mutate()}
+            retrying={retryMutation.isPending}
             onSubmit={(decision, feedback, editedData) =>
               checkpointMutation.mutate({
                 checkpointType: workflow.current_step,

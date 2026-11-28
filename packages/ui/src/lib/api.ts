@@ -683,6 +683,11 @@ export const api = {
       body: JSON.stringify({ decision, feedback: feedback || '', edited_data: editedData }),
     }),
 
+  retryEvaluation: (runId: string) =>
+    fetchAPI<WorkflowState>(`/api/agents/workflows/${runId}/evaluation/retry`, {
+      method: 'POST',
+    }),
+
   cancelWorkflow: (runId: string) =>
     fetchAPI<{ status: string; run_id: string }>(`/api/agents/workflows/${runId}`, { method: 'DELETE' }),
 };
