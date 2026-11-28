@@ -780,10 +780,117 @@ async def test_sandbox_failures_reach_the_review_evaluation_gate(e2e, mode):
         assert result["verdict"] == "not_viable"
         assert "timed out" in " ".join(result["limitations"]).lower()
     elif mode == "unavailable":
-        assert result["verdict"] == "inconclusive"
+        # The sandbox backend could not even be built: infrastructure, not
+        # science. It must be retryable rather than an inconclusive result.
+        assert result["verdict"] == "infrastructure_failed"
+        assert result["failure_kind"] == "infrastructure"
+        assert result["retryable"] is True
         assert result["execution_provenance"]["backend"] == "unavailable"
     else:
         assert result["verdict"] == "inconclusive"
+
+
+class _FlakySandbox:
+    """Fails the first execution with an infrastructure error, then succeeds."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def execute(self, code: str, **_: Any) -> SandboxResult:
+        self.calls += 1
+        if self.calls == 1:
+            return SandboxResult(
+                success=False,
+                stdout="",
+                stderr="Cloud Run Job execution exceeded 330s: .../executions/e1",
+                exit_code=-1,
+                timed_out=True,
+                infrastructure_failure=True,
+                failure_stage="poll",
+                failure_category="job_timeout",
+                backend="cloudrun_job",
+            )
+        return SandboxResult(
+            success=True,
+            stdout='{"metrics": {"accuracy": 0.9}}',
+            stderr="",
+            exit_code=0,
+            backend="fake",
+            experiment_id="exp-retry",
+        )
+
+
+@pytest.mark.asyncio
+async def test_infrastructure_failure_is_retried_from_the_approved_proposal(e2e):
+    """Retry re-runs evaluation only; ranking/continuation are not replayed."""
+    store = InMemoryCheckpointStore()
+    sandbox = _FlakySandbox()
+    runner = _build_runner(
+        e2e["llm"],
+        store,
+        outputs=InMemoryAgentOutputStore(),
+        repo=e2e["repo"],
+        sandbox=sandbox,
+    )
+
+    run_id = await runner.start_workflow(max_problems=20)
+    await runner.resume_workflow(
+        run_id,
+        CheckpointType.SELECT_PROBLEM,
+        CheckpointDecision.APPROVE,
+        edited_data={"problem_id": "p0"},
+    )
+    state = await runner.resume_workflow(
+        run_id,
+        CheckpointType.APPROVE_PROPOSAL,
+        CheckpointDecision.APPROVE,
+    )
+
+    assert state["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert state["current_step"] == CheckpointType.REVIEW_EVALUATION.value
+    evaluation = state["evaluation_result"]
+    assert evaluation["verdict"] == "infrastructure_failed"
+    assert evaluation["failure_kind"] == "infrastructure"
+    assert evaluation["retryable"] is True
+    recommendation = build_recommendation(
+        CheckpointType.REVIEW_EVALUATION.value, state
+    )
+    assert recommendation is not None and recommendation.action == "retry"
+
+    ranking_calls = e2e["handler"].calls.count("RankingBatchResult")
+    continuation_calls = e2e["handler"].calls.count("ContinuationProposal")
+    codegen_calls = e2e["handler"].calls.count("GeneratedCode")
+
+    retried, dispatched = await runner.retry_evaluation(run_id)
+
+    assert dispatched is False  # no dispatcher: runs in request
+    assert retried["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert retried["current_step"] == CheckpointType.REVIEW_EVALUATION.value
+    result = retried["evaluation_result"]
+    assert result["verdict"] == "promising"
+    assert result["execution_success"] is True
+    assert result["failure_kind"] == ""
+    # The earlier steps were not replayed.
+    assert e2e["handler"].calls.count("RankingBatchResult") == ranking_calls
+    assert e2e["handler"].calls.count("ContinuationProposal") == continuation_calls
+    assert e2e["handler"].calls.count("GeneratedCode") == codegen_calls + 1
+    assert sandbox.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_retry_evaluation_refuses_outside_the_review_gate(e2e):
+    from agentic_kg.agents.errors import GateMismatchError
+
+    runner = _build_runner(
+        e2e["llm"],
+        InMemoryCheckpointStore(),
+        outputs=InMemoryAgentOutputStore(),
+        repo=e2e["repo"],
+    )
+    run_id = await runner.start_workflow(max_problems=20)
+
+    with pytest.raises(GateMismatchError):
+        await runner.retry_evaluation(run_id)
 
 
 @pytest.mark.asyncio

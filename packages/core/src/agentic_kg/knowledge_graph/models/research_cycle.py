@@ -97,7 +97,7 @@ class CycleBudget(BaseModel):
     stopped_by_budget: bool = False
 
 
-RecommendationAction = Literal["approve", "reject", "edit"]
+RecommendationAction = Literal["approve", "reject", "edit", "retry"]
 HumanDecision = Literal["approve", "reject", "edit"]
 
 

@@ -157,8 +157,18 @@ def build_recommendation(
             if isinstance(provenance, dict) and "abstained" in provenance
             else None
         )
-        action = "approve" if verdict == "promising" else "reject"
-        rationale = f"evaluation verdict {verdict or 'unknown'}"
+        failure_kind = str(evaluation.get("failure_kind") or "").lower()
+        failure_category = str(evaluation.get("failure_category") or "")
+        if failure_kind == "infrastructure":
+            # The experiment never ran, so there is no scientific verdict to
+            # approve or reject. The honest recommendation is to retry the
+            # evaluation from the already-approved proposal.
+            action = "retry"
+            category = f" [{failure_category}]" if failure_category else ""
+            rationale = f"experiment infrastructure failed{category}; retry evaluation"
+        else:
+            action = "approve" if verdict == "promising" else "reject"
+            rationale = f"evaluation verdict {verdict or 'unknown'}"
         if abstained is True:
             rationale += "; provenance envelope abstained"
         # The full limitation text is rendered under LIMITATIONS by the review
@@ -171,6 +181,9 @@ def build_recommendation(
             confidence=confidence,
             details={
                 "verdict": verdict,
+                "failure_kind": failure_kind,
+                "failure_category": failure_category,
+                "retryable": bool(evaluation.get("retryable")),
                 "execution_success": evaluation.get("execution_success"),
                 "feasibility_score": confidence,
             },
@@ -201,6 +214,10 @@ def recommendation_agrees(
     """Whether the human's action matched the agent's recommendation."""
     action = normalize_human_action(human_decision)
     if recommendation is None or action is None:
+        return None
+    # A retry recommendation has no approve/reject counterpart: an infrastructure
+    # failure is not a scientific verdict, so it is not agreement evidence.
+    if recommendation.action == "retry":
         return None
     return recommendation.action == action
 

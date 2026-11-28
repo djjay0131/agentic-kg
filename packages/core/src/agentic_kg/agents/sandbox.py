@@ -138,6 +138,19 @@ class SandboxResult:
     timed_out: bool = False
     metrics: Optional[dict] = None
 
+    #: Whether the *experiment infrastructure* failed to run the script, as
+    #: opposed to the experiment running and producing a negative result. This
+    #: is what lets the review gate say "the science was never tested" instead
+    #: of reporting a misleading ``not_viable`` verdict.
+    infrastructure_failure: bool = False
+    #: Stage the failure happened in: ``start`` (dispatch/backend), ``poll``
+    #: (execution never completed), ``download``/``exec``/``upload`` (runner),
+    #: or ``collect`` (reading results back).
+    failure_stage: Optional[str] = None
+    #: Deploy-readable failure class (``connectivity``, ``permission``,
+    #: ``not_found``, ``job_timeout``, ``job_failed`` or ``error``).
+    failure_category: Optional[str] = None
+
     # Reproducibility provenance (null when a backend cannot supply it).
     experiment_id: Optional[str] = None
     result_uri: Optional[str] = None
@@ -448,12 +461,35 @@ class CloudRunJobBackend:
                 partial_stdout = self._read_text(f"{prefix}/stdout.txt")
             except Exception:  # noqa: BLE001 - the timeout is the result
                 partial_stdout = ""
+            status_note = self._status_note(execution_name)
+            # A result object means the experiment script finished; a missing
+            # one means the Job never produced output (schedule, image pull,
+            # GCS/network), which is an infrastructure failure, not a result.
+            job_result = self._result_json(result_uri)
+            if job_result:
+                return SandboxResult(
+                    success=False,
+                    stdout=partial_stdout,
+                    stderr=f"{exc}{status_note}",
+                    exit_code=int(job_result.get("exit_code", -1)),
+                    timed_out=bool(job_result.get("timed_out", False)),
+                    experiment_id=experiment_id,
+                    result_uri=result_uri,
+                    code_hash=_code_hash(code),
+                    image_digest=self.config.image_digest,
+                    started_at=started_at,
+                    finished_at=_utc_now(),
+                    backend="cloudrun_job",
+                )
             return SandboxResult(
                 success=False,
                 stdout=partial_stdout,
-                stderr=str(exc),
+                stderr=f"{exc}{status_note}",
                 exit_code=-1,
                 timed_out=True,
+                infrastructure_failure=True,
+                failure_stage="poll",
+                failure_category="job_timeout",
                 experiment_id=experiment_id,
                 result_uri=result_uri,
                 code_hash=_code_hash(code),
@@ -469,6 +505,9 @@ class CloudRunJobBackend:
                 stdout="",
                 stderr=str(exc),
                 exit_code=-1,
+                infrastructure_failure=True,
+                failure_stage="start",
+                failure_category=classify_sandbox_error(exc),
                 experiment_id=experiment_id,
                 result_uri=result_uri,
                 code_hash=_code_hash(code),
@@ -503,6 +542,41 @@ class CloudRunJobBackend:
         data = self._store.download_bytes(uri)
         return data.decode("utf-8", errors="replace") if data is not None else ""
 
+    def _status_note(self, execution_name: str) -> str:
+        """A short execution-status summary for a timeout message; best effort."""
+        try:
+            status = (self._run.get_execution(execution_name) or {}).get(
+                "status"
+            ) or {}
+        except Exception:  # noqa: BLE001 - the timeout is still the result
+            return ""
+        parts = [
+            f"start={status.get('startTime') or 'unknown'}",
+            f"completion={status.get('completionTime') or 'unfinished'}",
+            f"failed={status.get('failedCount') or 0}",
+            f"cancelled={status.get('cancelledCount') or 0}",
+        ]
+        for condition in status.get("conditions") or []:
+            parts.append(
+                f"{condition.get('type')}={condition.get('state')}"
+                f"({condition.get('message') or ''})"
+            )
+        return " (" + ", ".join(parts) + ")"
+
+    def _result_json(self, result_uri: str) -> dict:
+        """Read ``result.json`` or return ``{}``; never raises."""
+        try:
+            raw = self._store.download_bytes(f"{result_uri}/result.json")
+        except Exception:  # noqa: BLE001 - an unreadable result is no result
+            return {}
+        if not raw:
+            return {}
+        try:
+            parsed = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
     def _collect(
         self,
         execution: dict,
@@ -522,9 +596,22 @@ class CloudRunJobBackend:
             except (UnicodeDecodeError, json.JSONDecodeError):
                 logger.warning("Could not parse experiment result.json")
 
-        exit_code = int(job_result.get("exit_code", 0 if execution_succeeded(execution) else 1))
+        succeeded = execution_succeeded(execution)
+        exit_code = int(job_result.get("exit_code", 0 if succeeded else 1))
         timed_out = bool(job_result.get("timed_out", False))
-        success = execution_succeeded(execution) and exit_code == 0
+        success = bool(raw_result) and succeeded and exit_code == 0
+
+        # No result object at all means the runner never reached its upload
+        # stage: the platform or the network failed before the experiment could
+        # run (or the result could be read back). Report that as infrastructure,
+        # not as science.
+        infrastructure_failure = not raw_result
+        failure_category = "job_failed" if infrastructure_failure else None
+        if infrastructure_failure and not stderr:
+            stderr = (
+                "experiment Job finished without writing result.json "
+                f"(execution status: {execution.get('status')})"
+            )
 
         max_output = self.config.max_output_chars
         if len(stdout) > max_output:
@@ -547,6 +634,9 @@ class CloudRunJobBackend:
             exit_code=exit_code,
             timed_out=timed_out,
             metrics=metrics,
+            infrastructure_failure=infrastructure_failure,
+            failure_stage="collect" if infrastructure_failure else None,
+            failure_category=failure_category,
             experiment_id=experiment_id,
             result_uri=result_uri,
             code_hash=_code_hash(code),
@@ -978,7 +1068,11 @@ def run_sandbox_check(
         return report
 
     report.category = "job_failed"
-    detail = (stderr or stdout or "no output").strip()
+    detail = (stderr or stdout or "").strip()
+    if not detail:
+        # The reason is usually only in the experiment Job's own logs, which
+        # the deploy step prints separately. At least name the execution state.
+        detail = f"no output; execution status: {execution.get('status')}"
     report.message = (
         f"experiment Job finished but the result was not successful "
         f"(exit_code={exit_code}): {detail[:500]}"

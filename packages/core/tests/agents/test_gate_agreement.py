@@ -185,6 +185,52 @@ def test_review_evaluation_recommendation_keeps_limitation_text_out_of_the_line(
     assert "Max retries" not in recommendation.rationale
 
 
+def test_review_evaluation_infrastructure_failure_recommends_retry():
+    """An infrastructure failure must not read as a scientific reject."""
+    recommendation = build_recommendation(
+        "review_evaluation",
+        {
+            "evaluation_result": {
+                "verdict": "infrastructure_failed",
+                "feasibility_score": 0.0,
+                "failure_kind": "infrastructure",
+                "failure_category": "job_timeout",
+                "retryable": True,
+                "provenance": {"abstained": False},
+            }
+        },
+    )
+
+    assert recommendation is not None
+    assert recommendation.action == "retry"
+    assert "infrastructure failed" in recommendation.rationale
+    assert "job_timeout" in recommendation.rationale
+    assert "retry evaluation" in recommendation.rationale
+    assert recommendation.details["failure_kind"] == "infrastructure"
+    assert recommendation.details["retryable"] is True
+    # A retry is not agreement evidence for a human approve/reject decision.
+    assert recommendation_agrees(recommendation, "approve") is None
+    assert recommendation_agrees(recommendation, "reject") is None
+
+
+def test_review_evaluation_scientific_failure_still_rejects():
+    recommendation = build_recommendation(
+        "review_evaluation",
+        {
+            "evaluation_result": {
+                "verdict": "inconclusive",
+                "feasibility_score": 0.3,
+                "failure_kind": "experiment",
+                "failure_category": "job_failed",
+            }
+        },
+    )
+
+    assert recommendation is not None
+    assert recommendation.action == "reject"
+    assert recommendation.rationale.startswith("evaluation verdict")
+
+
 def test_edit_counts_as_agreement_with_an_approval_recommendation():
     rec = AgentRecommendation(action="approve")
     assert recommendation_agrees(rec, "edit") is True

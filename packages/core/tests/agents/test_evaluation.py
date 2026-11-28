@@ -99,15 +99,25 @@ class TestEvaluationAgent:
     async def test_backend_that_cannot_start_is_a_reviewable_result(
         self, agent, mock_llm, mock_sandbox, state_with_proposal
     ):
-        """A missing backend must not fail the run before review_evaluation."""
+        """A missing backend must not fail the run before review_evaluation.
+
+        It is an infrastructure failure, not a scientific verdict, so the gate
+        can offer a retry instead of claiming the proposal is not viable.
+        """
         mock_sandbox.execute.side_effect = RuntimeError("EXPERIMENT_GCS_BUCKET is required")
         mock_llm.extract.return_value = SimpleNamespace(content="print('hello')")
 
         result = await agent.run(state_with_proposal)
 
         assert result["status"] != WorkflowStatus.FAILED.value
-        assert result["evaluation_result"]["execution_success"] is False
-        assert result["evaluation_result"]["verdict"] == "inconclusive"
+        evaluation = result["evaluation_result"]
+        assert evaluation["execution_success"] is False
+        assert evaluation["verdict"] == "infrastructure_failed"
+        assert evaluation["failure_kind"] == "infrastructure"
+        assert evaluation["failure_category"] == "error"
+        assert evaluation["retryable"] is True
+        assert evaluation["feasibility_score"] == 0.0
+        assert any("retry evaluation" in item.lower() for item in evaluation["limitations"])
 
     @pytest.mark.asyncio
     async def test_run_sandbox_timeout(self, agent, mock_llm, mock_sandbox, state_with_proposal):
