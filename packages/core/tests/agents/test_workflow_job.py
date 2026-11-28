@@ -87,6 +87,43 @@ def test_sandbox_config_from_metadata_applies_known_fields_only():
     assert config.job_name == "agentic-kg-experiment-staging"
 
 
+def test_sandbox_config_from_metadata_does_not_inherit_the_apis_endpoint(
+    monkeypatch,
+):
+    """The endpoint is per-runtime; #169 failed because a worker reused it.
+
+    The API persists ``https://private.googleapis.com``; the ingest Job cannot
+    reach it. The worker must keep its own runtime/default endpoint and let
+    ``GcsObjectStore`` probe it instead of copying the API's value.
+    """
+    monkeypatch.setenv("EXPERIMENT_GCS_ENDPOINT", "https://storage.googleapis.com")
+
+    config = workflow_job.sandbox_config_from_metadata(
+        {
+            "backend": "cloudrun_job",
+            "gcs_bucket": "bucket",
+            "gcs_endpoint": "https://private.googleapis.com",
+        }
+    )
+
+    assert config.backend == "cloudrun_job"
+    assert config.gcs_bucket == "bucket"
+    assert config.gcs_endpoint == "https://storage.googleapis.com"
+
+
+def test_sandbox_config_from_metadata_honours_the_workers_own_endpoint(
+    monkeypatch,
+):
+    monkeypatch.setenv("EXPERIMENT_GCS_ENDPOINT", "https://worker.example")
+
+    config = workflow_job.sandbox_config_from_metadata(
+        {"gcs_endpoint": "https://private.googleapis.com"}
+    )
+
+    assert config.gcs_endpoint == "https://worker.example"
+
+
+
 @pytest.mark.asyncio
 async def test_run_rebuilds_the_api_execution_settings(monkeypatch):
     _patch(

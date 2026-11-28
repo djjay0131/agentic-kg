@@ -33,6 +33,18 @@ from agentic_kg.agents.state import ResearchState, add_error, add_message
 
 logger = logging.getLogger(__name__)
 
+#: The review gate shows limitations in full and wrapped. This is generous
+#: enough for a whole infrastructure error (the old 200-char cut stopped mid
+#: URL) while still bounding what is persisted on the run.
+_LIMITATION_CHARS = 1000
+
+
+def _limitation_excerpt(text: str) -> str:
+    text = (text or "").strip()
+    if len(text) <= _LIMITATION_CHARS:
+        return text
+    return text[:_LIMITATION_CHARS].rstrip() + "…"
+
 
 class EvaluationAgent(BaseAgent):
     """Evaluates continuation proposals via LLM analysis and sandboxed code execution."""
@@ -295,7 +307,9 @@ class EvaluationAgent(BaseAgent):
         if sandbox_result.timed_out:
             limitations.append("Execution timed out")
         if not sandbox_result.success:
-            limitations.append(f"Execution error: {sandbox_result.stderr[:200]}")
+            limitations.append(
+                f"Execution error: {_limitation_excerpt(sandbox_result.stderr)}"
+            )
         if not metrics_data:
             limitations.append("No structured metrics output produced")
 

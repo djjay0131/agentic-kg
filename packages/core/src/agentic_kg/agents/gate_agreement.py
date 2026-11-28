@@ -161,9 +161,10 @@ def build_recommendation(
         rationale = f"evaluation verdict {verdict or 'unknown'}"
         if abstained is True:
             rationale += "; provenance envelope abstained"
-        limitations = evaluation.get("limitations") or []
-        if limitations:
-            rationale += f"; limitations: {str(limitations[0])[:160]}"
+        # The full limitation text is rendered under LIMITATIONS by the review
+        # gate. Keeping it out of the one-line recommendation stops a long
+        # infrastructure error from being cut mid-sentence ("... exceeded
+        # with") in the gate header.
         return AgentRecommendation(
             action=action,
             rationale=rationale,

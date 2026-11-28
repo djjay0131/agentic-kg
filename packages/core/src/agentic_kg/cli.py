@@ -918,6 +918,51 @@ def build_parser() -> argparse.ArgumentParser:
         "-v", "--verbose", action="store_true", help="Enable verbose logging",
     )
 
+    # sandbox-check command: prove the experiment sandbox works from this
+    # process (run in deploy via the ingest Job's execution-time args override).
+    sandbox_check_cmd = subparsers.add_parser(
+        "sandbox-check",
+        help="Upload, run and read back a tiny experiment; exit non-zero on failure",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=(
+            "Resolve the sandbox coordinates for this runtime, upload a tiny "
+            "script to the experiment bucket, execute the experiment Cloud Run "
+            "Job on it, poll, read the result back and clean up. A failure is "
+            "reported as connectivity, permission, not_found, job_timeout or "
+            "job_failed so a broken worker Job fails the deploy, not a run."
+        ),
+    )
+    sandbox_check_cmd.add_argument(
+        "--backend", default=None,
+        help="Override EXPERIMENT_BACKEND (default: env; docker is skipped).",
+    )
+    sandbox_check_cmd.add_argument(
+        "--bucket", default=None, help="Override EXPERIMENT_GCS_BUCKET.",
+    )
+    sandbox_check_cmd.add_argument(
+        "--prefix", default=None, help="Override EXPERIMENT_GCS_PREFIX.",
+    )
+    sandbox_check_cmd.add_argument(
+        "--job", default=None, help="Override EXPERIMENT_JOB_NAME.",
+    )
+    sandbox_check_cmd.add_argument(
+        "--project", default=None, help="Override GCP_PROJECT.",
+    )
+    sandbox_check_cmd.add_argument(
+        "--region", default=None, help="Override GCP_REGION.",
+    )
+    sandbox_check_cmd.add_argument(
+        "--timeout", type=int, default=None,
+        help="Per-run budget in seconds (default: SANDBOX_TIMEOUT).",
+    )
+    sandbox_check_cmd.add_argument(
+        "--json", dest="json_output", action="store_true",
+        help="Print the check report as JSON.",
+    )
+    sandbox_check_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
     # workflow command: run one asynchronous step (used by the Cloud Run Job).
     workflow_cmd = subparsers.add_parser(
         "workflow",
@@ -1775,6 +1820,86 @@ def run_llm_check(args) -> None:
         print(f"OK  {result.kind}: {result.provider} / {result.model}")
 
 
+def run_sandbox_check(args) -> None:
+    """Prove this process can use the experiment sandbox end to end.
+
+    Invoked by ``deploy-master`` through the ingest Job's execution-time args
+    override. Uses the *worker's* runtime configuration, so it exercises the
+    same endpoint resolution and identity a real evaluation step uses.
+    """
+    from agentic_kg.agents.config import SandboxConfig
+    from agentic_kg.agents.sandbox import run_sandbox_check as _run_check
+
+    config = SandboxConfig()
+    if args.backend is not None:
+        config.backend = args.backend
+    if args.bucket is not None:
+        config.gcs_bucket = args.bucket
+    if args.prefix is not None:
+        config.gcs_prefix = args.prefix
+    if args.job is not None:
+        config.job_name = args.job
+    if args.project is not None:
+        config.project_id = args.project
+    if args.region is not None:
+        config.region = args.region
+
+    backend = (config.backend or "docker").strip().lower()
+    if backend not in {"cloudrun_job", "cloudrun-job", "cloudrun"}:
+        message = (
+            f"sandbox-check skipped: EXPERIMENT_BACKEND={config.backend!r} is "
+            "not the cloudrun_job backend"
+        )
+        print(message)
+        return
+
+    if not config.project_id:
+        try:
+            import google.auth
+
+            _, detected = google.auth.default()
+            config.project_id = detected or ""
+        except Exception:  # noqa: BLE001 - a missing project is reported below
+            config.project_id = ""
+    if not config.project_id:
+        print(
+            "sandbox-check failed: no GCP project (set GCP_PROJECT or "
+            "pass --project)",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    if not config.gcs_bucket:
+        print(
+            "sandbox-check failed: EXPERIMENT_GCS_BUCKET is not configured "
+            "(pass --bucket)",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
+    report = _run_check(config, timeout_s=args.timeout)
+
+    if args.json_output:
+        print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
+    else:
+        endpoint = report.endpoint + (
+            " (fallback)" if report.used_fallback else ""
+        )
+        print(f"sandbox-check endpoint: {endpoint}")
+        print(f"sandbox-check job: {report.job}")
+        print(f"sandbox-check result_uri: {report.result_uri}")
+        print(f"sandbox-check cleanup: {report.cleanup}")
+    if not report.ok:
+        print(
+            f"sandbox-check failed [{report.category}]: {report.message}",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    print(
+        "sandbox-check OK: upload, experiment Job execution, poll and "
+        "read-back succeeded"
+    )
+
+
 def main(argv: Optional[list[str]] = None) -> None:
     """CLI entry point."""
     parser = build_parser()
@@ -1821,6 +1946,8 @@ def main(argv: Optional[list[str]] = None) -> None:
         run_autonomy(args)
     elif args.command == "llm-check":
         run_llm_check(args)
+    elif args.command == "sandbox-check":
+        run_sandbox_check(args)
     elif args.command == "workflow":
         run_workflow(args)
     elif args.command == "extract":

@@ -74,9 +74,36 @@ class SandboxConfig:
     gcs_prefix: str = field(
         default_factory=lambda: os.getenv("EXPERIMENT_GCS_PREFIX", "experiments")
     )
+    #: GCS API endpoint. This is a *per-runtime* setting: the API service, the
+    #: ingest/nightly worker Job and the experiment Job have different egress,
+    #: so a value persisted by one must not be forced on another. The backend
+    #: probes this endpoint and falls back to ``gcs_endpoint_fallback`` when the
+    #: running process cannot reach it (see ``sandbox.resolve_gcs_endpoint``).
     gcs_endpoint: str = field(
         default_factory=lambda: os.getenv(
             "EXPERIMENT_GCS_ENDPOINT", "https://storage.googleapis.com"
+        )
+    )
+    #: Endpoint used when ``gcs_endpoint`` is unreachable from this process.
+    #: The public GCS endpoint is reachable through Cloud Run managed egress
+    #: even on a VPC with ``PRIVATE_RANGES_ONLY``; the private VIP is not.
+    gcs_endpoint_fallback: str = field(
+        default_factory=lambda: os.getenv(
+            "EXPERIMENT_GCS_ENDPOINT_FALLBACK", "https://storage.googleapis.com"
+        )
+    )
+    #: Short connect timeout for the endpoint probe. A blocked egress path
+    #: should fail in seconds, not after the storage client's 120 s retry loop.
+    gcs_connect_timeout_seconds: float = field(
+        default_factory=lambda: float(
+            os.getenv("EXPERIMENT_GCS_CONNECT_TIMEOUT_SECONDS", "5")
+        )
+    )
+    #: Per-request timeout for GCS reads/writes (retries are disabled so a
+    #: broken path surfaces the real error instead of a long RetryError).
+    gcs_request_timeout_seconds: float = field(
+        default_factory=lambda: float(
+            os.getenv("EXPERIMENT_GCS_REQUEST_TIMEOUT_SECONDS", "30")
         )
     )
     project_id: str = field(

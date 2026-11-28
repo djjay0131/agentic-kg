@@ -157,6 +157,34 @@ def test_review_evaluation_recommendation_records_abstention():
     assert evaluation_provenance_allows_auto({"evaluation_result": {}}) is False
 
 
+def test_review_evaluation_recommendation_keeps_limitation_text_out_of_the_line():
+    """The full limitation text belongs under LIMITATIONS, not the header.
+
+    It used to be appended to the one-line rationale and cut at 160 chars, so
+    a long infrastructure error ended mid-sentence in the gate header.
+    """
+    limitation = (
+        "Execution error: RetryError: Timeout of 120.0s exceeded, last "
+        "exception: HTTPSConnectionPool(host='private.googleapis.com', "
+        "port=443): Max retries exceeded with url: /upload/storage/v1/b/"
+        "vt-gcp-00042-agentic-kg-experiments"
+    )
+    recommendation = build_recommendation(
+        "review_evaluation",
+        {
+            "evaluation_result": {
+                "verdict": "inconclusive",
+                "feasibility_score": 0.3,
+                "limitations": [limitation],
+            }
+        },
+    )
+
+    assert recommendation is not None
+    assert recommendation.rationale == "evaluation verdict inconclusive"
+    assert "Max retries" not in recommendation.rationale
+
+
 def test_edit_counts_as_agreement_with_an_approval_recommendation():
     rec = AgentRecommendation(action="approve")
     assert recommendation_agrees(rec, "edit") is True

@@ -32,6 +32,13 @@ def _split_uri(uri: str) -> tuple[str, str]:
 class _Store:
     def __init__(self) -> None:
         self._client = None
+        # The experiment Job has its own Private Google Access path, so it keeps
+        # its configured endpoint. It still fails fast on a broken path: a
+        # short per-request timeout with retries disabled reports the real
+        # connectivity error instead of a long client-side RetryError.
+        self._timeout = float(
+            os.environ.get("EXPERIMENT_GCS_REQUEST_TIMEOUT_SECONDS", "30")
+        )
 
     def _bucket(self):
         if self._client is None:
@@ -47,14 +54,17 @@ class _Store:
     def download(self, uri: str) -> bytes | None:
         bucket_name, key = _split_uri(uri)
         blob = self._bucket().bucket(bucket_name).blob(key)
-        if not blob.exists():
+        if not blob.exists(timeout=self._timeout, retry=None):
             return None
-        return blob.download_as_bytes()
+        return blob.download_as_bytes(timeout=self._timeout, retry=None)
 
     def upload(self, uri: str, data: bytes, content_type: str) -> None:
         bucket_name, key = _split_uri(uri)
         self._bucket().bucket(bucket_name).blob(key).upload_from_string(
-            data, content_type=content_type
+            data,
+            content_type=content_type,
+            timeout=self._timeout,
+            retry=None,
         )
 
 
