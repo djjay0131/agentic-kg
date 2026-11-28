@@ -1,0 +1,160 @@
+<h1 id="domain-model--taxonomy">Domain Model &amp; Taxonomy</h1>
+
+<p>The authoritative, human-readable description of the agentic-kg knowledge graph:
+the node types (entities), the edge types (relationships), and the <strong>Topic
+taxonomy</strong> that classifies research work. Everything here is derived from — and
+kept in sync with — the Pydantic models and Neo4j schema under
+<code class="language-plaintext highlighter-rouge">packages/core/src/agentic_kg/knowledge_graph/</code>.</p>
+
+<p>If the code and this document ever disagree, the code
+(<code class="language-plaintext highlighter-rouge">models/entities.py</code>, <code class="language-plaintext highlighter-rouge">models/relationships.py</code>, <code class="language-plaintext highlighter-rouge">models/enums.py</code>,
+<code class="language-plaintext highlighter-rouge">schema.py</code>, <code class="language-plaintext highlighter-rouge">taxonomy.py</code>) is the source of truth — please open a PR to fix
+the doc.</p>
+
+<h2 id="document-map">Document map</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Document</th>
+      <th>What it defines</th>
+      <th>Source of truth</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><a href="entity-catalog">Entity Catalog</a></td>
+      <td>Every <strong>node type</strong> — definition, purpose, key attributes, status</td>
+      <td><code class="language-plaintext highlighter-rouge">models/entities.py</code>, <code class="language-plaintext highlighter-rouge">schema.py</code></td>
+    </tr>
+    <tr>
+      <td><a href="entity-relationships">Entity Relationships</a></td>
+      <td>Every <strong>edge type</strong> — endpoints, cardinality, semantics, diagram</td>
+      <td><code class="language-plaintext highlighter-rouge">models/relationships.py</code>, <code class="language-plaintext highlighter-rouge">repository.py</code> Cypher</td>
+    </tr>
+    <tr>
+      <td><a href="topic-taxonomy">Topic Taxonomy</a></td>
+      <td>The 3-level research-topic classification (domain → area → subtopic)</td>
+      <td><code class="language-plaintext highlighter-rouge">taxonomy.py</code>, <code class="language-plaintext highlighter-rouge">data/seed_taxonomy.yml</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="what-taxonomy-means-here">What “taxonomy” means here</h2>
+
+<p>The word is used in two complementary senses, both documented above:</p>
+
+<ol>
+  <li>
+    <p><strong>The Topic taxonomy</strong> (the literal one) — a hand-curated, three-level
+hierarchy of research topics (<code class="language-plaintext highlighter-rouge">domain → area → subtopic</code>) that acts as a
+<em>closed-set controlled vocabulary</em>. Extraction is bound to it so papers can
+only be classified into known topics. See <a href="topic-taxonomy">Topic Taxonomy</a>.</p>
+  </li>
+  <li>
+    <p><strong>The graph ontology</strong> (the implicit one) — the fixed, versioned set of
+~9 node labels and ~14 edge types that every ingested paper is decomposed
+into. See the <a href="entity-catalog">Entity Catalog</a> and
+<a href="entity-relationships">Entity Relationships</a>.</p>
+  </li>
+</ol>
+
+<h2 id="modeling-principles">Modeling principles</h2>
+
+<p>These conventions hold across the whole graph. They are described in prose here
+and enforced in <code class="language-plaintext highlighter-rouge">models/</code> and <code class="language-plaintext highlighter-rouge">schema.py</code>:</p>
+
+<ol>
+  <li><strong>Problems are first-class.</strong> A research problem is a node
+(<code class="language-plaintext highlighter-rouge">Problem</code> / <code class="language-plaintext highlighter-rouge">ProblemConcept</code>), not a string attached to a paper. This is
+the central modeling bet of the project (ADR-002).</li>
+  <li><strong>Mention vs. concept.</strong> Paper-specific wording (<code class="language-plaintext highlighter-rouge">ProblemMention</code>) is kept
+separate from the canonical, cross-paper meaning (<code class="language-plaintext highlighter-rouge">ProblemConcept</code>), joined
+by <code class="language-plaintext highlighter-rouge">INSTANCE_OF</code>. This preserves provenance while allowing deduplication.</li>
+  <li><strong>Closed-set vs. open-set vocabularies.</strong> <code class="language-plaintext highlighter-rouge">Topic</code> is <em>closed-set</em> (only seed
+taxonomy names). <code class="language-plaintext highlighter-rouge">Model</code> is <em>hybrid</em> (open-set + write-protected canonical
+seeds). <code class="language-plaintext highlighter-rouge">ResearchConcept</code> and <code class="language-plaintext highlighter-rouge">Method</code> are <em>open-set</em> (any name, deduped by
+embedding similarity).</li>
+  <li><strong>Denormalized counts.</strong> Nodes cache their own edge counts
+(<code class="language-plaintext highlighter-rouge">mention_count</code>, <code class="language-plaintext highlighter-rouge">paper_count</code>, <code class="language-plaintext highlighter-rouge">usage_count</code>, <code class="language-plaintext highlighter-rouge">citation_count</code>, …) to keep
+common queries cheap; these are maintained by the repository layer.</li>
+  <li><strong>Embeddings everywhere.</strong> Most nodes carry a 1536-dim embedding backed by a
+Neo4j vector index for semantic search and dedup.</li>
+  <li><strong>Provenance is required.</strong> Terminal states (a <code class="language-plaintext highlighter-rouge">RESOLVED</code> / <code class="language-plaintext highlighter-rouge">DEPRECATED</code>
+problem) require evidence pointing at the paper that justifies them.</li>
+  <li><strong>Schema is versioned.</strong> A <code class="language-plaintext highlighter-rouge">SchemaVersion</code> node records the applied schema
+version (currently <strong>7</strong>); <code class="language-plaintext highlighter-rouge">SchemaManager</code> applies constraints and indexes
+idempotently.</li>
+</ol>
+
+<h2 id="node-types-at-a-glance">Node types at a glance</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Node label</th>
+      <th>Role</th>
+      <th>Vocabulary</th>
+      <th>Unit</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Problem</code></td>
+      <td>A research problem extracted from a paper</td>
+      <td>open</td>
+      <td>core</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">ProblemMention</code></td>
+      <td>Paper-specific statement of a problem</td>
+      <td>open</td>
+      <td>canonical</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">ProblemConcept</code></td>
+      <td>Canonical, cross-paper problem</td>
+      <td>open</td>
+      <td>canonical</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Paper</code></td>
+      <td>A scientific paper (source node)</td>
+      <td>—</td>
+      <td>core</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Author</code></td>
+      <td>A paper author</td>
+      <td>—</td>
+      <td>core</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Topic</code></td>
+      <td>Research topic in the taxonomy</td>
+      <td><strong>closed-set</strong></td>
+      <td>E-1</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">ResearchConcept</code></td>
+      <td>Named intellectual building block</td>
+      <td>open</td>
+      <td>E-2</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Model</code></td>
+      <td>Named ML model / architecture</td>
+      <td>hybrid</td>
+      <td>E-3</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">Method</code></td>
+      <td>Named research method / methodology</td>
+      <td>open</td>
+      <td>E-4</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Plus <code class="language-plaintext highlighter-rouge">SchemaVersion</code> (schema metadata) and operational review-queue nodes
+(e.g. <code class="language-plaintext highlighter-rouge">PendingReview</code>) that live outside the core research graph.</p>
