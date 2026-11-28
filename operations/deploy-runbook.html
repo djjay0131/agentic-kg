@@ -100,6 +100,46 @@ so the build finishes <strong>SUCCESS in seconds</strong> without building or pu
 anything. The guard is only skipped for a manual build (no <code class="language-plaintext highlighter-rouge">TRIGGER_NAME</code>) or
 when <code class="language-plaintext highlighter-rouge">_ALLOW_TRIGGER_DEPLOY=true</code> is passed deliberately.</p>
 
+<h2 id="serial-staging-deploys-newest-commit-wins">Serial staging deploys (newest commit wins)</h2>
+
+<p>Two merges to <code class="language-plaintext highlighter-rouge">master</code> a few seconds apart used to race. On 2026-11-27 the
+Deploy Master runs for <code class="language-plaintext highlighter-rouge">#157</code> and <code class="language-plaintext highlighter-rouge">#158</code> started 13s apart, the older commit’s
+deploy finished last, and staging ended on <code class="language-plaintext highlighter-rouge">3f67f44</code> while the newer run failed
+its drift check (<code class="language-plaintext highlighter-rouge">Drift on api-staging: 3f67f44 != a4dc270</code>).</p>
+
+<p>Staging rolls are now <strong>strictly serial and newest-wins</strong>:</p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">deploy-master.yml</code> declares a workflow-level <code class="language-plaintext highlighter-rouge">concurrency</code> group named
+<code class="language-plaintext highlighter-rouge">deploy-staging</code> with <code class="language-plaintext highlighter-rouge">cancel-in-progress: false</code>. A queued run waits for the
+in-flight run; a cancellation can never leave a half-rolled environment.
+With GitHub’s default single queue, a newer pending run also replaces an older
+pending one.</li>
+  <li><code class="language-plaintext highlighter-rouge">deploy-branch.yml</code> uses the same group (<code class="language-plaintext highlighter-rouge">deploy-&lt;environment&gt;</code>, so
+<code class="language-plaintext highlighter-rouge">deploy-staging</code>) for its <code class="language-plaintext highlighter-rouge">deploy</code> job. A manual branch deploy to staging is
+therefore serialised with master deploys; <code class="language-plaintext highlighter-rouge">dev</code> gets its own group.</li>
+  <li>Before building, the <code class="language-plaintext highlighter-rouge">staging-head-guard</code> job runs
+<code class="language-plaintext highlighter-rouge">scripts/staging_deploy_guard.sh</code>. If <code class="language-plaintext highlighter-rouge">origin/master</code> has moved past this
+commit <strong>in a path that triggers deploy-master</strong> (<code class="language-plaintext highlighter-rouge">packages/**</code>, <code class="language-plaintext highlighter-rouge">docker/**</code>,
+<code class="language-plaintext highlighter-rouge">pyproject.toml</code>, <code class="language-plaintext highlighter-rouge">.github/workflows/deploy-*.yml</code>), the run sets
+<code class="language-plaintext highlighter-rouge">superseded=true</code> and both <code class="language-plaintext highlighter-rouge">build</code> and <code class="language-plaintext highlighter-rouge">deploy-staging</code> are skipped, so the
+newest commit’s run is the one that rolls staging. Skipping the build matters
+too: an older build pushing <code class="language-plaintext highlighter-rouge">latest</code> after a newer deploy would otherwise
+regress the image tag.</li>
+  <li>A <strong>docs-only</strong> commit after this one does not supersede the deploy, because
+such a commit has no Deploy Master run of its own; skipping would strand
+staging on an older image. This is why the guard diffs the deploy paths
+instead of simply testing <code class="language-plaintext highlighter-rouge">github.sha == origin/master</code>.</li>
+  <li>A superseded run finishes with the guard and deploy jobs skipped and its
+downstream jobs (<code class="language-plaintext highlighter-rouge">post-deploy-ui-tests</code>, <code class="language-plaintext highlighter-rouge">integration-test</code>,
+<code class="language-plaintext highlighter-rouge">update-manifest</code>) skipped by their <code class="language-plaintext highlighter-rouge">needs</code>. It is never a failure.</li>
+</ul>
+
+<p>The structural contract is pinned by
+<code class="language-plaintext highlighter-rouge">packages/core/tests/test_deploy_workflow_concurrency.py</code>, which also exercises
+the guard against a temporary git repository (current tip, docs-only advance,
+newer deployable commit, workflow change).</p>
+
 <h2 id="manual-escape-hatch">Manual escape hatch</h2>
 
 <p>Build and roll a single service:</p>
