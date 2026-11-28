@@ -7,6 +7,45 @@ Last updated: 2026-11-28
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
 
+## Experiment script visibility, fail-fast execution, Job diagnosis (2026-11-28, T68)
+
+`fix/experiment-script-visibility` fixes the three defects #171's CI diagnosis
+exposed on Deploy Master 46165148695 (the runner could not see the uploaded
+script, the worker polled the run operation for 330 s after the execution
+failed, and the Job-definition formatter printed blanks).
+
+- **Runner reads GCS with visible errors.** `experiment_runner` now calls the
+  GCS JSON API directly instead of `blob.exists()` (which maps every 404 to
+  `False` and hides the body). 401 / 403 / 404 / 5xx are reported with status,
+  body excerpt and the service-account email, e.g.
+  `permission denied (403) reading gs://… as <sa>`. When the configured
+  endpoint is a Private Google APIs VIP the request carries the canonical
+  `Host: storage.googleapis.com`: the VIP is reached by address but routes on
+  the API host, so `Host: private.googleapis.com` returns 404 for an object
+  that exists. The worker also reads its own upload back before starting the
+  Job, so a name mismatch fails at the worker.
+- **`error.json`.** Every runner failure writes `{stage, category, message,
+  status, body_excerpt, last_log}` beside the script. The backend/check read it
+  and classify `download`/`exec`/`upload` as infrastructure; a non-zero script
+  with `result.json` is still an experiment result.
+- **Fail fast.** `POST :run` returns a long-running operation, not an
+  Execution. `_poll_execution` now polls the operation's `done` (and its
+  `error`/`response.name`), then the Execution's `completionTime`, and returns
+  at the first terminal state with the Completed condition message. This is why
+  the pre-fix deploy waited 330 s for an execution that failed in seconds.
+- **Diagnosis formatter.** `scripts/format_run_job.py` renders image, command,
+  args, timeout, maxRetries, serviceAccount, vpcAccess, resources and env
+  **names** from either gcloud's v1 (`spec.template.spec`) or the v2
+  (`template.template`) shape; `deploy-master` and `gcp-diagnose` use it, and a
+  test runs it against a recorded JSON fixture. `build-images` parses services
+  as exact comma tokens and prints the parsed set, so `if [ "false" = "true" ]`
+  can no longer silently skip the experiment image.
+- **IAM / cleanup reconciliation.** The experiment Job runs as
+  `agentic-kg-experiment-${env}` with conditional `objectViewer` +
+  `objectCreator` on `…/objects/<prefix>/`; the sandbox-check cleanup runs as
+  the ingest Job's default compute identity, which can delete, so "deleted 2
+  object(s)" does not contradict #170 (the *experiment* SA has no deleter).
+
 ## Sandbox endpoint is per runtime; deploy-time sandbox check (2026-11-28, T66)
 
 `fix/sandbox-from-worker-job` fixes the staging run after #169 where the
