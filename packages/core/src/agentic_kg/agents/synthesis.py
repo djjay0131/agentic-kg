@@ -92,12 +92,32 @@ class SynthesisAgent(BaseAgent):
         try:
             proposal = ContinuationProposal.model_validate(proposal_data)
             eval_result = EvaluationResult.model_validate(eval_data)
-            context = self.port.load_context(problem_id or proposal.problem_id)
+            # The selected problem is authoritative; a model-authored id in
+            # either upstream payload is not a graph key.
+            problem_id = problem_id or proposal.problem_id
+            if proposal.problem_id and proposal.problem_id != problem_id:
+                logger.warning(
+                    "Synthesis proposal carries problem_id %r; binding to the "
+                    "selected problem %r",
+                    proposal.problem_id,
+                    problem_id,
+                )
+            proposal.problem_id = problem_id
+            if eval_result.proposal_id and eval_result.proposal_id != problem_id:
+                logger.warning(
+                    "Evaluation result carries proposal_id %r; binding to the "
+                    "selected problem %r",
+                    eval_result.proposal_id,
+                    problem_id,
+                )
+            eval_result.proposal_id = problem_id
+            context = self.port.load_context(problem_id)
 
             # Step 1: Generate synthesis report via LLM
             report, state = await self._generate_report(
                 context, proposal, eval_result, state
             )
+            self._bind_report_ids(report, context)
             state = add_message(
                 state,
                 self.name,
@@ -198,6 +218,80 @@ class SynthesisAgent(BaseAgent):
             prompt_version=self.prompt_version,
             rationale=report.summary,
         )
+
+    def _bind_report_ids(self, report, context) -> None:
+        """Bind every foreign key in a model-authored report to graph state.
+
+        ``source_problem_id`` is always the selected problem. Relation
+        endpoints are validated against the graph: the legacy path writes an
+        edge, so an endpoint the graph does not know would be a dangling write
+        (or a 404 from the repository). On the canonical path nothing is
+        written — relations become review items — so the selected problem is
+        bound as the subject and the object stays a proposal for the human.
+        """
+        if report.source_problem_id and report.source_problem_id != context.problem_id:
+            logger.warning(
+                "Synthesis report returned source_problem_id %r; binding to the "
+                "selected problem %r",
+                report.source_problem_id,
+                context.problem_id,
+            )
+        report.source_problem_id = context.problem_id
+
+        kept: list[dict] = []
+        for relation in report.new_relations:
+            if not isinstance(relation, dict):
+                continue
+            # A missing subject is the selected problem by definition: the
+            # synthesis is about that problem.
+            source_id = str(relation.get("source_id") or context.problem_id)
+            target_id = str(relation.get("target_id") or "")
+            if not target_id:
+                continue
+            if self.source == SOURCE_CANONICAL:
+                if not self._known_problem_id(target_id, context.problem_id):
+                    logger.warning(
+                        "Synthesis relation names unknown canonical target %r; "
+                        "dropping it",
+                        target_id,
+                    )
+                    continue
+                kept.append({**relation, "source_id": context.problem_id})
+                continue
+            if not self._known_problem_id(source_id, context.problem_id):
+                logger.warning(
+                    "Synthesis relation names unknown source %r; dropping it",
+                    source_id,
+                )
+                continue
+            if not self._known_problem_id(target_id, context.problem_id):
+                logger.warning(
+                    "Synthesis relation names unknown target %r; dropping it",
+                    target_id,
+                )
+                continue
+            kept.append({**relation, "source_id": source_id})
+        report.new_relations = kept
+
+    def _known_problem_id(self, candidate_id: str, selected_problem_id: str) -> bool:
+        """Whether ``candidate_id`` names a problem the legacy graph holds."""
+        if not candidate_id:
+            return False
+        if candidate_id == selected_problem_id:
+            return True
+        if self.source == SOURCE_CANONICAL:
+            try:
+                self.port.load_context(candidate_id)
+            except Exception:  # noqa: BLE001 - not a visible canonical entity
+                return False
+            return True
+        get_problem = getattr(self.repo, "get_problem", None)
+        if get_problem is None:
+            return False
+        try:
+            return get_problem(candidate_id) is not None
+        except Exception:  # noqa: BLE001 - an unknown id is a dropped proposal
+            return False
 
     # -- canonical path: queue, never write --------------------------------
 

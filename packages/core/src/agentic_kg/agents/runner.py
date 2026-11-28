@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Mapping
 
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -216,6 +216,8 @@ class WorkflowRunner:
             "current_step": "ranking",
             "created_at": state["created_at"],
             "updated_at": state["updated_at"],
+            "total_steps": 7,
+            "completed_steps": 0,
             "error": "",
         }
         # Persist before the first agent call so a crash leaves a visible row.
@@ -517,6 +519,8 @@ class WorkflowRunner:
         errors = state.get("errors") or []
         if errors:
             meta["error"] = str(errors[-1])
+        meta["total_steps"] = 7
+        meta["completed_steps"] = self._count_completed_steps(state)
         meta["updated_at"] = datetime.now(timezone.utc).isoformat()
         self._persist_metadata(run_id)
 
@@ -615,7 +619,7 @@ class WorkflowRunner:
         return stale
 
     @staticmethod
-    def _count_completed_steps(state: ResearchState) -> int:
+    def _count_completed_steps(state: Mapping[str, Any]) -> int:
         """Count how many workflow steps have completed."""
         count = 0
         if state.get("ranked_problems"):

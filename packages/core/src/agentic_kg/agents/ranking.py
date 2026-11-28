@@ -238,6 +238,7 @@ class RankingAgent(BaseAgent):
                 merged[scored.problem_id] = RankedProblem(
                     problem_id=candidate.problem_id,
                     statement=candidate.statement,
+                    domain=candidate.topic_id,
                     score=scored.score,
                     # The compact batch schema reports one overall score; the
                     # historical per-dimension fields are informational.

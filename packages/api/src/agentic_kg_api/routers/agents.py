@@ -132,20 +132,39 @@ async def start_workflow(request: StartWorkflowRequest) -> StartWorkflowResponse
 
 @router.get("/workflows", response_model=list[WorkflowStatusResponse])
 async def list_workflows() -> list[WorkflowStatusResponse]:
-    """List all tracked workflows."""
+    """List all tracked workflows.
+
+    ``completed_steps`` is derived from the checkpoint state, not persisted
+    metadata alone, so a run started by a previous API version still reports
+    the same progress the detail page shows.
+    """
     runner = _get_runner()
     workflows = runner.list_workflows()
-    return [
-        WorkflowStatusResponse(
-            run_id=w["run_id"],
-            status=w.get("status", "unknown"),
-            current_step=w.get("current_step", ""),
-            created_at=w.get("created_at", ""),
-            updated_at=w.get("updated_at", ""),
-            error=w.get("error", ""),
+    rows: list[WorkflowStatusResponse] = []
+    for w in workflows:
+        run_id = w["run_id"]
+        total = w.get("total_steps", 7)
+        completed = w.get("completed_steps", 0)
+        try:
+            summary = await runner.get_status(run_id)
+        except Exception:  # noqa: BLE001 - listing still shows the metadata row
+            logger.warning("could not read status for workflow %s", run_id)
+        else:
+            total = summary.total_steps
+            completed = summary.completed_steps
+        rows.append(
+            WorkflowStatusResponse(
+                run_id=run_id,
+                status=w.get("status", "unknown"),
+                current_step=w.get("current_step", ""),
+                created_at=w.get("created_at", ""),
+                updated_at=w.get("updated_at", ""),
+                total_steps=total,
+                completed_steps=completed,
+                error=w.get("error", ""),
+            )
         )
-        for w in workflows
-    ]
+    return rows
 
 
 @router.get("/workflows/{run_id}", response_model=WorkflowStateResponse)

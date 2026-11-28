@@ -309,8 +309,11 @@ def build_synthesis_review_items(
             )
         )
 
-    if report.source_problem_id or source_problem_id:
-        target = report.source_problem_id or source_problem_id
+    if source_problem_id:
+        # ``source_problem_id`` is the selected problem the agent resolved from
+        # workflow state; ``report.source_problem_id`` is model output and must
+        # not select the record a human is asked to mark resolved.
+        target = source_problem_id
         payload = {
             "candidate_kind": "status_update",
             "candidate_id": _stable_candidate_id(run_id, "update_status", target),

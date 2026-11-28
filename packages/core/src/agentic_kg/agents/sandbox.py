@@ -26,6 +26,12 @@ logger = logging.getLogger(__name__)
 
 _GS_SCHEME = "gs://"
 
+#: Extra time the API polls past the per-run budget. The Job's own platform
+#: timeout is the same budget, so polling exactly to the deadline can observe
+#: "not finished" a moment before the platform records the execution as
+#: finished and hides the real ``timed_out`` result.
+_JOB_POLL_MARGIN_SECONDS = 30
+
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -351,7 +357,7 @@ class CloudRunJobBackend:
                     "EXPERIMENT_TIMEOUT_S": str(max(1, timeout - 5)),
                 },
             )
-            execution = self._poll(execution_name, timeout)
+            execution = self._poll(execution_name, timeout + _JOB_POLL_MARGIN_SECONDS)
         except TimeoutError as exc:
             return SandboxResult(
                 success=False,

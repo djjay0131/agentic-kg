@@ -92,17 +92,23 @@ def _apply_problem_selection(
             "status": WorkflowStatus.REJECTED.value,
         }
 
+    ranked = state.get("ranked_problems", [])
     if edited_data and "problem_id" in edited_data:
         problem_id = edited_data["problem_id"]
-        statement = edited_data.get("statement", "")
     else:
         # Default: select the top-ranked problem
-        ranked = state.get("ranked_problems", [])
-        if ranked:
-            problem_id = ranked[0].get("problem_id")
-            statement = ranked[0].get("rationale", "")
-        else:
+        if not ranked:
             return {**state, "selected_problem_id": None}
+        problem_id = ranked[0].get("problem_id")
+
+    # The statement is display data; the rationale is not a problem statement.
+    statement = edited_data.get("statement", "") if edited_data else ""
+    if not statement:
+        match = next(
+            (item for item in ranked if item.get("problem_id") == problem_id), None
+        )
+        if match is not None:
+            statement = match.get("statement") or match.get("rationale", "")
 
     return {
         **state,
