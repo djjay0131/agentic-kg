@@ -42,7 +42,13 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    timeout-minutes: 30
+    # AC-1, amended 2026-11-28 (was 30). The live path now measures ~29-30
+    # minutes against the real OpenAI/S2 rate limits: runs on 2026-11-28
+    # finished ingestion at 29m59s and were cancelled seconds before the
+    # assertion. 45 minutes leaves room for setup plus one full attempt (and
+    # the documented retry) without changing any assertion or the --limit
+    # input that bounds LLM spend. See the spec's timeout-budget amendments.
+    timeout-minutes: 45
 
     services:
       neo4j:

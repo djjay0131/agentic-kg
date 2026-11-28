@@ -204,6 +204,35 @@ real signal). It removes a *deterministic* failure that was masquerading as
 that nondeterminism: between 2026-09-01 and 2026-09-10 the scheduled run on
 `master` failed far more often than it passed, on unchanged code.
 
+### Timeout budget amendment (2026-11-28)
+
+AC-1's 30-minute cap is now too tight for the current live latency. Three
+runs on 2026-11-28 against the real OpenAI/S2 rate limits:
+
+| Run | Ingest step ended | Job cancelled | Outcome |
+|---|---|---|---|
+| 46140396529 (successful) | 29m 04s total | — | assertions ran |
+| 46153560711 attempt 2 | citation summary at 29m 59s | 30m 06s | assert never ran |
+| 46153560711 attempt 3 | still creating methods at 30m | 30m 00s | assert never ran |
+
+The first rerun had *finished ingestion* (it logged the citation summary and
+closed the step group) and was cancelled five seconds later, before
+`Assert graph shape`. This is the same failure mode the 2026-09-10 amendment
+removed at 15 minutes, now recurring at 30.
+
+The cap is raised to 45 minutes. This does not weaken a guarantee:
+
+- every assertion in AC-5 through AC-7 still runs, unchanged;
+- the `--limit` input still bounds the papers (and therefore the LLM spend);
+- runner minutes remain inside the free-tier allocation, and the cost model
+  above is driven by LLM calls, not wall time;
+- a cancelled run still pays for the ingest and discards the result, which is
+  the waste this avoids.
+
+If the live path later approaches 45 minutes, measure again rather than
+raising the number reflexively; the right long-term fix is reducing the
+per-paper extraction/citation latency, not an unbounded cap.
+
 ## Sample Implementation
 
 ```yaml
@@ -240,7 +269,7 @@ jobs:
   smoke:
     name: Ingest + Assert
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     services:
       neo4j:
@@ -497,7 +526,7 @@ if __name__ == "__main__":
 - **Given** `.github/workflows/smoke-ingest.yml` exists in the repo
 - **When** GHA evaluates the workflow file
 - **Then** the workflow is active with three triggers: `workflow_dispatch` (with `query` and `limit` inputs), `pull_request` on `master` (path-filtered), and `schedule` at `17 6 * * *` UTC
-- **And** the workflow's `timeout-minutes` is at most 30 (amended 2026-09-10; was 15 — see §Timeout budget amendment)
+- **And** the workflow's `timeout-minutes` is at most 45 (amended 2026-11-28; was 30 — see the two §Timeout budget amendments; originally 15)
 
 ### AC-2: Path filter scope
 - **Given** a PR opens against `master`
