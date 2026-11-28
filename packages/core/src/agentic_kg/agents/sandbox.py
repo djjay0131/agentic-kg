@@ -455,7 +455,11 @@ class CloudRunJobBackend:
                     "EXPERIMENT_TIMEOUT_S": str(max(1, timeout - 5)),
                 },
             )
-            execution = self._poll(execution_name, timeout + _JOB_POLL_MARGIN_SECONDS)
+            execution = self._poll(
+                execution_name,
+                timeout + _JOB_POLL_MARGIN_SECONDS,
+                result_uri=result_uri,
+            )
         except TimeoutError as exc:
             try:
                 partial_stdout = self._read_text(f"{prefix}/stdout.txt")
@@ -552,7 +556,9 @@ class CloudRunJobBackend:
     def _prefix(self, experiment_id: str) -> str:
         return _prefix_for(self.config, experiment_id)
 
-    def _poll(self, execution_name: str, timeout: float) -> dict:
+    def _poll(
+        self, execution_name: str, timeout: float, *, result_uri: str | None = None
+    ) -> dict:
         return _poll_execution(
             self._run,
             execution_name,
@@ -560,6 +566,8 @@ class CloudRunJobBackend:
             clock=self._clock,
             sleep=self._sleep,
             interval=self.config.poll_interval_seconds,
+            object_store=self._store,
+            result_uri=result_uri,
         )
 
     def _read_text(self, uri: str) -> str:
@@ -569,20 +577,23 @@ class CloudRunJobBackend:
     def _status_note(self, execution_name: str) -> str:
         """A short execution-status summary for a timeout message; best effort."""
         try:
-            status = (self._run.get_execution(execution_name) or {}).get(
-                "status"
-            ) or {}
+            status = _execution_view(self._run.get_execution(execution_name) or {})
         except Exception:  # noqa: BLE001 - the timeout is still the result
             return ""
         parts = [
             f"start={status.get('startTime') or 'unknown'}",
             f"completion={status.get('completionTime') or 'unfinished'}",
+            f"succeeded={status.get('succeededCount') or 0}",
             f"failed={status.get('failedCount') or 0}",
             f"cancelled={status.get('cancelledCount') or 0}",
+            f"running={status.get('runningCount') or 0}",
         ]
         for condition in status.get("conditions") or []:
+            if not isinstance(condition, dict):
+                continue
             parts.append(
-                f"{condition.get('type')}={condition.get('state')}"
+                f"{condition.get('type')}="
+                f"{condition.get('state') or condition.get('status')}"
                 f"({condition.get('message') or ''})"
             )
         return " (" + ", ".join(parts) + ")"
@@ -645,7 +656,11 @@ class CloudRunJobBackend:
         succeeded = execution_succeeded(execution)
         exit_code = int(job_result.get("exit_code", 0 if succeeded else 1))
         timed_out = bool(job_result.get("timed_out", False))
-        success = bool(raw_result) and succeeded and exit_code == 0
+        # The runner writes result.json itself, so an object that says exit 0
+        # is the outcome. Requiring the control-plane status to agree is what
+        # turned #172's finished execution into a 330 s timeout; the status is
+        # a hint, the object store is the contract.
+        success = bool(raw_result) and exit_code == 0 and not timed_out
 
         # No result object at all means the runner never reached its upload
         # stage: the platform or the network failed before the experiment could
@@ -674,7 +689,7 @@ class CloudRunJobBackend:
                 if not stderr:
                     stderr = (
                         "experiment Job finished without writing result.json "
-                        f"(execution status: {execution.get('status')})"
+                        f"(execution status: {_execution_view(execution)})"
                     )
 
         max_output = self.config.max_output_chars
@@ -854,10 +869,115 @@ class CloudRunJobClient:
         return response.json()
 
 
+#: Marker set on an execution payload when the experiment objects themselves
+#: (``result.json`` / ``error.json``) prove completion. The control-plane status
+#: can lag or be shaped differently; the object store is the contract.
+_OBJECT_COMPLETE_KEY = "_sandbox_object_complete"
+
+#: Execution states the Run Admin v2 API may report at the top level.
+_TERMINAL_STATES = {"SUCCEEDED", "FAILED", "CANCELLED"}
+_SUCCESS_STATES = {"SUCCEEDED"}
+_FAILURE_STATES = {"FAILED", "CANCELLED"}
+
+#: Condition states in the v2 REST representation and the v1 ``status`` field.
+_CONDITION_TERMINAL_STATES = {
+    "CONDITION_SUCCEEDED",
+    "CONDITION_FAILED",
+    "CONDITION_CANCELLED",
+}
+_CONDITION_SUCCESS_STATES = {"CONDITION_SUCCEEDED"}
+_CONDITION_FAILURE_STATES = {"CONDITION_FAILED", "CONDITION_CANCELLED"}
+
+
+def _as_count(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _execution_view(execution: dict) -> dict[str, Any]:
+    """Flatten the v1 ``status`` wrapper and the v2 top-level resource.
+
+    The Run Admin **v2 REST** Execution resource carries ``completionTime``,
+    ``startTime``, ``succeededCount``, ``failedCount``, ``cancelledCount``,
+    ``runningCount``, ``conditions`` and ``reconciling`` at the top level.
+    ``gcloud`` (a v1 view) prints the same fields under ``status``. The
+    backend must recognise both: #172 polled a finished v2 execution for 115
+    GETs because it only read ``status.completionTime``.
+    """
+    if not isinstance(execution, dict):
+        return {}
+    view: dict[str, Any] = {}
+    status = execution.get("status")
+    if isinstance(status, dict):
+        view.update(status)
+    for key in (
+        "completionTime",
+        "startTime",
+        "updateTime",
+        "succeededCount",
+        "failedCount",
+        "cancelledCount",
+        "runningCount",
+        "retriedCount",
+        "conditions",
+        "reconciling",
+        "state",
+    ):
+        if key in execution and execution[key] is not None:
+            view[key] = execution[key]
+    return view
+
+
+def _condition_succeeded(condition: dict) -> bool | None:
+    """Return success for a v2 ``state`` or v1 ``status`` condition, or None."""
+    state = condition.get("state")
+    if isinstance(state, str) and state:
+        if state in _CONDITION_SUCCESS_STATES:
+            return True
+        if state in _CONDITION_FAILURE_STATES:
+            return False
+        return None
+    status = condition.get("status")
+    if isinstance(status, bool):
+        return status
+    if isinstance(status, str) and status:
+        lowered = status.strip().lower()
+        if lowered == "true":
+            return True
+        if lowered == "false":
+            return False
+    return None
+
+
+def _condition_is_terminal(condition: dict) -> bool:
+    if condition.get("type") not in {"Completed", "Succeeded"}:
+        return False
+    state = condition.get("state")
+    if isinstance(state, str) and state in _CONDITION_TERMINAL_STATES:
+        return True
+    return _condition_succeeded(condition) is not None
+
+
 def is_execution_terminal(execution: dict) -> bool:
-    """Return whether a Cloud Run v2 execution has completed."""
-    status = execution.get("status") or {}
-    return bool(status.get("completionTime"))
+    """Return whether a Cloud Run execution has completed (v1 or v2 shape)."""
+    view = _execution_view(execution)
+    if view.get("completionTime"):
+        return True
+    state = view.get("state")
+    if isinstance(state, str) and state.upper() in _TERMINAL_STATES:
+        return True
+    for condition in view.get("conditions") or []:
+        if isinstance(condition, dict) and _condition_is_terminal(condition):
+            return True
+    finished = (
+        _as_count(view.get("succeededCount"))
+        + _as_count(view.get("failedCount"))
+        + _as_count(view.get("cancelledCount"))
+    )
+    running = _as_count(view.get("runningCount"))
+    return finished > 0 and running == 0
 
 
 def is_operation(obj: dict) -> bool:
@@ -868,8 +988,18 @@ def is_operation(obj: dict) -> bool:
     a ``response`` that names the Execution. Polling its ``status`` like an
     Execution is why #171 waited the full 330 s for an execution that had
     already failed (#171's timeout message named ``.../operations/...``).
+
+    An in-flight operation may omit ``done`` entirely in proto3 JSON, so the
+    resource name (``.../operations/...``) is also an operation signal.
     """
-    return isinstance(obj, dict) and "done" in obj
+    if not isinstance(obj, dict):
+        return False
+    if "done" in obj:
+        return True
+    name = obj.get("name")
+    if isinstance(name, str) and "/operations/" in name:
+        return True
+    return False
 
 
 def operation_execution_name(operation: dict) -> str | None:
@@ -886,6 +1016,18 @@ def operation_execution_name(operation: dict) -> str | None:
         if isinstance(name, str) and "/executions/" in name:
             return name
     return None
+
+
+def _object_store_complete(store: Any, result_uri: str) -> bool:
+    """Whether the experiment's own result/error object exists yet."""
+    for name in ("result.json", "error.json"):
+        try:
+            data = store.download_bytes(f"{result_uri}/{name}")
+        except Exception:  # noqa: BLE001 - a probe must never fail the poll
+            continue
+        if data is not None:
+            return True
+    return False
 
 
 class ExecutionOperationError(RuntimeError):
@@ -915,8 +1057,10 @@ class ExecutionOperationError(RuntimeError):
 
 def execution_condition_message(execution: dict) -> str:
     """Return the Completed/Succeeded condition message, never a guess."""
-    status = execution.get("status") or {}
-    for condition in status.get("conditions") or []:
+    view = _execution_view(execution)
+    for condition in view.get("conditions") or []:
+        if not isinstance(condition, dict):
+            continue
         if condition.get("type") in {"Completed", "Succeeded"}:
             message = condition.get("message") or ""
             reason = condition.get("reason") or ""
@@ -928,16 +1072,29 @@ def execution_condition_message(execution: dict) -> str:
 
 
 def execution_succeeded(execution: dict) -> bool:
-    """Return whether a completed Cloud Run v2 execution succeeded."""
-    status = execution.get("status") or {}
-    if not status.get("completionTime"):
+    """Return whether a completed Cloud Run execution succeeded (v1 or v2)."""
+    view = _execution_view(execution)
+    if not is_execution_terminal(execution):
         return False
-    if status.get("cancelledCount") or status.get("failedCount"):
+    if _as_count(view.get("cancelledCount")) or _as_count(
+        view.get("failedCount")
+    ):
         return False
-    for condition in status.get("conditions") or []:
+    state = view.get("state")
+    if isinstance(state, str):
+        upper = state.upper()
+        if upper in _SUCCESS_STATES:
+            return True
+        if upper in _FAILURE_STATES:
+            return False
+    for condition in view.get("conditions") or []:
+        if not isinstance(condition, dict):
+            continue
         if condition.get("type") in {"Completed", "Succeeded"}:
-            return condition.get("state") == "CONDITION_SUCCEEDED"
-    return bool(status.get("succeededCount"))
+            succeeded = _condition_succeeded(condition)
+            if succeeded is not None:
+                return succeeded
+    return _as_count(view.get("succeededCount")) > 0
 
 
 def image_digest_from_execution(execution: dict) -> str | None:
@@ -957,17 +1114,26 @@ def _poll_execution(
     clock: Any,
     sleep: Any,
     interval: float,
+    object_store: Any = None,
+    result_uri: str | None = None,
+    object_probe_every: int = 3,
 ) -> dict:
     """Poll a run operation / execution until it is terminal.
 
     ``:run`` returns an operation name. The operation finishes as soon as the
     platform has created the execution (or failed to), so poll ``done`` first,
-    then poll the named Execution for its terminal ``completionTime``. This
-    returns in seconds for an execution that failed early instead of waiting
-    out the caller's budget on an object that never reports ``completionTime``.
+    then poll the named Execution for a terminal state. Both the v2 REST shape
+    (top-level ``completionTime``/``conditions``) and the v1 ``status`` view are
+    accepted (#172 polled a finished v2 execution for 115 GETs).
+
+    When ``object_store`` and ``result_uri`` are supplied, the appearance of
+    ``result.json`` or ``error.json`` is also completion: the generated script
+    writes the outcome itself, so the object store is the contract and the
+    control-plane status is only a hint. The probe runs every few polls.
     """
     deadline = clock() + timeout
     target = execution_name
+    polls = 0
     while True:
         current = run.get_execution(target)
         if is_operation(current):
@@ -989,6 +1155,17 @@ def _poll_execution(
                 continue
         if is_execution_terminal(current):
             return current
+        polls += 1
+        if (
+            object_store is not None
+            and result_uri
+            and object_probe_every > 0
+            and polls % object_probe_every == 0
+            and _object_store_complete(object_store, result_uri)
+        ):
+            marked = dict(current)
+            marked[_OBJECT_COMPLETE_KEY] = True
+            return marked
         if clock() >= deadline:
             raise TimeoutError(
                 f"Cloud Run Job execution exceeded {timeout}s: {target}"
@@ -1212,6 +1389,8 @@ def run_sandbox_check(
             clock=clock,
             sleep=sleep,
             interval=config.poll_interval_seconds,
+            object_store=store,
+            result_uri=result_uri,
         )
     except TimeoutError as exc:
         report.category = "job_timeout"
@@ -1244,7 +1423,10 @@ def run_sandbox_check(
     report.exit_code = exit_code
     report.cleanup = _cleanup_objects(store, result_uri)
 
-    if execution_succeeded(execution) and exit_code == 0 and not runner_error:
+    completed = execution_succeeded(execution) or bool(
+        execution.get(_OBJECT_COMPLETE_KEY)
+    )
+    if completed and exit_code == 0 and not runner_error:
         report.ok = True
         report.category = "ok"
         report.message = "upload, experiment Job execution, poll and read-back succeeded"
@@ -1269,7 +1451,7 @@ def run_sandbox_check(
         # The reason is usually only in the experiment Job's own logs, which
         # the deploy step prints separately. At least name the execution state.
         condition = execution_condition_message(execution)
-        detail = f"no output; execution status: {execution.get('status')}"
+        detail = f"no output; execution status: {_execution_view(execution)}"
         if condition:
             detail = f"{detail}; {condition}"
     report.message = (

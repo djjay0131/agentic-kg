@@ -23,8 +23,19 @@ import argparse
 import json
 import sys
 
-_V1_PATH = ("spec", "template", "spec")
-_V2_PATH = ("template", "template")
+# gcloud's v1 **Job** has two template levels: the ExecutionTemplate under
+# ``spec.template.spec`` (parallelism/taskCount) wraps the RevisionTemplate at
+# ``spec.template.spec.template.spec`` (containers/serviceAccount/timeout).
+# An Execution or a Service has only ``spec.template.spec``. The v2 API/Terraform
+# shape is ``template.template``. #172 tried only the Execution/Service paths,
+# so every field of a real Job rendered blank.
+_TASK_PATHS = (
+    ("spec", "template", "spec", "template", "spec"),  # gcloud v1 Job
+    ("template", "template"),                          # v2 Job
+    ("spec", "template", "spec"),                      # v1 Service/Execution
+    ("template", "spec"),                              # defensive
+    ("template",),                                     # defensive
+)
 
 _FIELDS = (
     "image",
@@ -48,12 +59,43 @@ def _dig(job: dict, path: tuple[str, ...]) -> dict | None:
     return node if isinstance(node, dict) else None
 
 
+def _has_containers(node: dict) -> bool:
+    containers = node.get("containers")
+    return (
+        isinstance(containers, list)
+        and bool(containers)
+        and isinstance(containers[0], dict)
+    )
+
+
+def _find_containers_node(job: dict) -> dict:
+    """Find the task template wherever a gcloud/API version nests it."""
+    stack: list[object] = [job]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            if _has_containers(node):
+                return node
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    return {}
+
+
 def _task_template(job: dict) -> tuple[dict, str]:
-    for path, shape in ((_V1_PATH, "v1"), (_V2_PATH, "v2")):
+    found: dict | None = None
+    found_shape = "unknown"
+    for path in _TASK_PATHS:
         node = _dig(job, path)
-        if node is not None:
-            return node, shape
-    return {}, "unknown"
+        if node is None:
+            continue
+        if _has_containers(node):
+            return node, ".".join(path)
+        if found is None:
+            found, found_shape = node, ".".join(path)
+    if found is not None:
+        return found, found_shape
+    return _find_containers_node(job), "recursive"
 
 
 def _first_container(task: dict) -> dict:
@@ -63,13 +105,28 @@ def _first_container(task: dict) -> dict:
     return {}
 
 
-def _pick(task: dict, container: dict, *names: str):
+def _find_field(job: dict, *names: str):
+    """Last-resort search for a uniquely named field (never print a blank)."""
+    stack: list[object] = [job]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            for name in names:
+                if name in node and node[name] is not None:
+                    return node[name]
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    return None
+
+
+def _pick(job: dict, task: dict, container: dict, *names: str):
     for name in names:
         if name in task:
             return task[name]
         if name in container:
             return container[name]
-    return None
+    return _find_field(job, *names)
 
 
 def summarize(job: dict) -> dict:
@@ -85,13 +142,15 @@ def summarize(job: dict) -> dict:
     return {
         # gcloud's task template uses ``timeoutSeconds`` and
         # ``serviceAccountName``; the v2 API uses ``timeout``/``serviceAccount``.
-        "image": container.get("image"),
-        "command": container.get("command"),
-        "args": container.get("args"),
-        "timeout": _pick(task, container, "timeoutSeconds", "timeout"),
-        "maxRetries": _pick(task, container, "maxRetries"),
-        "serviceAccount": _pick(task, container, "serviceAccountName", "serviceAccount"),
-        "vpcAccess": _pick(task, container, "vpcAccess"),
+        "image": container.get("image") or _find_field(job, "image"),
+        "command": container.get("command") or _find_field(job, "command"),
+        "args": container.get("args") or _find_field(job, "args"),
+        "timeout": _pick(job, task, container, "timeoutSeconds", "timeout"),
+        "maxRetries": _pick(job, task, container, "maxRetries"),
+        "serviceAccount": _pick(
+            job, task, container, "serviceAccountName", "serviceAccount"
+        ),
+        "vpcAccess": _pick(job, task, container, "vpcAccess"),
         "resources": limits,
         "envNames": env,
     }

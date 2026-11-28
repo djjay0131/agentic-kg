@@ -62,13 +62,20 @@ class CheckRun:
         if self.raise_on_run is not None:
             raise self.raise_on_run
         prefix = args[0].rsplit("/", 1)[0]
-        exit_code = 0 if self.status == "success" else 1
-        self.store.objects[f"{prefix}/stdout.txt"] = b'{"metrics": {"sandbox_check": 1}}'
-        self.store.objects[f"{prefix}/stderr.txt"] = b"" if exit_code == 0 else b"boom"
-        self.store.objects[f"{prefix}/metrics.json"] = b'{"metrics": {"sandbox_check": 1}}'
-        self.store.objects[f"{prefix}/result.json"] = json.dumps(
-            {"exit_code": exit_code, "timed_out": False}
-        ).encode()
+        if self.status != "running":
+            exit_code = 0 if self.status == "success" else 1
+            self.store.objects[f"{prefix}/stdout.txt"] = (
+                b'{"metrics": {"sandbox_check": 1}}'
+            )
+            self.store.objects[f"{prefix}/stderr.txt"] = (
+                b"" if exit_code == 0 else b"boom"
+            )
+            self.store.objects[f"{prefix}/metrics.json"] = (
+                b'{"metrics": {"sandbox_check": 1}}'
+            )
+            self.store.objects[f"{prefix}/result.json"] = json.dumps(
+                {"exit_code": exit_code, "timed_out": False}
+            ).encode()
         return "projects/p/locations/r/executions/e1"
 
     def get_execution(self, execution_name: str) -> dict:
@@ -252,13 +259,31 @@ class TestEndpointResolution:
         assert classify_sandbox_error(exc) == category
 
 
-def test_cli_prints_a_compact_one_line_verdict(monkeypatch, capsys):
-    """The deploy step greps one stable line; it must not carry stdout/stderr."""
+def _cli_args(**overrides):
     from types import SimpleNamespace
 
-    from agentic_kg import cli
+    values = {
+        "backend": "cloudrun_job",
+        "bucket": "bucket",
+        "prefix": "staging",
+        "job": "j",
+        "project": "project",
+        "region": "us-central1",
+        "timeout": None,
+        "json_output": False,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
 
-    report = SandboxCheckReport(
+
+def _last_verdict(out: str) -> dict:
+    lines = [line for line in out.splitlines() if line.strip()]
+    assert lines[-1].startswith("SANDBOX_CHECK_VERDICT "), lines[-5:]
+    return json.loads(lines[-1][len("SANDBOX_CHECK_VERDICT "):])
+
+
+def _failure_report() -> SandboxCheckReport:
+    return SandboxCheckReport(
         ok=False,
         category="job_timeout",
         message="Cloud Run Job execution exceeded 330s",
@@ -269,30 +294,75 @@ def test_cli_prints_a_compact_one_line_verdict(monkeypatch, capsys):
         stderr="a very large stderr should not be in the line",
     )
 
+
+def test_cli_failure_ends_with_a_compact_verdict(monkeypatch, capsys):
+    """The deploy step greps one stable line; it must not carry stdout/stderr."""
+    from agentic_kg import cli
+
     monkeypatch.setattr(
         "agentic_kg.agents.sandbox.run_sandbox_check",
-        lambda config, timeout_s=None: report,
-    )
-    args = SimpleNamespace(
-        backend="cloudrun_job",
-        bucket="bucket",
-        prefix="staging",
-        job="j",
-        project="project",
-        region="us-central1",
-        timeout=None,
-        json_output=False,
+        lambda config, timeout_s=None: _failure_report(),
     )
 
     with pytest.raises(SystemExit):
-        cli.run_sandbox_check(args)
+        cli.run_sandbox_check(_cli_args())
 
-    out = capsys.readouterr().out
-    line = next(
-        line for line in out.splitlines() if line.startswith("SANDBOX_CHECK_VERDICT ")
-    )
-    payload = json.loads(line[len("SANDBOX_CHECK_VERDICT "):])
+    payload = _last_verdict(capsys.readouterr().out)
     assert payload["ok"] is False
     assert payload["category"] == "job_timeout"
     assert "stdout" not in payload
     assert "stderr" not in payload
+
+
+def test_cli_success_ends_with_the_verdict(monkeypatch, capsys):
+    from agentic_kg import cli
+
+    report = SandboxCheckReport(
+        ok=True,
+        category="ok",
+        message="upload, experiment Job execution, poll and read-back succeeded",
+        endpoint="https://storage.googleapis.com",
+        used_fallback=False,
+        job="projects/p/locations/r/jobs/j",
+    )
+    monkeypatch.setattr(
+        "agentic_kg.agents.sandbox.run_sandbox_check",
+        lambda config, timeout_s=None: report,
+    )
+
+    cli.run_sandbox_check(_cli_args())
+
+    payload = _last_verdict(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["category"] == "ok"
+
+
+def test_cli_unexpected_exception_still_ends_with_a_verdict(
+    monkeypatch, capsys
+):
+    from agentic_kg import cli
+
+    def explode(config, timeout_s=None):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("agentic_kg.agents.sandbox.run_sandbox_check", explode)
+
+    with pytest.raises(SystemExit):
+        cli.run_sandbox_check(_cli_args())
+
+    captured = capsys.readouterr()
+    payload = _last_verdict(captured.out)
+    assert payload["ok"] is False
+    assert payload["category"] == "error"
+    assert "boom" in payload["message"]
+    assert "boom" in captured.err
+
+
+def test_cli_skip_ends_with_the_verdict(monkeypatch, capsys):
+    from agentic_kg import cli
+
+    cli.run_sandbox_check(_cli_args(backend="docker"))
+
+    payload = _last_verdict(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["category"] == "skipped"

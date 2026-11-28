@@ -1,0 +1,12 @@
+{
+  "name": "projects/vt-gcp-00042/locations/us-central1/operations/eade226f-2a4e-4a6b-8f3b-9c1d2e3f4a5b",
+  "metadata": {
+    "@type": "type.googleapis.com/google.cloud.run.v2.Job",
+    "name": "projects/vt-gcp-00042/locations/us-central1/jobs/agentic-kg-experiment-staging"
+  },
+  "done": true,
+  "response": {
+    "@type": "type.googleapis.com/google.cloud.run.v2.Execution",
+    "name": "projects/vt-gcp-00042/locations/us-central1/jobs/agentic-kg-experiment-staging/executions/agentic-kg-experiment-staging-6h6hp"
+  }
+}
