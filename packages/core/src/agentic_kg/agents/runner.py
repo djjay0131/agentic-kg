@@ -7,8 +7,11 @@ query status, and list active/completed workflows.
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from datetime import datetime, timezone
+import os
+from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -16,6 +19,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from agentic_kg.agents.checkpoints import CheckpointManager
 from agentic_kg.agents.config import AgentConfig, get_agent_config
 from agentic_kg.agents.continuation import ContinuationAgent
+from agentic_kg.agents.dispatch import WorkflowDispatcher
 from agentic_kg.agents.evaluation import EvaluationAgent
 from agentic_kg.agents.graph_port import (
     SOURCE_CANONICAL,
@@ -52,6 +56,39 @@ _TERMINAL_STATUSES = frozenset(
 )
 
 
+#: How long a running execution owns the run before another process may close
+#: it. The worker extends this every heartbeat while it is alive, so a lease
+#: only expires after a crash, a killed Job execution or a lost instance.
+DEFAULT_LEASE_SECONDS = 180.0
+DEFAULT_HEARTBEAT_SECONDS = 15.0
+LEASE_SECONDS_ENV = "WORKFLOW_LEASE_SECONDS"
+HEARTBEAT_SECONDS_ENV = "WORKFLOW_HEARTBEAT_SECONDS"
+
+
+def _lease_seconds() -> float:
+    raw = os.getenv(LEASE_SECONDS_ENV, str(DEFAULT_LEASE_SECONDS))
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{LEASE_SECONDS_ENV} must be a number; got {raw!r}") from exc
+    if value <= 0:
+        raise ValueError(f"{LEASE_SECONDS_ENV} must be positive; got {value}")
+    return value
+
+
+def _heartbeat_seconds() -> float:
+    raw = os.getenv(HEARTBEAT_SECONDS_ENV, str(DEFAULT_HEARTBEAT_SECONDS))
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(
+            f"{HEARTBEAT_SECONDS_ENV} must be a number; got {raw!r}"
+        ) from exc
+    if value <= 0:
+        raise ValueError(f"{HEARTBEAT_SECONDS_ENV} must be positive; got {value}")
+    return value
+
+
 class WorkflowRunner:
     """
     Manages research workflow sessions.
@@ -74,6 +111,7 @@ class WorkflowRunner:
         output_store: AgentOutputStore | None = None,
         graph_port: GraphPort | None = None,
         sandbox: ExecutionBackend | None = None,
+        dispatcher: WorkflowDispatcher | None = None,
     ) -> None:
         self._llm = llm_client
         self._repo = repository
@@ -86,6 +124,8 @@ class WorkflowRunner:
         self._reader = canonical_reader
         self._output_store = output_store or InMemoryAgentOutputStore()
         self._sandbox = sandbox
+        self._dispatcher = dispatcher
+        self._namespace = os.getenv("KGCS_CANONICAL_NAMESPACE", "canon")
 
         # ADR-0010: one port per runner, shared by the agents that read it.
         # A caller may inject the port directly (the compiled-graph e2e does);
@@ -108,6 +148,8 @@ class WorkflowRunner:
 
                 sink = ReviewItemRepository(self._repo)
             namespace = getattr(sink, "namespace", None)
+            if namespace:
+                self._namespace = namespace
             # A canonical run needs the opt-in extra for candidate payloads.
             from agentic_kg.migration.imports import require_kg_contracts
 
@@ -181,23 +223,45 @@ class WorkflowRunner:
         result = await self._ranking.run(state)
         return list(result.get("ranked_problems", []))
 
-    async def start_workflow(
+    def _execution_metadata(
+        self,
+        params: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """The settings a background Job needs, carried in the run metadata.
+
+        The Job image already has Neo4j, LLM keys and the migration extra, but
+        it does not necessarily have the API's graph-source or experiment
+        sandbox variables. Persisting them with the run means the Job needs
+        only an ``args`` override, never env overrides (and therefore no
+        Terraform change to the Job template).
+        """
+        config = getattr(self, "_config", None)
+        source = getattr(self, "_source", "") or (
+            getattr(config, "graph_source", "") if config is not None else ""
+        )
+        sandbox = asdict(config.sandbox) if config is not None else {}
+        return {
+            "graph_source": source,
+            "namespace": getattr(self, "_namespace", "canon"),
+            "sandbox": sandbox,
+            "params": dict(params),
+        }
+
+    def create_workflow(
         self,
         topic_filter: str | None = None,
         status_filter: str | None = None,
         max_problems: int = 20,
         min_confidence: float = 0.3,
         candidate_problem_ids: list[str] | None = None,
+        tag: str | None = None,
     ) -> str:
-        """
-        Start a new research workflow.
+        """Create a run and persist its metadata without running any agent.
 
-        ``candidate_problem_ids`` narrows the ranking step to a cycle's
-        selected candidates, so a cycle can offer one problem per workflow
-        instead of starting three identical full rankings.
-
-        Returns:
-            run_id for tracking the workflow session.
+        The API starts a workflow by creating the row and dispatching the Job;
+        the historical in-request path calls :meth:`advance_workflow` right
+        after. Keeping creation separate is what lets ``POST /workflows``
+        return before ranking makes its paid LLM calls.
         """
         state = create_initial_state(
             topic_filter=topic_filter,
@@ -207,38 +271,117 @@ class WorkflowRunner:
             candidate_problem_ids=candidate_problem_ids,
         )
         run_id = state["run_id"]
-        thread_config = {"configurable": {"thread_id": run_id}}
-
-        logger.info(f"Starting workflow {run_id}")
+        params = {
+            "topic_filter": topic_filter,
+            "status_filter": status_filter,
+            "max_problems": max_problems,
+            "min_confidence": min_confidence,
+            "candidate_problem_ids": list(candidate_problem_ids or []),
+        }
+        now = state["created_at"]
         self._workflows[run_id] = {
             "run_id": run_id,
             "status": WorkflowStatus.RUNNING.value,
             "current_step": "ranking",
-            "created_at": state["created_at"],
-            "updated_at": state["updated_at"],
+            "created_at": now,
+            "updated_at": now,
+            "step_started_at": now,
             "total_steps": 7,
             "completed_steps": 0,
             "error": "",
+            "tag": str(tag or ""),
+            **self._execution_metadata(params),
         }
         # Persist before the first agent call so a crash leaves a visible row.
         self._persist_metadata(run_id)
-
-        # Run until first interrupt. An agent node records its own failure in
-        # the state; an unexpected graph error is recorded here so the run can
-        # never stay ``running`` after it stopped.
-        try:
-            await self._graph.ainvoke(state, config=thread_config)
-        except Exception as exc:  # noqa: BLE001 - surfaced as a failed run
-            logger.exception("workflow %s failed", run_id)
-            await self._mark_failed(
-                run_id,
-                thread_config,
-                f"{type(exc).__name__}: {exc}",
-            )
-        else:
-            await self._sync_metadata(run_id, thread_config)
-
+        logger.info("created workflow %s", run_id)
         return run_id
+
+    async def start_workflow(
+        self,
+        topic_filter: str | None = None,
+        status_filter: str | None = None,
+        max_problems: int = 20,
+        min_confidence: float = 0.3,
+        candidate_problem_ids: list[str] | None = None,
+        tag: str | None = None,
+    ) -> str:
+        """
+        Start a new research workflow and run it to its first interrupt.
+
+        ``candidate_problem_ids`` narrows the ranking step to a cycle's
+        selected candidates, so a cycle can offer one problem per workflow
+        instead of starting three identical full rankings.
+
+        This is the historical in-request entry point (the cycle and offline
+        callers use it). The API uses :meth:`create_workflow` plus
+        :meth:`dispatch` so the request can return immediately.
+        """
+        run_id = self.create_workflow(
+            topic_filter=topic_filter,
+            status_filter=status_filter,
+            max_problems=max_problems,
+            min_confidence=min_confidence,
+            candidate_problem_ids=candidate_problem_ids,
+            tag=tag,
+        )
+        await self.advance_workflow(run_id)
+        return run_id
+
+    async def start_workflow_async(
+        self,
+        topic_filter: str | None = None,
+        status_filter: str | None = None,
+        max_problems: int = 20,
+        min_confidence: float = 0.3,
+        candidate_problem_ids: list[str] | None = None,
+        tag: str | None = None,
+    ) -> tuple[str, bool]:
+        """Create a run, dispatch it, and return ``(run_id, dispatched)``.
+
+        ``dispatched`` is ``False`` when no background execution was started;
+        in that case the run was advanced in-request, exactly as before.
+        """
+        run_id = self.create_workflow(
+            topic_filter=topic_filter,
+            status_filter=status_filter,
+            max_problems=max_problems,
+            min_confidence=min_confidence,
+            candidate_problem_ids=candidate_problem_ids,
+            tag=tag,
+        )
+        dispatched = await self.dispatch(run_id, phase="start")
+        if not dispatched:
+            await self.advance_workflow(run_id)
+        return run_id, dispatched
+
+    async def dispatch(self, run_id: str, *, phase: str) -> bool:
+        """Try to hand ``run_id`` to a background Job; never raise in ``auto``."""
+        dispatcher = getattr(self, "_dispatcher", None)
+        if dispatcher is None:
+            return False
+        meta = self._workflows.get(run_id) or self._load_metadata(run_id) or {}
+        try:
+            dispatched = bool(dispatcher.dispatch(run_id, phase=phase))
+        except Exception as exc:  # noqa: BLE001 - fallback is the safety net
+            logger.warning(
+                "workflow %s dispatch failed (%s); falling back to in-request "
+                "execution",
+                run_id,
+                exc,
+            )
+            return False
+        if dispatched:
+            meta = self._workflows.setdefault(run_id, dict(meta))
+            now = datetime.now(timezone.utc)
+            meta["dispatch_phase"] = phase
+            meta["heartbeat_at"] = now.isoformat()
+            meta["lease_until"] = (
+                now + timedelta(seconds=_lease_seconds())
+            ).isoformat()
+            meta["updated_at"] = now.isoformat()
+            self._persist_metadata(run_id)
+        return dispatched
 
     # -- run metadata persistence ------------------------------------------
     #
@@ -347,6 +490,98 @@ class WorkflowRunner:
         if not self.has_workflow(run_id):
             raise KeyError(f"Workflow {run_id} not found")
 
+    @staticmethod
+    def _next_step(checkpoint_type: CheckpointType) -> str:
+        """The agent step that runs after a gate decision."""
+        return {
+            CheckpointType.SELECT_PROBLEM: "continuation",
+            CheckpointType.APPROVE_PROPOSAL: "evaluation",
+            CheckpointType.REVIEW_EVALUATION: "synthesis",
+        }[checkpoint_type]
+
+    async def apply_checkpoint_decision(
+        self,
+        run_id: str,
+        checkpoint_type: CheckpointType,
+        decision: CheckpointDecision,
+        feedback: str = "",
+        edited_data: dict[str, Any] | None = None,
+    ) -> ResearchState:
+        """Persist a gate decision without running the following agent.
+
+        This is the durable half of a resume: the human decision is recorded in
+        the LangGraph checkpoint before the endpoint answers, so the Job (or
+        the fallback in-request path) only has to continue the graph.
+        """
+        self._require_workflow(run_id)
+        thread_config = {"configurable": {"thread_id": run_id}}
+        current_state = await self._graph.aget_state(thread_config)
+        state = dict(current_state.values)
+        state = CheckpointManager.apply_decision(
+            state,
+            checkpoint_type=checkpoint_type,
+            decision=decision,
+            feedback=feedback,
+            edited_data=edited_data,
+        )
+        await self._graph.aupdate_state(thread_config, state)
+
+        now = datetime.now(timezone.utc).isoformat()
+        next_step = self._next_step(checkpoint_type)
+        meta = self._workflows.setdefault(
+            run_id, self._load_metadata(run_id) or {"run_id": run_id}
+        )
+        meta["current_step"] = next_step
+        meta["step_started_at"] = now
+        meta["updated_at"] = now
+        if decision == CheckpointDecision.REJECT:
+            meta["status"] = WorkflowStatus.REJECTED.value
+            meta["lease_until"] = ""
+        else:
+            meta["status"] = WorkflowStatus.RUNNING.value
+        self._persist_metadata(run_id)
+
+        presented = dict(state)
+        presented["current_step"] = next_step
+        presented["status"] = meta["status"]
+        presented["updated_at"] = now
+        # A rejection still lets the graph run (to close the thread) but the
+        # routing function sends it to END; present it as rejected meanwhile.
+        if decision == CheckpointDecision.REJECT:
+            presented["status"] = WorkflowStatus.REJECTED.value
+        return presented
+
+    async def submit_checkpoint(
+        self,
+        run_id: str,
+        checkpoint_type: CheckpointType,
+        decision: CheckpointDecision,
+        feedback: str = "",
+        edited_data: dict[str, Any] | None = None,
+    ) -> tuple[ResearchState, bool]:
+        """Apply a decision, then dispatch or run the next step.
+
+        Returns ``(state, dispatched)``. When ``dispatched`` is true the
+        following agent has not run yet; the caller should return immediately
+        and let the worker update the run.
+        """
+        state = await self.apply_checkpoint_decision(
+            run_id,
+            checkpoint_type,
+            decision,
+            feedback,
+            edited_data,
+        )
+        # A rejection needs the graph to run once to close the thread, but it
+        # does no paid work; run that in-request even in Job mode.
+        dispatched = False
+        if decision != CheckpointDecision.REJECT:
+            dispatched = await self.dispatch(run_id, phase="resume")
+        if not dispatched:
+            await self.advance_workflow(run_id)
+            return await self.get_state(run_id), False
+        return state, True
+
     async def resume_workflow(
         self,
         run_id: str,
@@ -356,52 +591,172 @@ class WorkflowRunner:
         edited_data: dict[str, Any] | None = None,
     ) -> ResearchState:
         """
-        Resume a workflow after a human checkpoint decision.
+        Resume a workflow after a human checkpoint decision and wait for it.
 
-        Args:
-            run_id: Workflow session ID.
-            checkpoint_type: Which checkpoint to resolve.
-            decision: Human decision (approve/reject/edit).
-            feedback: Optional feedback text.
-            edited_data: Modified data if decision is edit.
+        This is the historical in-request entry point (the cycle and offline
+        callers use it). The API uses :meth:`submit_checkpoint` instead.
+        """
+        state, _ = await self.submit_checkpoint(
+            run_id,
+            checkpoint_type,
+            decision,
+            feedback,
+            edited_data,
+        )
+        return state
 
-        Returns:
-            Updated workflow state.
+    def _touch_running(self, run_id: str, *, current_step: str | None = None) -> None:
+        """Mark a run running and extend its lease now."""
+        now = datetime.now(timezone.utc)
+        meta = self._workflows.setdefault(
+            run_id, self._load_metadata(run_id) or {"run_id": run_id}
+        )
+        meta["status"] = WorkflowStatus.RUNNING.value
+        if current_step:
+            meta["current_step"] = current_step
+            meta["step_started_at"] = now.isoformat()
+        meta["heartbeat_at"] = now.isoformat()
+        meta["lease_until"] = (
+            now + timedelta(seconds=_lease_seconds())
+        ).isoformat()
+        meta["updated_at"] = now.isoformat()
+        self._persist_metadata(run_id)
 
-        Raises:
-            KeyError: If ``run_id`` is not a tracked workflow.
+    def _clear_lease(self, run_id: str) -> None:
+        meta = self._workflows.get(run_id)
+        if meta is None:
+            return
+        meta["lease_until"] = ""
+        self._persist_metadata(run_id)
+
+    async def _heartbeat_until(self, run_id: str, done: asyncio.Event) -> None:
+        """Extend the run's lease while the worker is alive."""
+        interval = _heartbeat_seconds()
+        while not done.is_set():
+            try:
+                await asyncio.wait_for(done.wait(), timeout=interval)
+                return
+            except asyncio.TimeoutError:
+                pass
+            try:
+                await asyncio.to_thread(self._touch_running, run_id)
+            except Exception:  # noqa: BLE001 - a heartbeat is best effort
+                logger.warning("could not heartbeat workflow %s", run_id)
+
+    async def advance_workflow(self, run_id: str) -> ResearchState:
+        """Continue a run to its next gate or terminal state.
+
+        This is the worker entry point for both a newly created run (start) and
+        a decision that has already been applied to the checkpoint (resume).
+        It updates the heartbeat/lease while it runs, so another process can
+        distinguish a slow execution from a dead one.
         """
         self._require_workflow(run_id)
         thread_config = {"configurable": {"thread_id": run_id}}
-
-        # Get current state from checkpointer
-        current_state = await self._graph.aget_state(thread_config)
-        state = dict(current_state.values)
-
-        # Apply human decision
-        state = CheckpointManager.apply_decision(
-            state,
-            checkpoint_type=checkpoint_type,
-            decision=decision,
-            feedback=feedback,
-            edited_data=edited_data,
+        meta = self._workflows.setdefault(
+            run_id, self._load_metadata(run_id) or {"run_id": run_id}
         )
+        if meta.get("status") in _TERMINAL_STATUSES and not meta.get("params"):
+            return await self.get_state(run_id)
 
-        # Update the state in the graph and resume
-        await self._graph.aupdate_state(thread_config, state)
+        current_step = str(meta.get("current_step") or "ranking")
+        self._touch_running(run_id, current_step=current_step)
+
+        snapshot = await self._graph.aget_state(thread_config)
+        values = dict(snapshot.values)
+        invoke_input: ResearchState | None
+        if values:
+            invoke_input = None
+        else:
+            params = dict(meta.get("params") or {})
+            state = create_initial_state(
+                topic_filter=params.get("topic_filter"),
+                status_filter=params.get("status_filter"),
+                max_problems=int(params.get("max_problems", 20)),
+                min_confidence=float(params.get("min_confidence", 0.3)),
+                candidate_problem_ids=params.get("candidate_problem_ids") or None,
+            )
+            # Keep the id the API returned before the Job started.
+            state["run_id"] = run_id
+            state["trace_id"] = run_id
+            state["created_at"] = str(meta.get("created_at") or state["created_at"])
+            state["updated_at"] = state["created_at"]
+            state["status"] = WorkflowStatus.RUNNING.value
+            state["current_step"] = "ranking"
+            invoke_input = state
+
+        done = asyncio.Event()
+        heartbeat = asyncio.create_task(self._heartbeat_until(run_id, done))
+        failure: Exception | None = None
         try:
-            await self._graph.ainvoke(None, config=thread_config)
+            await self._graph.ainvoke(invoke_input, config=thread_config)
         except Exception as exc:  # noqa: BLE001 - surfaced as a failed run
-            logger.exception("workflow %s failed while resuming", run_id)
+            failure = exc
+        finally:
+            # Stop heartbeats before writing the final status, or a late beat
+            # could overwrite ``waiting_checkpoint``/``failed`` with ``running``.
+            done.set()
+            try:
+                await heartbeat
+            except Exception:  # noqa: BLE001 - never let cleanup mask a result
+                logger.warning("heartbeat task for %s ended badly", run_id)
+        if failure is not None:
+            logger.error(
+                "workflow %s failed while advancing",
+                run_id,
+                exc_info=(
+                    type(failure),
+                    failure,
+                    failure.__traceback__,
+                ),
+            )
             await self._mark_failed(
                 run_id,
                 thread_config,
-                f"{type(exc).__name__}: {exc}",
+                f"{type(failure).__name__}: {failure}",
             )
         else:
             await self._sync_metadata(run_id, thread_config)
-
+        self._clear_lease(run_id)
         return await self.get_state(run_id)
+
+    async def expire_stale_leases(self) -> list[str]:
+        """Close runs whose background execution stopped heartbeating.
+
+        A Job execution that is killed (platform timeout, OOM, deletion) cannot
+        write its own failure, so the lease is the only evidence it is gone.
+        """
+        now = datetime.now(timezone.utc)
+        expired: list[str] = []
+        run_ids = set(self._workflows)
+        for meta in self._list_metadata():
+            if meta.get("run_id"):
+                run_ids.add(str(meta["run_id"]))
+        for run_id in run_ids:
+            meta = self._metadata(run_id)
+            if meta.get("status") != WorkflowStatus.RUNNING.value:
+                continue
+            lease = str(meta.get("lease_until") or "")
+            if not lease:
+                continue
+            try:
+                deadline = datetime.fromisoformat(lease)
+            except ValueError:
+                continue
+            if deadline.tzinfo is None:
+                deadline = deadline.replace(tzinfo=timezone.utc)
+            if deadline > now:
+                continue
+            await self._mark_failed(
+                run_id,
+                {"configurable": {"thread_id": run_id}},
+                "background execution lease expired: the worker stopped "
+                "heartbeating (crashed, killed or out of time)",
+            )
+            expired.append(run_id)
+        if expired:
+            logger.warning("closed %d expired workflow run(s): %s", len(expired), expired)
+        return expired
 
     async def get_state(self, run_id: str) -> ResearchState:
         """Get the current state of a workflow.
@@ -410,6 +765,7 @@ class WorkflowRunner:
             KeyError: If ``run_id`` is not a tracked workflow.
         """
         self._require_workflow(run_id)
+        await self.expire_stale_leases()
         thread_config = {"configurable": {"thread_id": run_id}}
         snapshot = await self._graph.aget_state(thread_config)
         values = dict(snapshot.values)
@@ -474,6 +830,10 @@ class WorkflowRunner:
     def get_last_error(self, run_id: str) -> str:
         """Return the recorded failure message for ``run_id``, or ``""``."""
         return str(self._metadata(run_id).get("error") or "")
+
+    def get_run_metadata(self, run_id: str) -> dict:
+        """Return the persisted list/detail metadata for ``run_id``."""
+        return dict(self._metadata(run_id))
 
     async def cancel_workflow(self, run_id: str) -> None:
         """Cancel a running workflow.
@@ -563,6 +923,7 @@ class WorkflowRunner:
             current_step=step,
             error=message,
             updated_at=now,
+            lease_until="",
         )
         try:
             await self._graph.aupdate_state(thread_config, state)
@@ -578,8 +939,10 @@ class WorkflowRunner:
         A run is resumable only while its checkpoint has a next node (a human
         gate, or the node that was about to execute). A ``running`` row with no
         resumable checkpoint cannot make progress, so it is closed as failed
-        instead of being shown as running forever.
+        instead of being shown as running forever. A run whose lease expired
+        (its background execution died) is closed first.
         """
+        await self.expire_stale_leases()
         run_ids: set[str] = set(self._workflows)
         for meta in self._list_metadata():
             if meta.get("run_id"):

@@ -101,6 +101,12 @@ export default function WorkflowDetailPage() {
         >
           {workflow.status}
         </span>
+        {workflow.status === 'running' && workflow.step_started_at ? (
+          <span className="text-xs text-blue-600">
+            {workflow.current_step || 'working'} for{' '}
+            {elapsedSince(workflow.step_started_at)}
+          </span>
+        ) : null}
       </div>
 
       <WorkflowStepper currentStep={workflow.current_step} status={workflow.status} />
@@ -178,6 +184,16 @@ export default function WorkflowDetailPage() {
       )}
     </div>
   );
+}
+
+function elapsedSince(start: string): string {
+  const seconds = Math.max(
+    0,
+    Math.floor((Date.now() - new Date(start).getTime()) / 1000),
+  );
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${seconds % 60}s`;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

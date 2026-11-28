@@ -294,6 +294,9 @@ export interface WorkflowStatus {
   current_step: string;
   created_at: string;
   updated_at: string;
+  step_started_at?: string;
+  lease_until?: string;
+  tag?: string;
   total_steps: number;
   completed_steps: number;
   error?: string;
@@ -303,6 +306,11 @@ export interface WorkflowState {
   run_id: string;
   status: string;
   current_step: string;
+  created_at?: string;
+  updated_at?: string;
+  step_started_at?: string;
+  topic_filter?: string | null;
+  tag?: string | null;
   ranked_problems: Record<string, unknown>[];
   selected_problem_id: string | null;
   proposal: Record<string, unknown> | null;

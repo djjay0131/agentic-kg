@@ -163,6 +163,12 @@ def main() -> None:
 
         cli_main(argv)
         return
+    if argv[:1] == ["workflow"]:
+        # Asynchronous workflow worker: ``workflow resume <run_id>``. The API
+        # starts this with an execution-time args override on the same image.
+        from agentic_kg.agents.workflow_job import main as workflow_main
+
+        sys.exit(workflow_main(argv[1:]))
 
     logging.basicConfig(
         level=os.environ.get("LOG_LEVEL", "INFO"),

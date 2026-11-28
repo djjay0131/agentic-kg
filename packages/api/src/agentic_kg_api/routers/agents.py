@@ -59,6 +59,10 @@ class StartWorkflowRequest(BaseModel):
     status_filter: Optional[str] = None
     max_problems: int = Field(default=20, ge=1, le=100)
     min_confidence: float = Field(default=0.3, ge=0.0, le=1.0)
+    #: Opaque marker stored on the run (e.g. "post-deploy-ui-suite"). It does
+    #: not filter ranking; it lets an automated suite find and cancel only the
+    #: runs it created. Empty for a human-started workflow.
+    tag: Optional[str] = None
 
 
 class StartWorkflowResponse(BaseModel):
@@ -78,13 +82,23 @@ class CheckpointDecisionRequest(BaseModel):
 
 
 class WorkflowStatusResponse(BaseModel):
-    """Workflow status summary."""
+    """Workflow status summary.
+
+    ``step_started_at`` is when the current step (or the dispatched worker)
+    started, so the UI can show elapsed time for a long background step rather
+    than only the run's creation time. ``lease_until`` is empty unless a
+    background execution owns the run; an expired lease is what turns a dead
+    worker into a visible ``failed`` state.
+    """
 
     run_id: str
     status: str
     current_step: str
     created_at: str
     updated_at: str
+    step_started_at: str = ""
+    lease_until: str = ""
+    tag: str = ""
     total_steps: int = 7
     completed_steps: int = 0
     error: str = ""
@@ -96,6 +110,11 @@ class WorkflowStateResponse(BaseModel):
     run_id: str
     status: str
     current_step: str
+    created_at: str = ""
+    updated_at: str = ""
+    step_started_at: str = ""
+    topic_filter: Optional[str] = None
+    tag: Optional[str] = None
     ranked_problems: list[dict] = []
     selected_problem_id: Optional[str] = None
     proposal: Optional[dict] = None
@@ -108,16 +127,27 @@ class WorkflowStateResponse(BaseModel):
 # --- Endpoints ---
 
 
-@router.post("/workflows", response_model=StartWorkflowResponse)
+@router.post(
+    "/workflows",
+    response_model=StartWorkflowResponse,
+    status_code=202,
+)
 async def start_workflow(request: StartWorkflowRequest) -> StartWorkflowResponse:
-    """Start a new research agent workflow."""
+    """Create a workflow and run ranking in the background.
+
+    The response is the run row, not the finished ranking. Ranking makes paid
+    LLM calls and can take minutes; the UI already polls the detail endpoint.
+    When no background dispatcher is configured the runner advances in-request
+    and the returned status is already ``waiting_checkpoint``.
+    """
     runner = _get_runner()
     try:
-        run_id = await runner.start_workflow(
+        run_id, _dispatched = await runner.start_workflow_async(
             topic_filter=request.topic_filter or request.domain_filter,
             status_filter=request.status_filter,
             max_problems=request.max_problems,
             min_confidence=request.min_confidence,
+            tag=request.tag,
         )
         summary = await runner.get_status(run_id)
         return StartWorkflowResponse(
@@ -139,6 +169,12 @@ async def list_workflows() -> list[WorkflowStatusResponse]:
     the same progress the detail page shows.
     """
     runner = _get_runner()
+    # A dead background execution cannot write its own failure; close expired
+    # leases before listing so the page shows ``failed`` instead of hanging.
+    try:
+        await runner.expire_stale_leases()
+    except Exception:  # noqa: BLE001 - a sweep failure must not break the list
+        logger.warning("could not expire stale workflow leases")
     workflows = runner.list_workflows()
     rows: list[WorkflowStatusResponse] = []
     for w in workflows:
@@ -159,6 +195,9 @@ async def list_workflows() -> list[WorkflowStatusResponse]:
                 current_step=w.get("current_step", ""),
                 created_at=w.get("created_at", ""),
                 updated_at=w.get("updated_at", ""),
+                step_started_at=w.get("step_started_at", ""),
+                lease_until=w.get("lease_until", ""),
+                tag=str(w.get("tag") or ""),
                 total_steps=total,
                 completed_steps=completed,
                 error=w.get("error", ""),
@@ -190,10 +229,16 @@ async def get_workflow(run_id: str) -> WorkflowStateResponse:
     last_error = runner.get_last_error(run_id)
     if last_error and last_error not in errors:
         errors.append(last_error)
+    meta = runner.get_run_metadata(run_id)
     return WorkflowStateResponse(
         run_id=state.get("run_id", run_id),
         status=state.get("status") or "unknown",
         current_step=state.get("current_step", ""),
+        created_at=str(meta.get("created_at") or state.get("created_at") or ""),
+        updated_at=str(meta.get("updated_at") or state.get("updated_at") or ""),
+        step_started_at=str(meta.get("step_started_at") or ""),
+        topic_filter=state.get("topic_filter") or meta.get("topic_filter"),
+        tag=state.get("tag") or meta.get("tag"),
         ranked_problems=state.get("ranked_problems", []),
         selected_problem_id=state.get("selected_problem_id"),
         proposal=state.get("proposal"),
@@ -204,16 +249,26 @@ async def get_workflow(run_id: str) -> WorkflowStateResponse:
     )
 
 
-@router.post("/workflows/{run_id}/checkpoints/{checkpoint_type}")
+@router.post(
+    "/workflows/{run_id}/checkpoints/{checkpoint_type}",
+    status_code=202,
+)
 async def submit_checkpoint(
     run_id: str,
     checkpoint_type: CheckpointType,
     request: CheckpointDecisionRequest,
 ) -> WorkflowStateResponse:
-    """Submit a human decision at a workflow checkpoint."""
+    """Persist a human decision and run the next step in the background.
+
+    The decision is durable before the response (a lost click is worse than a
+    slow step). When a dispatcher is configured the response shows the runner
+    as ``running`` with the next step; otherwise the step ran in-request and
+    the response is the new gate. A rejection stays in-request because it only
+    closes the graph thread and does no paid work.
+    """
     runner = _get_runner()
     try:
-        state = await runner.resume_workflow(
+        state, dispatched = await runner.submit_checkpoint(
             run_id=run_id,
             checkpoint_type=checkpoint_type,
             decision=request.decision,
@@ -226,13 +281,19 @@ async def submit_checkpoint(
             run_id,
             step=checkpoint_type.value,
             status="decided",
-            data={"decision": request.decision.value},
+            data={"decision": request.decision.value, "dispatched": dispatched},
         )
 
+        meta = runner.get_run_metadata(run_id)
         return WorkflowStateResponse(
             run_id=state.get("run_id", run_id),
             status=state.get("status", "unknown"),
             current_step=state.get("current_step", ""),
+            created_at=str(meta.get("created_at") or state.get("created_at") or ""),
+            updated_at=str(meta.get("updated_at") or state.get("updated_at") or ""),
+            step_started_at=str(meta.get("step_started_at") or ""),
+            topic_filter=state.get("topic_filter"),
+            tag=state.get("tag") or meta.get("tag"),
             ranked_problems=state.get("ranked_problems", []),
             selected_problem_id=state.get("selected_problem_id"),
             proposal=state.get("proposal"),
