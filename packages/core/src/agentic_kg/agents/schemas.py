@@ -222,10 +222,19 @@ class ContinuationProposal(BaseModel):
 
 
 class GeneratedCode(BaseModel):
-    """Generated Python source for a sandboxed evaluation."""
+    """Generated Python source for a sandboxed evaluation.
+
+    ``plan`` is a compact, human-reviewable summary of what the script does.
+    Requiring it keeps the generation focused and gives the evaluation audit a
+    reason for the code without storing a second long document.
+    """
 
     code: str = Field(
         ..., description="Complete, runnable Python source for the experiment"
+    )
+    plan: str = Field(
+        default="",
+        description="Compact bullet plan (<=5 lines) of what the script does",
     )
 
 

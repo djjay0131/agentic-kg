@@ -14,6 +14,12 @@ these environment variables:
   one ceiling, so an output-sized budget (the old 4096) truncates a reasoning
   call. Default :data:`DEFAULT_MAX_OUTPUT_TOKENS`; per-call needs are expressed
   as explicit ``max_tokens`` arguments at the call site;
+* ``LLM_REQUEST_TIMEOUT_SECONDS`` -- the HTTP timeout for one chat call, in
+  seconds (default :data:`DEFAULT_REQUEST_TIMEOUT_SECONDS`). A reasoning call
+  can think for minutes before its first visible token, so the historical 60 s
+  timeout aborted healthy calls. Code generation gets the longer per-call-site
+  default in :data:`CALL_SITE_REQUEST_TIMEOUTS`; an explicit per-call timeout
+  wins over both;
 * ``LLM_RANKING_BATCH_SIZE`` -- how many candidates one ranking call scores
   (default :data:`DEFAULT_RANKING_BATCH_SIZE`), so ranking output does not grow
   without bound with the candidate list;
@@ -51,6 +57,7 @@ LLM_PROVIDER_ENV = "LLM_PROVIDER"
 LLM_MODEL_ENV = "LLM_MODEL"
 REASONING_EFFORT_ENV = "LLM_REASONING_EFFORT"
 MAX_OUTPUT_TOKENS_ENV = "LLM_MAX_OUTPUT_TOKENS"
+REQUEST_TIMEOUT_ENV = "LLM_REQUEST_TIMEOUT_SECONDS"
 RANKING_BATCH_SIZE_ENV = "LLM_RANKING_BATCH_SIZE"
 EMBEDDING_MODEL_ENV = "EMBEDDING_MODEL"
 LEGACY_OPENAI_MODEL_ENV = "OPENAI_EXTRACTION_MODEL"
@@ -107,6 +114,28 @@ CONTINUATION_MAX_OUTPUT_TOKENS = 16384
 #: Ranking scores candidates in bounded batches so the response size is a
 #: function of the batch, never of the whole candidate set.
 DEFAULT_RANKING_BATCH_SIZE = 8
+
+# ---------------------------------------------------------------------------
+# Request timeouts
+# ---------------------------------------------------------------------------
+# A reasoning model can spend minutes on hidden reasoning before the first
+# visible token arrives. The historical 60 s client timeout therefore aborted
+# healthy calls; staging surfaced it as "OpenAI extraction failed: Request
+# timed out" after the gate request had already been waiting for minutes. The
+# default below is long enough for a normal reasoning response. A call site
+# whose visible output is a complete program gets a longer default; the
+# operator can raise the base with LLM_REQUEST_TIMEOUT_SECONDS.
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 180.0
+
+#: Per-call-site timeout floors. ``evaluation.code_generation`` returns a whole
+#: Python program at a 24576-token budget, so it is the longest call in the
+#: pipeline. An operator may raise the base above these, but not lower a call
+#: site below its floor unless the call passes an explicit timeout.
+CODE_GENERATION_TIMEOUT_SECONDS = 600.0
+CALL_SITE_REQUEST_TIMEOUTS: dict[str, float] = {
+    "evaluation.code_generation": CODE_GENERATION_TIMEOUT_SECONDS,
+    "llm-check.code_generation": CODE_GENERATION_TIMEOUT_SECONDS,
+}
 
 
 def _value(env: Mapping[str, str], name: str) -> Optional[str]:
@@ -243,6 +272,51 @@ def resolve_max_output_tokens(
     return budget
 
 
+def _positive_float(raw: str, name: str) -> float:
+    """Parse a positive float configuration value or raise with its name."""
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a positive number; got {raw!r}") from exc
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive number; got {value}")
+    return value
+
+
+def resolve_request_timeout(
+    explicit: Optional[float] = None,
+    *,
+    call_site: Optional[str] = None,
+    env: Optional[Mapping[str, str]] = None,
+) -> float:
+    """Resolve the HTTP timeout for one chat call, in seconds.
+
+    Precedence (highest first):
+
+    1. an explicit per-call value (a caller that knows its own shape);
+    2. the call site's floor in :data:`CALL_SITE_REQUEST_TIMEOUTS` when the
+       operator's base is shorter than it (code generation is the long case);
+    3. ``LLM_REQUEST_TIMEOUT_SECONDS``;
+    4. :data:`DEFAULT_REQUEST_TIMEOUT_SECONDS`.
+
+    A non-positive or malformed value raises instead of silently reverting to
+    a default, so an operator sees the misconfiguration immediately.
+    """
+    if explicit is not None:
+        return _positive_float(str(explicit), "request timeout")
+    source = os.environ if env is None else env
+    raw = _value(source, REQUEST_TIMEOUT_ENV)
+    base = (
+        _positive_float(raw, REQUEST_TIMEOUT_ENV)
+        if raw is not None
+        else DEFAULT_REQUEST_TIMEOUT_SECONDS
+    )
+    floor = CALL_SITE_REQUEST_TIMEOUTS.get(call_site or "")
+    if floor is not None:
+        return max(base, floor)
+    return base
+
+
 def resolve_ranking_batch_size(
     explicit: Optional[int] = None,
     *,
@@ -284,6 +358,8 @@ def default_chat_model(*, env: Optional[Mapping[str, str]] = None) -> str:
 
 
 __all__ = [
+    "CALL_SITE_REQUEST_TIMEOUTS",
+    "CODE_GENERATION_TIMEOUT_SECONDS",
     "CONTINUATION_MAX_OUTPUT_TOKENS",
     "DEFAULT_ANTHROPIC_MODEL",
     "DEFAULT_EMBEDDING_MODEL",
@@ -292,6 +368,7 @@ __all__ = [
     "DEFAULT_OPENAI_MODEL",
     "DEFAULT_RANKING_BATCH_SIZE",
     "DEFAULT_REASONING_EFFORT",
+    "DEFAULT_REQUEST_TIMEOUT_SECONDS",
     "EMBEDDING_MODEL_ENV",
     "EVALUATION_CODE_MAX_OUTPUT_TOKENS",
     "LEGACY_OPENAI_MODEL_ENV",
@@ -301,6 +378,7 @@ __all__ = [
     "OUTPUT_TOKEN_CEILING",
     "RANKING_BATCH_SIZE_ENV",
     "REASONING_EFFORT_ENV",
+    "REQUEST_TIMEOUT_ENV",
     "SUPPORTED_PROVIDERS",
     "SUPPORTED_REASONING_EFFORTS",
     "SYNTHESIS_MAX_OUTPUT_TOKENS",
@@ -312,4 +390,5 @@ __all__ = [
     "resolve_max_output_tokens",
     "resolve_ranking_batch_size",
     "resolve_reasoning_effort",
+    "resolve_request_timeout",
 ]

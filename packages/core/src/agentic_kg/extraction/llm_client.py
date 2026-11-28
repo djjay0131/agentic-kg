@@ -6,6 +6,7 @@ structured output support via the instructor library, retry logic, and
 token usage tracking.
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -30,6 +31,7 @@ from agentic_kg.llm_config import (
     resolve_llm_provider,
     resolve_max_output_tokens,
     resolve_reasoning_effort,
+    resolve_request_timeout,
 )
 
 logger = logging.getLogger(__name__)
@@ -248,6 +250,71 @@ class LLMTruncationError(LLMError):
         )
 
 
+class LLMTimeoutError(LLMError):
+    """Raised when a completion timed out even after one retry.
+
+    The message names the call site, the timeout and the completion budget,
+    because those are the three levers an operator can change. Retrying once
+    is deliberate: a reasoning call that loses a race with a cold connection
+    should get one more chance, but a call that cannot finish inside a
+    generous timeout should fail loudly rather than hang a workflow.
+    """
+
+    def __init__(
+        self,
+        *,
+        call_site: str,
+        timeout: float,
+        budget: int,
+        reasoning_effort: Optional[str],
+        retried: bool = True,
+    ):
+        self.call_site = call_site
+        self.timeout = timeout
+        self.budget = budget
+        self.reasoning_effort = reasoning_effort
+        self.retried = retried
+        retry_text = (
+            " after one retry" if retried else " (no retry attempted)"
+        )
+        super().__init__(
+            f"LLM call {call_site!r} timed out after {timeout:g}s{retry_text} "
+            f"(max_completion_tokens={budget}, "
+            f"reasoning_effort={reasoning_effort!r}). Set "
+            "LLM_REQUEST_TIMEOUT_SECONDS or pass a per-call timeout."
+        )
+
+
+#: Seconds to wait before the single timeout retry. Overridable in tests.
+TIMEOUT_RETRY_BACKOFF_SECONDS = 2.0
+
+#: Exception class names / message markers that mean a request timed out.
+_TIMEOUT_CLASS_MARKERS = (
+    "timeout",
+    "timedout",
+    "readtimeout",
+    "connecttimeout",
+    "apitimeout",
+)
+_TIMEOUT_MESSAGE_MARKERS = (
+    "timed out",
+    "timeout",
+    "read timeout",
+    "request timed out",
+)
+
+
+def _is_timeout_error(exc: Exception) -> bool:
+    """Whether ``exc`` reports a request timeout (SDK-version tolerant)."""
+    if isinstance(exc, LLMTimeoutError):
+        return False
+    name = type(exc).__name__.lower()
+    if any(marker in name for marker in _TIMEOUT_CLASS_MARKERS):
+        return True
+    text = str(exc).lower()
+    return any(marker in text for marker in _TIMEOUT_MESSAGE_MARKERS)
+
+
 # Error text/markers that mean "the model ran out of completion budget".
 # Instructor raises ``IncompleteOutputException`` with the provider's message;
 # some versions surface ``finish_reason`` in the message instead. Match both
@@ -380,7 +447,7 @@ class LLMConfig:
     # Reasoning + visible output share this budget. The default reads
     # ``LLM_MAX_OUTPUT_TOKENS``; per-call overrides are passed to ``extract``.
     max_tokens: int = field(default_factory=resolve_max_output_tokens)
-    timeout: float = 60.0
+    timeout: float = field(default_factory=resolve_request_timeout)
     max_retries: int = 3
     api_key: Optional[str] = None
     reasoning_effort: Optional[str] = None
@@ -440,6 +507,8 @@ class BaseLLMClient(ABC, Generic[T]):
         *,
         max_tokens: Optional[int] = None,
         call_site: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
+        timeout: Optional[float] = None,
     ) -> LLMResponse[T]:
         """
         Extract structured data from text using LLM.
@@ -450,7 +519,11 @@ class BaseLLMClient(ABC, Generic[T]):
             system_prompt: Optional system prompt for context.
             max_tokens: Per-call completion budget (reasoning + output). Defaults
                 to the client's ``LLM_MAX_OUTPUT_TOKENS`` budget.
-            call_site: Short label used in usage logs and truncation errors.
+            call_site: Short label used in usage logs and timeout/truncation errors.
+            reasoning_effort: Per-call reasoning effort; defaults to the client's
+                configured effort.
+            timeout: Per-call HTTP timeout in seconds; defaults to the call
+                site's timeout surface (``LLM_REQUEST_TIMEOUT_SECONDS``).
 
         Returns:
             LLMResponse containing the parsed structured output.
@@ -470,6 +543,8 @@ class BaseLLMClient(ABC, Generic[T]):
         prompt: Optional[str] = None,
         max_tokens: Optional[int] = None,
         call_site: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
+        timeout: Optional[float] = None,
     ) -> LLMResponse[T]:
         """Structured extraction using the research agents' call shape.
 
@@ -492,6 +567,8 @@ class BaseLLMClient(ABC, Generic[T]):
             system_prompt=system_prompt,
             max_tokens=max_tokens,
             call_site=call_site,
+            reasoning_effort=reasoning_effort,
+            timeout=timeout,
         )
 
 
@@ -517,9 +594,14 @@ class OpenAIClient(BaseLLMClient[T]):
                     "openai package not installed. Install with: pip install openai"
                 ) from e
 
+            # Retries are explicit here: tenacity owns rate limits, and
+            # ``extract`` owns the single timeout retry. The SDK's hidden
+            # retries would multiply a timeout wait and make the job budget
+            # unpredictable.
             self._client = AsyncOpenAI(
                 api_key=self.config.api_key,
                 timeout=self.config.timeout,
+                max_retries=0,
             )
 
         return self._client
@@ -570,6 +652,8 @@ class OpenAIClient(BaseLLMClient[T]):
         *,
         max_tokens: Optional[int] = None,
         call_site: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
+        timeout: Optional[float] = None,
     ) -> LLMResponse[T]:
         """
         Extract structured data using OpenAI with instructor.
@@ -580,7 +664,10 @@ class OpenAIClient(BaseLLMClient[T]):
             system_prompt: Optional system prompt for context.
             max_tokens: Per-call completion budget (reasoning + output). The
                 default is ``LLM_MAX_OUTPUT_TOKENS``.
-            call_site: Short label used in usage logs and truncation errors.
+            call_site: Short label used in usage logs and timeout/truncation errors.
+            reasoning_effort: Per-call reasoning effort (defaults to the client).
+            timeout: Per-call HTTP timeout in seconds (defaults to the call
+                site's timeout surface).
 
         Returns:
             LLMResponse containing the parsed structured output.
@@ -612,8 +699,14 @@ class OpenAIClient(BaseLLMClient[T]):
         # parameters (``temperature``) when they are actually reasoning, so only
         # send it when the effort is ``none`` — where a non-reasoning request
         # accepts it. The current GPT-6.2 family rejects ``none`` itself; the
-        # default is ``medium`` (see ``agentic_kg.llm_config``).
-        effort = self.config.reasoning_effort
+        # default is ``medium`` (see ``agentic_kg.llm_config``). A call site may
+        # lower it (code generation uses ``low``).
+        effort = (
+            resolve_reasoning_effort(reasoning_effort)
+            if reasoning_effort is not None
+            else self.config.reasoning_effort
+        )
+        request_timeout = resolve_request_timeout(timeout, call_site=site)
         for attempt_budget, previous_budget in attempts:
             # SM-6: reserve the estimated token cost from the shared TPM budget
             # BEFORE firing, so concurrent extractors serialize under the ceiling
@@ -655,54 +748,84 @@ class OpenAIClient(BaseLLMClient[T]):
             if effort in (None, "", "none"):
                 request_kwargs["temperature"] = self.config.temperature
 
-            try:
-                response, completion = await client.chat.completions.create_with_completion(
-                    **request_kwargs
-                )
-            except LLMRateLimitError:
-                raise
-            except Exception as e:  # noqa: BLE001 - classified below
-                if _is_truncation_error(e):
-                    if previous_budget is not None:
+            request_kwargs["timeout"] = request_timeout
+            retry_truncation = False
+            for timeout_attempt in range(2):
+                try:
+                    response, completion = await client.chat.completions.create_with_completion(
+                        **request_kwargs
+                    )
+                    break
+                except LLMRateLimitError:
+                    raise
+                except Exception as e:  # noqa: BLE001 - classified below
+                    if _is_timeout_error(e):
+                        if timeout_attempt == 0:
+                            logger.warning(
+                                "LLM call %s timed out after %gs "
+                                "(max_completion_tokens=%d, reasoning_effort=%s); "
+                                "retrying once",
+                                site,
+                                request_timeout,
+                                attempt_budget,
+                                effort,
+                            )
+                            await asyncio.sleep(TIMEOUT_RETRY_BACKOFF_SECONDS)
+                            continue
+                        raise LLMTimeoutError(
+                            call_site=site,
+                            timeout=request_timeout,
+                            budget=attempt_budget,
+                            reasoning_effort=effort,
+                        ) from e
+
+                    if _is_truncation_error(e):
+                        if previous_budget is not None:
+                            raise LLMTruncationError(
+                                call_site=site,
+                                budget=attempt_budget,
+                                reasoning_effort=effort,
+                                retried_budget=attempt_budget,
+                            ) from e
+                        if retry_budget > attempt_budget:
+                            logger.warning(
+                                "LLM call %s hit max_completion_tokens=%d; "
+                                "retrying once at %d",
+                                site,
+                                attempt_budget,
+                                retry_budget,
+                            )
+                            retry_truncation = True
+                            break
                         raise LLMTruncationError(
                             call_site=site,
                             budget=attempt_budget,
                             reasoning_effort=effort,
-                            retried_budget=attempt_budget,
                         ) from e
-                    if retry_budget > attempt_budget:
-                        logger.warning(
-                            "LLM call %s hit max_completion_tokens=%d; retrying "
-                            "once at %d",
-                            site,
-                            attempt_budget,
-                            retry_budget,
-                        )
-                        continue
-                    raise LLMTruncationError(
-                        call_site=site,
-                        budget=attempt_budget,
-                        reasoning_effort=effort,
-                    ) from e
 
-                error_str = str(e).lower()
-                if "rate" in error_str and "limit" in error_str:
-                    # SM-6: honor the server's Retry-After hint. A parse miss is
-                    # logged loudly so a stale parser is visible instead of
-                    # silently reverting to blind exponential backoff.
-                    retry_after = _parse_retry_after(e)
-                    if retry_after is None:
-                        logger.warning(
-                            "OpenAI 429 with unparseable Retry-After; falling back to "
-                            "exponential backoff — the parser may be stale. Error: %s",
-                            e,
-                        )
-                    raise LLMRateLimitError(
-                        f"OpenAI rate limited: {e}", retry_after=retry_after
-                    ) from e
-                if hasattr(e, "status_code"):
-                    raise LLMAPIError(str(e), getattr(e, "status_code", None)) from e
-                raise LLMError(f"OpenAI extraction failed: {e}") from e
+                    error_str = str(e).lower()
+                    if "rate" in error_str and "limit" in error_str:
+                        # SM-6: honor the server's Retry-After hint. A parse miss
+                        # is logged loudly so a stale parser is visible instead
+                        # of silently reverting to blind exponential backoff.
+                        retry_after = _parse_retry_after(e)
+                        if retry_after is None:
+                            logger.warning(
+                                "OpenAI 429 with unparseable Retry-After; falling "
+                                "back to exponential backoff — the parser may be "
+                                "stale. Error: %s",
+                                e,
+                            )
+                        raise LLMRateLimitError(
+                            f"OpenAI rate limited: {e}", retry_after=retry_after
+                        ) from e
+                    if hasattr(e, "status_code"):
+                        raise LLMAPIError(
+                            str(e), getattr(e, "status_code", None)
+                        ) from e
+                    raise LLMError(f"OpenAI extraction failed: {e}") from e
+            if retry_truncation:
+                continue
 
             finish_reason = (
                 completion.choices[0].finish_reason if completion.choices else None
@@ -801,6 +924,7 @@ class AnthropicClient(BaseLLMClient[T]):
             self._client = AsyncAnthropic(
                 api_key=self.config.api_key,
                 timeout=self.config.timeout,
+                max_retries=0,
             )
 
         return self._client
@@ -847,6 +971,8 @@ class AnthropicClient(BaseLLMClient[T]):
         *,
         max_tokens: Optional[int] = None,
         call_site: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
+        timeout: Optional[float] = None,
     ) -> LLMResponse[T]:
         """
         Extract structured data using Anthropic with instructor.
@@ -857,7 +983,10 @@ class AnthropicClient(BaseLLMClient[T]):
             system_prompt: Optional system prompt for context.
             max_tokens: Per-call completion budget. The default is
                 ``LLM_MAX_OUTPUT_TOKENS``.
-            call_site: Short label used in usage logs and truncation errors.
+            call_site: Short label used in usage logs and timeout/truncation errors.
+            reasoning_effort: Recorded for error context (Anthropic has no
+                per-call effort parameter here).
+            timeout: Per-call HTTP timeout in seconds.
 
         Returns:
             LLMResponse containing the parsed structured output.
@@ -876,46 +1005,82 @@ class AnthropicClient(BaseLLMClient[T]):
         if retry_budget > budget:
             attempts.append((retry_budget, budget))
 
+        effort = (
+            resolve_reasoning_effort(reasoning_effort)
+            if reasoning_effort is not None
+            else self.config.reasoning_effort
+        )
+        request_timeout = resolve_request_timeout(timeout, call_site=site)
         for attempt_budget, previous_budget in attempts:
-            try:
-                response, completion = await client.messages.create_with_completion(
-                    model=self.config.model,
-                    max_tokens=attempt_budget,
-                    system=system_prompt or "",
-                    messages=[{"role": "user", "content": prompt}],
-                    response_model=response_model,
-                )
-            except LLMRateLimitError:
-                raise
-            except Exception as e:  # noqa: BLE001 - classified below
-                if _is_truncation_error(e):
-                    if previous_budget is not None:
+            retry_truncation = False
+            for timeout_attempt in range(2):
+                try:
+                    response, completion = await client.messages.create_with_completion(
+                        model=self.config.model,
+                        max_tokens=attempt_budget,
+                        system=system_prompt or "",
+                        messages=[{"role": "user", "content": prompt}],
+                        response_model=response_model,
+                        timeout=request_timeout,
+                    )
+                    break
+                except LLMRateLimitError:
+                    raise
+                except Exception as e:  # noqa: BLE001 - classified below
+                    if _is_timeout_error(e):
+                        if timeout_attempt == 0:
+                            logger.warning(
+                                "LLM call %s timed out after %gs "
+                                "(max_tokens=%d, reasoning_effort=%s); retrying once",
+                                site,
+                                request_timeout,
+                                attempt_budget,
+                                effort,
+                            )
+                            await asyncio.sleep(TIMEOUT_RETRY_BACKOFF_SECONDS)
+                            continue
+                        raise LLMTimeoutError(
+                            call_site=site,
+                            timeout=request_timeout,
+                            budget=attempt_budget,
+                            reasoning_effort=effort,
+                        ) from e
+
+                    if _is_truncation_error(e):
+                        if previous_budget is not None:
+                            raise LLMTruncationError(
+                                call_site=site,
+                                budget=attempt_budget,
+                                reasoning_effort=effort,
+                                retried_budget=attempt_budget,
+                            ) from e
+                        if retry_budget > attempt_budget:
+                            logger.warning(
+                                "LLM call %s hit max_tokens=%d; retrying once at %d",
+                                site,
+                                attempt_budget,
+                                retry_budget,
+                            )
+                            retry_truncation = True
+                            break
                         raise LLMTruncationError(
                             call_site=site,
                             budget=attempt_budget,
-                            reasoning_effort=self.config.reasoning_effort,
-                            retried_budget=attempt_budget,
+                            reasoning_effort=effort,
                         ) from e
-                    if retry_budget > attempt_budget:
-                        logger.warning(
-                            "LLM call %s hit max_tokens=%d; retrying once at %d",
-                            site,
-                            attempt_budget,
-                            retry_budget,
-                        )
-                        continue
-                    raise LLMTruncationError(
-                        call_site=site,
-                        budget=attempt_budget,
-                        reasoning_effort=self.config.reasoning_effort,
-                    ) from e
 
-                error_str = str(e).lower()
-                if "rate" in error_str and "limit" in error_str:
-                    raise LLMRateLimitError(f"Anthropic rate limited: {e}") from e
-                if hasattr(e, "status_code"):
-                    raise LLMAPIError(str(e), getattr(e, "status_code", None)) from e
-                raise LLMError(f"Anthropic extraction failed: {e}") from e
+                    error_str = str(e).lower()
+                    if "rate" in error_str and "limit" in error_str:
+                        raise LLMRateLimitError(
+                            f"Anthropic rate limited: {e}"
+                        ) from e
+                    if hasattr(e, "status_code"):
+                        raise LLMAPIError(
+                            str(e), getattr(e, "status_code", None)
+                        ) from e
+                    raise LLMError(f"Anthropic extraction failed: {e}") from e
+            if retry_truncation:
+                continue
 
             finish_reason = (
                 completion.stop_reason if hasattr(completion, "stop_reason") else None

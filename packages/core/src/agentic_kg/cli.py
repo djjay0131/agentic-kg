@@ -884,9 +884,9 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Reads LLM_PROVIDER, LLM_MODEL, LLM_MAX_OUTPUT_TOKENS and "
             "EMBEDDING_MODEL (the same surface the app uses), makes one "
-            "structured chat call, one bounded ranking-batch call and one "
-            "embedding call, and exits non-zero with the provider's message. "
-            "Keys are never printed."
+            "structured chat call, one bounded ranking-batch call, one "
+            "evaluation code-generation call and one embedding call, and exits "
+            "non-zero with the provider's message. Keys are never printed."
         ),
     )
     llm_check_cmd.add_argument(
@@ -907,10 +907,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="Do not run the ranking-batch truncation probe.",
     )
     llm_check_cmd.add_argument(
+        "--skip-codegen", action="store_true",
+        help="Do not run the evaluation code-generation probe.",
+    )
+    llm_check_cmd.add_argument(
         "--json", dest="json_output", action="store_true",
         help="Print the check results as JSON.",
     )
     llm_check_cmd.add_argument(
+        "-v", "--verbose", action="store_true", help="Enable verbose logging",
+    )
+
+    # workflow command: run one asynchronous step (used by the Cloud Run Job).
+    workflow_cmd = subparsers.add_parser(
+        "workflow",
+        help="Advance one workflow run to its next gate (Job entrypoint)",
+        description=(
+            "Read the durable checkpoint and run metadata for a workflow run, "
+            "then advance it to its next human gate or terminal state. The API "
+            "starts this on the job image after a gate decision."
+        ),
+    )
+    workflow_cmd.add_argument(
+        "phase", choices=["start", "resume", "advance"],
+        help="start a new run, resume a decided gate, or just advance",
+    )
+    workflow_cmd.add_argument("run_id", help="Workflow run id")
+    workflow_cmd.add_argument(
         "-v", "--verbose", action="store_true", help="Enable verbose logging",
     )
 
@@ -1706,6 +1729,13 @@ def run_autonomy(args) -> None:
     print("Promotion is a human edit of the versioned policy file in a PR.")
 
 
+def run_workflow(args) -> None:
+    """Advance one workflow run (the asynchronous Job entrypoint)."""
+    from agentic_kg.agents.workflow_job import run_sync
+
+    raise SystemExit(run_sync(args.phase, args.run_id))
+
+
 def run_llm_check(args) -> None:
     """Prove the configured models answer; fail the process if they do not."""
     from agentic_kg.extraction.llm_check import (
@@ -1721,6 +1751,7 @@ def run_llm_check(args) -> None:
             embedding_model=args.embedding_model,
             check_embedding=not args.skip_embedding,
             check_ranking=not args.skip_ranking,
+            check_code_generation=not args.skip_codegen,
         )
     except LLMCheckError as exc:
         print(f"LLM check failed: {exc}", file=sys.stderr)
@@ -1779,6 +1810,8 @@ def main(argv: Optional[list[str]] = None) -> None:
         run_autonomy(args)
     elif args.command == "llm-check":
         run_llm_check(args)
+    elif args.command == "workflow":
+        run_workflow(args)
     elif args.command == "extract":
         # Build pipeline config
         config = PipelineConfig(
