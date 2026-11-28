@@ -1,0 +1,217 @@
+<h1 id="experiment-execution-evaluationagent">Experiment execution (EvaluationAgent)</h1>
+
+<p>How the <code class="language-plaintext highlighter-rouge">EvaluationAgent</code> runs generated experiment code in staging, and what to
+do when a run does not execute. The design decision is
+<a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/governance/adr/0009-cloud-run-job-execution-backend.md">ADR-0009</a>.</p>
+
+<h2 id="backends">Backends</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">EXPERIMENT_BACKEND</code></th>
+      <th>Implementation</th>
+      <th>Where it runs</th>
+      <th>Use</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">docker</code> (default)</td>
+      <td><code class="language-plaintext highlighter-rouge">DockerSandbox</code></td>
+      <td>Local Docker daemon</td>
+      <td>Development, unit tests</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">cloudrun_job</code></td>
+      <td><code class="language-plaintext highlighter-rouge">CloudRunJobBackend</code></td>
+      <td>Dedicated Cloud Run Job</td>
+      <td>Staging/production API</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Terraform sets <code class="language-plaintext highlighter-rouge">cloudrun_job</code> on the staging API. Local shells with no
+<code class="language-plaintext highlighter-rouge">EXPERIMENT_BACKEND</code> get <code class="language-plaintext highlighter-rouge">docker</code>, so existing local workflows are unchanged.</p>
+
+<p>Relevant API environment (owned by Terraform, not by the deploy workflows):</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Variable</th>
+      <th>Staging value</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">EXPERIMENT_BACKEND</code></td>
+      <td><code class="language-plaintext highlighter-rouge">cloudrun_job</code></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">EXPERIMENT_GCS_BUCKET</code></td>
+      <td><code class="language-plaintext highlighter-rouge">vt-gcp-00042-agentic-kg-experiments</code></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">EXPERIMENT_GCS_PREFIX</code></td>
+      <td><code class="language-plaintext highlighter-rouge">staging</code></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">EXPERIMENT_GCS_ENDPOINT</code></td>
+      <td><code class="language-plaintext highlighter-rouge">https://private.googleapis.com</code></td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">EXPERIMENT_JOB_NAME</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agentic-kg-experiment-staging</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="what-happens-on-one-execution">What happens on one execution</h2>
+
+<ol>
+  <li>The API generates a unique experiment id and uploads <code class="language-plaintext highlighter-rouge">script.py</code> and
+<code class="language-plaintext highlighter-rouge">inputs.json</code> to
+<code class="language-plaintext highlighter-rouge">gs://vt-gcp-00042-agentic-kg-experiments/staging/&lt;experiment-id&gt;/</code>.</li>
+  <li>It calls <code class="language-plaintext highlighter-rouge">projects/vt-gcp-00042/locations/us-central1/jobs/agentic-kg-experiment-staging:run</code>
+with <code class="language-plaintext highlighter-rouge">containerOverrides.args = [gs://.../script.py]</code> and a small env
+override (<code class="language-plaintext highlighter-rouge">EXPERIMENT_ID</code>, <code class="language-plaintext highlighter-rouge">EXPERIMENT_RESULT_URI</code>, <code class="language-plaintext highlighter-rouge">EXPERIMENT_TIMEOUT_S</code>).</li>
+  <li>The Job downloads the script into <code class="language-plaintext highlighter-rouge">/tmp</code>, runs it with the experiment image,
+and writes <code class="language-plaintext highlighter-rouge">stdout.txt</code>, <code class="language-plaintext highlighter-rouge">stderr.txt</code>, <code class="language-plaintext highlighter-rouge">metrics.json</code> and <code class="language-plaintext highlighter-rouge">result.json</code> back
+to the same prefix.</li>
+  <li>The API polls the execution until <code class="language-plaintext highlighter-rouge">completionTime</code> or the per-run deadline,
+then reads the four result objects.</li>
+  <li><code class="language-plaintext highlighter-rouge">EvaluationResult.execution_provenance</code> records <code class="language-plaintext highlighter-rouge">backend</code>, <code class="language-plaintext highlighter-rouge">experiment_id</code>,
+<code class="language-plaintext highlighter-rouge">result_uri</code>, <code class="language-plaintext highlighter-rouge">code_hash</code>, <code class="language-plaintext highlighter-rouge">image_digest</code>, <code class="language-plaintext highlighter-rouge">started_at</code> and <code class="language-plaintext highlighter-rouge">finished_at</code>.</li>
+</ol>
+
+<p>Objects are deleted by the bucket’s 30-day lifecycle rule.</p>
+
+<h2 id="isolation-model">Isolation model</h2>
+
+<p>The Job is deliberately boring and constrained:</p>
+
+<ul>
+  <li>dedicated runtime service account <code class="language-plaintext highlighter-rouge">agentic-kg-experiment-staging</code>; no
+project-level roles and no Secret Manager access. The only non-storage grant
+is <code class="language-plaintext highlighter-rouge">roles/compute.networkUser</code> scoped to the experiment subnet, which Direct
+VPC egress requires;</li>
+  <li>GCS permissions are bucket-only <code class="language-plaintext highlighter-rouge">objectViewer</code> + <code class="language-plaintext highlighter-rouge">objectCreator</code>, further
+conditioned to the <code class="language-plaintext highlighter-rouge">staging/</code> prefix;</li>
+  <li>dedicated VPC <code class="language-plaintext highlighter-rouge">agentic-kg-experiments-staging</code> with <code class="language-plaintext highlighter-rouge">ALL_TRAFFIC</code> Direct VPC
+egress. It has no peering to the application network, so Neo4j is not
+reachable;</li>
+  <li>egress firewall denies <code class="language-plaintext highlighter-rouge">0.0.0.0/0</code>; only TCP/443 to
+<code class="language-plaintext highlighter-rouge">199.36.153.4/30</code> and <code class="language-plaintext highlighter-rouge">199.36.153.8/30</code> (Private Google APIs) is allowed;</li>
+  <li>the runner forces the GCS client to <code class="language-plaintext highlighter-rouge">https://private.googleapis.com</code>, so it
+uses the allowed VIP instead of a public GCS address;</li>
+  <li>the image is <code class="language-plaintext highlighter-rouge">docker/Dockerfile.experiment</code>: non-root UID 10001, no
+agentic-kg application code, no Neo4j driver, no Docker client, no secrets;</li>
+  <li>Cloud Run’s container filesystem is read-only except <code class="language-plaintext highlighter-rouge">/tmp</code>.</li>
+</ul>
+
+<p>The Job has no path to the API service either because both are separate
+identities and the VPC has no route to the API’s network.</p>
+
+<h2 id="check-a-run">Check a run</h2>
+
+<p>From an authenticated operator shell (not an agent):</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># Recent executions and their state</span>
+gcloud run <span class="nb">jobs </span>executions list <span class="se">\</span>
+  <span class="nt">--job</span> agentic-kg-experiment-staging <span class="se">\</span>
+  <span class="nt">--region</span> us-central1 <span class="se">\</span>
+  <span class="nt">--project</span> vt-gcp-00042 <span class="se">\</span>
+  <span class="nt">--limit</span> 10
+
+<span class="c"># One execution's terminal condition and counts</span>
+gcloud run <span class="nb">jobs </span>executions describe &lt;execution-name&gt; <span class="se">\</span>
+  <span class="nt">--region</span> us-central1 <span class="nt">--project</span> vt-gcp-00042 <span class="se">\</span>
+  <span class="nt">--format</span><span class="o">=</span><span class="s1">'value(status.conditions,status.succeededCount,status.failedCount)'</span>
+
+<span class="c"># Artifacts for an experiment id from the API response</span>
+gcloud storage <span class="nb">ls</span> <span class="nt">-r</span> <span class="se">\</span>
+  gs://vt-gcp-00042-agentic-kg-experiments/staging/&lt;experiment-id&gt;/
+
+gcloud storage <span class="nb">cat</span> <span class="se">\</span>
+  gs://vt-gcp-00042-agentic-kg-experiments/staging/&lt;experiment-id&gt;/stderr.txt
+</code></pre></div></div>
+
+<p><code class="language-plaintext highlighter-rouge">EvaluationResult.execution_provenance.result_uri</code> is the exact prefix; use it
+rather than reconstructing the id by hand.</p>
+
+<h2 id="troubleshooting">Troubleshooting</h2>
+
+<h3 id="docker-package-required-or-failed-to-connect-to-docker"><code class="language-plaintext highlighter-rouge">docker package required</code> or <code class="language-plaintext highlighter-rouge">Failed to connect to Docker</code></h3>
+
+<p>The API is still on the Docker backend. Check that Terraform applied the
+staging API env (<code class="language-plaintext highlighter-rouge">EXPERIMENT_BACKEND=cloudrun_job</code>) and that the service was
+rolled after the apply.</p>
+
+<h3 id="experiment_gcs_bucket-is-required"><code class="language-plaintext highlighter-rouge">EXPERIMENT_GCS_BUCKET is required</code></h3>
+
+<p><code class="language-plaintext highlighter-rouge">EXPERIMENT_BACKEND=cloudrun_job</code> was set without the bucket. Terraform sets
+both together when <code class="language-plaintext highlighter-rouge">experiment_bucket</code> is non-empty in <code class="language-plaintext highlighter-rouge">envs/staging.tfvars</code>.</p>
+
+<h3 id="403-on-run-or-executionsget"><code class="language-plaintext highlighter-rouge">403</code> on <code class="language-plaintext highlighter-rouge">:run</code> or <code class="language-plaintext highlighter-rouge">executions.get</code></h3>
+
+<p>The API service account is missing the job-scoped
+<code class="language-plaintext highlighter-rouge">roles/run.jobsExecutorWithOverrides</code> or <code class="language-plaintext highlighter-rouge">roles/run.invoker</code>. Terraform owns
+those bindings; re-apply rather than adding a project-wide role.</p>
+
+<h3 id="403-uploading-or-reading-gcs-objects"><code class="language-plaintext highlighter-rouge">403</code> uploading or reading GCS objects</h3>
+
+<p>The object name must start with the configured prefix (<code class="language-plaintext highlighter-rouge">staging/</code>). The IAM
+condition is a prefix condition, not a project role. Check that
+<code class="language-plaintext highlighter-rouge">EXPERIMENT_GCS_PREFIX</code> matches the Terraform value.</p>
+
+<h3 id="job-execution-fails-with-a-gcsnetwork-error">Job execution fails with a GCS/network error</h3>
+
+<p>Check the firewall rules first. The only permitted egress destinations are the
+Private Google APIs VIPs on TCP/443. If the client endpoint was changed away
+from <code class="language-plaintext highlighter-rouge">https://private.googleapis.com</code>, DNS may resolve a public address that the
+deny rule drops.</p>
+
+<h3 id="timed_out-in-the-api-result"><code class="language-plaintext highlighter-rouge">timed_out</code> in the API result</h3>
+
+<p>The API’s poll deadline elapsed. Inspect the execution and the objects under
+<code class="language-plaintext highlighter-rouge">result_uri</code>; the Job keeps running up to <code class="language-plaintext highlighter-rouge">experiment_job_timeout</code> (300s in
+staging) and may still write outputs.</p>
+
+<h3 id="image_digest-is-null"><code class="language-plaintext highlighter-rouge">image_digest</code> is null</h3>
+
+<p>Provenance records the digest only when the backend knows it. The Job template
+uses the mutable <code class="language-plaintext highlighter-rouge">experiment:latest</code> tag unless <code class="language-plaintext highlighter-rouge">EXPERIMENT_IMAGE_DIGEST</code> is
+set, so a null is an honest “not known”, not a fabricated digest.</p>
+
+<h2 id="deploying-the-experiment-image">Deploying the experiment image</h2>
+
+<p><code class="language-plaintext highlighter-rouge">.github/workflows/deploy-master.yml</code> builds <code class="language-plaintext highlighter-rouge">docker/Dockerfile.experiment</code> when
+the runner or Dockerfile changes and rolls
+<code class="language-plaintext highlighter-rouge">agentic-kg-experiment-staging</code> if Terraform has created the Job. If the Job
+does not exist yet, the step logs that Terraform owns creation and exits
+successfully; after the Terraform apply, the Job template already points at
+<code class="language-plaintext highlighter-rouge">:latest</code>, which the same build pushed.</p>
+
+<p>To build/roll manually from an authenticated operator shell:</p>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">REGISTRY</span><span class="o">=</span>us-central1-docker.pkg.dev/vt-gcp-00042/agentic-kg
+gcloud auth configure-docker us-central1-docker.pkg.dev <span class="nt">--quiet</span>
+docker build <span class="nt">-f</span> docker/Dockerfile.experiment <span class="nt">-t</span> <span class="s2">"</span><span class="nv">$REGISTRY</span><span class="s2">/experiment:latest"</span> <span class="nb">.</span>
+docker push <span class="s2">"</span><span class="nv">$REGISTRY</span><span class="s2">/experiment:latest"</span>
+gcloud run <span class="nb">jobs </span>update agentic-kg-experiment-staging <span class="se">\</span>
+  <span class="nt">--image</span><span class="o">=</span><span class="s2">"</span><span class="nv">$REGISTRY</span><span class="s2">/experiment:latest"</span> <span class="se">\</span>
+  <span class="nt">--region</span><span class="o">=</span>us-central1 <span class="nt">--project</span><span class="o">=</span>vt-gcp-00042 <span class="se">\</span>
+  <span class="nt">--update-labels</span><span class="o">=</span><span class="nv">environment</span><span class="o">=</span>staging
+</code></pre></div></div>
+
+<p>Terraform remains the owner of env, IAM, VPC and scaling; manual runs must not
+pass <code class="language-plaintext highlighter-rouge">--set-env-vars</code>, <code class="language-plaintext highlighter-rouge">--set-secrets</code> or resource flags.</p>
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li><a href="https://github.com/djjay0131/agentic-kg/blob/master/llm/governance/adr/0009-cloud-run-job-execution-backend.md">ADR-0009 — Cloud Run Job execution backend</a></li>
+  <li><a href="deploy-runbook.html">Deploy paths</a></li>
+  <li><a href="neo4j-hardening-runbook.html">Neo4j hardening</a></li>
+</ul>
