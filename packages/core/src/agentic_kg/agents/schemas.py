@@ -65,6 +65,10 @@ class RankedProblem(BaseModel):
 
     problem_id: str = Field(..., description="ID of the problem in the KG")
     statement: str = Field(..., description="Problem statement for display")
+    #: The candidate's topic/domain, copied from the graph row (not the model).
+    domain: Optional[str] = Field(
+        default=None, description="Topic or domain the problem belongs to"
+    )
     score: float = Field(ge=0, le=1, description="Overall ranking score (0-1)")
     tractability: float = Field(
         ge=0, le=1, description="How feasible is this to work on (0-1)"
@@ -425,6 +429,10 @@ class WorkflowSummary(BaseModel):
     current_step: str = Field(default="", description="Current workflow step name")
     created_at: datetime = Field(default_factory=_utc_now)
     updated_at: datetime = Field(default_factory=_utc_now)
+    total_steps: int = Field(default=7, description="Steps in the workflow")
+    completed_steps: int = Field(
+        default=0, description="Steps that have produced state"
+    )
     problem_count: int = Field(
         default=0, description="Number of problems ranked"
     )

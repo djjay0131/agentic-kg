@@ -8,10 +8,11 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-
 from agentic_kg.agents.evaluation import EvaluationAgent
 from agentic_kg.agents.sandbox import SandboxResult
-from agentic_kg.agents.schemas import ContinuationProposal, EvaluationResult
+from agentic_kg.agents.schemas import (
+    WorkflowStatus,
+)
 
 
 class TestEvaluationAgent:
@@ -54,6 +55,25 @@ class TestEvaluationAgent:
         assert result["evaluation_approved"] is False
 
     @pytest.mark.asyncio
+    async def test_run_resolves_the_selected_problem_not_the_proposal_slug(
+        self, agent, mock_llm, mock_repo, state_with_proposal
+    ):
+        """The evaluation context comes from ``selected_problem_id``."""
+        state = {
+            **state_with_proposal,
+            "proposal": {
+                **state_with_proposal["proposal"],
+                "problem_id": "llm-hallucination-knowledge-graphs",
+            },
+        }
+        mock_llm.extract.return_value = SimpleNamespace(content="print('hello')")
+
+        result = await agent.run(state)
+
+        assert mock_repo.get_problem.call_args.args[0] == "prob-1"
+        assert result["evaluation_result"]["proposal_id"] == "prob-1"
+
+    @pytest.mark.asyncio
     async def test_run_no_proposal(self, agent, initial_state):
         """Run returns error when no proposal exists."""
         result = await agent.run(initial_state)
@@ -76,6 +96,20 @@ class TestEvaluationAgent:
         assert result["evaluation_result"]["verdict"] == "inconclusive"
 
     @pytest.mark.asyncio
+    async def test_backend_that_cannot_start_is_a_reviewable_result(
+        self, agent, mock_llm, mock_sandbox, state_with_proposal
+    ):
+        """A missing backend must not fail the run before review_evaluation."""
+        mock_sandbox.execute.side_effect = RuntimeError("EXPERIMENT_GCS_BUCKET is required")
+        mock_llm.extract.return_value = SimpleNamespace(content="print('hello')")
+
+        result = await agent.run(state_with_proposal)
+
+        assert result["status"] != WorkflowStatus.FAILED.value
+        assert result["evaluation_result"]["execution_success"] is False
+        assert result["evaluation_result"]["verdict"] == "inconclusive"
+
+    @pytest.mark.asyncio
     async def test_run_sandbox_timeout(self, agent, mock_llm, mock_sandbox, state_with_proposal):
         """Handles sandbox timeout."""
         mock_sandbox.execute.return_value = SandboxResult(
@@ -93,7 +127,9 @@ class TestEvaluationAgent:
         assert result["evaluation_result"]["feasibility_score"] == 0.1
 
     @pytest.mark.asyncio
-    async def test_run_strips_markdown_code_fences(self, agent, mock_llm, mock_sandbox, state_with_proposal):
+    async def test_run_strips_markdown_code_fences(
+        self, agent, mock_llm, mock_sandbox, state_with_proposal
+    ):
         """Code extraction strips markdown fences."""
         mock_llm.extract.return_value = SimpleNamespace(
             content="```python\nprint('hello')\n```"

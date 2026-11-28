@@ -7,6 +7,41 @@ Last updated: 2026-11-12
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
 
+## Bound identifiers + adversarial e2e + readable gates (2026-11-28, T62)
+
+`fix/bind-ids-and-gate-ui` fixes the first staging run that passed ranking and
+the first two gates but failed evaluation with `Problem not found:
+llm-hallucination-knowledge-graphs`. The continuation model wrote its own slug
+into `proposal.problem_id`, and evaluation looked the problem up by it.
+
+- **Ids are bound in code.** Continuation always overwrites `problem_id` with
+  `state.selected_problem_id` (logging a mismatch); evaluation and synthesis do
+  the same before loading context, and synthesis binds `source_problem_id` to
+  the selected problem. Legacy relation endpoints the graph does not know are
+  dropped instead of written; canonical status updates use the selected id, not
+  the model's. Ranking already validates batch ids against the candidate set.
+- **Adversarial e2e.** The compiled-graph and API walks make the fake transport
+  return an invented `problem_id` (plus an invented ranking id with a perfect
+  score, invented synthesis endpoints, extra fields and long text). The walk to
+  synthesis still passes; the invented ranking id is ignored and the proposal
+  and evaluation carry the selected id.
+- **Sandbox failures are reviewable.** A backend that cannot start, or a script
+  that fails/times out, becomes a failed `EvaluationResult` at
+  `review_evaluation`, not a failed run. Cloud Run Job polling waits 30 s past
+  the per-run budget so the platform's own timeout is observed.
+- **UI.** The Select Problem gate shows the statement and domain with score and
+  rationale secondary; Approve Proposal renders title/methodology/outcome/
+  steps/metrics/confidence with collapsible raw JSON. `WorkflowSummary` now
+  carries `total_steps`/`completed_steps`, and the list computes them from the
+  checkpoint state instead of leaving the default zero.
+- **Staging provenance.** `AGENT_GRAPH_SOURCE` (Terraform
+  `agent_graph_source`) still selects `legacy` on staging, which is why the
+  proposal envelope abstains. The canonical path needs the `migration` extra
+  (the API image has it) and a populated `:Canon__Problem` read model; the
+  nightly ingest is still `legacy`, so flipping the setting is not yet safe.
+  Terraform changes after the 2026-11-10 apply (the `LLM_*` surface) need one
+  apply to be present on the staging services; code defaults match them.
+
 ## Workflow routing + compiled-graph e2e + durable run metadata (2026-11-27, T61)
 
 `fix/workflow-routing-e2e` fixes the staging-only `KeyError: 'continue'` after

@@ -50,6 +50,11 @@ class ContinuationAgent(BaseAgent):
             state = add_message(state, self.name, f"Loaded context for problem {problem_id}")
 
             proposal, state = await self._generate_proposal(context, state)
+            # The selected problem id is authoritative. A model that writes its
+            # own slug into ``problem_id`` must not become a foreign key the
+            # evaluation agent then looks up (the staging failure was
+            # "Problem not found: llm-hallucination-knowledge-graphs").
+            self._bind_problem_id(proposal, problem_id)
             self._attach_provenance(
                 proposal,
                 context,
@@ -68,6 +73,18 @@ class ContinuationAgent(BaseAgent):
             logger.error(f"Continuation failed: {e}")
             state = add_message(state, self.name, f"Error: {e}")
             return add_error(state, str(e))
+
+    @staticmethod
+    def _bind_problem_id(proposal: ContinuationProposal, problem_id: str) -> None:
+        """Make the selected problem the proposal's only source id."""
+        if proposal.problem_id and proposal.problem_id != problem_id:
+            logger.warning(
+                "Continuation proposal returned problem_id %r; binding to the "
+                "selected problem %r",
+                proposal.problem_id,
+                problem_id,
+            )
+        proposal.problem_id = problem_id
 
     def _attach_provenance(self, proposal, context, *, state, problem_id) -> None:
         run_id = state.get("run_id") or ""
@@ -176,7 +193,7 @@ class ContinuationAgent(BaseAgent):
         )
 
         proposal = response.content
-        # Ensure problem_id is set
-        if not proposal.problem_id:
-            proposal.problem_id = context.problem_id
+        # Bind after parsing as well, so a caller that uses the return value
+        # directly cannot observe a model-authored id.
+        self._bind_problem_id(proposal, context.problem_id)
         return proposal, state

@@ -106,26 +106,34 @@ class _FakeOpenAI:
         if name == "RankingBatchResult":
             ids = _ranking_ids(prompt)
             assert ids, "ranking batch asked for no ids"
-            return json.dumps(
+            scores = [
                 {
-                    "scores": [
-                        {
-                            "problem_id": problem_id,
-                            "score": round(0.95 - index * 0.01, 4),
-                            "rationale": "Tractable with available data.",
-                        }
-                        for index, problem_id in enumerate(ids)
-                    ]
+                    "problem_id": problem_id,
+                    "score": round(0.95 - index * 0.01, 4),
+                    "rationale": "Tractable with available data. " * 8,
+                    "invented_extra_field": {"note": "the model added this"},
+                }
+                for index, problem_id in enumerate(ids)
+            ]
+            # A plausible invented id must be ignored, not ranked.
+            scores.append(
+                {
+                    "problem_id": "ghost-ranking-id",
+                    "score": 1.0,
+                    "rationale": "A perfect score for a problem that does not exist.",
                 }
             )
+            return json.dumps({"scores": scores})
         if name == "ContinuationProposal":
             return json.dumps(
                 {
-                    "problem_id": "p0",
+                    # The model invents its own slug. It must be rebound to the
+                    # selected problem rather than used as a graph key.
+                    "problem_id": "llm-hallucination-knowledge-graphs",
                     "title": "Scale the baseline approach",
                     "methodology": (
                         "Extend the baseline with a deterministic scheduling layer "
-                        "and measure the effect on throughput."
+                        "and measure the effect on throughput. " * 12
                     ),
                     "expected_outcome": "A measurable throughput improvement.",
                     "required_resources": ["one GPU"],
@@ -139,22 +147,36 @@ class _FakeOpenAI:
                     ],
                     "metrics_to_evaluate": ["accuracy"],
                     "confidence": 0.9,
-                    "rationale": "The baseline leaves headroom.",
+                    "rationale": "The baseline leaves headroom. " * 6,
+                    "invented_extra_field": [1, 2, 3],
                 }
             )
         if name == "GeneratedCode":
-            return json.dumps({"code": "print('{\"metrics\": {\"accuracy\": 0.9}}')\n"})
+            return json.dumps(
+                {
+                    "code": "print('{\"metrics\": {\"accuracy\": 0.9}}')\n",
+                    "explanation": "Plausible but unused extra output. " * 10,
+                }
+            )
         if name == "SynthesisReport":
             return json.dumps(
                 {
                     "summary": (
                         "The continuation improved the metric end to end and "
-                        "suggests a follow-up scheduling study."
+                        "suggests a follow-up scheduling study. " * 10
                     ),
                     "new_problems": ["How does the scheduler behave under load?"],
-                    "new_relations": [],
+                    # Invented endpoints must be dropped, never written.
+                    "new_relations": [
+                        {
+                            "source_id": "ghost-source-id",
+                            "target_id": "ghost-target-id",
+                            "type": "EXTENDS",
+                        }
+                    ],
                     "recommendations": ["Run the follow-up at larger scale."],
-                    "source_problem_id": "p0",
+                    "source_problem_id": "ghost-source-id",
+                    "invented_extra_field": {"note": "the model added this"},
                 }
             )
         raise AssertionError(f"unexpected response model {name!r}")
@@ -180,6 +202,8 @@ class _FakeGraphPort:
         return list(self._candidates[:max_problems])
 
     def load_context(self, problem_id: str) -> ProblemContext:
+        if problem_id not in {c.problem_id for c in self._candidates}:
+            raise KeyError(f"Problem not found: {problem_id}")
         return ProblemContext(
             problem_id=problem_id,
             statement=f"Research problem {problem_id}",
@@ -213,6 +237,8 @@ class _FakeRepo:
     def get_problem(self, problem_id: str):
         from types import SimpleNamespace
 
+        if not problem_id.startswith("p"):
+            raise KeyError(f"Problem not found: {problem_id}")
         return SimpleNamespace(id=problem_id, evidence=None)
 
     def create_problem(self, problem: Any) -> Any:
@@ -387,6 +413,10 @@ async def test_compiled_graph_walks_to_synthesis_across_a_restart(e2e):
     assert state["current_step"] == CheckpointType.SELECT_PROBLEM.value
     assert len(state["ranked_problems"]) == 20
     assert e2e["handler"].calls.count("RankingBatchResult") == 3
+    # The invented ranking id was offered a perfect score and still ignored.
+    assert "ghost-ranking-id" not in {
+        ranked["problem_id"] for ranked in state["ranked_problems"]
+    }
     for ranked in state["ranked_problems"]:
         assert ranked["output_id"]
         assert ranked["provenance"]["abstained"] is True
@@ -426,6 +456,8 @@ async def test_compiled_graph_walks_to_synthesis_across_a_restart(e2e):
     assert state["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
     assert state["current_step"] == CheckpointType.APPROVE_PROPOSAL.value
     assert state["selected_problem_id"] == "p0"
+    # The model wrote its own slug; the stored proposal must use the selected id.
+    assert state["proposal"]["problem_id"] == "p0"
     assert state["proposal"]["provenance"]["abstained"] is True
     assert state["proposal"]["output_id"]
 
@@ -452,6 +484,7 @@ async def test_compiled_graph_walks_to_synthesis_across_a_restart(e2e):
     assert state["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
     assert state["current_step"] == CheckpointType.REVIEW_EVALUATION.value
     assert state["evaluation_result"]["verdict"] == "promising"
+    assert state["evaluation_result"]["proposal_id"] == "p0"
     assert state["evaluation_result"]["provenance"]["abstained"] is True
     assert state["evaluation_result"]["output_id"]
 
@@ -473,9 +506,12 @@ async def test_compiled_graph_walks_to_synthesis_across_a_restart(e2e):
     state = await restarted_again.get_state(run_id)
     assert state["status"] == WorkflowStatus.COMPLETED.value
     assert state["current_step"] == "synthesis"
+    assert state["synthesis_report"]["source_problem_id"] == "p0"
     assert state["synthesis_report"]["provenance"]["abstained"] is True
     assert state["synthesis_report"]["graph_updates"]
     assert e2e["repo"].created  # the legacy path wrote the new problem
+    # The invented relation endpoints were dropped, not written as edges.
+    assert "ghost" not in json.dumps(state["synthesis_report"])
 
     final_cycle = service.get("cycle-e2e")
     assert final_cycle.workflow_runs[0].state == "completed"

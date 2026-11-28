@@ -98,26 +98,31 @@ class _FakeOpenAI:
         if name == "RankingBatchResult":
             ids = re.findall(r"\(ID: ([^)]+)\)", prompt)
             assert ids
-            return json.dumps(
+            scores = [
                 {
-                    "scores": [
-                        {
-                            "problem_id": problem_id,
-                            "score": round(0.9 - index * 0.01, 4),
-                            "rationale": "Tractable with available data.",
-                        }
-                        for index, problem_id in enumerate(ids)
-                    ]
+                    "problem_id": problem_id,
+                    "score": round(0.9 - index * 0.01, 4),
+                    "rationale": "Tractable with available data. " * 8,
+                    "invented_extra_field": {"note": "the model added this"},
+                }
+                for index, problem_id in enumerate(ids)
+            ]
+            scores.append(
+                {
+                    "problem_id": "ghost-ranking-id",
+                    "score": 1.0,
+                    "rationale": "A perfect score for a problem that does not exist.",
                 }
             )
+            return json.dumps({"scores": scores})
         if name == "ContinuationProposal":
             return json.dumps(
                 {
-                    "problem_id": "p0",
+                    "problem_id": "llm-hallucination-knowledge-graphs",
                     "title": "Scale the baseline approach",
                     "methodology": (
                         "Extend the baseline with a deterministic scheduler and "
-                        "measure the throughput effect."
+                        "measure the throughput effect. " * 12
                     ),
                     "expected_outcome": "A measurable throughput improvement.",
                     "required_resources": ["one GPU"],
@@ -131,22 +136,35 @@ class _FakeOpenAI:
                     ],
                     "metrics_to_evaluate": ["accuracy"],
                     "confidence": 0.9,
-                    "rationale": "The baseline leaves headroom.",
+                    "rationale": "The baseline leaves headroom. " * 6,
+                    "invented_extra_field": [1, 2, 3],
                 }
             )
         if name == "GeneratedCode":
-            return json.dumps({"code": "print('{\"metrics\": {\"accuracy\": 0.9}}')\n"})
+            return json.dumps(
+                {
+                    "code": "print('{\"metrics\": {\"accuracy\": 0.9}}')\n",
+                    "explanation": "Plausible but unused extra output. " * 10,
+                }
+            )
         if name == "SynthesisReport":
             return json.dumps(
                 {
                     "summary": (
                         "The continuation improved the metric end to end and "
-                        "suggests a follow-up scheduling study."
+                        "suggests a follow-up scheduling study. " * 10
                     ),
                     "new_problems": ["How does the scheduler behave under load?"],
-                    "new_relations": [],
+                    "new_relations": [
+                        {
+                            "source_id": "ghost-source-id",
+                            "target_id": "ghost-target-id",
+                            "type": "EXTENDS",
+                        }
+                    ],
                     "recommendations": ["Run the follow-up at larger scale."],
-                    "source_problem_id": "p0",
+                    "source_problem_id": "ghost-source-id",
+                    "invented_extra_field": {"note": "the model added this"},
                 }
             )
         raise AssertionError(f"unexpected response model {name!r}")
@@ -169,6 +187,8 @@ class _FakeGraphPort:
         return list(self._candidates[:max_problems])
 
     def load_context(self, problem_id: str) -> ProblemContext:
+        if problem_id not in {c.problem_id for c in self._candidates}:
+            raise KeyError(f"Problem not found: {problem_id}")
         return ProblemContext(
             problem_id=problem_id,
             statement=f"Research problem {problem_id}",
@@ -196,6 +216,8 @@ class _FakeRepo:
     def get_problem(self, problem_id: str):
         from types import SimpleNamespace
 
+        if not problem_id.startswith("p"):
+            raise KeyError(f"Problem not found: {problem_id}")
         return SimpleNamespace(id=problem_id, evidence=None)
 
     def create_problem(self, problem):
@@ -369,10 +391,16 @@ def test_workflows_page_walk_uses_the_ui_payloads(harness):
 
     state = asyncio.run(runner.get_state(run_id))
     assert state["topic_filter"] == "ml"
+    assert "ghost-ranking-id" not in {
+        ranked["problem_id"] for ranked in state["ranked_problems"]
+    }
 
     listed = client.get("/api/agents/workflows").json()
     assert [item["run_id"] for item in listed] == [run_id]
     assert listed[0]["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    # Ranking produced state; the list must not keep defaulting to zero.
+    assert listed[0]["completed_steps"] == 1
+    assert listed[0]["total_steps"] == 7
 
     steps = [
         (
@@ -394,10 +422,18 @@ def test_workflows_page_walk_uses_the_ui_payloads(harness):
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["current_step"] in (next_step, "synthesis")
+        if checkpoint == "select_problem":
+            # The model invented a slug; the API returns the selected id.
+            assert body["proposal"]["problem_id"] == "p0"
+        if checkpoint == "approve_proposal":
+            assert body["evaluation_result"]["proposal_id"] == "p0"
 
     final = client.get(f"/api/agents/workflows/{run_id}").json()
     assert final["status"] == WorkflowStatus.COMPLETED.value
-    assert final["synthesis_report"]
+    assert final["synthesis_report"]["source_problem_id"] == "p0"
+    assert "ghost" not in json.dumps(final["synthesis_report"])
+    listed = client.get("/api/agents/workflows").json()
+    assert listed[0]["completed_steps"] == listed[0]["total_steps"] == 7
 
 
 def test_research_loop_walk_records_agreement_and_survives_a_restart(harness):

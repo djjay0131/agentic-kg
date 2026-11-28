@@ -69,9 +69,20 @@ class EvaluationAgent(BaseAgent):
 
         try:
             proposal = ContinuationProposal.model_validate(proposal_data)
+            # The selected problem is authoritative; never look up a context
+            # by an id the model wrote into the proposal.
+            problem_id = state.get("selected_problem_id") or proposal.problem_id
+            if proposal.problem_id and proposal.problem_id != problem_id:
+                logger.warning(
+                    "Evaluation proposal carries problem_id %r; binding to the "
+                    "selected problem %r",
+                    proposal.problem_id,
+                    problem_id,
+                )
+            proposal.problem_id = problem_id
 
             # Load problem context for code generation
-            context = self.port.load_context(proposal.problem_id)
+            context = self.port.load_context(problem_id)
 
             # Step 1: Generate evaluation code
             code, state = await self._generate_code(proposal, context, state)
@@ -184,8 +195,23 @@ class EvaluationAgent(BaseAgent):
         return code.strip(), state
 
     def _execute_code(self, code: str) -> SandboxResult:
-        """Execute code in the Docker sandbox."""
-        return self.sandbox.execute(code)
+        """Execute code in the configured sandbox.
+
+        A backend that cannot start (missing bucket/job configuration, GCS
+        auth, Docker daemon) must still reach ``review_evaluation`` as a
+        reviewable failed result instead of failing the whole run.
+        """
+        try:
+            return self.sandbox.execute(code)
+        except Exception as exc:  # noqa: BLE001 - surfaced as a failed result
+            logger.error("Sandbox execution could not start: %s", exc)
+            return SandboxResult(
+                success=False,
+                stdout="",
+                stderr=f"{type(exc).__name__}: {exc}",
+                exit_code=-1,
+                backend="unavailable",
+            )
 
     async def _interpret_results(
         self,

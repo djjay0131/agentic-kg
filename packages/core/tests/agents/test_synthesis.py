@@ -178,6 +178,40 @@ class TestSynthesisAgent:
         assert call.args[2] is RelationType.RELATED_TO
 
     @pytest.mark.asyncio
+    async def test_model_authored_ids_are_bound_or_dropped(
+        self, agent, mock_llm, mock_repo, state_with_evaluation
+    ):
+        """The report's problem id is the selected one; unknown endpoints drop."""
+        mock_problem = mock_repo.get_problem.return_value
+
+        def get_problem(problem_id):
+            if problem_id == "prob-1":
+                return mock_problem
+            raise KeyError(f"Problem not found: {problem_id}")
+
+        mock_repo.get_problem.side_effect = get_problem
+        report = SynthesisReport(
+            summary="Investigation completed with a model-authored source id.",
+            new_problems=[],
+            new_relations=[
+                {
+                    "source_id": "prob-1",
+                    "target_id": "ghost-target",
+                    "type": "RELATED_TO",
+                }
+            ],
+            source_problem_id="ghost-source",
+        )
+        mock_llm.structured_extract.return_value = SimpleNamespace(content=report)
+
+        result = await agent.run(state_with_evaluation)
+
+        assert result["synthesis_report"]["source_problem_id"] == "prob-1"
+        assert result["synthesis_report"]["new_relations"] == []
+        for call in agent.relations.create_relation.call_args_list:
+            assert call.args[1] != "ghost-target"
+
+    @pytest.mark.asyncio
     async def test_run_missing_evaluation(self, agent, state_with_selected_problem):
         """Returns error when evaluation data is missing."""
         result = await agent.run(state_with_selected_problem)
