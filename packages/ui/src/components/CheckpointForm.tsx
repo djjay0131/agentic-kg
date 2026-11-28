@@ -288,9 +288,11 @@ function ReviewEvaluationSummary({
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
             Limitations
           </p>
-          <ul className="list-disc list-inside text-gray-800">
+          <ul className="list-disc list-inside text-gray-800 space-y-1">
             {limitations.map((limitation, index) => (
-              <li key={index}>{limitation}</li>
+              <li key={index} className="whitespace-pre-wrap break-words">
+                {limitation}
+              </li>
             ))}
           </ul>
         </div>

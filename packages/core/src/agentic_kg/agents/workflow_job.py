@@ -40,12 +40,37 @@ def sandbox_config_from_metadata(values: dict | None) -> SandboxConfig:
     Only fields that exist on ``SandboxConfig`` are applied, so an older run
     (or a future field) cannot crash the worker. Environment defaults fill any
     field the run did not carry.
+
+    ``gcs_endpoint`` is deliberately **not** copied. It is a per-runtime
+    setting: the API, the ingest/nightly worker Jobs and the experiment Job have
+    different egress paths, so an endpoint that works for the API (for example
+    the Private Google APIs VIP) can be unreachable from the worker. The worker
+    keeps its own environment/default and ``GcsObjectStore`` probes it, falling
+    back to the public endpoint when needed.
     """
     config = SandboxConfig()
     known = {field.name for field in fields(SandboxConfig)}
+    # Endpoint choice and its probe/timeout knobs belong to the runtime that
+    # runs the sandbox; never inherit them from the API that created the run.
+    runtime_fields = {
+        "gcs_endpoint",
+        "gcs_endpoint_fallback",
+        "gcs_connect_timeout_seconds",
+        "gcs_request_timeout_seconds",
+    }
+    persisted_endpoint = (values or {}).get("gcs_endpoint")
     for key, value in (values or {}).items():
+        if key in runtime_fields:
+            continue
         if key in known:
             setattr(config, key, value)
+    if persisted_endpoint and persisted_endpoint != config.gcs_endpoint:
+        logger.info(
+            "ignoring the GCS endpoint %r persisted by another runtime; this "
+            "worker resolves its own endpoint (configured/default %r)",
+            persisted_endpoint,
+            config.gcs_endpoint,
+        )
     return config
 
 

@@ -29,6 +29,31 @@ Relevant API environment (owned by Terraform, not by the deploy workflows):
 | `EXPERIMENT_GCS_ENDPOINT` | `https://private.googleapis.com` |
 | `EXPERIMENT_JOB_NAME` | `agentic-kg-experiment-staging` |
 
+### The endpoint is resolved per runtime
+
+`EXPERIMENT_GCS_ENDPOINT` is **not** a coordinate that can be copied from one
+process to another. The API service and the ingest/nightly worker Jobs share the
+application VPC (Direct VPC egress, `PRIVATE_RANGES_ONLY`); the experiment Job
+uses its own VPC with Private Google Access. A workflow step runs the sandbox in
+the worker Job, not in the API, so the worker must reach the endpoint it will
+actually use.
+
+`CloudRunJobBackend` therefore resolves the endpoint in the process that owns
+the sandbox:
+
+1. it keeps that runtime's own `EXPERIMENT_GCS_ENDPOINT` (or the public default
+   when unset);
+2. it probes the endpoint with a short TCP connect timeout;
+3. if the probe fails, it logs the fallback and uses
+   `EXPERIMENT_GCS_ENDPOINT_FALLBACK` (default `https://storage.googleapis.com`,
+   reachable through Cloud Run managed egress).
+
+The API's endpoint is no longer persisted into run metadata, and a worker
+ignores one if an older run carries it. GCS reads/writes use a short
+`EXPERIMENT_GCS_REQUEST_TIMEOUT_SECONDS` (default 30) with client retries
+disabled, so a broken path reports the real error instead of a 120 s
+`RetryError`.
+
 ## What happens on one execution
 
 1. The API generates a unique experiment id and uploads `script.py` and
@@ -62,8 +87,9 @@ The Job is deliberately boring and constrained:
   reachable;
 - egress firewall denies `0.0.0.0/0`; only TCP/443 to
   `199.36.153.4/30` and `199.36.153.8/30` (Private Google APIs) is allowed;
-- the runner forces the GCS client to `https://private.googleapis.com`, so it
-  uses the allowed VIP instead of a public GCS address;
+- the experiment runner forces its own GCS client to
+  `https://private.googleapis.com`, so it uses the allowed VIP instead of a
+  public GCS address;
 - the image is `docker/Dockerfile.experiment`: non-root UID 10001, no
   agentic-kg application code, no Neo4j driver, no Docker client, no secrets;
 - Cloud Run's container filesystem is read-only except `/tmp`.
@@ -98,6 +124,31 @@ gcloud storage cat \
 
 `EvaluationResult.execution_provenance.result_uri` is the exact prefix; use it
 rather than reconstructing the id by hand.
+
+## Deploy-time sandbox check
+
+`deploy-master` runs `agentic-kg sandbox-check` through the ingest Job's
+execution-time args override, after the LLM check and the workflow self-check.
+It executes in the same Job, service account and network a real workflow step
+uses, and it reads the bucket/prefix/Job coordinates Terraform set on the API
+service. It deliberately does **not** forward the API's endpoint.
+
+From inside that Job it uploads a tiny script, executes the experiment Job,
+polls the execution, reads the result back and attempts to delete its objects.
+A failure exits non-zero and names the phase:
+
+| Category | Meaning |
+|---|---|
+| `connectivity` | This runtime cannot reach the GCS endpoint it resolved |
+| `permission` | A 403 on the bucket objects or on `:run` / `executions.get` |
+| `not_found` | The bucket or an expected object does not exist |
+| `job_timeout` | The experiment Job did not finish within the budget |
+| `job_failed` | The Job ran but the script/result was unsuccessful |
+
+Cleanup is best effort: the runtime service account has `objectViewer` +
+`objectCreator`, not `objectDeleter`, so a cleanup 403 is reported and the
+bucket's 30-day lifecycle rule removes anything left behind. Run the same
+command by hand inside the Job to reproduce a deploy failure.
 
 ## Troubleshooting
 

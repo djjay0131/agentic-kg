@@ -1,11 +1,45 @@
 # Active Context
 
-Last updated: 2026-11-12
+Last updated: 2026-11-28
 
 > Newest entries at the top. History through 2026-07 lives in
 > [`archive/activeContext-through-2026-07.md`](archive/activeContext-through-2026-07.md)
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
+
+## Sandbox endpoint is per runtime; deploy-time sandbox check (2026-11-28, T66)
+
+`fix/sandbox-from-worker-job` fixes the staging run after #169 where the
+evaluation experiment failed with `RetryError: ... private.googleapis.com ...
+upload ... script.py`. The workflow step runs in the ingest Job, but #167 had
+persisted the API service's `SandboxConfig` (including
+`EXPERIMENT_GCS_ENDPOINT=https://private.googleapis.com`) into run metadata and
+the worker reused it. The API and ingest Job share the application VPC
+(`PRIVATE_RANGES_ONLY`) and the default compute service account, so the worker
+does not lack IAM or a bucket/Job grant; it lacks a path to the *private* VIP,
+which only the experiment Job's dedicated VPC + Private Google Access provides.
+
+- **Endpoint resolved where the sandbox runs.** `sandbox_config_from_metadata`
+  ignores `gcs_endpoint` (and the probe/timeout knobs) from metadata; the worker
+  keeps its own env/default. `resolve_gcs_endpoint` probes the configured
+  endpoint with a 5 s TCP connect and logs a fallback to
+  `https://storage.googleapis.com`, which Cloud Run managed egress reaches. The
+  API no longer persists `gcs_endpoint` in run metadata either.
+- **Fail fast.** GCS reads/writes use `EXPERIMENT_GCS_REQUEST_TIMEOUT_SECONDS`
+  (default 30) with client retries disabled, so a blocked path reports the real
+  error instead of a 120 s `RetryError`. The experiment runner uses the same
+  short timeout with its own private endpoint.
+- **Deploy gate.** `agentic-kg sandbox-check` (routed from `job_runner`, run by
+  `deploy-master` through the ingest Job's args override after `llm-check` and
+  `workflow selfcheck`) uploads a tiny script, executes the experiment Job,
+  polls, reads the result back and attempts cleanup. It reports `connectivity`,
+  `permission`, `not_found`, `job_timeout` or `job_failed`. Cleanup is best
+  effort: the runtime SA has no `storage.objects.delete`; the 30-day lifecycle
+  rule covers leftovers.
+- **Review gate text.** The `review_evaluation` recommendation is now the short
+  `evaluation verdict <x>` (plus provenance abstention). The full limitation is
+  kept out of the one-line header, stored up to 1000 chars and rendered wrapped
+  under LIMITATIONS.
 
 ## Cross-process workflow state: durable store is the source of truth (2026-11-28, T65)
 

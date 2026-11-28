@@ -163,6 +163,14 @@ def main() -> None:
 
         cli_main(argv)
         return
+    if argv[:1] == ["sandbox-check"]:
+        # Deploy-time proof that this Job's runtime can reach the experiment
+        # bucket and Job. Same image, same service account, same network as a
+        # real workflow step; an execution-time args override selects it.
+        from agentic_kg.cli import main as cli_main
+
+        cli_main(argv)
+        return
     if argv[:1] == ["workflow"]:
         # Asynchronous workflow worker: ``workflow resume <run_id>``. The API
         # starts this with an execution-time args override on the same image.

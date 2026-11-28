@@ -204,6 +204,19 @@ class TestMain:
         cli_main.assert_called_once_with(["llm-check"])
         mock_ingest.assert_not_called()
 
+    def test_sandbox_check_argument_delegates_to_cli(self, monkeypatch):
+        """A `sandbox-check` execution override runs the same CLI check."""
+        monkeypatch.setattr(sys, "argv", ["job_runner", "sandbox-check", "--bucket", "b"])
+
+        with (
+            patch("agentic_kg.cli.main") as cli_main,
+            patch("agentic_kg.job_runner.ingest_papers") as mock_ingest,
+        ):
+            main()
+
+        cli_main.assert_called_once_with(["sandbox-check", "--bucket", "b"])
+        mock_ingest.assert_not_called()
+
     def test_main_complete_exits_0(self, monkeypatch):
         """Successful ingestion exits with code 0."""
         monkeypatch.setenv("INGEST_QUERY", "test")

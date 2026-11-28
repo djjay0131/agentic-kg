@@ -52,3 +52,33 @@ def test_workflow_selfcheck_runs_for_api_or_job_changes() -> None:
     condition = step["if"]
     assert "needs.changes.outputs.api" in condition
     assert "needs.changes.outputs.job" in condition
+
+
+def test_deploy_runs_the_experiment_sandbox_check_through_the_ingest_job() -> None:
+    """The sandbox runs in the worker Job, not the API, so prove it there.
+
+    #169 failed because the worker reused the API's private GCS endpoint. The
+    deploy check must execute from the ingest Job and read the coordinates
+    Terraform set on the API, while leaving the endpoint for the worker to
+    resolve.
+    """
+    deploy = _load()["jobs"]["deploy-staging"]
+    step = _step(deploy, "Experiment sandbox self-check (Job dispatch path)")
+    run = step["run"]
+
+    assert "gcloud run jobs execute" in run
+    assert "--args=sandbox-check" in run
+    assert "agentic-kg-ingest-staging" in run
+    assert "agentic-kg-api-staging" in run
+    # The API's endpoint is intentionally not forwarded to the worker.
+    assert "EXPERIMENT_GCS_ENDPOINT" not in run
+    assert "exit 1" in run
+    assert "failedCount" in run
+
+
+def test_experiment_sandbox_check_runs_for_api_or_job_changes() -> None:
+    deploy = _load()["jobs"]["deploy-staging"]
+    step = _step(deploy, "Experiment sandbox self-check (Job dispatch path)")
+    condition = step["if"]
+    assert "needs.changes.outputs.api" in condition
+    assert "needs.changes.outputs.job" in condition

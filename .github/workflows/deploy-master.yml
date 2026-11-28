@@ -363,6 +363,54 @@ jobs:
             exit 1
           fi
 
+      # The experiment sandbox runs in a *different* runtime from the API: a
+      # workflow step is executed by this ingest Job. Prove from inside that
+      # Job that it can upload to the experiment bucket, start the experiment
+      # Job, poll it and read the result back. This catches the #169 staging
+      # failure (the worker Job could not reach the API's private GCS endpoint)
+      # at deploy time instead of ten minutes into a run.
+      - name: Experiment sandbox self-check (Job dispatch path)
+        if: needs.changes.outputs.api == 'true' || needs.changes.outputs.job == 'true'
+        run: |
+          set -euo pipefail
+          API_SERVICE="agentic-kg-api-staging"
+          JOB="agentic-kg-ingest-staging"
+          if ! gcloud run jobs describe "$JOB" --region=${{ env.REGION }} >/dev/null 2>&1; then
+            echo "::error::$JOB does not exist; cannot run the experiment sandbox check"
+            exit 1
+          fi
+          # Terraform owns the experiment coordinates on the API service. Read
+          # them instead of duplicating them here, so this check follows an
+          # apply that changes the bucket, prefix or Job name. The endpoint is
+          # deliberately NOT forwarded: the worker resolves its own.
+          COORDS="$(gcloud run services describe "$API_SERVICE" \
+            --region=${{ env.REGION }} --format=json | python3 -c 'import json,sys; d=json.load(sys.stdin); c=d.get("spec",{}).get("template",{}).get("spec",{}).get("containers",[{}])[0]; env={e["name"]:e.get("value","") for e in (c.get("env") or []) if e.get("name")}; print("\n".join(env.get(k,"") for k in ("EXPERIMENT_BACKEND","EXPERIMENT_GCS_BUCKET","EXPERIMENT_GCS_PREFIX","EXPERIMENT_JOB_NAME")))')"
+          BACKEND="$(printf '%s\n' "$COORDS" | sed -n '1p')"
+          BUCKET="$(printf '%s\n' "$COORDS" | sed -n '2p')"
+          PREFIX="$(printf '%s\n' "$COORDS" | sed -n '3p')"
+          EXP_JOB="$(printf '%s\n' "$COORDS" | sed -n '4p')"
+          if [ "$BACKEND" != "cloudrun_job" ] || [ -z "$BUCKET" ]; then
+            echo "::notice title=Experiment sandbox check skipped::The API is not on the cloudrun_job backend (backend='$BACKEND', bucket='$BUCKET')."
+            exit 0
+          fi
+          EXEC_RC=0
+          if ! gcloud run jobs execute "$JOB" \
+              --args=sandbox-check,--backend="$BACKEND",--bucket="$BUCKET",--prefix="$PREFIX",--job="$EXP_JOB",--project=${{ env.PROJECT_ID }},--region=${{ env.REGION }} \
+              --region=${{ env.REGION }} --wait; then
+            EXEC_RC=1
+            echo "::error::experiment sandbox self-check failed; see the execution logs (the report names connectivity vs permission vs job failure)"
+          fi
+          EXECUTION="$(gcloud run jobs executions list --job "$JOB" \
+            --region=${{ env.REGION }} --limit=1 --format='value(name)')"
+          gcloud run jobs executions describe "$EXECUTION" \
+            --region=${{ env.REGION }} --format=json || true
+          FAILED="$(gcloud run jobs executions describe "$EXECUTION" \
+            --region=${{ env.REGION }} --format='value(status.failedCount)')"
+          if [ "${EXEC_RC}" != "0" ] || [ "${FAILED:-0}" != "0" ]; then
+            echo "::error::experiment sandbox self-check execution ${EXECUTION} failed (failedCount=${FAILED:-unknown})"
+            exit 1
+          fi
+
       # Assert Cloud Run actually reports the SHA we just deployed. Logic lives
       # in a unit-tested script (label-only in PR-1; PR-3 adds --check-version).
       - name: Assert deployed SHA matches

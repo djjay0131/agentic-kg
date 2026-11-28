@@ -278,6 +278,12 @@ class WorkflowRunner:
             getattr(config, "graph_source", "") if config is not None else ""
         )
         sandbox = asdict(config.sandbox) if config is not None else {}
+        # ``gcs_endpoint`` is resolved by the process that runs the sandbox.
+        # Persisting the API's value would force its (possibly private) endpoint
+        # onto a worker Job with different egress; the worker probes its own and
+        # falls back to the public endpoint. Bucket/prefix/job/region/project
+        # are shared coordinates and are safe to carry.
+        sandbox.pop("gcs_endpoint", None)
         execution = {
             "graph_source": source,
             "namespace": getattr(self, "_namespace", "canon"),
