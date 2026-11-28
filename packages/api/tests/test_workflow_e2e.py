@@ -28,6 +28,7 @@ from agentic_kg.agents.checkpoint_store import (
     InMemoryCheckpointStore,
 )
 from agentic_kg.agents.config import AgentConfig
+from agentic_kg.agents.dispatch import DispatchOutcome
 from agentic_kg.agents.gate_agreement import build_recommendation
 from agentic_kg.agents.graph_port import (
     SOURCE_LEGACY,
@@ -703,3 +704,139 @@ def test_sandbox_failures_are_reviewable_through_the_api(harness, mode):
         assert result["execution_provenance"]["backend"] == "unavailable"
     else:
         assert result["verdict"] == "inconclusive"
+
+
+class _FailingDispatcher:
+    """Simulates a 403 from run.jobs.runWithOverrides."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def dispatch(self, run_id: str, *, phase: str) -> DispatchOutcome:
+        self.calls.append((run_id, phase))
+        raise RuntimeError(
+            "403 PermissionDenied: run.jobs.runWithOverrides needs "
+            "roles/run.jobsExecutorWithOverrides"
+        )
+
+
+class _OutcomeDispatcher:
+    def __init__(self, outcome: DispatchOutcome) -> None:
+        self.outcome = outcome
+        self.calls: list[tuple[str, str]] = []
+
+    def dispatch(self, run_id: str, *, phase: str) -> DispatchOutcome:
+        self.calls.append((run_id, phase))
+        return self.outcome
+
+
+def test_permission_denied_decision_completes_in_request(harness):
+    """The API response is the next gate, not a stuck old gate."""
+    client: TestClient = harness["client"]
+    dispatcher = _FailingDispatcher()
+    runner = _build_runner(
+        harness["llm"],
+        harness["store"],
+        outputs=harness["outputs"],
+        dispatcher=dispatcher,
+    )
+    agents.set_workflow_runner(runner)
+
+    run_id = _start(client, max_problems=20)
+    response = client.post(
+        f"/api/agents/workflows/{run_id}/checkpoints/select_problem",
+        json={
+            "decision": "approve",
+            "feedback": "go",
+            "edited_data": {"problem_id": "p0"},
+        },
+    )
+
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert body["current_step"] == "approve_proposal"
+    assert body["execution_mode"] == "in_request"
+    assert body["dispatch_result"] == "refused"
+    assert "running in request" in " ".join(
+        str(message.get("content") or "") for message in body["messages"]
+    )
+
+
+def test_dispatched_worker_that_never_starts_is_failed_on_read(harness, monkeypatch):
+    """GET closes an accepted-but-dead dispatch with the reason it was accepted."""
+    from datetime import datetime, timedelta, timezone
+
+    monkeypatch.setenv("WORKFLOW_DISPATCH_WATCHDOG_SECONDS", "1")
+    client: TestClient = harness["client"]
+    runner = _build_runner(
+        harness["llm"],
+        harness["store"],
+        outputs=harness["outputs"],
+        dispatcher=_OutcomeDispatcher(
+            DispatchOutcome(dispatched=True, execution="execution-dead")
+        ),
+    )
+    agents.set_workflow_runner(runner)
+
+    run_id = _start(client, max_problems=20)
+    runner._workflows[run_id]["dispatched_at"] = (
+        datetime.now(timezone.utc) - timedelta(seconds=10)
+    ).isoformat()
+    runner._persist_metadata(run_id)
+
+    body = client.get(f"/api/agents/workflows/{run_id}").json()
+
+    assert body["status"] == WorkflowStatus.FAILED.value
+    reason = body["errors"][-1]
+    assert "no worker started" in reason
+    assert "dispatch_result=dispatched" in reason
+    assert "execution-dead" in reason
+
+
+def test_dispatched_worker_runs_to_the_next_gate_through_the_api(harness):
+    import asyncio
+
+    client: TestClient = harness["client"]
+    dispatcher = _OutcomeDispatcher(
+        DispatchOutcome(dispatched=True, execution="execution-live")
+    )
+    runner = _build_runner(
+        harness["llm"],
+        harness["store"],
+        outputs=harness["outputs"],
+        dispatcher=dispatcher,
+    )
+    agents.set_workflow_runner(runner)
+
+    run_id = _start(client, max_problems=20)
+    body = client.get(f"/api/agents/workflows/{run_id}").json()
+    assert body["status"] == WorkflowStatus.RUNNING.value
+    assert body["current_step"] == "ranking"
+    assert body["dispatch_result"] == "dispatched"
+    assert body["job_execution"] == "execution-live"
+
+    runner.record_worker_start(run_id, execution="execution-live")
+    asyncio.run(runner.advance_workflow(run_id))
+    body = client.get(f"/api/agents/workflows/{run_id}").json()
+    assert body["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert body["current_step"] == "select_problem"
+
+    decision = client.post(
+        f"/api/agents/workflows/{run_id}/checkpoints/select_problem",
+        json={
+            "decision": "approve",
+            "feedback": "go",
+            "edited_data": {"problem_id": "p0"},
+        },
+    )
+    assert decision.status_code == 202, decision.text
+    # The decision response presents the in-flight step, not the stale gate.
+    assert decision.json()["status"] == WorkflowStatus.RUNNING.value
+    assert decision.json()["current_step"] == "continuation"
+
+    runner.record_worker_start(run_id, execution="execution-live-2")
+    asyncio.run(runner.advance_workflow(run_id))
+    body = client.get(f"/api/agents/workflows/{run_id}").json()
+    assert body["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert body["current_step"] == "approve_proposal"

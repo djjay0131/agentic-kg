@@ -7,6 +7,47 @@ Last updated: 2026-11-12
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
 
+## Async dispatch fallback, visible outcome, watchdog (2026-11-28, T64)
+
+`fix/async-dispatch-fallback` fixes the regression after #167: a `select_problem`
+approval was persisted but the run stayed at `waiting_checkpoint` with the old
+gate, no error and no worker. Root causes the fix addresses:
+
+- **Metadata shape.** #167 wrote the worker's execution settings at the top
+  level of the run metadata, while `workflow_job` read them under `execution`,
+  so the Job silently used Docker sandbox defaults. Both shapes are written
+  now and both are read.
+- **Dispatch outcome is evidence.** `CloudRunJobDispatcher.dispatch` returns a
+  `DispatchOutcome` (dispatched / refused / failed, execution name, error).
+  The runner persists `execution_mode`, `dispatch_result`, `job_execution`,
+  `dispatch_error`, `dispatched_at` and `worker_started_at` on the run and
+  appends a line to the activity log. The API list/detail responses expose
+  those fields.
+- **Dispatch is not a heartbeat.** A successful dispatch no longer writes
+  `heartbeat_at`; the Job writes `worker_started_at` + heartbeat as its first
+  action. A watchdog on read/list (`WORKFLOW_DISPATCH_WATCHDOG_SECONDS`,
+  default 120) fails a run whose decision was applied but produced no worker,
+  naming the dispatch result and execution. The existing 180 s lease still
+  closes a worker that started and died.
+- **No masking / no stale cache.** `get_state` presents the metadata's
+  `running` while a step is in flight instead of the gate whose decision was
+  written. Metadata reads merge the durable copy over the creating process's
+  in-memory row for Job-owned runs, so the API sees the worker's heartbeat and
+  a later decision cannot clobber it.
+- **Self-check deploy gate.** `agentic-kg workflow selfcheck` (also
+  `workflow_job`) creates a tagged run, runs ranking to `select_problem`,
+  asserts candidates, and cancels it. `deploy-master` runs it through the
+  ingest Job's args override (the `llm-check` mechanism), so a broken worker
+  entrypoint/env fails the deploy without a browser.
+- **Deploy leftovers.** The two untagged runs each deploy left at
+  `select_problem` came from the core `test_start_workflow_returns_run_id` e2e
+  and the API WebSocket e2e; both now send a `tag` and cancel in a `finally`.
+- **Tests.** Permission-denied resume completes in-request; accepted-but-dead
+  dispatch fails by name; a started worker reaches the next gate; two runners
+  over one store share the Job heartbeat; and the real
+  `python -m agentic_kg.job_runner workflow resume <id>` is driven as a
+  subprocess over a file-backed store (catches arg/entrypoint errors).
+
 ## Asynchronous workflow steps + LLM timeouts + reviewable sandbox failures (2026-11-28, T63)
 
 `feat/async-workflow-steps` fixes the staging run that passed ranking and all

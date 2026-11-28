@@ -33,6 +33,7 @@ from agentic_kg.agents.checkpoint_store import (
     InMemoryCheckpointStore,
 )
 from agentic_kg.agents.config import AgentConfig
+from agentic_kg.agents.dispatch import DispatchOutcome
 from agentic_kg.agents.gate_agreement import build_recommendation
 from agentic_kg.agents.graph_port import (
     SOURCE_LEGACY,
@@ -823,3 +824,201 @@ async def test_code_generation_times_out_once_then_succeeds(monkeypatch):
     assert state["evaluation_result"]["verdict"] == "promising"
     # The timeout happened once and the retry produced the script.
     assert handler.calls.count("GeneratedCode") == 2
+
+
+class _OutcomeDispatcher:
+    """Returns a structured dispatch outcome (execution name included)."""
+
+    def __init__(self, outcome: DispatchOutcome) -> None:
+        self.outcome = outcome
+        self.calls: list[tuple[str, str]] = []
+
+    def dispatch(self, run_id: str, *, phase: str) -> DispatchOutcome:
+        self.calls.append((run_id, phase))
+        return self.outcome
+
+
+@pytest.mark.asyncio
+async def test_permission_denied_resume_completes_in_request(e2e):
+    """No IAM grant: the decision still advances before the response returns."""
+    runner = _build_runner(
+        e2e["llm"],
+        e2e["store"],
+        outputs=e2e["outputs"],
+        repo=e2e["repo"],
+        dispatcher=_RecordingDispatcher(fail=True),
+    )
+    run_id, _ = await runner.start_workflow_async(max_problems=20)
+    assert (await runner.get_state(run_id))["current_step"] == "select_problem"
+
+    state, dispatched = await runner.submit_checkpoint(
+        run_id,
+        CheckpointType.SELECT_PROBLEM,
+        CheckpointDecision.APPROVE,
+        feedback="go",
+        edited_data={"problem_id": "p0"},
+    )
+
+    assert dispatched is False
+    assert state["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert state["current_step"] == CheckpointType.APPROVE_PROPOSAL.value
+    meta = runner.get_run_metadata(run_id)
+    assert meta["execution_mode"] == "in_request"
+    assert meta["dispatch_result"] == "refused"
+    assert "running in request" in " ".join(
+        str(message.get("content") or "") for message in state.get("messages", [])
+    )
+
+
+@pytest.mark.asyncio
+async def test_dispatched_worker_that_never_starts_is_failed_by_watchdog(
+    e2e, monkeypatch
+):
+    """Accepted is not started: a dead worker becomes a named failure."""
+    monkeypatch.setenv("WORKFLOW_DISPATCH_WATCHDOG_SECONDS", "1")
+    runner = _build_runner(
+        e2e["llm"],
+        e2e["store"],
+        outputs=e2e["outputs"],
+        repo=e2e["repo"],
+        dispatcher=_OutcomeDispatcher(
+            DispatchOutcome(
+                dispatched=True,
+                execution="projects/p/locations/r/executions/e-dead",
+            )
+        ),
+    )
+    run_id, dispatched = await runner.start_workflow_async(max_problems=20)
+    assert dispatched is True
+    assert runner.get_run_metadata(run_id)["worker_started_at"] == ""
+
+    runner._workflows[run_id]["dispatched_at"] = (
+        datetime.now(timezone.utc) - timedelta(seconds=10)
+    ).isoformat()
+    runner._persist_metadata(run_id)
+
+    state = await runner.get_state(run_id)
+
+    assert state["status"] == WorkflowStatus.FAILED.value
+    reason = state["errors"][-1]
+    assert "no worker started" in reason
+    assert "dispatch_result=dispatched" in reason
+    assert "e-dead" in reason
+
+
+@pytest.mark.asyncio
+async def test_worker_started_heartbeat_advances_to_the_next_gate(e2e):
+    """A dispatched worker that starts and runs reaches the next gate."""
+    runner = _build_runner(
+        e2e["llm"],
+        e2e["store"],
+        outputs=e2e["outputs"],
+        repo=e2e["repo"],
+        dispatcher=_OutcomeDispatcher(
+            DispatchOutcome(dispatched=True, execution="exec-1")
+        ),
+    )
+    run_id, dispatched = await runner.start_workflow_async(max_problems=20)
+    assert dispatched is True
+
+    runner.record_worker_start(run_id, execution="exec-1")
+    meta = runner.get_run_metadata(run_id)
+    assert meta["worker_started_at"]
+    assert meta["heartbeat_at"]
+    assert meta["job_execution"] == "exec-1"
+
+    await runner.advance_workflow(run_id)
+    state = await runner.get_state(run_id)
+    assert state["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert state["current_step"] == CheckpointType.SELECT_PROBLEM.value
+
+    _, dispatched = await runner.submit_checkpoint(
+        run_id,
+        CheckpointType.SELECT_PROBLEM,
+        CheckpointDecision.APPROVE,
+        feedback="go",
+        edited_data={"problem_id": "p0"},
+    )
+    assert dispatched is True
+    runner.record_worker_start(run_id, execution="exec-2")
+    await runner.advance_workflow(run_id)
+
+    state = await runner.get_state(run_id)
+    assert state["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert state["current_step"] == CheckpointType.APPROVE_PROPOSAL.value
+
+
+@pytest.mark.asyncio
+async def test_get_state_presents_running_not_the_stale_gate(e2e):
+    """A dispatched step must not look like it is still waiting at the gate."""
+    runner = _build_runner(
+        e2e["llm"],
+        e2e["store"],
+        outputs=e2e["outputs"],
+        repo=e2e["repo"],
+        dispatcher=_RecordingDispatcher(),
+    )
+    run_id, _ = await runner.start_workflow_async(max_problems=20)
+    await runner.advance_workflow(run_id)
+
+    state, dispatched = await runner.submit_checkpoint(
+        run_id,
+        CheckpointType.SELECT_PROBLEM,
+        CheckpointDecision.APPROVE,
+        feedback="go",
+        edited_data={"problem_id": "p0"},
+    )
+    assert dispatched is True
+
+    # The graph checkpoint still points at the gate whose decision was written;
+    # the read must present the in-flight step instead.
+    live = await runner.get_state(run_id)
+    assert live["status"] == WorkflowStatus.RUNNING.value
+    assert live["current_step"] == "continuation"
+
+
+@pytest.mark.asyncio
+async def test_api_process_sees_the_job_process_heartbeat(e2e, monkeypatch):
+    """The creating process must not mask the Job's store copy.
+
+    A dispatched run is owned by a different process. The API's in-process
+    row from creation has no worker heartbeat; if reads kept preferring it the
+    watchdog would kill a live run, and a later decision would clobber the
+    worker's progress. Two runners over one durable store simulate that split.
+    """
+    monkeypatch.setenv("WORKFLOW_DISPATCH_WATCHDOG_SECONDS", "1")
+    store = e2e["store"]
+    api = _build_runner(
+        e2e["llm"],
+        store,
+        outputs=e2e["outputs"],
+        repo=e2e["repo"],
+        dispatcher=_OutcomeDispatcher(
+            DispatchOutcome(dispatched=True, execution="exec-cross")
+        ),
+    )
+    job = _build_runner(
+        e2e["llm"], store, outputs=e2e["outputs"], repo=e2e["repo"]
+    )
+
+    run_id, dispatched = await api.start_workflow_async(max_problems=20)
+    assert dispatched is True
+    # Make the local dispatch look old enough to trip the watchdog.
+    api._workflows[run_id]["dispatched_at"] = (
+        datetime.now(timezone.utc) - timedelta(seconds=10)
+    ).isoformat()
+    api._persist_metadata(run_id)
+
+    # The Job process proves it is alive. The API process must see that and
+    # not fail the run.
+    job.record_worker_start(run_id, execution="exec-cross")
+    live = await api.get_state(run_id)
+    assert live["status"] == WorkflowStatus.RUNNING.value
+    assert api.get_run_metadata(run_id)["worker_started_at"]
+    assert api.get_run_metadata(run_id)["job_execution"] == "exec-cross"
+
+    # The Job finishes ranking; the API's next read is the new gate.
+    await job.advance_workflow(run_id)
+    state = await api.get_state(run_id)
+    assert state["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert state["current_step"] == CheckpointType.SELECT_PROBLEM.value

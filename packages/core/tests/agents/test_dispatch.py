@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pytest
 from agentic_kg.agents.dispatch import (
+    DISPATCHED,
+    REFUSED,
     CloudRunJobDispatcher,
     WorkflowDispatchError,
     build_dispatcher,
@@ -76,7 +78,10 @@ def test_dispatch_passes_the_phase_and_run_id_as_args():
         job_resource="projects/p/locations/r/jobs/j", run_client=client
     )
 
-    assert dispatcher.dispatch("run-1", phase="resume") is True
+    outcome = dispatcher.dispatch("run-1", phase="resume")
+    assert outcome.dispatched is True
+    assert outcome.result == DISPATCHED
+    assert outcome.execution == "projects/p/locations/r/executions/e1"
     assert client.calls == [
         {"job": "projects/p/locations/r/jobs/j", "args": ["workflow", "resume", "run-1"], "env": {}}
     ]
@@ -88,7 +93,11 @@ def test_permission_failure_falls_back_when_not_strict():
         run_client=_RecordingClient(fail=True),
     )
 
-    assert dispatcher.dispatch("run-1", phase="resume") is False
+    outcome = dispatcher.dispatch("run-1", phase="resume")
+
+    assert outcome.dispatched is False
+    assert outcome.result == REFUSED
+    assert "runWithOverrides" in outcome.error
 
 
 def test_permission_failure_is_loud_in_strict_mode():
