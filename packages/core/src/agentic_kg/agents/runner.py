@@ -19,11 +19,12 @@ from agentic_kg.agents.continuation import ContinuationAgent
 from agentic_kg.agents.evaluation import EvaluationAgent
 from agentic_kg.agents.graph_port import (
     SOURCE_CANONICAL,
+    GraphPort,
     build_graph_port,
 )
 from agentic_kg.agents.provenance import AgentOutputStore, InMemoryAgentOutputStore
 from agentic_kg.agents.ranking import RankingAgent
-from agentic_kg.agents.sandbox import create_execution_backend
+from agentic_kg.agents.sandbox import ExecutionBackend, create_execution_backend
 from agentic_kg.agents.schemas import (
     CheckpointDecision,
     CheckpointType,
@@ -35,6 +36,20 @@ from agentic_kg.agents.synthesis import SynthesisAgent
 from agentic_kg.agents.workflow import build_workflow
 
 logger = logging.getLogger(__name__)
+
+#: Nodes the graph interrupts before; the run is waiting for a human at one.
+_GATE_STEPS = frozenset(
+    {"select_problem", "approve_proposal", "review_evaluation"}
+)
+#: A run in one of these states is over; a pending gate is not a live wait.
+_TERMINAL_STATUSES = frozenset(
+    {
+        WorkflowStatus.COMPLETED.value,
+        WorkflowStatus.FAILED.value,
+        WorkflowStatus.CANCELLED.value,
+        WorkflowStatus.REJECTED.value,
+    }
+)
 
 
 class WorkflowRunner:
@@ -57,6 +72,8 @@ class WorkflowRunner:
         canonical_reader: Any | None = None,
         canonical_sink: Any | None = None,
         output_store: AgentOutputStore | None = None,
+        graph_port: GraphPort | None = None,
+        sandbox: ExecutionBackend | None = None,
     ) -> None:
         self._llm = llm_client
         self._repo = repository
@@ -68,9 +85,12 @@ class WorkflowRunner:
         self._source = graph_source or self._config.graph_source
         self._reader = canonical_reader
         self._output_store = output_store or InMemoryAgentOutputStore()
+        self._sandbox = sandbox
 
         # ADR-0010: one port per runner, shared by the agents that read it.
-        self._port = build_graph_port(
+        # A caller may inject the port directly (the compiled-graph e2e does);
+        # otherwise it is built from the configured source.
+        self._port = graph_port or build_graph_port(
             self._source,
             repository=self._repo,
             search_service=self._search,
@@ -119,7 +139,8 @@ class WorkflowRunner:
             **common,
             model=self._config.evaluation.model,
             max_tokens=self._config.evaluation.max_tokens,
-            sandbox=create_execution_backend(config=self._config.sandbox),
+            sandbox=self._sandbox
+            or create_execution_backend(config=self._config.sandbox),
         )
         self._synthesis = SynthesisAgent(
             **common,
@@ -197,6 +218,8 @@ class WorkflowRunner:
             "updated_at": state["updated_at"],
             "error": "",
         }
+        # Persist before the first agent call so a crash leaves a visible row.
+        self._persist_metadata(run_id)
 
         # Run until first interrupt. An agent node records its own failure in
         # the state; an unexpected graph error is recorded here so the run can
@@ -214,6 +237,78 @@ class WorkflowRunner:
             await self._sync_metadata(run_id, thread_config)
 
         return run_id
+
+    # -- run metadata persistence ------------------------------------------
+    #
+    # The list/detail metadata used to live only in ``self._workflows``, so a
+    # restart (or a second Cloud Run instance) listed no workflows even though
+    # the durable checkpoints were still there. It is now written beside the
+    # checkpoints through the same store, which is what lets any instance list
+    # and resume a run another instance started.
+
+    def _run_store(self) -> Any | None:
+        """The durable saver if it can persist run metadata, else ``None``."""
+        saver = getattr(self, "_checkpointer", None)
+        if callable(getattr(saver, "save_run", None)) and callable(
+            getattr(saver, "list_runs", None)
+        ):
+            return saver
+        return None
+
+    def _persist_metadata(self, run_id: str) -> None:
+        store = self._run_store()
+        meta = self._workflows.get(run_id)
+        if store is None or meta is None:
+            return
+        try:
+            store.save_run(run_id, dict(meta))
+        except Exception:  # noqa: BLE001 - metadata write must not break a run
+            logger.warning("could not persist metadata for %s", run_id)
+
+    def _load_metadata(self, run_id: str) -> dict | None:
+        store = self._run_store()
+        if store is None:
+            return None
+        try:
+            return store.load_run(run_id)
+        except Exception:  # noqa: BLE001 - a store read is best effort
+            logger.warning("could not load metadata for %s", run_id)
+            return None
+
+    def _list_metadata(self) -> list[dict]:
+        store = self._run_store()
+        if store is None:
+            return []
+        try:
+            return list(store.list_runs())
+        except Exception:  # noqa: BLE001 - a store listing is best effort
+            logger.warning("could not list durable run metadata")
+            return []
+
+    def _metadata(self, run_id: str) -> dict:
+        """In-process metadata first, then the durable copy."""
+        return self._workflows.get(run_id) or self._load_metadata(run_id) or {}
+
+    @staticmethod
+    def _present_state(values: Any, snapshot: Any) -> ResearchState:
+        """Present the pending gate as the current step.
+
+        LangGraph interrupts *before* a passthrough gate node, so the raw
+        checkpoint still names the agent that just ran. A reader asking "where
+        is this run?" needs the gate it is waiting at, and ``waiting_checkpoint``
+        rather than the agent's ``running``. The raw checkpoint is untouched;
+        the next agent resumes from it normally.
+        """
+        state = dict(values)
+        next_nodes = tuple(getattr(snapshot, "next", ()) or ())
+        if (
+            next_nodes
+            and next_nodes[0] in _GATE_STEPS
+            and state.get("status") not in _TERMINAL_STATUSES
+        ):
+            state["current_step"] = next_nodes[0]
+            state["status"] = WorkflowStatus.WAITING_CHECKPOINT.value
+        return state
 
     def has_workflow(self, run_id: str) -> bool:
         """Return whether ``run_id`` names a known workflow.
@@ -233,11 +328,12 @@ class WorkflowRunner:
         checker = getattr(getattr(self, "_checkpointer", None), "has_thread", None)
         if checker is not None:
             try:
-                return bool(checker(run_id))
+                if checker(run_id):
+                    return True
             except Exception:  # noqa: BLE001 - a store failure must not look like "found"
                 logger.warning("could not check durable checkpoint for %s", run_id)
-                return False
-        return False
+        # A run that failed before its first checkpoint has metadata only.
+        return self._load_metadata(run_id) is not None
 
     def _require_workflow(self, run_id: str) -> None:
         """Raise ``KeyError`` if ``run_id`` is not a tracked workflow.
@@ -314,17 +410,31 @@ class WorkflowRunner:
         self._require_workflow(run_id)
         thread_config = {"configurable": {"thread_id": run_id}}
         snapshot = await self._graph.aget_state(thread_config)
-        return dict(snapshot.values)
+        values = dict(snapshot.values)
+        if not values:
+            # A run that failed before its first checkpoint has metadata only.
+            meta = self._metadata(run_id)
+            if meta:
+                error = str(meta.get("error") or "")
+                return {
+                    "run_id": run_id,
+                    "status": meta.get("status", ""),
+                    "current_step": meta.get("current_step", ""),
+                    "created_at": meta.get("created_at", ""),
+                    "updated_at": meta.get("updated_at", ""),
+                    "errors": [error] if error else [],
+                }
+        return self._present_state(values, snapshot)
 
     async def get_status(self, run_id: str) -> WorkflowSummary:
         """Get a summary of workflow status.
 
         ``created_at``/``updated_at`` come from the in-process metadata when
-        present and from the checkpointed state when this process did not start
-        the workflow (a durable resume after a restart).
+        present and from the durable metadata when this process did not start
+        the workflow (a restart or a different Cloud Run instance).
         """
         self._require_workflow(run_id)
-        meta = self._workflows.get(run_id, {})
+        meta = self._metadata(run_id)
 
         state = await self.get_state(run_id)
         # Metadata is the fallback when the graph has no checkpoint (for
@@ -341,12 +451,27 @@ class WorkflowRunner:
         )
 
     def list_workflows(self) -> list[dict]:
-        """List all workflows tracked by this process."""
-        return list(self._workflows.values())
+        """List workflows started by any process, newest first.
+
+        Durable metadata is the base; this process's in-memory copy overlays
+        it so a run started here is never stale in the listing. A fresh runner
+        over the same store therefore lists runs it never started.
+        """
+        runs: dict[str, dict] = {}
+        for meta in self._list_metadata():
+            run_id = meta.get("run_id")
+            if run_id:
+                runs[str(run_id)] = dict(meta)
+        runs.update(self._workflows)
+        return sorted(
+            runs.values(),
+            key=lambda item: str(item.get("updated_at") or item.get("created_at") or ""),
+            reverse=True,
+        )
 
     def get_last_error(self, run_id: str) -> str:
         """Return the recorded failure message for ``run_id``, or ``""``."""
-        return str(self._workflows.get(run_id, {}).get("error") or "")
+        return str(self._metadata(run_id).get("error") or "")
 
     async def cancel_workflow(self, run_id: str) -> None:
         """Cancel a running workflow.
@@ -355,20 +480,36 @@ class WorkflowRunner:
             KeyError: If ``run_id`` is not a tracked workflow.
         """
         self._require_workflow(run_id)
-        self._workflows[run_id]["status"] = WorkflowStatus.CANCELLED.value
-        self._workflows[run_id]["updated_at"] = datetime.now(timezone.utc).isoformat()
+        meta = self._workflows.setdefault(
+            run_id,
+            self._load_metadata(run_id)
+            or {"run_id": run_id, "created_at": datetime.now(timezone.utc).isoformat()},
+        )
+        meta["status"] = WorkflowStatus.CANCELLED.value
+        meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+        self._persist_metadata(run_id)
 
     async def _sync_metadata(self, run_id: str, thread_config: dict) -> None:
-        """Sync in-memory metadata from the graph state."""
-        meta = self._workflows.get(run_id)
-        if meta is None:
-            return
+        """Sync and persist metadata from the graph state.
+
+        A run started by another instance has no in-memory entry; it is loaded
+        from the durable copy (or created) so the update is not dropped.
+        """
         state: dict[str, Any] = {}
         try:
             snapshot = await self._graph.aget_state(thread_config)
-            state = dict(snapshot.values)
+            state = self._present_state(snapshot.values, snapshot)
         except Exception:  # noqa: BLE001 - metadata must not break a run
             logger.warning("could not read checkpoint state for %s", run_id)
+        meta = self._workflows.setdefault(
+            run_id,
+            self._load_metadata(run_id)
+            or {
+                "run_id": run_id,
+                "created_at": state.get("created_at")
+                or datetime.now(timezone.utc).isoformat(),
+            },
+        )
         if state.get("status"):
             meta["status"] = state["status"]
         if state.get("current_step"):
@@ -377,6 +518,7 @@ class WorkflowRunner:
         if errors:
             meta["error"] = str(errors[-1])
         meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+        self._persist_metadata(run_id)
 
     async def _mark_failed(
         self,
@@ -387,7 +529,8 @@ class WorkflowRunner:
         """Record a terminal failure in both metadata and the checkpoint."""
         meta = self._workflows.setdefault(
             run_id,
-            {
+            self._load_metadata(run_id)
+            or {
                 "run_id": run_id,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             },
@@ -423,6 +566,7 @@ class WorkflowRunner:
             logger.warning(
                 "could not persist failed state for %s; metadata only", run_id
             )
+        self._persist_metadata(run_id)
 
     async def reconcile_stale_runs(self) -> list[str]:
         """Mark runs left ``running`` by a dead process as failed.
@@ -433,6 +577,9 @@ class WorkflowRunner:
         instead of being shown as running forever.
         """
         run_ids: set[str] = set(self._workflows)
+        for meta in self._list_metadata():
+            if meta.get("run_id"):
+                run_ids.add(str(meta["run_id"]))
         lister = getattr(self._checkpointer, "list_thread_ids", None)
         if lister is not None:
             try:

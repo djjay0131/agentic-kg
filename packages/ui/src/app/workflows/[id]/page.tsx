@@ -60,7 +60,9 @@ export default function WorkflowDetailPage() {
   const isAtCheckpoint =
     CHECKPOINT_STEPS.includes(workflow.current_step) &&
     workflow.status !== 'completed' &&
-    workflow.status !== 'failed';
+    workflow.status !== 'failed' &&
+    workflow.status !== 'rejected' &&
+    workflow.status !== 'cancelled';
 
   const checkpointData = (() => {
     if (workflow.current_step === 'select_problem') {

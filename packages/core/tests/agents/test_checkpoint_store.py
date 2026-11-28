@@ -137,6 +137,29 @@ class _FakeRepo:
         return _FakeSession(self)
 
 
+def test_run_metadata_survives_a_new_saver_over_the_same_store():
+    """The workflow list must survive a restart (metadata beside checkpoints)."""
+    store = InMemoryCheckpointStore()
+    first = DurableCheckpointSaver(store)
+    first.save_run(
+        "thread-1",
+        {"run_id": "thread-1", "status": "waiting_checkpoint", "current_step": "select_problem"},
+    )
+
+    second = DurableCheckpointSaver(store)
+    assert second.load_run("thread-1")["status"] == "waiting_checkpoint"
+    assert [run["run_id"] for run in second.list_runs()] == ["thread-1"]
+    assert second.load_run("unknown") is None
+
+
+def test_in_memory_store_metadata_is_upserted():
+    store = InMemoryCheckpointStore()
+    store.save_run("run-1", {"run_id": "run-1", "status": "running"})
+    store.save_run("run-1", {"run_id": "run-1", "status": "completed"})
+    assert store.load_run("run-1")["status"] == "completed"
+    assert store.list_runs() == [{"run_id": "run-1", "status": "completed"}]
+
+
 def test_neo4j_store_uses_the_app_namespace_label_and_a_uid_merge():
     repo = _FakeRepo()
     store = Neo4jCheckpointStore(repo, namespace="canon")
@@ -148,6 +171,19 @@ def test_neo4j_store_uses_the_app_namespace_label_and_a_uid_merge():
     assert params["uid"] == "canon\x1fthread-1"
     assert params["props"]["ns"] == "canon"
     assert params["props"]["thread_id"] == "thread-1"
+
+
+def test_neo4j_store_persists_run_metadata_beside_checkpoints():
+    repo = _FakeRepo()
+    store = Neo4jCheckpointStore(repo, namespace="canon")
+    store.save_run("run-1", {"run_id": "run-1", "status": "waiting_checkpoint"})
+
+    query, params = repo.calls[-1]
+    assert "Canon__AgentRun" in query
+    assert "MERGE" in query
+    assert params["uid"] == "canon\x1frun-1"
+    assert params["props"]["run_id"] == "run-1"
+    assert '"status": "waiting_checkpoint"' in params["props"]["metadata"]
 
 
 def test_neo4j_store_rejects_a_namespace_mismatch_on_load_shape():

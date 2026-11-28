@@ -50,6 +50,9 @@ class WorkflowStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    #: A human rejected a gate. The graph stops there and writes nothing; the
+    #: terminal state is distinct from a cancellation and from a failure.
+    REJECTED = "rejected"
 
 
 # =============================================================================

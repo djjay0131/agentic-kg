@@ -7,6 +7,33 @@ Last updated: 2026-11-12
 > (moved there by a `memory:revise` on 2026-09-17). Keep this file under ~200
 > lines — archive again rather than letting it sprawl.
 
+## Workflow routing + compiled-graph e2e + durable run metadata (2026-11-27, T61)
+
+`fix/workflow-routing-e2e` fixes the staging-only `KeyError: 'continue'` after
+#164: the conditional edge after `ranking` mapped `"select_problem"` while
+`_should_continue_after_agent` returns `"continue"`. Every router now declares
+its possible returns as a `Literal`, `workflow_edges()` is the single source of
+the path maps, and `_checked_path_map` validates each map at graph-build time;
+a test asserts every declared return is a key and that a missing key raises.
+
+The gap the five staging failures exposed was tests mocking the wrong layer.
+`packages/core/tests/agents/test_workflow_e2e.py` now walks the compiled
+production graph through the real `WorkflowRunner`, real agents and real
+`OpenAIClient`/instructor (only the HTTP transport faked), a fake `GraphPort`
+with 20 candidates and a fake sandbox, over
+`DurableCheckpointSaver(InMemoryCheckpointStore)`. It asserts each gate's
+status/current_step, provenance envelopes, ADR-0013 gate-agreement records
+(through a real `ResearchCycleService`), a restart between gates, and a clean
+rejection at each gate. `packages/api/tests/test_workflow_e2e.py` mirrors the
+walk through TestClient using the Workflows-page and Research-Loop payloads.
+
+Two further defects the tests exposed: gate stops presented the previous agent
+as `current_step` and `running` (now the pending gate and
+`waiting_checkpoint`), and a rejected gate left the run `running` (now a
+terminal `rejected`). Run metadata was process-memory only, so deploy/scale-out
+emptied the list and split a gate decision from the run; it is now persisted on
+`:Canon__AgentRun` beside the checkpoints and listed/resumed by a fresh runner.
+
 ## Reasoning-aware token budgets + batched ranking (2026-11-27, T60)
 
 `fix/llm-token-budgets` fixes the staging ranking failure after #163:

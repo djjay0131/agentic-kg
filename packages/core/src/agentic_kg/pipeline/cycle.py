@@ -282,6 +282,8 @@ def derive_pending_gate(
 
     if status in (WorkflowStatus.CANCELLED.value,):
         return "cancelled", None
+    if status in (WorkflowStatus.REJECTED.value,):
+        return "rejected", None
     if status in (WorkflowStatus.FAILED.value,) or state.get("errors"):
         return "failed", None
 
