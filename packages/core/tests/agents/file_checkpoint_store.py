@@ -25,11 +25,16 @@ class FileBackedCheckpointStore(InMemoryCheckpointStore):
             data = json.loads(self.path.read_text(encoding="utf-8"))
             self._payloads = dict(data.get("payloads") or {})
             self._runs = dict(data.get("runs") or {})
+            self._run_revisions = dict(data.get("run_revisions") or {})
 
     def _flush(self) -> None:
         self.path.write_text(
             json.dumps(
-                {"payloads": self._payloads, "runs": self._runs},
+                {
+                    "payloads": self._payloads,
+                    "runs": self._runs,
+                    "run_revisions": self._run_revisions,
+                },
                 sort_keys=True,
             ),
             encoding="utf-8",
@@ -51,6 +56,10 @@ class FileBackedCheckpointStore(InMemoryCheckpointStore):
         self._reload()
         return super().list_thread_ids()
 
+    def run_revision(self, run_id: str) -> int:
+        self._reload()
+        return super().run_revision(run_id)
+
     def _reload(self) -> None:
         """Pick up writes made by the other process since this instance loaded."""
         if not self.path.exists():
@@ -58,18 +67,39 @@ class FileBackedCheckpointStore(InMemoryCheckpointStore):
         data = json.loads(self.path.read_text(encoding="utf-8"))
         self._payloads = dict(data.get("payloads") or {})
         self._runs = dict(data.get("runs") or {})
+        self._run_revisions = dict(data.get("run_revisions") or {})
 
-    def save_thread(self, thread_id: str, payload: dict[str, Any]) -> None:
-        super().save_thread(thread_id, payload)
+    def save_thread(
+        self,
+        thread_id: str,
+        payload: dict[str, Any],
+        *,
+        expected_revision: Optional[int] = None,
+    ) -> int:
+        self._reload()
+        revision = super().save_thread(
+            thread_id, payload, expected_revision=expected_revision
+        )
         self._flush()
+        return revision
 
     def delete_thread(self, thread_id: str) -> None:
         super().delete_thread(thread_id)
         self._flush()
 
-    def save_run(self, run_id: str, metadata: dict[str, Any]) -> None:
-        super().save_run(run_id, metadata)
+    def save_run(
+        self,
+        run_id: str,
+        metadata: dict[str, Any],
+        *,
+        expected_revision: Optional[int] = None,
+    ) -> int:
+        self._reload()
+        revision = super().save_run(
+            run_id, metadata, expected_revision=expected_revision
+        )
         self._flush()
+        return revision
 
 
 __all__ = ["FileBackedCheckpointStore"]

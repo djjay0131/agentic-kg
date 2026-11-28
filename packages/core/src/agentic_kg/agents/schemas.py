@@ -287,11 +287,20 @@ class EvaluationResult(BaseModel):
     feasibility_score: float = Field(
         ge=0, le=1, description="How feasible is this proposal (0-1)"
     )
+    plan: str = Field(
+        default="", description="Compact human-reviewable experiment plan"
+    )
     code_generated: str = Field(
         default="", description="Python code generated for evaluation"
     )
     execution_output: str = Field(
-        default="", description="Stdout/stderr from sandboxed execution"
+        default="", description="Stdout from sandboxed execution"
+    )
+    execution_stderr: str = Field(
+        default="", description="Stderr excerpt from sandboxed execution"
+    )
+    execution_exit_code: Optional[int] = Field(
+        default=None, description="Sandbox process exit code, when known"
     )
     execution_success: bool = Field(
         default=False, description="Whether execution completed without errors"

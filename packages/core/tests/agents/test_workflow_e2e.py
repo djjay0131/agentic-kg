@@ -163,6 +163,7 @@ class _FakeOpenAI:
             return json.dumps(
                 {
                     "code": "print('{\"metrics\": {\"accuracy\": 0.9}}')\n",
+                    "plan": "1. run the baseline\n2. report accuracy",
                     "explanation": "Plausible but unused extra output. " * 10,
                 }
             )
@@ -1022,3 +1023,94 @@ async def test_api_process_sees_the_job_process_heartbeat(e2e, monkeypatch):
     state = await api.get_state(run_id)
     assert state["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
     assert state["current_step"] == CheckpointType.SELECT_PROBLEM.value
+
+
+@pytest.mark.asyncio
+async def test_two_process_walk_reads_every_job_advance_and_rejects_a_stale_gate(e2e):
+    """API instance A and Job instance B share one store, never a cache.
+
+    A only reads and applies gate decisions; B does the paid work. After every
+    B step A's detail/list must show the new state without a restart, and a
+    decision for the gate A used to show must be rejected with the real one.
+    """
+    from agentic_kg.agents.errors import GateMismatchError
+
+    store = e2e["store"]
+    outputs = e2e["outputs"]
+    repo = e2e["repo"]
+    api = _build_runner(e2e["llm"], store, outputs=outputs, repo=repo)
+    job = _build_runner(e2e["llm"], store, outputs=outputs, repo=repo)
+
+    run_id = job.create_workflow(max_problems=20)
+    # A reads before B has written a checkpoint, caching "no thread yet".
+    before = await api.get_state(run_id)
+    assert before["status"] == WorkflowStatus.RUNNING.value
+
+    job.record_worker_start(run_id, execution="exec-job")
+    await job.advance_workflow(run_id)
+    state = await api.get_state(run_id)
+    assert state["status"] == WorkflowStatus.WAITING_CHECKPOINT.value
+    assert state["current_step"] == CheckpointType.SELECT_PROBLEM.value
+    assert len(state["ranked_problems"]) == 20
+    listed = {row["run_id"]: row for row in api.list_workflows()}
+    assert listed[run_id]["current_step"] == CheckpointType.SELECT_PROBLEM.value
+
+    await api.apply_checkpoint_decision(
+        run_id,
+        CheckpointType.SELECT_PROBLEM,
+        CheckpointDecision.APPROVE,
+        feedback="go",
+        edited_data={"problem_id": "p0"},
+    )
+    # The decision is consumed; a second one for the same gate is stale.
+    with pytest.raises(GateMismatchError) as stale:
+        await api.apply_checkpoint_decision(
+            run_id,
+            CheckpointType.SELECT_PROBLEM,
+            CheckpointDecision.APPROVE,
+            edited_data={"problem_id": "p1"},
+        )
+    assert stale.value.pending_gate is None
+
+    await job.advance_workflow(run_id)
+    state = await api.get_state(run_id)
+    assert state["current_step"] == CheckpointType.APPROVE_PROPOSAL.value
+    assert state["selected_problem_id"] == "p0"
+    assert state["proposal"]["problem_id"] == "p0"
+    listed = {row["run_id"]: row for row in api.list_workflows()}
+    assert listed[run_id]["current_step"] == CheckpointType.APPROVE_PROPOSAL.value
+
+    await api.apply_checkpoint_decision(
+        run_id,
+        CheckpointType.APPROVE_PROPOSAL,
+        CheckpointDecision.APPROVE,
+        feedback="approved",
+    )
+    await job.advance_workflow(run_id)
+    state = await api.get_state(run_id)
+    assert state["current_step"] == CheckpointType.REVIEW_EVALUATION.value
+    assert state["evaluation_result"]["verdict"] == "promising"
+    assert state["evaluation_result"]["code_generated"]
+    assert state["evaluation_result"]["execution_exit_code"] == 0
+
+    # The API still has the old gate in no cached copy; naming it is a 409.
+    with pytest.raises(GateMismatchError) as stale:
+        await api.apply_checkpoint_decision(
+            run_id,
+            CheckpointType.SELECT_PROBLEM,
+            CheckpointDecision.APPROVE,
+        )
+    assert stale.value.pending_gate == CheckpointType.REVIEW_EVALUATION.value
+
+    await api.apply_checkpoint_decision(
+        run_id,
+        CheckpointType.REVIEW_EVALUATION,
+        CheckpointDecision.APPROVE,
+        feedback="write it",
+    )
+    await job.advance_workflow(run_id)
+    state = await api.get_state(run_id)
+    assert state["status"] == WorkflowStatus.COMPLETED.value
+    assert state["synthesis_report"]["source_problem_id"] == "p0"
+    listed = {row["run_id"]: row for row in api.list_workflows()}
+    assert listed[run_id]["status"] == WorkflowStatus.COMPLETED.value

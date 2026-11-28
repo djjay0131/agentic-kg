@@ -1123,6 +1123,40 @@ READ_PATHS: tuple[ReadPath, ...] = (
         ),
     ),
     ReadPath(
+        id="agent.checkpoint.revision",
+        surface="Neo4jCheckpointStore.thread_revision / stale-write check",
+        source_file=f"{CORE}/agents/checkpoint_store.py",
+        snippet="MATCH (c:{LABEL_AGENT_CHECKPOINT} {{uid: $uid}})",
+        also=("RETURN coalesce(c.revision, 0) AS revision LIMIT 1",),
+        labels=("Canon__AgentCheckpoint",),
+        relationships=(),
+        properties=("revision",),
+        compat=CompatClass.SCOPED_OUT,
+        note=(
+            "Reads the app-namespace checkpoint revision so a process holding a "
+            "stale in-memory copy reloads the durable one before serving a "
+            "workflow detail read. Operational state (ADR-0004/0005), outside "
+            "the canonical projection parity harness."
+        ),
+    ),
+    ReadPath(
+        id="agent.run.revision",
+        surface="Neo4jCheckpointStore.run_revision / stale-write check",
+        source_file=f"{CORE}/agents/checkpoint_store.py",
+        snippet="MATCH (r:{LABEL_AGENT_RUN} {{uid: $uid}})",
+        also=("RETURN coalesce(r.revision, 0) AS revision LIMIT 1",),
+        labels=("Canon__AgentRun",),
+        relationships=(),
+        properties=("revision",),
+        compat=CompatClass.SCOPED_OUT,
+        note=(
+            "Reads the app-namespace run metadata revision so a metadata write "
+            "is a compare-and-set and cannot clobber a newer row another "
+            "process wrote. Operational state (ADR-0004/0005), outside the "
+            "canonical projection parity harness."
+        ),
+    ),
+    ReadPath(
         id="pipeline.research_cycle.get",
         surface="ResearchCycleRepository.get / find_status",
         source_file=f"{CORE}/knowledge_graph/research_cycles.py",

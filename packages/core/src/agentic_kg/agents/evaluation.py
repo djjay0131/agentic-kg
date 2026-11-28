@@ -86,7 +86,7 @@ class EvaluationAgent(BaseAgent):
             context = self.port.load_context(problem_id)
 
             # Step 1: Generate evaluation code
-            code, state = await self._generate_code(proposal, context, state)
+            code, plan, state = await self._generate_code(proposal, context, state)
             state = add_message(state, self.name, f"Generated evaluation code ({len(code)} chars)")
 
             # Step 2: Execute in sandbox. Run it in a worker thread so the
@@ -101,7 +101,13 @@ class EvaluationAgent(BaseAgent):
             )
 
             # Step 3: Interpret results with LLM
-            eval_result = await self._interpret_results(proposal, sandbox_result, context)
+            eval_result = await self._interpret_results(
+                proposal,
+                sandbox_result,
+                context,
+                code=code,
+                plan=plan,
+            )
             self._attach_provenance(eval_result, proposal, context, state=state)
             state = add_message(state, self.name, f"Verdict: {eval_result.verdict}")
 
@@ -154,8 +160,13 @@ class EvaluationAgent(BaseAgent):
 
     async def _generate_code(
         self, proposal: ContinuationProposal, context, state
-    ) -> tuple[str, ResearchState]:
-        """Generate Python evaluation script via LLM."""
+    ) -> tuple[str, str, ResearchState]:
+        """Generate Python evaluation script via LLM.
+
+        Returns ``(code, plan, state)``. The plan is the compact summary the
+        generator wrote for a human reviewer; it is kept on the evaluation
+        result so the review gate can show what the script intends.
+        """
         steps_text = "\n".join(
             f"  {s.step_number}. {s.description}" for s in proposal.experimental_steps
         )
@@ -191,12 +202,12 @@ class EvaluationAgent(BaseAgent):
         # test doubles still return a plain string.
         content = response.content
         code = content
+        plan = ""
         if isinstance(content, GeneratedCode):
             code = content.code
-            if content.plan:
-                state = add_message(
-                    state, self.name, f"Evaluation plan: {content.plan.strip()}"
-                )
+            plan = content.plan.strip()
+            if plan:
+                state = add_message(state, self.name, f"Evaluation plan: {plan}")
         if isinstance(code, str):
             # Strip markdown code fences if present
             if "```python" in code:
@@ -205,7 +216,7 @@ class EvaluationAgent(BaseAgent):
             elif "```" in code:
                 code = code.split("```", 1)[1]
                 code = code.split("```", 1)[0]
-        return code.strip(), state
+        return code.strip(), plan, state
 
     async def _execute_code(self, code: str) -> SandboxResult:
         """Execute code in the configured sandbox.
@@ -236,6 +247,9 @@ class EvaluationAgent(BaseAgent):
         proposal: ContinuationProposal,
         sandbox_result: SandboxResult,
         context,
+        *,
+        code: str = "",
+        plan: str = "",
     ) -> EvaluationResult:
         """Use LLM to interpret sandbox results and produce final evaluation."""
         metrics_data = sandbox_result.parse_metrics()
@@ -298,8 +312,12 @@ class EvaluationAgent(BaseAgent):
         return EvaluationResult(
             proposal_id=proposal.problem_id,
             feasibility_score=feasibility,
-            code_generated=sandbox_result.stdout[:5000] if not sandbox_result.success else "",
+            plan=plan,
+            # The script the reviewer is approving, not the sandbox's output.
+            code_generated=code[:5000],
             execution_output=sandbox_result.stdout[:5000],
+            execution_stderr=sandbox_result.stderr[:5000],
+            execution_exit_code=sandbox_result.exit_code,
             execution_success=sandbox_result.success,
             metrics_results=metrics_results,
             limitations=limitations,
