@@ -1,0 +1,48 @@
+{
+  "name": "projects/vt-gcp-00042/locations/us-central1/jobs/agentic-kg-experiment-staging/executions/agentic-kg-experiment-staging-failed",
+  "uid": "uid-failed",
+  "generation": "1",
+  "createTime": "2026-11-28T18:26:00.000000Z",
+  "startTime": "2026-11-28T18:26:01.000000Z",
+  "updateTime": "2026-11-28T18:26:05.000000Z",
+  "launchStage": "GA",
+  "job": "projects/vt-gcp-00042/locations/us-central1/jobs/agentic-kg-experiment-staging",
+  "parallelism": 1,
+  "taskCount": 1,
+  "template": {
+    "containers": [
+      {
+        "image": "us-central1-docker.pkg.dev/vt-gcp-00042/agentic-kg/experiment:latest",
+        "args": [
+          "gs://vt-gcp-00042-agentic-kg-experiments/staging/sandbox-check-4f92861c49804d62a0db9dc62790368a/script.py"
+        ],
+        "resources": {
+          "limits": {
+            "cpu": "1",
+            "memory": "2Gi"
+          }
+        }
+      }
+    ],
+    "maxRetries": 0,
+    "timeout": "300s",
+    "serviceAccount": "agentic-kg-experiment-staging@vt-gcp-00042.iam.gserviceaccount.com"
+  },
+  "succeededCount": 0,
+  "failedCount": 1,
+  "cancelledCount": 0,
+  "retriedCount": 0,
+  "runningCount": 0,
+  "reconciling": false,
+  "etag": "AAZhWluqOBx",
+  "completionTime": "2026-11-28T18:26:05.000000Z",
+  "conditions": [
+    {
+      "type": "Completed",
+      "state": "CONDITION_FAILED",
+      "lastTransitionTime": "2026-11-28T18:26:05.000000Z",
+      "reason": "NonZeroExitCode",
+      "message": "Task agentic-kg-experiment-staging-failed-task0 failed with exit code: 1 and message: The container exited with an error."
+    }
+  ]
+}

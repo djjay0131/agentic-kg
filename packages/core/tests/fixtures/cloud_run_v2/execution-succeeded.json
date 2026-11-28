@@ -1,0 +1,47 @@
+{
+  "name": "projects/vt-gcp-00042/locations/us-central1/jobs/agentic-kg-experiment-staging/executions/agentic-kg-experiment-staging-6h6hp",
+  "uid": "uid-6h6hp",
+  "generation": "1",
+  "createTime": "2026-11-28T18:22:46.797683Z",
+  "startTime": "2026-11-28T18:22:48.393484Z",
+  "updateTime": "2026-11-28T18:25:24.647250Z",
+  "launchStage": "GA",
+  "job": "projects/vt-gcp-00042/locations/us-central1/jobs/agentic-kg-experiment-staging",
+  "parallelism": 1,
+  "taskCount": 1,
+  "template": {
+    "containers": [
+      {
+        "image": "us-central1-docker.pkg.dev/vt-gcp-00042/agentic-kg/experiment:latest",
+        "args": [
+          "gs://vt-gcp-00042-agentic-kg-experiments/staging/sandbox-check-4f92861c49804d62a0db9dc62790368a/script.py"
+        ],
+        "resources": {
+          "limits": {
+            "cpu": "1",
+            "memory": "2Gi"
+          }
+        }
+      }
+    ],
+    "maxRetries": 0,
+    "timeout": "300s",
+    "serviceAccount": "agentic-kg-experiment-staging@vt-gcp-00042.iam.gserviceaccount.com"
+  },
+  "succeededCount": 1,
+  "failedCount": 0,
+  "cancelledCount": 0,
+  "retriedCount": 0,
+  "runningCount": 0,
+  "reconciling": false,
+  "etag": "AAZhWluqOBw",
+  "completionTime": "2026-11-28T18:25:24.647250Z",
+  "conditions": [
+    {
+      "type": "Completed",
+      "state": "CONDITION_SUCCEEDED",
+      "lastTransitionTime": "2026-11-28T18:25:24.647250Z",
+      "message": "Execution completed successfully."
+    }
+  ]
+}
